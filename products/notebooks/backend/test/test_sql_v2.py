@@ -1653,6 +1653,16 @@ class TestSQLV2RunResult(APIBaseTest):
         mock_status.side_effect = QueryNotFoundError()
         self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
 
+    @parameterized.expand([("none", 403), ("viewer", 200)])
+    @patch("products.notebooks.backend.sql_v2_direct.get_query_status", side_effect=QueryNotFoundError())
+    def test_a_run_stored_before_read_scopes_is_gated_on_its_query(self, access_level, expected, _mock_status):
+        _set_tracing_access(self, access_level)
+        run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [["GET /api"]]})
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            code="select name from posthog.trace_spans"
+        )
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+
     @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
     def test_completed_query_never_overwrites_an_interrupt(self, mock_status):
         # The race: the user interrupts while a poller holds a stale RUNNING row and the

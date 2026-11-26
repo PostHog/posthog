@@ -2434,13 +2434,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             cached_response_candidate = entry.as_full_response() if entry else None
 
         read_scopes: list[str] = []
+        legacy_entry = False
         if self.is_cached_response(cached_response_candidate):
             assert cached_response_candidate is not None
             if raw_results is not None:
                 cached_response_candidate["results"] = []
             cached_response_candidate["is_cached"] = True
             self._read_cache_entry_freshness(cached_response_candidate.pop(CACHE_ENTRY_FRESHNESS_KEY, None))
-            read_scopes = cached_response_candidate.pop(CACHE_ENTRY_READ_SCOPES_KEY, None) or []
+            stored_scopes = cached_response_candidate.pop(CACHE_ENTRY_READ_SCOPES_KEY, None)
+            legacy_entry = stored_scopes is None
+            read_scopes = stored_scopes or []
             if read_scopes and self._denies_cached_read_scopes(read_scopes):
                 # Recomputing raises the access error a fresh run of this query gets.
                 cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
@@ -2472,7 +2475,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # (custom_name is excluded from cache key, so cached values may be stale)
             cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
 
-            if custom_names_modified:
+            # An entry from before read scopes were stored is not re-stored, so it still expires on its own TTL.
+            if custom_names_modified and not legacy_entry:
                 # Update cache with patched response so subsequent requests get the updated names
                 cache_manager.store_result(
                     response=self._cache_entry_with_freshness(
@@ -3744,7 +3748,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     @staticmethod
     def _with_read_scopes(response: dict[str, Any], read_scopes: Collection[str]) -> dict[str, Any]:
-        return {**response, CACHE_ENTRY_READ_SCOPES_KEY: sorted(read_scopes)} if read_scopes else response
+        return {**response, CACHE_ENTRY_READ_SCOPES_KEY: sorted(read_scopes)}
 
     def _denies_cached_read_scopes(self, read_scopes: Collection[str]) -> bool:
         """True when this run's principal may not read a `posthog.*` table the cached result was computed from."""

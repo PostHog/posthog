@@ -2206,6 +2206,22 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
                 with self.assertRaises(TableAccessDeniedError):
                     runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
+    @parameterized.expand([("legacy_entry", True, 0), ("marked_entry", False, 1)])
+    def test_custom_name_restore_keeps_a_legacy_entry_on_its_ttl(self, _name, legacy: bool, stores: int) -> None:
+        runner = self._runner(self.user, queried_resources=set())
+        # An entry written before read scopes were stored carries no marker.
+        unmarked = mock.patch.object(QueryRunner, "_with_read_scopes", staticmethod(lambda response, _scopes: response))
+        with unmarked if legacy else nullcontext():
+            runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        with (
+            mock.patch.object(type(runner), "apply_series_custom_names", side_effect=lambda response: (response, True)),
+            mock.patch.object(QueryCache, "store_result") as store_result,
+        ):
+            assert runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE).is_cached
+
+        assert store_result.call_count == stores
+
     def test_a_served_trace_hit_labels_whatever_publishes_it(self) -> None:
         query = HogQLQuery(query="select name from posthog.trace_spans")
         with mock.patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])):

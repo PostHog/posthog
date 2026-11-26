@@ -196,7 +196,7 @@ from products.notebooks.backend.sql_v2 import (
     introspect_in_kernel,
     sql_v2_page_lock_key,
 )
-from products.notebooks.backend.sql_v2_direct import cancel_direct_run, sync_direct_run
+from products.notebooks.backend.sql_v2_direct import cancel_direct_run, stored_run_read_scopes, sync_direct_run
 from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
     MAX_VARIABLES_PER_NOTEBOOK,
@@ -983,7 +983,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Without re-checking, a user denied viewer on the warehouse source could read rows a
         # colleague's run pulled from it. Notebook + query access does not imply source access.
         # The same holds for a gated product table the run's query read.
-        assert_read_scopes_readable((run.envelope or {}).get("read_scopes") or [], self.team, user, self.request)
+        assert_read_scopes_readable(stored_run_read_scopes(run, self.team), self.team, user, self.request)
         if not run.connection_id:
             return
         source = get_direct_connection_source(
