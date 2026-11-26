@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 
-import type { DashboardFilter } from '../dashboard/dashboardTypes'
+import type { DashboardFilter } from '../dashboard/document/dashboardTypes'
 import type { FilterSpec } from './filterSpec'
 
 export const INCOMPLETE_LABEL = 'Pick a value'
@@ -9,7 +9,7 @@ export function summarizeValues(values: string[]): string {
     return values.length > 1 ? `${values[0]} +${values.length - 1}` : (values[0] ?? '')
 }
 
-export interface FilterControlProps<Config = unknown, Value = unknown> {
+export type FilterControlProps<Config = unknown, Value = unknown> = {
     filter: DashboardFilter<Config>
     value: Value | undefined
     onChange: (value: Value | undefined) => void
@@ -17,12 +17,12 @@ export interface FilterControlProps<Config = unknown, Value = unknown> {
     defaultOpen?: boolean
 }
 
-export interface FilterDefinition<Config = unknown, Value = unknown> extends FilterSpec<Config> {
+export type FilterDefinition<Config = unknown, Value = unknown> = FilterSpec<Config> & {
     Control: ComponentType<FilterControlProps<Config, Value>>
     Picker?: ComponentType<FilterPickerProps<Config>>
 }
 
-export interface FilterPickerProps<Config = unknown> {
+export type FilterPickerProps<Config = unknown> = {
     onPick: (filter: Omit<DashboardFilter<Config>, 'id'>) => void
     onClose: () => void
 }

@@ -1,7 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill'
 
-import type { OptionsLoader } from '../useSearchedOptions'
-import { type ValueOption, ValueList } from '../ValueList'
+import type { OptionsLoader } from '../pickers/useSearchedOptions'
+import { type ValueOption, ValueList } from '../pickers/ValueList'
 import type { OperatorOption } from './propertyOperators'
 import { TypedValue } from './TypedValue'
 import type { Draft } from './useConditionDrafts'
@@ -25,7 +25,6 @@ export function ConditionEditor({
         if (!next) {
             return
         }
-        // A value carries over only to an operator that takes the same kind of value.
         const keep = next.input === option.input && next.input !== 'none'
         onChange({ id: draft.id, operator: next.operator, value: keep ? draft.value : undefined })
     }
