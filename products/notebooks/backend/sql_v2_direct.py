@@ -24,7 +24,7 @@ import structlog
 from posthog.schema import HogQLQuery
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import access_controlled_posthog_tables
+from posthog.hogql.database.database import access_controlled_posthog_tables, credential_denied_scopes
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 
@@ -212,7 +212,11 @@ def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) 
         query_json["connectionId"] = str(run.connection_id)
         if run.send_raw_query:
             query_json["sendRawQuery"] = True
-    with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):
+    with (
+        tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id),
+        # The enqueue hands these to the worker, which has no request to read them from.
+        credential_denied_scopes(run.credential_denied_scopes or ()),
+    ):
         enqueue_process_query_task(
             team=team,
             user_id=user.id if user else None,

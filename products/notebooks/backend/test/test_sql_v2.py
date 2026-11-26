@@ -29,6 +29,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import current_credential_denied_scopes
 from posthog.hogql.parser import parse_select
 
 from posthog import redis
@@ -898,6 +899,47 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(dispatched.output_name, "result")
         self.assertEqual([i["name"] for i in dispatched.inputs], ["df1"])
         self.assertEqual(dispatched.inputs[0]["query"], "select id from events")
+
+    @parameterized.expand(
+        [
+            ("query_only_key", ["notebook:write", "query:read"], {"tracing"}, 403),
+            ("key_with_tracing", ["notebook:write", "query:read", "tracing:read"], set(), 200),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_data_plane.get_query_status", return_value=_TRACE_STATUS)
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    def test_scoped_key_run_reads_trace_tables_only_with_tracing_read(
+        self, _name, scopes, expected_denied, expected_status, _mock_start, _mock_status
+    ):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="notebook run", user=self.user, secure_value=hash_key_value(key), scopes=scopes
+        )
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "py", "node_type": "python", "code": "1", "output_name": "result"},
+            format="json",
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        # The sandbox fetches without the key, so the run carries what the key may not read.
+        token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id, response.json()["run_id"])
+        denied_at_enqueue: list[frozenset[str]] = []
+
+        def enqueue(**_kwargs):
+            denied_at_enqueue.append(current_credential_denied_scopes())
+            return SimpleNamespace(id="q1")
+
+        with patch("products.notebooks.backend.sql_v2_data_plane.enqueue_process_query_task", side_effect=enqueue):
+            self.client.post(
+                "/internal/notebooks/data_plane/query/",
+                data=json.dumps({"query": "select name from posthog.trace_spans"}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        self.assertEqual(denied_at_enqueue, [frozenset(expected_denied)])
+        status = self.client.get("/internal/notebooks/data_plane/query/q1/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(status.status_code, expected_status)
 
     @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     def test_python_node_referencing_a_never_run_node_is_rejected(self, mock_start):

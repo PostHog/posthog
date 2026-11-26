@@ -125,6 +125,19 @@ def record_kernel_read_scopes(team_id: int, run_id: str, read_scopes: set[str]) 
         runtime.save(update_fields=["read_scopes"])
 
 
+def run_credential_denied_scopes(team_id: int, run_id: str | None) -> frozenset[str]:
+    """What the credential that started `run_id` may not read, for the queries the sandbox makes without it."""
+    if not run_id:
+        return frozenset()
+    scopes = (
+        NotebookNodeRun.objects.for_team(team_id)
+        .filter(id=run_id)
+        .values_list("credential_denied_scopes", flat=True)
+        .first()
+    )
+    return frozenset(scopes or ())
+
+
 def kernel_read_scopes(team_id: int, kernel_runtime_id: UUID | None) -> list[str]:
     if kernel_runtime_id is None:
         return []
