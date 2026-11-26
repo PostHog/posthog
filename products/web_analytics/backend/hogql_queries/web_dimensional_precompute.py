@@ -58,7 +58,7 @@ WEB_BOUNCES_DIMENSIONAL_READ_TABLE = "web_bounces_dimensional_preaggregated"
 # One list decides which teams the writer fills and which teams read the dimensional tables by default. Team IDs
 # are not unique across US and EU, so a flat list would enroll an unrelated same-ID team in the other region.
 DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION: dict[str, list[int]] = {
-    "US": [2, 39058, 55348],
+    "US": [2, 55348],
     "EU": [1589],
 }
 

@@ -156,6 +156,11 @@ Both runners skip the dimensional tables when the rows cannot match the live res
 - The request overrides a bounce or session modifier (`DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS`) with a value the team's builds do not use.
 - A stats table query asks for bounce rate on a breakdown other than Page or Initial page and filters on `$pathname`. Bounce rate for those breakdowns comes from the bounces table grouped by the same breakdown, and that table holds sessions without the pages they viewed.
 
+Page tiles also skip the dimensional tables for speed, not exactness.
+The Page, Entry page and Exit page breakdowns and the page directory group by path, and the dimensional tables keep every path, so past a week they read slower than the next path.
+They read the dimensional tables only when the current and compare periods each span at most 8 calendar days (`DIMENSIONAL_PAGE_TILES_MAX_RANGE`), which a "last 7 days" range does.
+Teams in `LIVE_PAGE_TILES_TEAM_IDS_BY_REGION` keep their page tiles on the next path at any range.
+
 The writer stores each session's channel type with the team's custom channel rules applied, so channel breakdowns and `$channel_type` filters read that column. The rules are one of those modifiers. The jobs' identity includes the team's values of those modifiers. A change to the team's bounce, session or channel rule settings gives new jobs, so reads fall back until the writer rebuilds the window.
 
 #### Where dimensional reads approximate live

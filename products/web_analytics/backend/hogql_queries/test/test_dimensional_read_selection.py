@@ -86,19 +86,21 @@ def _runner(
     date_to: datetime | None = None,
     compare_to: datetime | None = None,
     custom_channel_rules: list[CustomChannelRule] | None = None,
-    breakdown_by: WebStatsBreakdown = WebStatsBreakdown.PAGE,
+    breakdown_by: WebStatsBreakdown = WebStatsBreakdown.DEVICE_TYPE,
+    team_id: int = 1,
     properties: list | None = None,
     kind: str = "WebStatsTableQuery",
     modifiers: HogQLQueryModifiers | None = None,
 ) -> MagicMock:
     runner = MagicMock()
-    runner.team.pk = 1
+    runner.team.pk = team_id
     runner.query.kind = kind
     runner.query.webQueryModifiers = (
         None if opted_in is None else WebAnalyticsQueryModifiers(useDimensionalTables=opted_in)
     )
     runner.query.properties = properties or []
     runner.query.breakdownBy = breakdown_by
+    runner._effective_breakdown.return_value = breakdown_by
     runner.modifiers = modifiers or HogQLQueryModifiers(customChannelTypeRules=custom_channel_rules)
     runner._test_account_filters = test_account_filters or []
     # A project-local range: the current day in New York ends after the UTC now below.
@@ -213,6 +215,31 @@ class TestDimensionalReadSelection(SimpleTestCase):
                 False,
                 _JOB_IDS,
             ),
+            ("page_breakdown_over_a_week", _runner(True, breakdown_by=WebStatsBreakdown.PAGE), False, _JOB_IDS),
+            (
+                "entry_page_breakdown_over_a_week",
+                _runner(True, breakdown_by=WebStatsBreakdown.INITIAL_PAGE),
+                False,
+                _JOB_IDS,
+            ),
+            (
+                "exit_page_breakdown_over_a_week",
+                _runner(True, breakdown_by=WebStatsBreakdown.EXIT_PAGE),
+                False,
+                _JOB_IDS,
+            ),
+            ("page_directory_over_a_week", _runner(True, kind="WebPageDirectoryQuery"), False, _JOB_IDS),
+            (
+                "page_breakdown_with_a_compare_period_over_a_week",
+                _runner(
+                    True,
+                    breakdown_by=WebStatsBreakdown.PAGE,
+                    date_from=datetime(2026, 3, 24, tzinfo=_NEW_YORK),
+                    compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK),
+                ),
+                False,
+                _JOB_IDS,
+            ),
             ("not_ready", _runner(True), False, None),
             ("lookup_fails", _runner(True), False, RuntimeError("postgres down")),
             (
@@ -255,6 +282,50 @@ class TestDimensionalReadSelection(SimpleTestCase):
             patch(f"{_READ}.dimensional_job_ids", side_effect=[job_ids]),
         ):
             assert ready_dimensional_job_ids(runner, _BOTH_TABLES) is None
+
+    @parameterized.expand(
+        [
+            ("page_breakdown_over_the_last_7_days", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 1, "EU", True),
+            ("page_directory_over_the_last_7_days", WebStatsBreakdown.PAGE, "WebPageDirectoryQuery", 1, "EU", True),
+            ("live_page_team_on_a_page_breakdown", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 1589, "EU", False),
+            (
+                "live_page_team_on_the_page_directory",
+                WebStatsBreakdown.PAGE,
+                "WebPageDirectoryQuery",
+                1589,
+                "EU",
+                False,
+            ),
+            (
+                "live_page_team_on_a_device_breakdown",
+                WebStatsBreakdown.DEVICE_TYPE,
+                "WebStatsTableQuery",
+                1589,
+                "EU",
+                True,
+            ),
+            ("live_page_team_id_in_the_other_region", WebStatsBreakdown.PAGE, "WebStatsTableQuery", 1589, "US", True),
+        ]
+    )
+    def test_page_tiles_serve_up_to_a_week_except_for_live_page_teams(
+        self, _name, breakdown_by, kind, team_id, region, serves
+    ):
+        runner = _runner(
+            True,
+            breakdown_by=breakdown_by,
+            kind=kind,
+            team_id=team_id,
+            date_from=datetime(2026, 3, 24, tzinfo=_NEW_YORK),
+            compare_from=datetime(2026, 3, 17, tzinfo=_NEW_YORK),
+            compare_to=datetime(2026, 3, 24, tzinfo=_NEW_YORK) - timedelta(microseconds=1),
+        )
+        with (
+            override_settings(CLOUD_DEPLOYMENT=region),
+            patch(f"{_READ}.is_cloud", return_value=True),
+            patch(f"{_READ}.team_has_property_access_rules", return_value=False),
+            patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS),
+        ):
+            assert ready_dimensional_job_ids(runner, _BOTH_TABLES) == (_JOB_IDS if serves else None)
 
     @parameterized.expand(
         [
