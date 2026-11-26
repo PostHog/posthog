@@ -505,7 +505,10 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             cleanupGraceMs: 60_000,
         })
         await waitForExpect(
-            async () => expect((await janitor.runOnce()).stalled).toBeGreaterThanOrEqual(1),
+            async () => {
+                await janitor.runOnce()
+                expect((await jobRow(id)).status).toBe('available')
+            },
             stallTimeoutMs * 2,
             200
         )
@@ -521,6 +524,31 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         await heldSes.close()
         expect({ forwarded, delivered: delivered() }).toEqual({ forwarded: 0, delivered: [['invoice.pdf']] })
     }, 30_000)
+
+    it('a worker whose heartbeats keep landing sends a send with files whose download outlasts the first job lease', async () => {
+        const stallTimeoutMs = 2_000
+        bucket.answer = 'hold'
+        const [id] = await enqueue(transactionalSend([invoice.metadata]))
+        await startWorker(roomFor(1), sesTransportFor(ses), hub.postgres, {
+            CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: stallTimeoutMs,
+        })
+        await waitForExpect(() => expect(bucket.heldRequests).toBe(1))
+        const leaseAtDequeue = Number((await jobRow(id)).lease)
+        await waitForExpect(
+            async () =>
+                expect(Number((await jobRow(id)).lease) - leaseAtDequeue).toBeGreaterThan(stallTimeoutMs * 1_000),
+            stallTimeoutMs * 3,
+            100
+        )
+
+        bucket.release('pass')
+
+        expect(await ended(id)).toBe('completed')
+        expect({ downloadsAbandoned: bucket.abandonedRequests, delivered: delivered() }).toEqual({
+            downloadsAbandoned: 0,
+            delivered: [['invoice.pdf']],
+        })
+    })
 
     it('writes the plain sends of a batch and dequeues the next one while a send with files waits on its download', async () => {
         bucket.answer = 'hold'

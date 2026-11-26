@@ -740,7 +740,10 @@ export class EmailService {
     }
 
     public endSendsWithFilesBeforeTheJobLeaseLapses(leaseConfirmedAt: JobLease, stallTimeoutMs: number): void {
-        this.jobLease = stallTimeoutMs > 0 ? { leaseConfirmedAt, leaseMs: stallTimeoutMs - JOB_LEASE_MARGIN_MS } : null
+        this.jobLease =
+            stallTimeoutMs > 0
+                ? { leaseConfirmedAt, leaseMs: stallTimeoutMs - Math.min(JOB_LEASE_MARGIN_MS, stallTimeoutMs / 2) }
+                : null
     }
 
     private async jobOwnershipBeforeSend(

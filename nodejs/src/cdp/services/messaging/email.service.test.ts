@@ -3064,10 +3064,12 @@ describe('EmailService', () => {
                 }
             )
 
-            it.each<[string, number, () => () => number]>([
-                ['keeps confirming the job lease', 1, () => () => Date.now()],
+            it.each<[string, number, number, () => () => number]>([
+                ['keeps confirming the job lease', 2_000, 1, () => () => Date.now()],
+                ['keeps confirming a job lease as short as the margin', 5_000, 1, () => () => Date.now()],
                 [
                     'stops confirming the job lease',
+                    2_000,
                     0,
                     () => {
                         const confirmedAt = Date.now()
@@ -3075,10 +3077,10 @@ describe('EmailService', () => {
                     },
                 ],
             ])(
-                'a send with files whose worker %s while its files download sends %i emails',
-                async (_name, emails, heartbeats) => {
+                'a send with files whose worker %s, with a stall timeout of %i ms, while its files download sends %i emails',
+                async (_name, stallTimeoutMs, emails, heartbeats) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 10_000 })
-                    emailService.endSendsWithFilesBeforeTheJobLeaseLapses(heartbeats(), 5_500)
+                    emailService.endSendsWithFilesBeforeTheJobLeaseLapses(heartbeats(), stallTimeoutMs)
                     send([pdf])
                     bucket.downloadDelayMs = 1_500
 
