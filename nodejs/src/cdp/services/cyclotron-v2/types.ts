@@ -134,6 +134,7 @@ export interface CyclotronV2DequeuedJob {
     cancel(): Promise<void>
     heartbeat(): Promise<void>
     stillOwned(): Promise<boolean>
+    leaseConfirmedAt(): number
     // `cancelRequested: true` means the check-in was refused: a cancel flag landed on this
     // job (CyclotronV2Manager.cancelJobs) before the transaction took its row lock, so
     // nothing was inserted and the job is STILL HELD — the caller must dispose of it

@@ -332,6 +332,7 @@ export class CyclotronV2Worker {
     private pool: Pool
     protected isConsuming = false
     protected lastPollTime = new Date()
+    private dequeueSentAt = Date.now()
     private consumerLoopPromise: Promise<void> | null = null
 
     protected readonly queueName: string
@@ -485,6 +486,7 @@ export class CyclotronV2Worker {
 
     protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
+        this.dequeueSentAt = Date.now()
         const result = await this.pool.query<RawJobRow>(
             this.boundedPolls ? DEQUEUE_JOBS_SQL : LEGACY_DEQUEUE_JOBS_SQL,
             [this.config.queueName, limit, lockId]
@@ -510,6 +512,7 @@ export class CyclotronV2Worker {
      */
     protected async fairDequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
+        this.dequeueSentAt = Date.now()
         const result = await this.pool.query<RawJobRow>(
             this.boundedFairDequeue ? FAIR_DEQUEUE_JOBS_SQL : LEGACY_FAIR_DEQUEUE_JOBS_SQL,
             [this.config.queueName, limit, lockId]
@@ -545,6 +548,7 @@ export class CyclotronV2Worker {
         const ownershipReadTimeoutMs = this.ownershipReadTimeoutMs
         let releaseStartedAt: number | null = null
         let releaseWritten = false
+        let leaseConfirmedAt = this.dequeueSentAt
 
         if (isChurning(row)) {
             highTransitionDequeuesCounter.labels({ queue: row.queue_name }).inc()
@@ -815,6 +819,7 @@ export class CyclotronV2Worker {
                 if (ownershipLost) {
                     return
                 }
+                const sentAt = Date.now()
                 const result = await pool.query(
                     `UPDATE cyclotron_jobs
                      SET last_heartbeat = NOW()
@@ -825,10 +830,15 @@ export class CyclotronV2Worker {
                      )`,
                     [row.id, lockId]
                 )
+                if (result.rowCount === 1) {
+                    leaseConfirmedAt = Math.max(leaseConfirmedAt, sentAt)
+                }
                 if (result.rowCount === 0 && !(await ownsJobNow()) && releaseStartedAt === null) {
                     noteOwnershipLost('heartbeat')
                 }
             },
+
+            leaseConfirmedAt: () => leaseConfirmedAt,
 
             async stillOwned(): Promise<boolean> {
                 if (ownershipLost) {

@@ -9,6 +9,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
     BucketProxy,
     EmailQueueOfOneTest,
+    HeldSesRequests,
     PostgresProxy,
     StoredFile,
     attachmentStoreConfig,
@@ -174,6 +175,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     afterEach(async () => {
         backToRealClock()
+        cyclotron.acceptConnections()
         await Promise.all(lockHolders.map((holder) => holder.end()))
         cyclotron.releaseAll()
         bucket.release('refuse')
@@ -485,6 +487,40 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         await waitForExpect(async () => expect(await staleReschedules()).toBe(staleBefore + 1))
         expect(delivered()).toEqual([['invoice.pdf']])
     })
+
+    it('a worker that loses Postgres before SES takes its send with files stops that send before the janitor can release the job, so the email goes out once', async () => {
+        const stallTimeoutMs = 6_000
+        const heldSes = await HeldSesRequests.start(ses)
+        const [id] = await enqueue(transactionalSend([invoice.metadata]))
+        await startWorker(roomFor(1), sesTransportFor(heldSes), hub.postgres, {
+            CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: stallTimeoutMs,
+        })
+        await waitForExpect(() => expect(heldSes.holding).toBe(1))
+
+        cyclotron.loseConnections()
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+            stallTimeoutMs,
+            stallBackoffBaseMs: 0,
+            cleanupGraceMs: 60_000,
+        })
+        await waitForExpect(
+            async () => expect((await janitor.runOnce()).stalled).toBeGreaterThanOrEqual(1),
+            stallTimeoutMs * 2,
+            200
+        )
+        await janitor.stop()
+        await startWorker(roomFor(1), sesTransportFor(ses), hub.postgres, {
+            CYCLOTRON_NODE_DATABASE_URL: hub.CYCLOTRON_NODE_DATABASE_URL,
+        })
+        expect(await ended(id)).toBe('completed')
+
+        const forwarded = heldSes.release()
+        await waitForExpect(() => expect(delivered()).toHaveLength(1 + forwarded))
+        cyclotron.acceptConnections()
+        await heldSes.close()
+        expect({ forwarded, delivered: delivered() }).toEqual({ forwarded: 0, delivered: [['invoice.pdf']] })
+    }, 30_000)
 
     it('writes the plain sends of a batch and dequeues the next one while a send with files waits on its download', async () => {
         bucket.answer = 'hold'

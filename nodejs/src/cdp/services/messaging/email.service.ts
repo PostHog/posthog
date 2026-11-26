@@ -213,6 +213,31 @@ class EmailSendDeadlineError extends Error {
 }
 
 export type JobOwnershipCheck = (invocation: CyclotronJobInvocation) => Promise<boolean>
+export type JobLease = (invocation: CyclotronJobInvocation) => number | null
+
+const JOB_LEASE_MARGIN_MS = 5_000
+
+function abortWhenTheLeaseLapses(
+    leaseConfirmedAt: () => number | null,
+    leaseMs: number
+): { signal: AbortSignal; stop: () => void } {
+    const controller = new AbortController()
+    let timer: NodeJS.Timeout | undefined
+    const check = (): void => {
+        const confirmedAt = leaseConfirmedAt()
+        if (confirmedAt === null) {
+            return
+        }
+        const msLeft = confirmedAt + leaseMs - Date.now()
+        if (msLeft <= 0) {
+            controller.abort(new DOMException('The job lease lapsed before SES took the email', 'TimeoutError'))
+            return
+        }
+        timer = setTimeout(check, msLeft)
+    }
+    check()
+    return { signal: controller.signal, stop: () => clearTimeout(timer) }
+}
 
 class MessageTooLargeError extends Error {
     constructor() {
@@ -669,6 +694,7 @@ export class EmailService {
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
     private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
+    private jobLease: { leaseConfirmedAt: JobLease; leaseMs: number } | null = null
     private templateTagsTeams: ValueMatcher<number>
     private textPartTeams: ValueMatcher<number>
 
@@ -711,6 +737,10 @@ export class EmailService {
 
     public checkJobOwnershipBeforeSend(stillOwnsJob: JobOwnershipCheck): void {
         this.stillOwnsJob = stillOwnsJob
+    }
+
+    public endSendsWithFilesBeforeTheJobLeaseLapses(leaseConfirmedAt: JobLease, stallTimeoutMs: number): void {
+        this.jobLease = stallTimeoutMs > 0 ? { leaseConfirmedAt, leaseMs: stallTimeoutMs - JOB_LEASE_MARGIN_MS } : null
     }
 
     private async jobOwnershipBeforeSend(
@@ -812,6 +842,7 @@ export class EmailService {
         let senderNotVerified = false
         let messageId: string | undefined
         let teamBudgetCharged = false
+        let stopTheLeaseFence = (): void => {}
 
         try {
             const decision = await this.decideSend(invocation, params, storedIntegration, addLog)
@@ -936,7 +967,15 @@ export class EmailService {
                 this.sesConfig.attachmentSendDeadlineMs
             )
             const sendDeadlineAt = Date.now() + sendDeadlineMs
-            const deadline = params.attachments?.length ? AbortSignal.timeout(sendDeadlineMs) : undefined
+            const jobLease = this.jobLease
+            const leaseFence =
+                params.attachments?.length && jobLease
+                    ? abortWhenTheLeaseLapses(() => jobLease.leaseConfirmedAt(invocation), jobLease.leaseMs)
+                    : null
+            stopTheLeaseFence = leaseFence?.stop ?? stopTheLeaseFence
+            const deadline = params.attachments?.length
+                ? AbortSignal.any([AbortSignal.timeout(sendDeadlineMs), ...(leaseFence ? [leaseFence.signal] : [])])
+                : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
             const ownershipCheckRetries: number = invocation.queueMetadata?.ownershipCheckRetries ?? 0
             const ownershipCheckTimeoutMs = this.sesConfig.ownershipCheckTimeoutMs ?? OWNERSHIP_CHECK_TIMEOUT_MS
@@ -1075,6 +1114,8 @@ export class EmailService {
                     })
                 }
             }
+        } finally {
+            stopTheLeaseFence()
         }
 
         if (rescheduled) {

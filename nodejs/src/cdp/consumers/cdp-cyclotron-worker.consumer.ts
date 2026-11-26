@@ -58,6 +58,10 @@ export class CdpCyclotronWorker<
         this.emailService.checkJobOwnershipBeforeSend((invocation) =>
             checksOwnershipForTeam(invocation.teamId) ? jobQueue.stillOwns(invocation) : Promise.resolve(true)
         )
+        this.emailService.endSendsWithFilesBeforeTheJobLeaseLapses(
+            (invocation) => jobQueue.leaseConfirmedAt(invocation),
+            config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS
+        )
         this.crashGuardSettings = deps.crashGuardSettings ?? null
     }
 

@@ -168,6 +168,10 @@ export class CyclotronJobQueueKafka implements JobQueue {
         return Promise.resolve(true)
     }
 
+    public leaseConfirmedAt(_invocation: CyclotronJobInvocation): number | null {
+        return null
+    }
+
     public async deferInvocations(
         deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
     ): Promise<void> {

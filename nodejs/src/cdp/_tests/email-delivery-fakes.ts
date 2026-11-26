@@ -265,6 +265,7 @@ export class PostgresProxy {
     private readonly holding = new Set<HeldQuery>()
     private readonly sockets = new Set<Socket>()
     private readonly server = createTcpServer((client) => this.forward(client))
+    private refusing = false
 
     static async start(upstream: URL): Promise<PostgresProxy> {
         const proxy = new PostgresProxy(upstream)
@@ -279,6 +280,17 @@ export class PostgresProxy {
 
     hold(matches: (request: string) => boolean): Promise<HeldQuery> {
         return new Promise((caught) => this.waiting.push({ matches, caught }))
+    }
+
+    loseConnections(): void {
+        this.refusing = true
+        for (const socket of this.sockets) {
+            socket.destroy()
+        }
+    }
+
+    acceptConnections(): void {
+        this.refusing = false
     }
 
     releaseAll(): void {
@@ -296,6 +308,10 @@ export class PostgresProxy {
     }
 
     private forward(client: Socket): void {
+        if (this.refusing) {
+            client.destroy()
+            return
+        }
         const upstream = connect(Number(this.upstream.port || 5432), this.upstream.hostname)
         for (const socket of [client, upstream]) {
             this.sockets.add(socket)
@@ -362,5 +378,60 @@ export class PostgresProxy {
             unread = Buffer.concat([unread, chunk])
             forwardRequests()
         })
+    }
+}
+
+export class HeldSesRequests {
+    endpoint = ''
+    private readonly held: { client: Socket; chunks: Buffer[] }[] = []
+    private readonly sockets = new Set<Socket>()
+    private readonly server = createTcpServer((client) => this.hold(client))
+
+    static async start(ses: Pick<FakeSes, 'endpoint'>): Promise<HeldSesRequests> {
+        const proxy = new HeldSesRequests(new URL(ses.endpoint))
+        await new Promise<void>((resolve) => proxy.server.listen(0, '127.0.0.1', resolve))
+        proxy.endpoint = `http://127.0.0.1:${(proxy.server.address() as AddressInfo).port}`
+        return proxy
+    }
+
+    private constructor(private readonly upstream: URL) {}
+
+    get holding(): number {
+        return this.held.filter(({ chunks }) => chunks.length > 0).length
+    }
+
+    release(): number {
+        let forwarded = 0
+        for (const { client, chunks } of this.held.splice(0)) {
+            if (client.destroyed) {
+                continue
+            }
+            forwarded++
+            const upstream = connect(Number(this.upstream.port), this.upstream.hostname)
+            this.sockets.add(upstream)
+            upstream.on('error', () => undefined)
+            upstream.on('close', () => client.destroy())
+            client.on('close', () => upstream.destroy())
+            client.removeAllListeners('data')
+            chunks.forEach((chunk) => upstream.write(chunk))
+            client.pipe(upstream)
+            upstream.pipe(client)
+        }
+        return forwarded
+    }
+
+    async close(): Promise<void> {
+        for (const socket of this.sockets) {
+            socket.destroy()
+        }
+        await new Promise((resolve) => this.server.close(resolve))
+    }
+
+    private hold(client: Socket): void {
+        this.sockets.add(client)
+        client.on('error', () => undefined)
+        const request = { client, chunks: [] as Buffer[] }
+        this.held.push(request)
+        client.on('data', (chunk: Buffer) => request.chunks.push(chunk))
     }
 }

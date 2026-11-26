@@ -453,6 +453,10 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         return job ? await job.stillOwned() : !invocation.queueLockId
     }
 
+    public leaseConfirmedAt(invocation: CyclotronJobInvocation): number | null {
+        return this.pendingJobOf(invocation)?.leaseConfirmedAt() ?? null
+    }
+
     public async heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {

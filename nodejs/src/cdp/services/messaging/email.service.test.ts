@@ -3041,6 +3041,33 @@ describe('EmailService', () => {
                 }
             )
 
+            it.each<[string, number, () => () => number]>([
+                ['keeps confirming the job lease', 1, () => () => Date.now()],
+                [
+                    'stops confirming the job lease',
+                    0,
+                    () => {
+                        const confirmedAt = Date.now()
+                        return () => confirmedAt
+                    },
+                ],
+            ])(
+                'a send with files whose worker %s while its files download sends %i emails',
+                async (_name, emails, heartbeats) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 10_000 })
+                    emailService.endSendsWithFilesBeforeTheJobLeaseLapses(heartbeats(), 5_500)
+                    send([pdf])
+                    bucket.downloadDelayMs = 1_500
+
+                    const result = await emailService.executeSendEmail(invocation)
+
+                    expect({ emails: deliveredTo(ses, recipient).length, finished: result.finished }).toEqual({
+                        emails,
+                        finished: emails === 1,
+                    })
+                }
+            )
+
             const aFifthOfTheSizeLimit = (): Promise<StoredFile> =>
                 uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 5))
             const halfTheSizeLimit = (): Promise<StoredFile> =>

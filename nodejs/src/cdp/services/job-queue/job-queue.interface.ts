@@ -34,6 +34,7 @@ export interface JobQueue {
     dequeueInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
     heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
     stillOwns(invocation: CyclotronJobInvocation): Promise<boolean>
+    leaseConfirmedAt(invocation: CyclotronJobInvocation): number | null
     deferInvocations(deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]): Promise<void>
 }
 
