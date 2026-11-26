@@ -11,6 +11,7 @@ import { AlertLine, AlertTransition, startAlerts } from './alerts'
 import { selectorsOf } from './selectors'
 
 const ENGINE_MS = 120_000
+const TRANSITION_MS = 60_000
 const GROUP_INTERVAL_MS = 1000
 const DAY_S = 24 * 60 * 60
 const SCENARIOS_DIR = path.join(__dirname, '..')
@@ -71,7 +72,10 @@ function transitionsSeen(): {
         reach: (state) =>
             seen.some((transition) => transition.state === state)
                 ? Promise.resolve()
-                : new Promise((resolve) => waiting.push({ state, resolve })),
+                : new Promise((resolve, reject) => {
+                      waiting.push({ state, resolve })
+                      setTimeout(() => reject(new Error(`no ${state} transition`)), TRANSITION_MS).unref()
+                  }),
     }
 }
 
@@ -126,6 +130,7 @@ describe('alerts on a scenario run', () => {
                 expect(recorded.map(({ state }) => state)).toEqual(['pending', 'firing', 'resolved'])
                 expect(recorded[1]).toMatchObject({
                     rule: 'SyntheticQueueDeepWarning',
+                    instance: recorded[0].instance,
                     tier: 'warning',
                     labels: { pod: 'synthetic-pod-0', environment: 'synthetic-env' },
                     value: 50,
@@ -133,6 +138,7 @@ describe('alerts on a scenario run', () => {
                     for: 2,
                     runbook: 'https://example.com/runbook',
                 })
+                expect(recorded[2]).toMatchObject({ instance: recorded[0].instance, value: null })
                 expect(recorded[1].sinceDriveMs).toBeGreaterThan(0)
                 expect(recorded[2].sinceValves).toEqual([
                     { valve: 'role.freeze', target: 'synthetic-role', sinceMs: expect.any(Number) },
@@ -204,7 +210,7 @@ describe('alerts on a scenario run', () => {
                 expect(
                     lines.filter((line): line is Extract<AlertLine, { type: 'rule' }> => line.type === 'rule')
                 ).toEqual([
-                    { type: 'rule', rule: 'SyntheticQueueSeen', state: 'evaluated', fired: false },
+                    { type: 'rule', rule: 'SyntheticQueueSeen', state: 'evaluated' },
                     {
                         type: 'rule',
                         rule: 'SyntheticNeedsMissingSeries',

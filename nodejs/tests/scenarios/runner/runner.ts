@@ -583,6 +583,7 @@ export function createRunner(
             let probed: Probed = { writer: [], queue: [] }
             let alerting: Alerts | undefined
             let alerted: AlertsRead | undefined
+            let driveFrom: { startedAt: number } | undefined
             const judging = new AbortController()
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
@@ -646,12 +647,21 @@ export function createRunner(
                     (await startAlerts({
                         alerts: loaded.alerts,
                         targets,
-                        onTransition: ({ at, rule, tier, state, value }) =>
-                            live.write({ type: 'alert', at, rule, ...(tier !== undefined && { tier }), state, value }),
+                        onTransition: ({ at, rule, instance, tier, state, value }) =>
+                            live.write({
+                                type: 'alert',
+                                at,
+                                rule,
+                                instance,
+                                ...(tier !== undefined && { tier }),
+                                state,
+                                value,
+                            }),
                     }))
                 probes = await opened.probes(seeded.teamIds)
                 const offers = await opened.offers()
                 const driveStartedAt = Date.now()
+                driveFrom = { startedAt: driveStartedAt }
                 enter('drive', driveStartedAt, durationMs(card.drive.for))
                 const sampling = { sampler, probes }
                 void live.follow({
@@ -728,13 +738,13 @@ export function createRunner(
                 enter('converge')
                 const converged = await judge.converge(durationMs(card.convergeWithin), signal)
                 await pendingJudgments()
-                alerted = await alerting?.finish(driveWindow, valves.timeline())
                 const stop = watch?.stopped()
                 enter('judge')
                 probed = await probes.stop()
                 sampled = await sampler.stop()
-                await live.stop()
                 dependencies = await health.stop()
+                alerted = await alerting?.finish(driveWindow, valves.timeline())
+                await live.stop()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
                 const checked = await judge.check(
                     card.invariants,
@@ -850,7 +860,10 @@ export function createRunner(
                 judging.abort()
                 await pendingJudgments()
                 await valves.releaseAll()
-                await alerting?.close()
+                if (alerting && alerted === undefined) {
+                    alerted = await alerting.finish(driveFrom ?? { startedAt: Date.now() }, valves.timeline())
+                    outcome = { ...outcome, alerts: alerted.coverage }
+                }
                 dependencies = (await health?.stop()) ?? dependencies
                 probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled

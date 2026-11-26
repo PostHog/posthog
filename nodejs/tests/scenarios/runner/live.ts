@@ -35,7 +35,15 @@ export type LiveRecord =
           journal: Pick<JournalEntry, 'unitId' | 'kind' | 'offeredAt' | 'answer' | 'expect'>[]
           truth: LiveTruth[]
       }
-    | { type: 'alert'; at: number; rule: string; tier?: string; state: AlertState; value: number | null }
+    | {
+          type: 'alert'
+          at: number
+          rule: string
+          instance: string
+          tier?: string
+          state: AlertState
+          value: number | null
+      }
     | { type: 'end'; at: number; status: string; statusReason: string; stopped?: RunStop }
 
 export type LiveSources = {

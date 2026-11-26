@@ -1,4 +1,4 @@
-import { CardError, LoadedCard, Target, load } from '.'
+import { CardError, LoadedCard, Target, load, loadText } from '.'
 import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
@@ -808,6 +808,33 @@ describe('load', () => {
             rules: path.join(dir, 'alerts', 'rules.yaml'),
             labels: path.join(path.dirname(dir), 'labels.yaml'),
             exclude: ['SyntheticLeftOut'],
+        })
+    })
+
+    it('refuses an alerts profile on the dev target, and one read from text with no directory for its files', () => {
+        const alerts = { rules: 'rules.yaml', labels: 'labels.yaml', exclude: [] }
+        const problemsOfText = (): string[] => {
+            try {
+                loadText('card.yaml', { card: stringify(card), profile: stringify({ ...profile, alerts }) })
+            } catch (error) {
+                if (error instanceof CardError) {
+                    return error.problems
+                }
+                throw error
+            }
+            throw new Error('the card loaded')
+        }
+
+        expect({
+            dev: problemsOf(devCard, { ...devProfile, alerts }, 'dev'),
+            text: problemsOfText(),
+        }).toEqual({
+            dev: [
+                'profile.alerts: the dev target exposes no role metrics to scrape, so only --target local runs alerts',
+            ],
+            text: [
+                'profile.alerts: a profile read from text has no directory to resolve its rules and label map against',
+            ],
         })
     })
 

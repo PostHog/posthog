@@ -11,13 +11,15 @@ import { selectorsOf } from './selectors'
 const POLL_MS = 5000
 const SCRAPE_INTERVAL_MS = 5000
 const NEVER_EVALUATED = 'vmalert did not evaluate it during the run'
-const THRESHOLD = /(>=|<=|==|!=|>|<)\s*(?:bool\s+)?(-?[0-9.]+(?:e[+-]?[0-9]+)?)\s*$/i
+const COMPARISON = /(>=|<=|==|!=|>|<)\s*(?:bool\s+)?(-?[0-9.]+(?:e[+-]?[0-9]+)?)/gi
+const POLLS_PER_INTERVAL = 4
 
 export type AlertState = 'pending' | 'firing' | 'resolved'
 
 export type AlertTransition = {
     at: number
     rule: string
+    instance: string
     tier?: string
     labels: Record<string, string>
     state: AlertState
@@ -28,7 +30,7 @@ export type AlertTransition = {
 }
 
 type RuleLine =
-    | { type: 'rule'; rule: string; state: 'evaluated'; fired: boolean }
+    | { type: 'rule'; rule: string; state: 'evaluated' }
     | { type: 'rule'; rule: string; state: 'unevaluable'; selectors: string[]; error?: string }
     | { type: 'rule'; rule: string; state: 'excluded' }
 
@@ -61,18 +63,25 @@ export interface Alerts {
 }
 
 const Labels = z.record(z.string(), z.string())
-const VmAlert = z.object({ state: z.enum(['pending', 'firing']), value: z.string(), labels: Labels })
+const VmAlert = z.object({
+    id: z.string(),
+    state: z.enum(['pending', 'firing']),
+    activeAt: z.string(),
+    value: z.string(),
+    labels: Labels,
+    annotations: Labels.optional(),
+})
 const VmRule = z.object({
     name: z.string(),
     query: z.string(),
     duration: z.number(),
     lastError: z.string(),
     lastEvaluation: z.string(),
-    labels: Labels.optional(),
-    annotations: Labels.optional(),
     alerts: z.array(VmAlert).nullish(),
 })
-const VmRules = z.object({ data: z.object({ groups: z.array(z.object({ rules: z.array(VmRule) })) }) })
+const VmRules = z.object({
+    data: z.object({ groups: z.array(z.object({ interval: z.number(), rules: z.array(VmRule) })) }),
+})
 const Expanded = z.object({ expr: z.string() })
 const Series = z.object({ data: z.array(z.unknown()) })
 type VmAlert = z.infer<typeof VmAlert>
@@ -91,19 +100,28 @@ function withoutExcluded(file: string, exclude: string[]): { rules: string; excl
     }
 }
 
-function transitionOf(rule: VmRule, alert: VmAlert, state: AlertState): AlertTransition {
+function thresholdOf(query: string): AlertTransition['threshold'] {
+    const comparisons = [...query.matchAll(COMPARISON)]
+    const [only] = comparisons
+    return comparisons.length === 1 && query.slice(only.index + only[0].length).trim() === ''
+        ? { op: only[1], value: Number(only[2]) }
+        : undefined
+}
+
+function transitionOf(rule: VmRule, alert: VmAlert, state: AlertState, at: number): AlertTransition {
     const value = Number(alert.value)
-    const threshold = THRESHOLD.exec(rule.query)
+    const threshold = thresholdOf(rule.query)
     return {
-        at: Date.now(),
+        at,
         rule: rule.name,
-        ...(rule.labels?.severity !== undefined && { tier: rule.labels.severity }),
+        instance: alert.id,
+        ...(alert.labels.severity !== undefined && { tier: alert.labels.severity }),
         labels: alert.labels,
         state,
-        value: Number.isFinite(value) ? value : null,
-        ...(threshold && { threshold: { op: threshold[1], value: Number(threshold[2]) } }),
+        value: state !== 'resolved' && Number.isFinite(value) ? value : null,
+        ...(threshold && { threshold }),
         for: rule.duration,
-        ...(rule.annotations?.runbook_url !== undefined && { runbook: rule.annotations.runbook_url }),
+        ...(alert.annotations?.runbook_url !== undefined && { runbook: alert.annotations.runbook_url }),
     }
 }
 
@@ -122,12 +140,12 @@ async function missingSelectorsOf(engine: Engine, query: string, since: number):
     return missing
 }
 
-function coverageOf(lines: RuleLine[]): AlertCoverage {
+function coverageOf(lines: RuleLine[], fired: string[]): AlertCoverage {
     const named = (state: RuleLine['state']): string[] =>
         lines.flatMap((line) => (line.state === state ? [line.rule] : []))
     return {
         evaluated: named('evaluated'),
-        fired: lines.flatMap((line) => (line.state === 'evaluated' && line.fired ? [line.rule] : [])),
+        fired,
         unevaluable: lines.flatMap((line) =>
             line.state === 'unevaluable'
                 ? [{ rule: line.rule, selectors: line.selectors, ...(line.error && { error: line.error }) }]
@@ -155,19 +173,28 @@ function recordAlerts(engine: Engine, since: number, excluded: string[], options
         transitions.push(transition)
         options.onTransition(transition)
     }
+    let pollMs = options.pollMs ?? POLL_MS
     const read = async (): Promise<void> => {
         const { data } = VmRules.parse(await engine.alerting('/api/v1/rules', { type: 'alert' }))
         rules = data.groups.flatMap((group) => group.rules)
+        const shortestMs = Math.min(...data.groups.map(({ interval }) => interval * 1000))
+        pollMs = options.pollMs ?? Math.min(POLL_MS, shortestMs / POLLS_PER_INTERVAL)
         const seen = new Set<string>()
         for (const rule of rules) {
             if (rule.lastError) {
                 errors.set(rule.name, rule.lastError)
+            } else {
+                errors.delete(rule.name)
             }
             for (const alert of rule.alerts ?? []) {
-                const key = JSON.stringify([rule.name, Object.entries(alert.labels).sort()])
+                const key = JSON.stringify([rule.name, alert.id])
+                const was = open.get(key)?.alert.state
                 seen.add(key)
-                if (open.get(key)?.alert.state !== alert.state) {
-                    record(transitionOf(rule, alert, alert.state))
+                if (was === undefined && (alert.state === 'pending' || rule.duration > 0)) {
+                    record(transitionOf(rule, alert, 'pending', Date.parse(alert.activeAt)))
+                }
+                if (alert.state === 'firing' && was !== 'firing') {
+                    record(transitionOf(rule, alert, 'firing', Date.parse(rule.lastEvaluation)))
                 }
                 open.set(key, { rule, alert })
             }
@@ -175,7 +202,8 @@ function recordAlerts(engine: Engine, since: number, excluded: string[], options
         for (const [key, { rule, alert }] of open) {
             if (!seen.has(key)) {
                 open.delete(key)
-                record(transitionOf(rule, alert, 'resolved'))
+                const { lastEvaluation } = rules.find(({ name }) => name === rule.name) ?? rule
+                record(transitionOf(rule, alert, 'resolved', Date.parse(lastEvaluation)))
             }
         }
     }
@@ -183,9 +211,15 @@ function recordAlerts(engine: Engine, since: number, excluded: string[], options
     const polling = (async () => {
         while (!stopped.signal.aborted) {
             await read().catch(() => undefined)
-            await sleep(options.pollMs ?? POLL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
+            await sleep(pollMs, undefined, { signal: stopped.signal }).catch(() => undefined)
         }
     })()
+    const transitionLines = (drive: { startedAt: number }, timeline: readonly ValveTimelineEntry[]): AlertLine[] =>
+        transitions.map((transition) => ({
+            type: 'transition' as const,
+            ...transition,
+            ...sinceOf(transition.at, drive, timeline),
+        }))
     let closed: Promise<void> | undefined
     const close = (): Promise<void> =>
         (closed ??= (async () => {
@@ -200,7 +234,7 @@ function recordAlerts(engine: Engine, since: number, excluded: string[], options
         stopped.abort()
         await polling
         await read()
-        const fired = new Set(transitions.filter(({ state }) => state === 'firing').map(({ rule }) => rule))
+        const fired = transitions.filter(({ state, at }) => state === 'firing' && at >= drive.startedAt)
         const ruleLines: RuleLine[] = []
         for (const { name: rule, query, lastEvaluation } of rules) {
             const selectors = await missingSelectorsOf(engine, query, since)
@@ -208,25 +242,20 @@ function recordAlerts(engine: Engine, since: number, excluded: string[], options
             ruleLines.push(
                 selectors.length > 0 || error !== undefined
                     ? { type: 'rule', rule, state: 'unevaluable', selectors, ...(error && { error }) }
-                    : { type: 'rule', rule, state: 'evaluated', fired: fired.has(rule) }
+                    : { type: 'rule', rule, state: 'evaluated' }
             )
         }
         ruleLines.push(...excluded.map((rule): RuleLine => ({ type: 'rule', rule, state: 'excluded' })))
-        const lines: AlertLine[] = [
-            ...transitions.map((transition) => ({
-                type: 'transition' as const,
-                ...transition,
-                ...sinceOf(transition.at, drive, timeline),
-            })),
-            ...ruleLines,
-        ]
-        return { lines, coverage: coverageOf(ruleLines) }
+        return {
+            lines: [...transitionLines(drive, timeline), ...ruleLines],
+            coverage: coverageOf(ruleLines, [...new Set(fired.map(({ rule }) => rule))]),
+        }
     }
     return {
         finish: (drive, timeline) =>
             finish(drive, timeline)
                 .catch((error: unknown) => ({
-                    lines: [],
+                    lines: transitionLines(drive, timeline),
                     coverage: { unread: `the alert read failed: ${messageOf(error)}` },
                 }))
                 .finally(close),

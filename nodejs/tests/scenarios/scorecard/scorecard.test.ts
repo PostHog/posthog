@@ -300,6 +300,7 @@ describe('scorecard', () => {
                 alerts_evaluated: ['SyntheticA', 'SyntheticB'],
                 alerts_evaluated_count: 2,
                 alerts_fired: ['SyntheticB'],
+                alerts_fired_count: 1,
                 alerts_unevaluable: [{ rule: 'SyntheticC', selectors: ['synthetic_gone_total'] }],
                 alerts_unevaluable_count: 1,
                 alerts_excluded: ['SyntheticD'],

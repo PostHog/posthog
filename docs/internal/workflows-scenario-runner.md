@@ -19,6 +19,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/main.ts run smoke
 - A card is an id, resolved to `nodejs/tests/scenarios/cards/<id>.yaml`, or a path to a YAML file.
 - Several cards run one after the other on one stack: `main.ts run <card> <card>...`. Every card must load before any runs.
 - `--profile <file>` runs the cards with a profile from outside the repository instead of the shipped `synthetic` profile. It keeps its own `name`, which the scorecard records as `profile_name`; the profile hash tells it from the shipped one.
+- A profile's `alerts` block names an alert rules file, a label map and the rules to leave out, with paths relative to the profile. The runner then evaluates those rules with vmalert and a VictoriaMetrics of its own that scrapes every role with the map's labels. It records each transition with its value and its time since the drive and each valve, and reports each rule as evaluated, unevaluable with the selectors that matched no series, or excluded. Only `--target local` runs alerts. The repository ships no rules.
 - `--pair` runs each card twice on one stack: first a control, the same card, seed, profile and offered load with its valves removed and without the checks that need a fault, such as `bounced_suppressed`, then the card itself. The control's `card_hash` is the hash of the card it ran. `--pair` takes only cards that apply valves and judge `no_loss`, on the local target or on a run host whose run manifest asks for the pair. Locally it refuses a card with `pg.failover`, which runs only on a run host. Both scorecards carry the `pair_` properties of the scorecard schema, so a fault that lost a message reads apart from a load this setup did not pass. The attribution reads:
   - `fault` when the control passed and the faulted run failed `no_loss`.
   - `open` when the control failed, so the faulted run's result is not put down to the fault. A failed control reads `open` before any of the faulted run's checks below.
@@ -61,7 +62,8 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 | `counters.json`   | For a `counter_drift` card, the email counters read from ClickHouse, or why they could not be read             |
 | `logs/<role>.log` | Each role's log lines from this run                                                                            |
 | `scorecard.json`  | The run's verdict and its scorecard event, written before the runner publishes it                              |
-| `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second                                      |
+| `live.jsonl`      | The run's phases, probe samples and valve timeline, appended every second, and each alert transition           |
+| `alerts.jsonl`    | For a profile that names `alerts`, each alert transition and the state of each rule                            |
 | `topology.json`   | The processes, consumer groups, databases and hosts the run's roles used                                       |
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.

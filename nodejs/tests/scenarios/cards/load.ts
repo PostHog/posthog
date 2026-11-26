@@ -373,6 +373,18 @@ export function readProfile(file: string): ProfileRead {
     return 'profile' in read ? { ...read, dir: path.dirname(file) } : read
 }
 
+function checkAlerts({ alerts }: Profile, dir: string | undefined, target: Target): string[] {
+    if (alerts === undefined) {
+        return []
+    }
+    if (target === 'dev') {
+        return ['profile.alerts: the dev target exposes no role metrics to scrape, so only --target local runs alerts']
+    }
+    return dir === undefined
+        ? ['profile.alerts: a profile read from text has no directory to resolve its rules and label map against']
+        : []
+}
+
 function alertsOf({ alerts }: Profile, dir: string | undefined): AlertsProfile | undefined {
     return alerts && dir !== undefined
         ? { ...alerts, rules: path.resolve(dir, alerts.rules), labels: path.resolve(dir, alerts.labels) }
@@ -426,6 +438,7 @@ function check(
                   ...checkAcceptedBoundaryReplicas(card, loaded.profile),
                   ...checkIntakeProfile(loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
+                  ...checkAlerts(loaded.profile, loaded.dir, target),
               ]
             : loaded.problems),
     ]

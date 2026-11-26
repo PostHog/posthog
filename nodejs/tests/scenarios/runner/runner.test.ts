@@ -1763,8 +1763,8 @@ describe('runner through seed, drive and judge', () => {
                         interval: '1s',
                         rules: [
                             {
-                                alert: 'SyntheticStackUp',
-                                expr: 'max by (environment) (up{environment="synthetic-env"}) > 0',
+                                alert: 'SyntheticEmailSent',
+                                expr: 'sum by (environment) (cdp_ses_send_results_total{environment="synthetic-env"}) > 0',
                             },
                             { alert: 'SyntheticNeedsMissingSeries', expr: 'sum(synthetic_lost_total) > 0' },
                         ],
@@ -1773,7 +1773,15 @@ describe('runner through seed, drive and judge', () => {
             })
         )
         writeFileSync(labels, stringify({ labels: { environment: 'synthetic-env' } }))
-        const loaded = { ...shortSmoke(), alerts: { rules, labels, exclude: [] } }
+        const { card, profile } = shortSmoke()
+        const profilePath = path.join(cacheHome, 'profile.yaml')
+        writeFileSync(
+            profilePath,
+            stringify({ ...profile, alerts: { rules: 'rules.yaml', labels: 'labels.yaml', exclude: [] } })
+        )
+        const cardPath = path.join(cacheHome, 'card.yaml')
+        writeFileSync(cardPath, stringify(card))
+        const loaded = load(cardPath, { profilePath })
 
         const result = await createRunner(environmentOf('all'), env, {
             topologyWithinMs: 1000,
@@ -1783,8 +1791,8 @@ describe('runner through seed, drive and judge', () => {
         results.push(result)
 
         expect(result.alerts).toEqual({
-            evaluated: ['SyntheticStackUp'],
-            fired: ['SyntheticStackUp'],
+            evaluated: ['SyntheticEmailSent'],
+            fired: ['SyntheticEmailSent'],
             unevaluable: [{ rule: 'SyntheticNeedsMissingSeries', selectors: ['synthetic_lost_total'] }],
             excluded: [],
         })
@@ -1796,14 +1804,14 @@ describe('runner through seed, drive and judge', () => {
         expect(linesOf('alerts.jsonl')).toContainEqual(
             expect.objectContaining({
                 type: 'transition',
-                rule: 'SyntheticStackUp',
+                rule: 'SyntheticEmailSent',
                 state: 'firing',
-                labels: { environment: 'synthetic-env' },
+                labels: expect.objectContaining({ environment: 'synthetic-env' }),
                 sinceDriveMs: expect.any(Number),
             })
         )
         expect(linesOf(LIVE_FILE)).toContainEqual(
-            expect.objectContaining({ type: 'alert', rule: 'SyntheticStackUp', state: 'firing', value: 1 })
+            expect.objectContaining({ type: 'alert', rule: 'SyntheticEmailSent', state: 'firing' })
         )
     }, 60_000)
 

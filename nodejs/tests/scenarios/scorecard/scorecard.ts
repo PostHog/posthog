@@ -63,6 +63,7 @@ function alertProperties({ alerts }: RunVerdict): Record<string, Property> {
         alerts_evaluated: alerts.evaluated,
         alerts_evaluated_count: alerts.evaluated.length,
         alerts_fired: alerts.fired,
+        alerts_fired_count: alerts.fired.length,
         alerts_unevaluable: alerts.unevaluable,
         alerts_unevaluable_count: alerts.unevaluable.length,
         alerts_excluded: alerts.excluded,
