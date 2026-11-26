@@ -53,6 +53,7 @@ from posthog.models.activity_logging.activity_log import Change, changes_between
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT
 from posthog.permissions import request_subject
+from posthog.query_status_access import assert_read_scopes_readable
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -981,6 +982,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # that check and these endpoints serve its rows to anyone with notebook + query access.
         # Without re-checking, a user denied viewer on the warehouse source could read rows a
         # colleague's run pulled from it. Notebook + query access does not imply source access.
+        # The same holds for a gated product table the run's query read.
+        assert_read_scopes_readable((run.envelope or {}).get("read_scopes") or [], self.team, user, self.request)
         if not run.connection_id:
             return
         source = get_direct_connection_source(

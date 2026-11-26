@@ -89,6 +89,25 @@ from products.notebooks.backend.temporal.sql_v2 import (
 )
 
 
+def _set_tracing_access(test: APIBaseTest, access_level: str) -> None:
+    test.organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+    ]
+    test.organization.save(update_fields=["available_product_features"])
+    test.organization_membership.level = OrganizationMembership.Level.MEMBER
+    test.organization_membership.save(update_fields=["level"])
+    AccessControl.objects.create(team=test.team, resource="tracing", access_level=access_level)
+
+
+_TRACE_STATUS = SimpleNamespace(
+    complete=True,
+    error=False,
+    error_message=None,
+    labels=["read-scope:tracing"],
+    results={"columns": ["name"], "types": [["name", "String"]], "results": [["GET /api"]]},
+)
+
+
 def _restrict_query_access(test: APIBaseTest) -> None:
     # Demote from owner (owner bypasses access control) to member, turn on the ACCESS_CONTROL
     # feature, and write an explicit query "none" row so the user falls below query-read.
@@ -1623,6 +1642,17 @@ class TestSQLV2RunResult(APIBaseTest):
         self.assertEqual(body["status"], NotebookNodeRun.Status.FAILED)
         self.assertEqual(body["error"], "Query exceeds time budget")
 
+    @parameterized.expand([("none", 403), ("viewer", 200)])
+    @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
+    def test_trace_bearing_run_follows_the_readers_tracing_access(self, access_level, expected, mock_status):
+        _set_tracing_access(self, access_level)
+        run = self._create_run(NotebookNodeRun.Status.RUNNING)
+        mock_status.return_value = _TRACE_STATUS
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+        # The durable envelope keeps the gate once the query status has expired.
+        mock_status.side_effect = QueryNotFoundError()
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+
     @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
     def test_completed_query_never_overwrites_an_interrupt(self, mock_status):
         # The race: the user interrupts while a poller holds a stale RUNNING row and the
@@ -2257,6 +2287,14 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
     def test_status_rejects_bad_auth_and_unknown_query(self):
         self.assertEqual(self.client.get(f"{self.URL}deadbeef/").status_code, 401)
         self.assertEqual(self._get_status("deadbeef").status_code, 404)
+
+    @parameterized.expand([("none", True, 403), ("viewer", True, 200), ("viewer_token_without_user", False, 403)])
+    @patch("products.notebooks.backend.sql_v2_data_plane.get_query_status")
+    def test_trace_bearing_status_follows_the_tokens_user(self, access_level, with_user, expected, mock_status):
+        _set_tracing_access(self, "none" if access_level == "none" else "viewer")
+        mock_status.return_value = _TRACE_STATUS
+        token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id if with_user else None)
+        self.assertEqual(self._get_status("q1", token=token).status_code, expected)
 
     def test_status_is_team_scoped(self):
         # A leaked query_id plus a token for another team must not read the result.

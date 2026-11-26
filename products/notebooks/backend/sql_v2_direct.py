@@ -32,6 +32,7 @@ from posthog.clickhouse.client.execute_async import (
     get_query_status,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.query_status_access import read_scopes_from_labels
 
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.sandbox.kernel import envelope as kernel_envelope
@@ -323,6 +324,9 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
         timings = _query_status_timings(status)
         if timings:
             envelope["timings"] = timings
+        # Kept with the run, so its rows stay gated on what the query read after the status expires.
+        if read_scopes := read_scopes_from_labels(getattr(status, "labels", None)):
+            envelope["read_scopes"] = sorted(read_scopes)
         # The direct lane never involves the sandbox or the frame store, so labeling it
         # keeps those runs out of the inline bucket they would otherwise fall into and makes
         # a transport comparison count only the runs a transport choice applies to.

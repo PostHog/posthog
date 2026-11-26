@@ -27,6 +27,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonRes
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from prometheus_client import Counter
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
@@ -34,6 +35,7 @@ from posthog.hogql.parser import parse_select
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
+from posthog.query_status_access import assert_read_scopes_readable, read_scopes_from_labels
 
 from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
@@ -275,6 +277,12 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
         return JsonResponse({"status": "running"}, status=202)
     if status.error:
         return JsonResponse({"error": status.error_message or "Query execution failed."}, status=400)
+    if read_scopes := read_scopes_from_labels(status.labels):
+        user = User.objects.filter(id=claims.user_id).first() if claims.user_id else None
+        try:
+            assert_read_scopes_readable(read_scopes, Team.objects.get(id=claims.team_id), user)
+        except PermissionDenied as error:
+            return JsonResponse({"error": str(error.detail)}, status=403)
 
     results: dict[str, Any] = status.results or {}
 

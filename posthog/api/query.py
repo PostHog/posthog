@@ -40,7 +40,6 @@ from posthog.schema import (
 
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.database import READ_SCOPE_QUERY_STATUS_LABEL_PREFIX
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.metadata import enrich_hogql_validation_error
 
@@ -85,6 +84,7 @@ from posthog.permissions import get_authenticator_scopes, scopes_caller_lacks, s
 from posthog.query_scan import slot as query_scan_slot
 from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import analysis_with_prompt
+from posthog.query_status_access import assert_query_status_readable
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -583,6 +583,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     raise PermissionDenied(str(error)) from error
         self._enforce_derived_metric_source_access(request, query_status.labels or [])
         self._enforce_tracing_access(request, query_status.labels or [])
+        assert_query_status_readable(
+            query_status, self.team, None if request.user.is_anonymous else request.user, request
+        )
         if managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL in (query_status.labels or []):
             try:
                 validate_managed_trino_raw_access(self.team, request.user if isinstance(request.user, User) else None)
@@ -656,7 +659,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     raise PermissionDenied(f"You do not have access to {resource}.")
 
     def _enforce_tracing_access(self, request: Request, labels: list[str]) -> None:
-        if TRACING_QUERY_STATUS_LABEL not in labels and f"{READ_SCOPE_QUERY_STATUS_LABEL_PREFIX}tracing" not in labels:
+        if TRACING_QUERY_STATUS_LABEL not in labels:
             return
         missing = scopes_caller_lacks(request, ["tracing:read"])
         if missing:
