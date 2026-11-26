@@ -10,6 +10,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     HogQLQueryResponse,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
     SessionTableVersion,
     WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
@@ -22,6 +23,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from products.web_analytics.backend.hogql_queries.query_constants.sessionless_queries import SESSIONLESS_OVERVIEW_QUERY
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
     WEB_ANALYTICS_NO_JOIN_SERVED,
     WebAnalyticsQueryRunner,
@@ -48,6 +50,7 @@ from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute i
 from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated import (
     WebOverviewPreAggregatedQueryBuilder,
 )
+from products.web_analytics.backend.hogql_queries.web_sessionless import build_sessionless_sessions_query
 
 logger = structlog.get_logger(__name__)
 
@@ -67,6 +70,9 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         self._session_id_set_selectivity_ok: Optional[bool] = None
 
     def to_query(self) -> ast.SelectQuery:
+        if self.should_use_sessionless_shape:
+            WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview_sessionless").inc()
+            return self.sessionless_select
         if self.should_skip_session_join:
             WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview").inc()
             return self.no_join_select
@@ -144,6 +150,35 @@ WHERE and(
     @cached_property
     def no_join_select(self) -> ast.SelectQuery:
         return self._two_scan_select()
+
+    @cached_property
+    def sessionless_select(self) -> ast.SelectQuery:
+        """Overview metrics from one events scan grouped by session; see SESSIONLESS_SESSIONS_QUERY."""
+        has_comparison = bool(self.query_compare_to_date_range)
+        current = self._current_period_expression("start_timestamp")
+        previous = self._previous_period_expression("start_timestamp")
+
+        def previous_aggregate(expression: str) -> ast.Expr:
+            if not has_comparison:
+                return ast.Constant(value=None)
+            return parse_expr(expression, placeholders={"previous_period": previous})
+
+        query = parse_select(
+            SESSIONLESS_OVERVIEW_QUERY,
+            placeholders={
+                "sessions": build_sessionless_sessions_query(self),
+                "current_period": current,
+                "previous_unique_users": previous_aggregate("uniqIf(s.person_id, {previous_period})"),
+                "previous_total_filtered_pageview_count": previous_aggregate(
+                    "sumIf(s.page_screen_count, {previous_period})"
+                ),
+                "previous_unique_sessions": previous_aggregate("countIf({previous_period})"),
+                "previous_avg_duration_s": previous_aggregate("avgIf(s.session_duration, {previous_period})"),
+                "previous_bounce_rate": previous_aggregate("avgIf(s.is_bounce, {previous_period})"),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
 
     def _two_scan_select(
         self,
@@ -519,11 +554,21 @@ WHERE and(
         # pre-aggregated builder already served the response, spending a
         # filtered-events scan on selectivity would be pure waste (and would emit
         # orphan preflight tags into query_log).
-        if self.should_use_session_id_set and not self.should_skip_session_join and not pre_aggregated_response:
+        if (
+            self.should_use_session_id_set
+            and not self.should_skip_session_join
+            and not self.should_use_sessionless_shape
+            and not pre_aggregated_response
+        ):
             self._session_id_set_selectivity_ok = self._check_session_id_set_selectivity()
 
         execution_modifiers = self.modifiers
-        if (
+        if self.should_use_sessionless_shape:
+            # Visitors come from the event's own person_id, so the shape leaves out the person
+            # overrides join the way it leaves out the sessions join.
+            execution_modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            execution_modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+        elif (
             self.should_use_session_id_set
             and self._session_id_set_selectivity_ok is not False
             and not self.should_skip_session_join
@@ -540,7 +585,9 @@ WHERE and(
                 # text-match the SQL shape (see /evaluating-web-analytics-performance).
                 # Cache warming prefix-matches web_overview_, so new tags stay warmed.
                 query_type=(
-                    "web_overview_no_join_query"
+                    "web_overview_sessionless_query"
+                    if self.should_use_sessionless_shape
+                    else "web_overview_no_join_query"
                     if self.should_skip_session_join
                     else "web_overview_session_id_set_query"
                     if self.should_use_session_id_set and self._session_id_set_selectivity_ok is not False
