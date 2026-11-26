@@ -1,29 +1,27 @@
-import { type ContentWidget, type SectionWidget, type Tile, isSectionWidget } from '../dashboard/dashboardTypes'
-import type { MenuAction } from '../dashboard/menuAction'
-import { type WidgetDefinition, widgetSlots } from '../widgets/widgetDefinition'
+import { type SavedWidget, type SectionWidget, type Tile, isSectionWidget } from '../dashboard/document/dashboardTypes'
+import type { MenuAction } from '../menu/menuAction'
+import { type WidgetType, widgetSlots } from '../widgets/widgetDefinition'
 import { type WidgetAppearanceOptions, findWidget } from '../widgets/widgetSpec'
 import type { PresentationEdit } from './presentationEdits'
 import { hasPart, showsPart } from './tileParts'
 
-export function showsBackground(widget: ContentWidget, options: WidgetAppearanceOptions): boolean {
-    return !options.background || widget.appearance?.background !== false
-}
-
-export function showsBorder(widget: ContentWidget | SectionWidget): boolean {
+export function showsBorder(widget: SavedWidget | SectionWidget): boolean {
     return widget.appearance?.border !== false
 }
 
-export function tileBackgroundColor(widget: ContentWidget, options: WidgetAppearanceOptions): string | null {
+export const NO_BACKGROUND = 'transparent'
+
+/** The color the tile's widget type lets it show, or null for the card's own background. */
+export function tileBackgroundColor(widget: SavedWidget, options: WidgetAppearanceOptions): string | null {
     return (options.backgroundColor && widget.appearance?.backgroundColor) || null
 }
 
-type TileSetting = 'header' | 'footer' | 'background' | 'border'
+type TileSetting = 'header' | 'footer' | 'border'
 type MenuHead = Pick<MenuAction, 'key' | 'label' | 'dataAttr'>
 
 const SETTINGS: { setting: TileSetting; label: string }[] = [
     { setting: 'header', label: 'Header' },
     { setting: 'footer', label: 'Footer' },
-    { setting: 'background', label: 'Background' },
     { setting: 'border', label: 'Border' },
 ]
 
@@ -37,11 +35,7 @@ export const BACKGROUND_COLOR_PRESETS: { key: string; label: string; color: stri
 ]
 
 /** Null when the setting does not apply to the tile. */
-function settingOn(
-    { widget }: Pick<Tile, 'widget'>,
-    setting: TileSetting,
-    widgets: WidgetDefinition[]
-): boolean | null {
+function settingOn({ widget }: Pick<Tile, 'widget'>, setting: TileSetting, widgets: WidgetType[]): boolean | null {
     if (setting === 'border') {
         return showsBorder(widget)
     }
@@ -49,9 +43,6 @@ function settingOn(
         return null
     }
     const definition = findWidget(widgets, widget.type)
-    if (setting === 'background') {
-        return definition?.appearance?.background ? showsBackground(widget, definition.appearance) : null
-    }
     return hasPart(widget, setting, widgetSlots(definition)) ? showsPart(widget, setting) : null
 }
 
@@ -66,7 +57,7 @@ function settingEdit(ids: string[], setting: TileSetting, shown: boolean): Prese
 export function showAction(
     menu: MenuHead,
     tiles: Pick<Tile, 'id' | 'widget'>[],
-    widgets: WidgetDefinition[],
+    widgets: WidgetType[],
     disabledReason: string | null,
     onEdit: (edit: PresentationEdit) => void
 ): MenuAction | null {
@@ -106,7 +97,7 @@ export function showAction(
 export function backgroundColorAction(
     menu: MenuHead,
     tiles: Pick<Tile, 'id' | 'widget'>[],
-    widgets: WidgetDefinition[],
+    widgets: WidgetType[],
     disabledReason: string | null,
     onEdit: (edit: PresentationEdit) => void
 ): MenuAction | null {
@@ -124,7 +115,8 @@ export function backgroundColorAction(
     const ids = applies.map(({ id }) => id)
     const current = applies.every(({ color }) => color === applies[0].color) ? applies[0].color : undefined
     const choices: { key: string; label: string; color: string | null }[] = [
-        { key: 'none', label: 'None', color: null },
+        { key: 'default', label: 'Default', color: null },
+        { key: 'none', label: 'None', color: NO_BACKGROUND },
         ...BACKGROUND_COLOR_PRESETS,
     ]
     return {
