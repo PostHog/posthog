@@ -54,6 +54,8 @@ impl Folder {
     }
 }
 
+const STACK_BELOW: f32 = 760.;
+
 fn join(prefix: &str, name: &str) -> String {
     if prefix.is_empty() {
         name.to_owned()
@@ -151,8 +153,7 @@ fn glyph_for(path: &str, entry: &Entry) -> Glyph {
             Glyph::ExternalLink
         }
         Entry::Artifact(a) if a.kind == "spreadsheet" => Glyph::Table2,
-        _ if super::tables::tabular(path) => Glyph::Table2,
-        _ => Glyph::FileText,
+        _ => super::previews::glyph(path),
     }
 }
 
@@ -287,6 +288,10 @@ impl Desktop {
         if self.artifact_open.as_ref().is_some_and(|(k, _)| *k == key) {
             return;
         }
+        if let Ok(Some(bytes)) = self.client().cached_artifact(&artifact) {
+            self.artifact_open = Some((key, Ok(bytes)));
+            return;
+        }
         self.artifact_open = Some((key.clone(), Err(String::new())));
         let c = self.client().clone();
         self.job(
@@ -324,7 +329,7 @@ impl Desktop {
         for path in entries.keys() {
             root.insert(path);
         }
-        let mut list = ui::column().w(px(260.)).flex_none().gap(px(1.));
+        let mut list = ui::column().gap(px(1.));
         let mut rows = vec![];
         self.tree_rows(state, &root, "", 0, entries, chosen, &mut rows, cx);
         list = list.children(rows);
@@ -378,7 +383,7 @@ impl Desktop {
                     })
                 })
                 .flatten()
-                .map(|t| column_name(t.column));
+                .map(|t| t.column);
             let toggle = path.clone();
             rows.push(
                 line(format!("folder-{path}"), false)
@@ -406,12 +411,20 @@ impl Desktop {
                         false,
                     ))
                     .child(ui::nav::title(name.clone()))
-                    .children(status.map(|s| {
-                        div()
-                            .flex_none()
-                            .text_size(px(11.5))
-                            .text_color(rgb(ui::theme::color(ui::TERTIARY)))
-                            .child(s)
+                    .children(status.map(|c| {
+                        match c {
+                            Column::Done => Icon::new(Glyph::Check)
+                                .size(px(12.))
+                                .flex_none()
+                                .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                                .into_any_element(),
+                            _ => div()
+                                .flex_none()
+                                .text_size(px(11.5))
+                                .text_color(rgb(ui::theme::color(ui::TERTIARY)))
+                                .child(column_name(c))
+                                .into_any_element(),
+                        }
                     }))
                     .child(badge(child.count))
                     .on_click(cx.listener(move |s, _, _, cx| {
@@ -471,77 +484,141 @@ impl Desktop {
         }
     }
 
-    /// `tasks › Funnel drop-off › findings.md`, each folder a way back into the tree.
-    fn file_crumbs(&self, topic: TopicId, path: &str, cx: &Context<Self>) -> Div {
-        let mut row = ui::row().min_w_0().flex_wrap().gap(px(6.));
-        let parts: Vec<&str> = path.split('/').collect();
-        let mut at = String::new();
-        for (i, part) in parts.iter().enumerate() {
-            if i > 0 {
-                at.push('/');
-                row = row.child(
-                    Icon::new(Glyph::ChevronRight)
-                        .size(px(11.))
-                        .text_color(rgb(ui::theme::color(ui::TERTIARY))),
-                );
+    pub(super) fn shown_file(&self, state: &TopicState) -> Option<String> {
+        match &self.page {
+            Page::Topic(_, Tab::Files, Some(Detail::File(p) | Detail::Table(p)))
+                if self.file_entries(state).contains_key(p) =>
+            {
+                Some(p.clone())
             }
-            at.push_str(part);
-            if i + 1 == parts.len() {
-                row = row.child(
-                    div()
-                        .text_size(px(15.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .truncate()
-                        .child(part.to_string()),
-                );
+            _ => None,
+        }
+    }
+
+    pub(super) fn file_meta(&self, state: &TopicState, path: &str) -> String {
+        let id = state.topic.id;
+        let parts = match self.file_entries(state).get(path) {
+            Some(Entry::Artifact(a)) => vec![
+                match kind_label(&a.kind) {
+                    "File" => String::new(),
+                    k => k.to_owned(),
+                },
+                a.size.map(|n| human_size(n as usize)).unwrap_or_default(),
+                if a.version > 1 {
+                    format!("v{}", a.version)
+                } else {
+                    String::new()
+                },
+            ],
+            _ => match self.client().cached_file(id, path) {
+                Ok(Some(f)) => vec![
+                    if f.revision == 0 {
+                        "Queued for upload".into()
+                    } else {
+                        String::new()
+                    },
+                    human_size(f.bytes.len()),
+                ],
+                Ok(None) => vec!["Fetching…".into()],
+                Err(e) => vec![e.to_string()],
+            },
+        };
+        parts
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
+    }
+
+    pub(super) fn file_tools(
+        &self,
+        state: &TopicState,
+        path: &str,
+        split: bool,
+        cx: &Context<Self>,
+    ) -> Vec<AnyElement> {
+        let id = state.topic.id;
+        let artifact = match self.file_entries(state).get(path) {
+            Some(Entry::Artifact(a)) => Some(a.clone()),
+            _ => None,
+        };
+        let task = state.tasks.iter().find(|t| match &artifact {
+            Some(a) => t.id == a.task,
+            None => t.files.iter().any(|f| f == path),
+        });
+        let mut tools = vec![];
+        if split {
+            let hidden = self.files_tree_hidden;
+            let label = if hidden {
+                "Show file tree"
             } else {
-                let folder = at.clone();
-                row = row.child(
-                    div()
-                        .id(SharedString::from(format!("crumb-{folder}")))
-                        .role(Role::Link)
-                        .cursor_pointer()
-                        .text_size(px(13.))
-                        .text_color(rgb(ui::theme::color(ui::SECONDARY)))
-                        .hover(|s| s.text_color(rgb(ui::theme::color(ui::INK))))
-                        .child(part.to_string())
-                        .on_click(cx.listener(move |s, _, _, cx| {
-                            s.reveal_file(topic, &format!("{folder}/"));
-                            cx.notify()
-                        })),
+                "Hide file tree"
+            };
+            tools.push(
+                ui::icon_button(
+                    "toggle-file-tree",
+                    if hidden {
+                        Glyph::PanelLeftOpen
+                    } else {
+                        Glyph::PanelLeftClose
+                    },
+                    label,
+                )
+                .tooltip(label)
+                .on_click(cx.listener(|s, _, _, cx| {
+                    s.files_tree_hidden = !s.files_tree_hidden;
+                    cx.notify()
+                }))
+                .into_any_element(),
+            );
+        }
+        if let Some(t) = task {
+            let task = t.id;
+            tools.push(
+                ui::button(format!("file-task-{task}"), "Open task")
+                    .icon(Glyph::Kanban)
+                    .self_center()
+                    .tooltip(short_subject(&t.title))
+                    .on_click(cx.listener(move |s, _, w, cx| {
+                        s.go(Page::Topic(id, Tab::Tasks, Some(Detail::Task(task))), w, cx)
+                    }))
+                    .into_any_element(),
+            );
+        }
+        match artifact {
+            Some(a) => {
+                if let Some(url) = a.url {
+                    tools.push(
+                        ui::icon_button("open-artifact", Glyph::ExternalLink, "Open in PostHog")
+                            .tooltip("Open in PostHog")
+                            .on_click(move |_, _, cx| cx.open_url(&url))
+                            .into_any_element(),
+                    );
+                }
+            }
+            None => {
+                let path = path.to_owned();
+                tools.push(
+                    ui::icon_button("delete-file", Glyph::Trash, "Delete file")
+                        .tooltip("Delete file")
+                        .on_click(cx.listener(move |s, _, w, cx| {
+                            if s.issue(id, Command::DeleteFile { path: path.clone() }) {
+                                s.go(Page::Topic(id, Tab::Files, None), w, cx)
+                            }
+                        }))
+                        .into_any_element(),
                 );
             }
         }
-        row
-    }
-
-    /// A link to the task a file came from.
-    fn task_link(
-        &self,
-        topic: TopicId,
-        task: &meep_topic::Task,
-        verb: &str,
-        cx: &Context<Self>,
-    ) -> Button {
-        let id = task.id;
-        control(
-            format!("file-task-{id}"),
-            format!("{verb} “{}”", short_subject(&task.title)),
-            false,
-            cx,
-            move |s, w, cx| {
-                s.go(
-                    Page::Topic(topic, Tab::Tasks, Some(Detail::Task(id))),
-                    w,
-                    cx,
-                )
-            },
-        )
-        .icon(Glyph::Kanban)
+        tools
     }
 
     /// One place for everything the topic and its tasks wrote: a folder tree on
     /// the left, the selected file on the right. Tables open as a grid.
+    pub(super) fn files_stacked(&self, w: &Window) -> bool {
+        self.topic_pane_width(w) < px(STACK_BELOW)
+    }
+
     pub(super) fn data_page(&self, state: &TopicState, cx: &Context<Self>) -> Div {
         let id = state.topic.id;
         let entries = self.file_entries(state);
@@ -564,167 +641,83 @@ impl Desktop {
                 _ => empty,
             };
         }
-        let chosen = match &self.page {
-            Page::Topic(_, _, Some(Detail::File(p) | Detail::Table(p)))
-                if entries.contains_key(p) =>
-            {
-                p.clone()
-            }
-            _ => self
-                .file_order(state)
-                .into_iter()
-                .next()
-                .unwrap_or_default(),
-        };
-        let tree = self.file_tree(state, &entries, &chosen, cx);
-        let (head, content) = match entries.get(&chosen) {
-            Some(Entry::Artifact(a)) => self.artifact_view(state, &chosen, a, cx),
-            _ => self.topic_file_view(state, &chosen, cx),
-        };
-        ui::row()
-            .items_start()
-            .gap(px(28.))
-            .w_full()
-            .child(tree)
-            .child(
-                ui::column()
-                    .flex_1()
-                    .min_w_0()
-                    .gap(px(16.))
-                    .child(head)
-                    .child(content),
-            )
+        match self.shown_file(state) {
+            Some(chosen) => self.file_body(state, &chosen, cx).w_full(),
+            None => self
+                .file_tree(state, &entries, "", cx)
+                .w_full()
+                .max_w(px(720.))
+                .mx_auto(),
+        }
     }
 
-    fn file_head(&self, topic: TopicId, path: &str, meta: String, cx: &Context<Self>) -> Div {
-        ui::column()
-            .gap(px(10.))
-            .pb(px(14.))
-            .border_b_1()
-            .border_color(ui::ink(0x0f))
-            .child(
-                ui::column()
-                    .min_w_0()
-                    .gap(px(4.))
-                    .child(self.file_crumbs(topic, path, cx))
-                    .child(ui::caption(meta)),
-            )
+    fn file_body(&self, state: &TopicState, chosen: &str, cx: &Context<Self>) -> Div {
+        match self.file_entries(state).get(chosen) {
+            Some(Entry::Artifact(a)) => self.artifact_view(chosen, a, cx),
+            _ => self.topic_file_view(state, chosen, cx),
+        }
     }
 
-    fn topic_file_view(&self, state: &TopicState, chosen: &str, cx: &Context<Self>) -> (Div, Div) {
-        let id = state.topic.id;
-        let file = self.client().cached_file(id, chosen);
-        let meta = match &file {
-            Ok(Some(f)) => [
-                if f.revision == 0 {
-                    "Queued for upload".into()
-                } else {
-                    String::new()
-                },
-                human_size(f.bytes.len()),
-            ]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(" · "),
-            Ok(None) => "Fetching…".into(),
-            Err(e) => e.to_string(),
-        };
-        let path = chosen.to_owned();
-        let writer = state
-            .tasks
-            .iter()
-            .find(|t| t.files.iter().any(|f| f == chosen));
-        let head = self.file_head(id, chosen, meta, cx).child(
-            ui::row()
-                .flex_wrap()
-                .gap(px(8.))
-                .child(
-                    control(
-                        "chat-file",
-                        "Ask about this file",
-                        false,
-                        cx,
-                        move |s, w, cx| {
-                            s.chat_reference = Some(path.clone());
-                            s.open_chat(w, cx);
-                            s.composer.focus_handle(cx).focus(w, cx);
-                        },
-                    )
-                    .icon(Glyph::MessageCircle),
-                )
-                .children(writer.map(|t| self.task_link(id, t, "Written by", cx)))
-                .child({
-                    let path = chosen.to_owned();
-                    control("delete-file", "Delete", false, cx, move |s, w, cx| {
-                        if s.issue(id, Command::DeleteFile { path: path.clone() }) {
-                            s.go(Page::Topic(id, Tab::Files, None), w, cx)
-                        }
-                    })
-                }),
-        );
-        let content = match &file {
-            Ok(Some(f)) => preview(chosen, &f.bytes),
-            _ => div(),
-        };
-        (head, content)
-    }
-
-    fn artifact_view(
+    pub(super) fn files_split(
         &self,
         state: &TopicState,
-        chosen: &str,
-        a: &TaskArtifact,
+        w: &Window,
         cx: &Context<Self>,
-    ) -> (Div, Div) {
-        let id = state.topic.id;
-        let meta = [
-            kind_label(&a.kind).to_owned(),
-            a.size.map(|n| human_size(n as usize)).unwrap_or_default(),
-            if a.version > 1 {
-                format!("v{}", a.version)
-            } else {
-                String::new()
-            },
-        ]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" · ");
-        let task = state.tasks.iter().find(|t| t.id == a.task);
-        let head = self.file_head(id, chosen, meta, cx).child(
+    ) -> Option<Div> {
+        if self.files_stacked(w) {
+            return None;
+        }
+        let chosen = self.shown_file(state)?;
+        let entries = self.file_entries(state);
+        let hidden = self.files_tree_hidden;
+        Some(
             ui::row()
-                .flex_wrap()
-                .gap(px(8.))
-                .children(task.map(|t| self.task_link(id, t, "From task", cx)))
-                .children(a.url.clone().map(|url| {
-                    control("open-artifact", "Open", false, cx, move |_, _, cx| {
-                        cx.open_url(&url)
-                    })
-                    .icon(Glyph::ExternalLink)
-                })),
-        );
-        let content = match &self.artifact_open {
-            Some((key, Ok(bytes))) if *key == a.cache_key() => preview(chosen, bytes),
+                .size_full()
+                .min_h_0()
+                .items_start()
+                .when(!hidden, |row| {
+                    row.child(
+                        scroll("files-tree")
+                            .flex_none()
+                            .flex_grow_0()
+                            .h_full()
+                            .w(px(250. + super::details::PAGE_X))
+                            .pl(px(super::details::PAGE_X))
+                            .pt(px(super::details::PAGE_TOP))
+                            .pb(px(12.))
+                            .child(self.file_tree(state, &entries, &chosen, cx).w_full()),
+                    )
+                })
+                .child(
+                    scroll("files-content")
+                        .track_scroll(&self.content_scroll)
+                        .h_full()
+                        .min_w_0()
+                        .pl(px(if hidden { super::details::PAGE_X } else { 24. }))
+                        .pr(px(super::details::PAGE_X))
+                        .pt(px(super::details::PAGE_TOP))
+                        .pb(px(12.))
+                        .child(self.review_links(state, Tab::Files, cx))
+                        .child(self.file_body(state, &chosen, cx).w_full()),
+                ),
+        )
+    }
+
+    fn topic_file_view(&self, state: &TopicState, chosen: &str, cx: &Context<Self>) -> Div {
+        match self.client().cached_file(state.topic.id, chosen) {
+            Ok(Some(f)) => super::previews::render(chosen, &f.bytes, cx),
+            _ => div(),
+        }
+    }
+
+    fn artifact_view(&self, chosen: &str, a: &TaskArtifact, cx: &Context<Self>) -> Div {
+        match &self.artifact_open {
+            Some((key, Ok(bytes))) if *key == a.cache_key() => {
+                super::previews::render(chosen, bytes, cx)
+            }
             Some((key, Err(e))) if *key == a.cache_key() && !e.is_empty() => ui::caption(e.clone()),
             _ => ui::caption("Fetching from PostHog…"),
-        };
-        (head, content)
-    }
-}
-
-/// A file's contents: a grid for tables, text otherwise.
-fn preview(path: &str, bytes: &[u8]) -> Div {
-    if super::tables::tabular(path) {
-        return super::tables::render(path, bytes);
-    }
-    match std::str::from_utf8(bytes) {
-        Ok(text) => div()
-            .max_w(px(ui::READING_MEASURE))
-            .line_height(relative(1.6))
-            .whitespace_normal()
-            .child(text.chars().take(80_000).collect::<String>()),
-        Err(_) => ui::caption("This file can’t be previewed here."),
+        }
     }
 }
 

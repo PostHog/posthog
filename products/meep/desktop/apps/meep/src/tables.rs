@@ -1,31 +1,43 @@
 use super::*;
 pub(super) use meep_wire::table::{extension, read};
 
-pub(super) fn tabular(path: &str) -> bool {
-    matches!(extension(path).as_str(), "json" | "csv" | "tsv")
-}
 pub(super) fn render(path: &str, bytes: &[u8]) -> Div {
     let table = match read(path, bytes) {
         Ok(t) => t,
         Err(e) => return ui::caption(e.to_string()),
     };
-    let min_width = px(110. * table.columns.len() as f32);
+    let shown = &table.rows[..table.rows.len().min(200)];
+    let widths: Vec<f32> = table
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(i, head)| {
+            let longest = shown
+                .iter()
+                .filter_map(|r| r.get(i))
+                .map(|c| c.chars().count() as f32 * 7.8)
+                .fold(head.chars().count() as f32 * 7., f32::max);
+            longest.clamp(36., 260.) + 12.
+        })
+        .collect();
+    let min_width = px(widths.iter().sum());
     let row = |cells: Vec<String>, header: bool| {
         ui::row()
             .gap_0()
             .min_w(min_width)
             .border_b_1()
             .border_color(ui::ink(18))
-            .children(cells.into_iter().map(|s| {
+            .children(cells.into_iter().zip(&widths).map(|(s, w)| {
                 let cell = if header {
                     ui::caption(s).font_weight(FontWeight::MEDIUM)
                 } else {
-                    div().child(s)
+                    div().text_size(px(13.)).child(s)
                 };
-                cell.flex_1()
-                    .min_w(px(110.))
+                cell.flex_grow(1.)
+                    .flex_shrink_0()
+                    .flex_basis(px(*w))
                     .truncate()
-                    .px(px(8.))
+                    .px(px(6.))
                     .py(px(7.))
             }))
     };

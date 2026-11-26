@@ -2,7 +2,7 @@
 //! the app reads input from that Unix socket and replays it into its own window, so a
 //! screencast can run while the person keeps using the machine. One JSON object per line:
 //! `{"op":"move","x":..,"y":..}`, `down`, `up`, `{"op":"scroll","x":..,"y":..,"dy":..}`,
-//! `{"op":"text","text":".."}`, `{"op":"key","key":"cmd-enter"}`. Positions are window points.
+//! `{"op":"text","text":".."}`, `{"op":"key","key":"cmd-enter"}`, `{"op":"drop","x":..,"y":..,"paths":[..]}`. Positions are window points.
 use super::*;
 use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixListener;
@@ -57,12 +57,34 @@ pub(crate) fn cursor() -> Option<AnyElement> {
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
 enum Input {
-    Move { x: f32, y: f32 },
-    Down { x: f32, y: f32 },
-    Up { x: f32, y: f32 },
-    Scroll { x: f32, y: f32, dy: f32 },
-    Text { text: String },
-    Key { key: String },
+    Move {
+        x: f32,
+        y: f32,
+    },
+    Down {
+        x: f32,
+        y: f32,
+    },
+    Up {
+        x: f32,
+        y: f32,
+    },
+    Scroll {
+        x: f32,
+        y: f32,
+        dy: f32,
+    },
+    Text {
+        text: String,
+    },
+    Key {
+        key: String,
+    },
+    Drop {
+        x: f32,
+        y: f32,
+        paths: Vec<std::path::PathBuf>,
+    },
 }
 
 pub(crate) fn start(window: AnyWindowHandle, cx: &mut App) {
@@ -172,6 +194,20 @@ fn replay(input: Input, w: &mut Window, cx: &mut App) {
                     cx,
                 );
             }
+        }
+        Input::Drop { x, y, paths } => {
+            let position = at(x, y);
+            w.dispatch_event(
+                PlatformInput::FileDrop(FileDropEvent::Entered {
+                    position,
+                    paths: ExternalPaths(paths.into()),
+                }),
+                cx,
+            );
+            w.dispatch_event(
+                PlatformInput::FileDrop(FileDropEvent::Submit { position }),
+                cx,
+            );
         }
         Input::Key { key } => {
             // Parsing wants a static name; the driver sends a handful of short ones.

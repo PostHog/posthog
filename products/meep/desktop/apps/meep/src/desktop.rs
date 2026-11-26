@@ -69,6 +69,7 @@ pub(super) enum Detail {
 pub(super) struct TopicChatList {
     pub topic: TopicId,
     pub list: ListState,
+    pub pinned: std::rc::Rc<std::cell::Cell<bool>>,
     pub session: Arc<meep_protocol::sessions::AgentSession>,
     pub linked: Arc<Vec<Vec<crate::details::ChatTask>>>,
     pub running: bool,
@@ -205,8 +206,8 @@ pub(super) struct Desktop {
     pub sheet_leaving: Option<Sheet>,
     pub folds: super::folds::Folds,
     pub pane_motion: std::cell::Cell<(f32, f32)>,
-    /// In a narrow window, whether the Overview is shown over the page.
     pub pane_target: std::cell::Cell<(f32, f32)>,
+    /// In a narrow window, whether the Overview is shown over the page.
     pub overview_overlay: bool,
     pub overview_open: BTreeSet<(TopicId, Tab)>,
     /// Topics whose “needs you” briefing was put away this session.
@@ -222,6 +223,7 @@ pub(super) struct Desktop {
     /// Folders in the Files tree the person opened or closed, against the default.
     pub file_folders: std::collections::HashMap<TopicId, std::collections::BTreeSet<String>>,
     pub chat_reference: Option<String>,
+    pub files_tree_hidden: bool,
     /// Topic files uploaded from the composer, sent with the next message.
     pub chat_files: Vec<String>,
     /// Uploads from the composer still being read or saved.
@@ -566,8 +568,8 @@ impl Desktop {
             sheet_leaving: None,
             folds: Default::default(),
             pane_motion: std::cell::Cell::new((1., 0.)),
-            overview_overlay: false,
             pane_target: std::cell::Cell::new((1., 0.)),
+            overview_overlay: false,
             overview_open: BTreeSet::new(),
             briefing_dismissed: BTreeSet::new(),
             files: false,
@@ -577,6 +579,7 @@ impl Desktop {
             artifact_open: None,
             file_folders: Default::default(),
             chat_reference: None,
+            files_tree_hidden: false,
             chat_files: vec![],
             chat_uploading: 0,
             chat_models,
@@ -1175,14 +1178,26 @@ impl Desktop {
                 (
                     Glyph::Inbox,
                     th.subject.clone(),
-                    format!("About the inbox report \"{}\": {}", th.subject, th.summary),
+                    format!("About the inbox report \"{}\"", th.subject),
                 )
             }
             (_, Some(Detail::File(path))) => (
-                Glyph::FileText,
+                super::previews::glyph(path),
                 path.rsplit('/').next().unwrap_or(path).to_owned(),
                 String::new(),
             ),
+            (Tab::Inbox, Some(Detail::Scout(key))) => {
+                let scout = state.scouts.iter().find(|scout| scout.id == *key)?;
+                let report = scout.reports.first()?;
+                (
+                    Glyph::Inbox,
+                    meep_topic::title_line(&report.title),
+                    format!(
+                        "About the report \"{}\" ({}). Its summary: {}",
+                        report.title, scout.skill_name, report.summary
+                    ),
+                )
+            }
             (_, Some(Detail::Scout(key))) => {
                 let scout = state.scouts.iter().find(|scout| scout.id == *key)?;
                 (
@@ -1208,6 +1223,7 @@ impl Desktop {
             Page::Topic(_, tab, detail) => match (tab, detail) {
                 (_, Some(Detail::File(_))) => "Ask about this file",
                 (_, Some(Detail::Thread(_))) => "Discuss this report",
+                (Tab::Inbox, Some(Detail::Scout(_))) => "Discuss this report",
                 (_, Some(Detail::Scout(_))) => "Ask about this scout",
                 (_, Some(Detail::Routine(_))) => "Ask to change this routine",
                 (_, Some(Detail::Goal(_))) => "Change the target, or how it's measured",
@@ -1313,8 +1329,8 @@ impl Desktop {
                 }
                 _ => {}
             }
+            self.refresh_artifacts(id, false, w, cx);
             if tab == Tab::Files {
-                self.refresh_artifacts(id, false, w, cx);
                 let c = self.client().clone();
                 self.job(
                     async move { c.refresh_files(id).await },

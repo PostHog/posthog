@@ -446,6 +446,24 @@ pub(super) fn message_time(t: &Thread) -> chrono::DateTime<Utc> {
 }
 /// The inbox's reports in reading order: open ones by priority (P0 first)
 /// then newest, then the ones the person resolved or dismissed, newest first.
+/// Scout findings that have not become inbox reports yet.
+pub(super) fn unopened_findings(state: &TopicState) -> Vec<(uuid::Uuid, &meep_topic::ScoutReport)> {
+    let mut findings: Vec<_> = state
+        .scouts
+        .iter()
+        .flat_map(|scout| scout.reports.iter().map(move |r| (scout.id, r)))
+        .filter(|(_, r)| {
+            !state.threads.iter().any(|t| {
+                t.report_sources
+                    .as_ref()
+                    .and_then(|s| s.external.as_ref())
+                    .is_some_and(|e| e.id == r.id.to_string())
+            })
+        })
+        .collect();
+    findings.sort_by_key(|(_, r)| std::cmp::Reverse(r.filed_at));
+    findings
+}
 pub(super) fn ordered_threads(s: &TopicState, _skipped: bool) -> Vec<&Thread> {
     let mut list: Vec<_> = s
         .threads
@@ -1197,7 +1215,13 @@ impl Desktop {
         }
         tools.extend(self.show_overview_button(w, cx));
         let tab_in = ui::motion::arrival(
-            ElementId::from(SharedString::from(format!("tab-{id}-{tab:?}-{detail:?}"))),
+            ElementId::from(SharedString::from(match tab {
+                Tab::Files => format!(
+                    "tab-{id}-Files-{}",
+                    self.files_stacked(w) && self.shown_file(state).is_some()
+                ),
+                _ => format!("tab-{id}-{tab:?}-{detail:?}"),
+            })),
             false,
             w,
             cx,
@@ -1233,6 +1257,11 @@ impl Desktop {
             detail.filter(|d| matches!(d, Detail::Thread(_) | Detail::Fact(_) | Detail::Problem(_)))
         {
             self.thread_page(state, d, w, cx).into_any_element()
+        } else if let Some(split) = (tab == Tab::Files)
+            .then(|| self.files_split(state, w, cx))
+            .flatten()
+        {
+            split.into_any_element()
         } else {
             ui::column()
                 .size_full()
@@ -1247,8 +1276,8 @@ impl Desktop {
                         .pb(px(12.))
                         .child({
                             let content = match (tab, detail) {
-                                (Tab::Routines, Some(Detail::Scout(key))) => {
-                                    self.scout_page(state, *key)
+                                (Tab::Routines | Tab::Inbox, Some(Detail::Scout(key))) => {
+                                    self.scout_page(state, *key, tab == Tab::Inbox)
                                 }
                                 (_, Some(Detail::Goal(g))) => self.goal_page(state, *g, cx),
                                 (_, Some(Detail::Linked(k))) => self.linked_page(state, k, cx),
@@ -1322,12 +1351,22 @@ impl Desktop {
                     ),
             );
         }
+        let file = (tab == Tab::Files)
+            .then(|| self.shown_file(state))
+            .flatten();
         let header = (!own_header).then(|| {
             let current = match detail {
                 Some(Detail::Scout(id)) => state.scouts.iter().find(|s| s.id == *id).map(|s| {
+                    let title = if tab == Tab::Inbox {
+                        s.reports
+                            .first()
+                            .map_or_else(|| s.name.clone(), |r| r.title.clone())
+                    } else {
+                        s.name.clone()
+                    };
                     (
                         Some(ui::nav::glyph(Glyph::Binoculars, false).into_any_element()),
-                        s.name.clone(),
+                        title,
                     )
                 }),
                 Some(Detail::Goal(g)) => topic.goals.iter().find(|x| x.id == *g).map(|x| {
@@ -1341,7 +1380,9 @@ impl Desktop {
                     .iter()
                     .find(|x| x.key == *key)
                     .map(|x| (None, x.label.clone())),
-                _ => None,
+                _ => file
+                    .as_ref()
+                    .map(|path| (None, path.rsplit('/').next().unwrap_or(path).to_owned())),
             };
             crumb_bar(
                 topic_crumbs(
@@ -1352,8 +1393,12 @@ impl Desktop {
                     current,
                     cx,
                 ),
-                None,
-                tools,
+                file.as_ref().map(|path| self.file_meta(state, path)),
+                file.as_ref()
+                    .map(|path| self.file_tools(state, path, !self.files_stacked(w), cx))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .chain(tools),
             )
         });
         ui::column()
@@ -1515,6 +1560,50 @@ impl Desktop {
         const ROW_HEIGHT: f32 = 56.;
         const OVERSCAN: f32 = 300.;
         let all = ordered_threads(state, true);
+        let findings = unopened_findings(state);
+        let finding_rows = |list: Div| {
+            let topic = state.topic.id;
+            findings.iter().fold(list, |list, (scout, report)| {
+                let scout = *scout;
+                let age = Utc::now() - report.filed_at;
+                list.child(
+                    ui::row()
+                        .id(SharedString::from(format!("finding-row-{}", report.id)))
+                        .role(Role::Button)
+                        .h(px(ROW_HEIGHT))
+                        .w_full()
+                        .gap(px(12.))
+                        .items_center()
+                        .cursor_pointer()
+                        .child(ui::nav::glyph(Glyph::Inbox, false))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .child(report.title.clone()),
+                        )
+                        .child(ui::caption(ago(age)))
+                        .on_click(cx.listener(move |s, _, w, cx| {
+                            s.go(
+                                Page::Topic(topic, Tab::Inbox, Some(Detail::Scout(scout))),
+                                w,
+                                cx,
+                            )
+                        })),
+                )
+            })
+        };
+        if all.is_empty() && !findings.is_empty() {
+            return finding_rows(
+                ui::column()
+                    .w_full()
+                    .max_w(px(960.))
+                    .mx_auto()
+                    .gap_0()
+                    .pt(px(4.)),
+            );
+        }
         if all.is_empty() {
             return deck(
                 Glyph::Inbox,
@@ -1539,12 +1628,14 @@ impl Desktop {
             );
         }
         let id = state.topic.id;
-        let mut list = ui::column()
-            .w_full()
-            .max_w(px(960.))
-            .mx_auto()
-            .gap_0()
-            .pt(px(4.));
+        let mut list = finding_rows(
+            ui::column()
+                .w_full()
+                .max_w(px(960.))
+                .mx_auto()
+                .gap_0()
+                .pt(px(4.)),
+        );
         let virtualize = !w.is_a11y_active() && !cx.has_active_drag();
         let top = (-f32::from(self.content_scroll.offset().y)).max(0.);
         let height = f32::from(self.content_scroll.bounds().size.height)
@@ -1800,7 +1891,7 @@ impl Desktop {
         }
         list
     }
-    fn review_links(&self, state: &TopicState, tab: Tab, cx: &Context<Self>) -> Div {
+    pub(super) fn review_links(&self, state: &TopicState, tab: Tab, cx: &Context<Self>) -> Div {
         let prefix = match tab {
             Tab::Facts => "fact-review/",
             Tab::Files => "file-review/",
@@ -2627,7 +2718,7 @@ impl Desktop {
         list
     }
 
-    fn scout_page(&self, state: &TopicState, id: Uuid) -> Div {
+    fn scout_page(&self, state: &TopicState, id: Uuid, as_report: bool) -> Div {
         let page = ui::column().w_full().gap(px(16.));
         let Some(scout) = state.scouts.iter().find(|scout| scout.id == id) else {
             return page.child(ui::caption("This scout is no longer linked to this topic."));
@@ -2635,25 +2726,44 @@ impl Desktop {
         let heading = ui::row()
             .items_start()
             .gap(px(12.))
-            .child(
+            .child(if as_report {
+                ui::column()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(6.))
+                    .child(super::details::item_title(
+                        "Report",
+                        scout
+                            .reports
+                            .first()
+                            .map_or_else(|| scout.name.clone(), |r| r.title.clone()),
+                    ))
+            } else {
                 ui::column()
                     .flex_1()
                     .min_w_0()
                     .gap(px(6.))
                     .child(super::details::item_title("Scout", scout.name.clone()))
-                    .child(ui::caption(if scout.enabled { "On" } else { "Off" })),
-            )
-            .children(self.identity.as_ref().map(|identity| {
-                let url = identity.inbox_url("scouts", &scout.skill_name);
-                ui::icon_button("open-scout", Glyph::ExternalLink, "Open scout in PostHog")
-                    .tooltip("Open scout in PostHog")
-                    .on_click(move |_, _, cx| cx.open_url(url.as_str()))
-            }));
+                    .child(ui::caption(if scout.enabled { "On" } else { "Off" }))
+            })
+            .children(
+                self.identity
+                    .as_ref()
+                    .filter(|_| !as_report)
+                    .map(|identity| {
+                        let url = identity.inbox_url("scouts", &scout.skill_name);
+                        ui::icon_button("open-scout", Glyph::ExternalLink, "Open scout in PostHog")
+                            .tooltip("Open scout in PostHog")
+                            .on_click(move |_, _, cx| cx.open_url(url.as_str()))
+                    }),
+            );
         let mut page = page.child(heading);
         if scout.reports.is_empty() {
             return page.child(ui::caption("No findings yet."));
         }
-        page = page.child(ui::caption("Recent findings"));
+        if !as_report {
+            page = page.child(ui::caption("Recent findings"));
+        }
         for report in &scout.reports {
             page = page.child(
                 ui::column()

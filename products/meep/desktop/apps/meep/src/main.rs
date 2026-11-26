@@ -11,6 +11,7 @@ mod navigation;
 mod overview;
 mod pages;
 mod preferences;
+mod previews;
 mod scroll_motion;
 mod shortcuts;
 mod sidebar;

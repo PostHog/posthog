@@ -72,12 +72,17 @@ impl Desktop {
             first = false;
             let open = self.overview_open(id, tab);
             let here = page_tab == tab && page_detail.is_none();
-            list = list.child(
+            let fold = format!("overview:{id}:{tab:?}");
+            let tray = open || self.folds.progress(&fold, open, cx) > 0.;
+            let mut section = ui::column()
+                .mx(px(8.))
+                .rounded(px(8.))
+                .when(tray, |c| c.bg(ui::ink(0x05)));
+            section = section.child(
                 ui::row()
                     .id(SharedString::from(format!("overview-{tab:?}")))
                     .group(SharedString::from(format!("ov-row-{tab:?}")))
                     .role(Role::Button)
-                    .mx(px(8.))
                     .px(px(10.))
                     .h(px(34.))
                     .gap(px(10.))
@@ -136,18 +141,26 @@ impl Desktop {
                         cx.notify()
                     })),
             );
-            list = list.children(self.folds.reveal(
-                &format!("overview:{id}:{tab:?}"),
-                open,
-                cx,
-                || {
-                    ui::column()
-                        .px(px(8.))
-                        .pb(px(8.))
-                        .child(self.overview_body(state, tab, page_tab, page_detail.as_ref(), cx))
-                        .into_any_element()
-                },
-            ));
+            section = section.children(self.folds.reveal(&fold, open, cx, || {
+                ui::column()
+                    .pb(px(6.))
+                    .child(
+                        div()
+                            .ml(px(10. + ui::nav::ICON_BOX / 2. - 0.5))
+                            .pl(px(ui::nav::ICON_BOX / 2. - 0.5))
+                            .border_l_1()
+                            .border_color(ui::ink(0x1c))
+                            .child(self.overview_body(
+                                state,
+                                tab,
+                                page_tab,
+                                page_detail.as_ref(),
+                                cx,
+                            )),
+                    )
+                    .into_any_element()
+            }));
+            list = list.child(section);
         }
         if first {
             list = list.child(
@@ -217,16 +230,18 @@ impl Desktop {
             }
             Tab::Inbox => {
                 let reports = ordered_threads(state, true);
-                if reports.is_empty() {
+                let findings = super::pages::unopened_findings(state).len();
+                if reports.is_empty() && findings == 0 {
                     return None;
                 }
                 let new = reports.iter().filter(|t| t.unseen).count();
+                let total = reports.len() + findings;
                 (
                     Glyph::Inbox,
                     if new > 0 {
                         format!("{new} new")
                     } else {
-                        reports.len().to_string()
+                        total.to_string()
                     },
                     None,
                 )
@@ -309,7 +324,7 @@ impl Desktop {
                 .id(SharedString::from(format!("overview-all-{tab:?}")))
                 .role(Role::Link)
                 .gap(px(4.))
-                .pl(px(36.))
+                .pl(px(10.))
                 .pr(px(10.))
                 .py(px(4.))
                 .rounded(px(6.))
@@ -345,11 +360,7 @@ impl Desktop {
                                     .truncate()
                                     .child(attention_section(kind)),
                             )
-                            .child(
-                                ui::caption((end - start).to_string())
-                                    .flex_none()
-                                    .mr(px(20.)),
-                            )
+                            .child(ui::caption((end - start).to_string()).flex_none())
                             .on_click(cx.listener(move |s, _, w, cx| {
                                 s.go(Page::Topic(id, Tab::Needs, None), w, cx)
                             })),
@@ -418,6 +429,38 @@ impl Desktop {
                             })),
                     );
                 }
+                let findings = super::pages::unopened_findings(state);
+                for (scout, report) in findings
+                    .into_iter()
+                    .take(3usize.saturating_sub(reports.len().min(3)))
+                {
+                    let rid = report.id;
+                    body = body.child(
+                        line(format!("ov-finding-{rid}"), false)
+                            .h(px(44.))
+                            .child(ui::nav::glyph(Glyph::Binoculars, false))
+                            .child(
+                                ui::column()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap(px(1.))
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .line_height(px(17.))
+                                            .child(report.title.clone()),
+                                    )
+                                    .child(ui::caption(ago(now - report.filed_at)).truncate()),
+                            )
+                            .on_click(cx.listener(move |s, _, w, cx| {
+                                s.go(
+                                    Page::Topic(id, Tab::Inbox, Some(Detail::Scout(scout))),
+                                    w,
+                                    cx,
+                                )
+                            })),
+                    );
+                }
             }
             Tab::Files => {
                 let entries = self.file_entries(state);
@@ -449,14 +492,7 @@ impl Desktop {
                             format!("ov-file-{path}"),
                             selected(&Detail::File(path.clone())),
                         )
-                        .child(ui::nav::glyph(
-                            if super::tables::tabular(&path) {
-                                Glyph::Table2
-                            } else {
-                                Glyph::FileText
-                            },
-                            false,
-                        ))
+                        .child(ui::nav::glyph(super::previews::glyph(&path), false))
                         .child(div().flex_1().min_w_0().truncate().child(path))
                         .on_click(cx.listener(move |s, _, w, cx| {
                             s.go(
@@ -524,7 +560,7 @@ impl Desktop {
                 body = body.child(
                     div()
                         .id("ov-mission")
-                        .pl(px(36.))
+                        .pl(px(10.))
                         .pr(px(10.))
                         .py(px(6.))
                         .rounded(px(6.))
@@ -549,7 +585,7 @@ impl Desktop {
                         ui::column()
                             .id(SharedString::from(format!("ov-goal-{gid}")))
                             .gap(px(5.))
-                            .pl(px(36.))
+                            .pl(px(10.))
                             .pr(px(10.))
                             .py(px(6.))
                             .rounded(px(6.))
@@ -580,7 +616,7 @@ impl Desktop {
                         ui::column()
                             .id(SharedString::from(format!("ov-fact-{fid}")))
                             .gap(px(2.))
-                            .pl(px(36.))
+                            .pl(px(10.))
                             .pr(px(10.))
                             .py(px(6.))
                             .rounded(px(6.))
@@ -783,7 +819,8 @@ fn line(id: String, selected: bool) -> Stateful<Div> {
         .role(Role::Button)
         .h(px(30.))
         .gap(px(10.))
-        .px(px(10.))
+        .pl(px(10.))
+        .pr(px(32.))
         .rounded(px(6.))
         .text_size(px(13.))
         .cursor_pointer()

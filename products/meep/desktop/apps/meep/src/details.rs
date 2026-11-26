@@ -3360,7 +3360,7 @@ impl Desktop {
         let selecting = gpui_kit::base::TextSelection::has_selection(w, cx);
         let count = if selecting { 1 } else { session.messages.len() };
         let running = session.status == "running";
-        let (list_state, selection_rows, anchor) = {
+        let (list_state, selection_rows, anchor, pinned) = {
             let mut cached = self.chat_list.borrow_mut();
             let cache = cached.get_or_insert_with(|| super::desktop::TopicChatList {
                 topic,
@@ -3372,6 +3372,7 @@ impl Desktop {
                     list.set_follow_mode(FollowMode::Tail);
                     list
                 },
+                pinned: std::rc::Rc::new(std::cell::Cell::new(true)),
                 session: session.clone(),
                 linked: linked.clone(),
                 running,
@@ -3450,6 +3451,11 @@ impl Desktop {
                         .take_while(|(a, b)| a == b)
                         .count()
                 };
+                let at_end = cache.pinned.get();
+                let sent_by_person = session
+                    .messages
+                    .last()
+                    .is_some_and(|m| m.role == "user" && prefix != session.messages.len());
                 if prefix != cache.session.messages.len()
                     || prefix != session.messages.len()
                     || linked_changed
@@ -3458,9 +3464,17 @@ impl Desktop {
                     cache
                         .list
                         .splice(changed..cache.list.item_count(), count - changed);
+                    if at_end || sent_by_person {
+                        cache.list.scroll_to_end();
+                        let list = cache.list.clone();
+                        w.on_next_frame(move |_, _| list.scroll_to_end());
+                    }
                 } else if cache.running != running && !session.messages.is_empty() {
                     let last = session.messages.len() - 1;
                     cache.list.remeasure_items(last..last + 1);
+                    if at_end {
+                        cache.list.scroll_to_end();
+                    }
                 }
             }
             cache.session = session.clone();
@@ -3476,7 +3490,21 @@ impl Desktop {
             } else {
                 cache.selection_rows.clear();
             }
-            (cache.list.clone(), cache.selection_rows.clone(), anchor)
+            match cache.list.is_scrolled_to_end() {
+                Some(true) => cache.pinned.set(true),
+                Some(false) | None if cache.pinned.get() && !selecting => {
+                    cache.list.scroll_to_end();
+                    let list = cache.list.clone();
+                    w.on_next_frame(move |_, _| list.scroll_to_end());
+                }
+                _ => {}
+            }
+            (
+                cache.list.clone(),
+                cache.selection_rows.clone(),
+                anchor,
+                cache.pinned.clone(),
+            )
         };
         if let Some((index, top)) = anchor
             && let Some(row) = selection_rows.get(index).cloned()
@@ -3511,18 +3539,67 @@ impl Desktop {
         }
 
         let owner = cx.weak_entity();
-        ui::column().flex_1().min_h_0().w_full().child(
-            list(list_state, move |index, w, cx| {
-                owner
-                    .update(cx, |s, cx| {
-                        if selecting {
-                            let mut transcript =
-                                ui::column().min_w_0().gap(px(16.)).px(px(16.)).py(px(16.));
-                            for (index, message) in session.messages.iter().enumerate() {
+        ui::column()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .on_scroll_wheel(move |event, _, _| {
+                if event.delta.pixel_delta(px(20.)).y > px(0.) {
+                    pinned.set(false);
+                }
+            })
+            .child(
+                list(list_state, move |index, w, cx| {
+                    owner
+                        .update(cx, |s, cx| {
+                            if selecting {
+                                let mut transcript =
+                                    ui::column().min_w_0().gap(px(16.)).px(px(16.)).py(px(16.));
+                                for (index, message) in session.messages.iter().enumerate() {
+                                    let key = format!("{}-{index}", session.id);
+                                    let bounds = selection_rows[index].clone();
+                                    transcript = transcript.child(
+                                        s.transcript_row(
+                                            &session,
+                                            meep_shell::transcript::TranscriptRow {
+                                                message,
+                                                key: &key,
+                                                index,
+                                                active: index + 1 == session.messages.len()
+                                                    && session.status == "running",
+                                            },
+                                            w,
+                                            cx,
+                                        )
+                                        .relative()
+                                        .child(
+                                            canvas(
+                                                move |area, _, _| bounds.set(area),
+                                                |_, _, _, _| {},
+                                            )
+                                            .absolute()
+                                            .inset_0(),
+                                        ),
+                                    );
+                                    if !linked[index].is_empty() {
+                                        transcript = transcript.child(s.chat_task_group(
+                                            topic,
+                                            &linked[index],
+                                            cx,
+                                        ));
+                                    }
+                                }
+                                let content = ui::column()
+                                    .w_full()
+                                    .child(div().mx(px(-16.)).child(transcript));
+                                content.into_any_element()
+                            } else if let Some(message) = session.messages.get(index) {
                                 let key = format!("{}-{index}", session.id);
-                                let bounds = selection_rows[index].clone();
-                                transcript = transcript.child(
-                                    s.transcript_row(
+                                ui::column()
+                                    .w_full()
+                                    .pt(px(if index == 0 { 16. } else { 0. }))
+                                    .pb(px(16.))
+                                    .child(s.transcript_row(
                                         &session,
                                         meep_shell::transcript::TranscriptRow {
                                             message,
@@ -3533,65 +3610,29 @@ impl Desktop {
                                         },
                                         w,
                                         cx,
+                                    ))
+                                    .children(
+                                        receipts
+                                            .get(index)
+                                            .filter(|r| !r.is_empty())
+                                            .map(|r| receipt_rows(index, r, cx)),
                                     )
-                                    .relative()
-                                    .child(
-                                        canvas(move |area, _, _| bounds.set(area), |_, _, _, _| {})
-                                            .absolute()
-                                            .inset_0(),
-                                    ),
-                                );
-                                if !linked[index].is_empty() {
-                                    transcript = transcript.child(s.chat_task_group(
-                                        topic,
-                                        &linked[index],
-                                        cx,
-                                    ));
-                                }
+                                    .when(!linked[index].is_empty(), |el| {
+                                        el.child(
+                                            s.chat_task_group(topic, &linked[index], cx)
+                                                .mt(px(10.)),
+                                        )
+                                    })
+                                    .into_any_element()
+                            } else {
+                                div().into_any_element()
                             }
-                            let content = ui::column()
-                                .w_full()
-                                .child(div().mx(px(-16.)).child(transcript));
-                            content.into_any_element()
-                        } else if let Some(message) = session.messages.get(index) {
-                            let key = format!("{}-{index}", session.id);
-                            ui::column()
-                                .w_full()
-                                .pt(px(if index == 0 { 16. } else { 0. }))
-                                .pb(px(16.))
-                                .child(s.transcript_row(
-                                    &session,
-                                    meep_shell::transcript::TranscriptRow {
-                                        message,
-                                        key: &key,
-                                        index,
-                                        active: index + 1 == session.messages.len()
-                                            && session.status == "running",
-                                    },
-                                    w,
-                                    cx,
-                                ))
-                                .children(
-                                    receipts
-                                        .get(index)
-                                        .filter(|r| !r.is_empty())
-                                        .map(|r| receipt_rows(index, r, cx)),
-                                )
-                                .when(!linked[index].is_empty(), |el| {
-                                    el.child(
-                                        s.chat_task_group(topic, &linked[index], cx).mt(px(10.)),
-                                    )
-                                })
-                                .into_any_element()
-                        } else {
-                            div().into_any_element()
-                        }
-                    })
-                    .unwrap_or_else(|_| div().into_any_element())
-            })
-            .w_full()
-            .h_full(),
-        )
+                        })
+                        .unwrap_or_else(|_| div().into_any_element())
+                })
+                .w_full()
+                .h_full(),
+            )
     }
     pub(super) fn topic_composer(
         &self,
@@ -4454,12 +4495,7 @@ impl Desktop {
             return None;
         }
         let mut waiting = vec![];
-        if messages > 0 {
-            waiting.push(format!(
-                "{messages} message{} waiting",
-                if messages == 1 { "" } else { "s" }
-            ));
-        }
+
         if todos > 0 {
             waiting.push(format!(
                 "{todos} to-do{} waiting",
@@ -4479,14 +4515,23 @@ impl Desktop {
                 _ => "Working".to_owned(),
             });
         }
+        if messages > 0 && parts.is_empty() {
+            parts.push("Working".to_owned());
+        }
         parts.extend(waiting);
+        let busy = parts.first().is_some();
         Some(
             ui::row()
                 .flex_none()
+                .gap(px(8.))
+                .items_center()
                 .mx(px(14.))
                 .mb(px(6.))
                 .text_size(px(12.5))
                 .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                .when(busy, |row| {
+                    row.child(meep_ui::gpui_kit::component::spinner::Spinner::new().small())
+                })
                 .child(parts.join(" · ")),
         )
     }
