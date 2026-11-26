@@ -5839,19 +5839,26 @@ describe('CDP API', () => {
                             .then((answer) => answer)
                     const pod = served[served.length - 1].cdpApi
                     const read = stallSuppressionReads()
-                    let expire!: () => void
-                    pod['refusalDeadline'] = () => new Promise<void>((done) => (expire = done))
+                    const expiries: (() => void)[] = []
+                    pod['refusalDeadline'] = () => new Promise<void>((done) => expiries.push(done))
+                    const heldAt = (reached: Promise<void>, request: Promise<supertest.Response>) =>
+                        Promise.race([
+                            reached,
+                            request.then(({ status }) => {
+                                throw new Error(`a held batch answered ${status} before its suppression read`)
+                            }),
+                        ])
 
                     const first = sendAs(ownTeam, `ada-${new UUIDT().toString()}@example.com`)
-                    await read.reached
+                    await heldAt(read.reached, first)
                     const secondRead = read.next()
                     const second = sendAs(sameOrg, `bo-${new UUIDT().toString()}@example.com`)
-                    await secondRead
+                    await heldAt(secondRead, second)
                     read.pass()
                     const thirdOfOrg = await sendAs(sameOrg, 'cy@example.com')
                     const ofOtherOrg = await sendAs(otherOrg, 'di@example.com')
                     read.release()
-                    expire()
+                    expiries.forEach((expire) => expire())
                     const held = await Promise.all([first, second])
 
                     expect([thirdOfOrg.status, thirdOfOrg.body]).toEqual([503, { error: 'over_capacity' }])
