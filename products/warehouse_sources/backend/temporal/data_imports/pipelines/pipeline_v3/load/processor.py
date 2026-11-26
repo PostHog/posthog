@@ -941,6 +941,25 @@ def _resume_schedule_after_ad_hoc_run(export_signal: ExportSignalMessage) -> Non
         capture_exception(e)
 
 
+def _ducklake_registration_allowed(team_id: int) -> bool | None:
+    """The first condition of the registration workflow's own gate, or None when the check fails.
+
+    Shadow only: the answer goes into the start log so it can be compared with the workflow's gate
+    before the start is skipped on it. Skipping the start saves the workflow and its gate activity
+    for every organization without the managed warehouse.
+    """
+    try:
+        from posthog.models import Team
+
+        from products.managed_warehouse.backend.facade.access import data_imports_registration_allowed
+
+        organization_id = Team.objects.only("organization_id").get(id=team_id).organization_id
+        return data_imports_registration_allowed(str(organization_id))
+    except Exception:
+        logger.warning("ducklake_registration_precheck_failed", team_id=team_id, exc_info=True)
+        return None
+
+
 def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:
     """Fire-and-forget start of `ducklake-register.data-imports` after a V3 final batch lands.
 
@@ -958,6 +977,8 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
         # scd2_append writes go to the _cdc companion, which the registration's staleness
         # check discards anyway.
         return
+
+    registration_allowed = _ducklake_registration_allowed(export_signal.team_id)
 
     try:
         from posthog.temporal.common.client import async_connect
@@ -1000,6 +1021,7 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
             team_id=export_signal.team_id,
             external_data_schema_id=export_signal.schema_id,
             external_data_job_id=export_signal.job_id,
+            registration_allowed=registration_allowed,
         )
     except WorkflowAlreadyStartedError:
         # The id is one per schema, so a collision means a register is already

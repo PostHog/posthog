@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 import tempfile
 from collections.abc import Callable, Iterator
@@ -73,6 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
     _sync_frequency_label,
+    _trigger_ducklake_register_data_imports,
     _trigger_post_import_workflow,
     process_message,
     process_messages,
@@ -1797,6 +1799,31 @@ class TestSourceCopiesHeldThroughTheUpsert:
         result = _dedupe_before_write(pa.table(columns), ["id"])
 
         assert result.column("pos").to_pylist() == kept_positions
+
+
+class TestDuckLakeRegistrationTrigger:
+    @patch("posthog.models.Team.objects")
+    @patch(
+        "products.managed_warehouse.backend.facade.access.data_imports_registration_allowed",
+        side_effect=RuntimeError("flag definitions not loaded"),
+    )
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_a_failed_precheck_still_starts_the_registration(
+        self, mock_connect: AsyncMock, _mock_allowed: MagicMock, _mock_teams: MagicMock
+    ) -> None:
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=None)
+        mock_connect.return_value = client
+        signal = MagicMock()
+        signal.sync_type = "incremental"
+        signal.cdc_write_mode = None
+        signal.team_id = 1
+        signal.job_id = "job-1"
+        signal.schema_id = str(uuid.uuid4())
+
+        _trigger_ducklake_register_data_imports(signal, "prepared/folder")
+
+        assert client.start_workflow.call_count == 1
 
 
 class TestPostImportTrigger:
