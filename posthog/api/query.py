@@ -381,7 +381,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             if scopes_caller_lacks(request, [f"{scope}:read"])
         }
         with credential_denied_scopes(lacking):
-            return self._create(request, *args, **kwargs)
+            # Product viewsets borrow `QueryViewSet.create` unbound, so `self` may not be a QueryViewSet.
+            return QueryViewSet._create(cast(QueryViewSet, self), request, *args, **kwargs)
 
     def _create(self, request: Request, *args, **kwargs) -> Response:
         self._validate_query_kind(request, kwargs.get("query_kind"))
