@@ -34,19 +34,54 @@ def _database() -> Database:
     return Database()
 
 
-def _works(span: str) -> bool:
-    if bare := BARE_CALL.fullmatch(span):
-        name = bare.group(1)
-        return any(find(name) for find in (find_hogql_function, find_hogql_aggregation, find_hogql_posthog_function))
+def _prints(query: str) -> bool:
     context = HogQLContext(database=_database(), enable_select_queries=True, use_new_events_schema=False)
     try:
-        prepare_and_print_ast(parse_select(f"SELECT {span} FROM ({PLACEHOLDER_COLUMNS})"), context, "clickhouse")
+        prepare_and_print_ast(parse_select(query), context, "clickhouse")
     except BaseHogQLError:
         return False
     return True
 
 
-class TestQueryingGuidelinesFunctionTable(SimpleTestCase):
+def _works(span: str) -> bool:
+    if bare := BARE_CALL.fullmatch(span):
+        name = bare.group(1)
+        return any(find(name) for find in (find_hogql_function, find_hogql_aggregation, find_hogql_posthog_function))
+    return _prints(f"SELECT {span} FROM ({PLACEHOLDER_COLUMNS})")
+
+
+# The rule examples in guidelines.md "Other rules". Aggregate aliases that shadow a column, `windowFunnel(timestamp)`
+# and `arraySum` over raw JSON fail only inside ClickHouse, so only their fixes are checked here.
+SYNTAX_RULE_EXAMPLES: list[tuple[str, bool]] = [
+    *[(f"SELECT count() {keyword} FROM events", False) for keyword in ("first", "last", "day", "step", "name", "rows")],
+    *[
+        (f"SELECT count() AS {keyword} FROM events", True)
+        for keyword in ("first", "last", "day", "step", "name", "rows")
+    ],
+    *[
+        (f"SELECT count() AS {reserved} FROM events", False)
+        for reserved in ("fn", "fun", "let", "try", "catch", "throw", "while", "null", "true", "false", "inf", "nan")
+    ],
+    ("SELECT count() AS `fn` FROM events", True),
+    ("WITH toDate(timestamp) AS day SELECT day, count() AS c FROM events GROUP BY day", False),
+    ("WITH 7 AS days SELECT days", True),
+    (r"SELECT count() AS c FROM events WHERE match(event, '\d+')", False),
+    (r"SELECT count() AS c FROM events WHERE match(event, '\\d+')", True),
+    (r"SELECT count() AS c FROM events WHERE event LIKE '%\_%'", False),
+    (r"SELECT count() AS c FROM events WHERE event LIKE '%\\_%'", True),
+    ("""SELECT 'say "hi"' AS greeting""", True),
+    ("SELECT count() AS c FROM system.tables", False),
+    ("SELECT count() AS c FROM system.information_schema.tables", True),
+    ("SELECT event, max(timestamp) AS last_seen FROM events GROUP BY event", True),
+    (
+        "SELECT windowFunnel(3600)(toUnixTimestamp(timestamp), event = 'a') AS level FROM events GROUP BY person_id",
+        True,
+    ),
+    ("SELECT arraySum(arrayMap(x -> toFloatOrZero(x), JSONExtractArrayRaw('[1, 2]'))) AS total", True),
+]
+
+
+class TestQueryingGuidelines(SimpleTestCase):
     def test_table_is_parsed(self) -> None:
         self.assertGreater(len(_function_table_rows()), 10)
 
@@ -55,3 +90,7 @@ class TestQueryingGuidelinesFunctionTable(SimpleTestCase):
         self.assertTrue(avoid and use_instead)
         self.assertEqual([span for span in avoid if _works(span)], [])
         self.assertEqual([span for span in use_instead if not _works(span)], [])
+
+    @parameterized.expand(SYNTAX_RULE_EXAMPLES)
+    def test_rule_example_matches_hogql(self, query: str, works: bool) -> None:
+        self.assertEqual(_prints(query), works)
