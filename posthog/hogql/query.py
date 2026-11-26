@@ -139,6 +139,11 @@ DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS = 5
 QUERY_AST_LIMIT_SETTINGS = {"max_ast_elements", "max_expanded_ast_elements"}
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
+SelectRewrite = Callable[[ast.SelectQuery | ast.SelectSetQuery, HogQLContext], ast.SelectQuery | ast.SelectSetQuery]
+# A caller sets this to rewrite the queries it runs, after the executor's own optimizers and before the
+# query is printed. It is a context variable and not a modifier, so a request cannot turn a rewrite on.
+hogql_select_rewrite: ContextVar[SelectRewrite | None] = ContextVar("hogql_select_rewrite", default=None)
+
 
 def _contains_raw_bytes(value: object) -> bool:
     if value is None or isinstance(value, str):
@@ -1427,11 +1432,6 @@ class HogQLQueryExecutor:
 hogql_execution_override: ContextVar[Callable[[HogQLQueryExecutor], HogQLQueryResponse] | None] = ContextVar(
     "hogql_execution_override", default=None
 )
-
-SelectRewrite = Callable[[ast.SelectQuery | ast.SelectSetQuery, HogQLContext], ast.SelectQuery | ast.SelectSetQuery]
-# A caller sets this to rewrite the queries it runs, after the optimizers above and before the query is
-# printed. It is a context variable and not a modifier, so a request cannot turn a rewrite on.
-hogql_select_rewrite: ContextVar[SelectRewrite | None] = ContextVar("hogql_select_rewrite", default=None)
 
 
 def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, ...] | None:
