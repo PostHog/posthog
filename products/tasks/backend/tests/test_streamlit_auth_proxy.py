@@ -58,6 +58,7 @@ def _reset_proxy_module_state(monkeypatch):
     streamlit_auth_proxy._introspection_cache.clear()
     streamlit_auth_proxy._introspection_circuit.reset()
     monkeypatch.setattr(streamlit_auth_proxy, "POSTHOG_SITE_URL", "https://app.posthog.test")
+    monkeypatch.setattr(streamlit_auth_proxy, "_setup_otel_logging", lambda: None)
     yield
     streamlit_auth_proxy._introspection_cache.clear()
     streamlit_auth_proxy._introspection_circuit.reset()
