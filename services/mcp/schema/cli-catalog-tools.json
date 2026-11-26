@@ -3672,6 +3672,10 @@
                 {
                     "param": "activate_paused_prompts",
                     "key": "activate_paused_prompts"
+                },
+                {
+                    "param": "prompt_count",
+                    "key": "prompt_count"
                 }
             ],
             "injectBody": {},

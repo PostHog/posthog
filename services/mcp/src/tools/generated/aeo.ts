@@ -829,6 +829,9 @@ const aeoSetupStart = (): ToolBase<ReturnType<typeof AeoSetupStartSchema>, unkno
         if (params.activate_paused_prompts !== undefined) {
             body['activate_paused_prompts'] = params.activate_paused_prompts
         }
+        if (params.prompt_count !== undefined) {
+            body['prompt_count'] = params.prompt_count
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_setup/`,
