@@ -2156,7 +2156,7 @@ file_system: _FileSystemTable = _FileSystemTable(
     # so they are left out. The list matches WORKFLOW_FILE_SYSTEM_TYPES in posthog/models/file_system/constants.py.
     predicates=[parse_expr("type NOT IN ('hog_flow', 'message_template')")],
     push_team_guard_with_predicates=True,
-    description="The project's virtual file tree backing the navigation/'products' UI; one row per node (folder or item) addressed by path. Canvas rows are limited to the canvases in system.canvases.",
+    description="The project's virtual file tree backing the navigation/'products' UI; one row per node (folder or item) addressed by path.",
     fields={
         "id": StringDatabaseField(name="id", description="File-system node UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),

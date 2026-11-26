@@ -1747,19 +1747,23 @@ class TestSystemTablesFileSystemCanvasVisibility(NonAtomicBaseTest):
 
         assert self._canvas_refs(other) == {str(public_canvas)}
 
-    def test_canvas_rows_are_dropped_when_the_canvas_resource_is_denied(self):
+    def test_canvas_rows_are_dropped_for_a_key_without_canvas_scope(self):
         with team_scope(self.team.pk):
             public = Channel.objects.create(team=self.team, name="general", created_by=self.user)
         canvas_testing.create_canvas(team_id=self.team.pk, channel_id=public.id, name="Shared")
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}
-        ]
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        AccessControl.objects.create(team=self.team, resource="canvas", access_level="none")
+        _create_file_system(self.team, "task-row")
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="no canvas", secure_value="sha256$" + "e" * 64, scopes=["query:read"]
+        )
+        database = Database.create_for(team=self.team, user=ProjectSecretAPIKeyUser(psak))
 
-        assert self._canvas_refs(self.user) == set()
+        response = execute_hogql_query(
+            "SELECT type, ref FROM system.file_system",
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database),
+        )
+
+        assert {(row[0], row[1]) for row in response.results} == {("task", "task-row")}
 
 
 class TestSystemTablesReplayScannersInlineExclusion(NonAtomicBaseTest):
