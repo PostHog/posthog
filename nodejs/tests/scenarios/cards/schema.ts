@@ -3,6 +3,17 @@ import { z } from 'zod'
 import { Duration, durationMs } from '../duration'
 
 const MAX_TIMER_MS = 2 ** 31 - 1
+const MAX_SEED = 2 ** 32 - 1
+
+export const SeedOverride = z.number().int().min(0).max(MAX_SEED)
+
+export function parseSeed(value: string): number {
+    const parsed = SeedOverride.safeParse(Number(value))
+    if (!/^(0|[1-9][0-9]{0,9})$/.test(value) || !parsed.success) {
+        throw new Error(`--seed must be a decimal integer between 0 and ${MAX_SEED}.`)
+    }
+    return parsed.data
+}
 
 export const CdpRole = z.enum([
     'cdp-processed-events',
@@ -26,7 +37,10 @@ export const RunningOnQueue = z
     .strict()
 
 export const EdgeAccepted = z
-    .object({ name: z.literal('edge_accepted'), params: z.object({ channel: z.literal('ses') }).strict() })
+    .object({
+        name: z.literal('edge_accepted'),
+        params: z.object({ channel: z.literal('ses'), share: z.number().gt(0).max(1).optional() }).strict(),
+    })
     .strict()
 
 const When = z.discriminatedUnion('name', [RunningOnQueue, EdgeAccepted], {
@@ -60,6 +74,7 @@ export const Card = z
         clock: z.literal('real'),
         profile: z.string(),
         seed: z.number().int(),
+        seedable: z.boolean().optional(),
         setup: z.object({ teams: z.number().int().min(1) }).strict(),
         drive: z
             .object({
