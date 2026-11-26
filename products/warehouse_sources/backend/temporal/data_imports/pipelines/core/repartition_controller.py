@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
+from django.db import close_old_connections
 from django.utils import timezone
 
 import deltalake as deltalake
@@ -330,6 +331,9 @@ def repartition_activity_has_work(schema: ExternalDataSchema, job: ExternalDataJ
     try:
         return not pre_extraction_measurement_is_redundant(schema, job)
     except Exception:
+        # Job creation runs more queries after this one, so a connection the failed query left
+        # broken must not reach them.
+        close_old_connections()
         return True
 
 
