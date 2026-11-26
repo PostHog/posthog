@@ -1,3 +1,4 @@
+import json
 import threading
 from datetime import timedelta
 from typing import cast
@@ -33,6 +34,7 @@ from posthog.test.waiting import wait_until
 
 PANELS = "posthog.admin.console.deletion_request_panels"
 CREATE_URL = "/admin/console/tools/new-deletion-request/create/"
+BULK_APPROVE_URL = "/admin/console/tools/deletion-requests/approve/"
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
@@ -78,7 +80,13 @@ class TestDeletionRequestConsole(BaseTest):
             )
 
     def test_record_page_shows_the_request_and_django_admin_links_to_it(self) -> None:
-        obj = self._request(status=RequestStatus.FAILED, attempt_count=2, last_dagster_run_id="run-1")
+        obj = self._request(
+            status=RequestStatus.FAILED,
+            attempt_count=2,
+            last_dagster_run_id="run-1",
+            created_by=self.user,
+            hogql_predicate="properties.$browser = 'Chrome' AND " * 10,
+        )
 
         with override_settings(DAGSTER_DOMAIN="dagster.example.com"):
             response = self.client.get(self._url(obj))
@@ -96,6 +104,8 @@ class TestDeletionRequestConsole(BaseTest):
         ):
             assert title in content
         assert f"/admin/console/teams/{self.team.pk}/" in content
+        assert f"By {self.user.email}" in content
+        assert "Show all" in content
         for panel in console.panels_for("deletion-request"):
             assert len(panel.facts(obj)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
         admin_page = self.client.get(f"/admin/posthog/datadeletionrequest/{obj.pk}/change/").content.decode()
@@ -326,6 +336,43 @@ class TestDeletionRequestConsole(BaseTest):
         counted.assert_not_called()
         obj.refresh_from_db()
         assert obj.status == status
+
+    def _bulk_approve(self, picked: list[DataDeletionRequest], mode: ExecutionMode, revisions: dict[str, str]):
+        return self.client.post(
+            BULK_APPROVE_URL,
+            {
+                "requests": [str(obj.pk) for obj in picked],
+                "execution_mode": mode.value,
+                "criteria_revisions": json.dumps(revisions),
+                "reason": "Ticket 123",
+            },
+        )
+
+    def test_bulk_approve_approves_the_picked_requests_whose_criteria_did_not_change(self) -> None:
+        kept, edited, not_picked = (self._request(status=RequestStatus.PENDING) for _ in range(3))
+        revisions = {str(obj.pk): "" for obj in (kept, edited, not_picked)}
+
+        preview = self._bulk_approve([kept, edited], ExecutionMode.DEFERRED, revisions)
+        assert preview.status_code == 200
+        DataDeletionRequest.objects.filter(pk=edited.pk).update(criteria_updated_at=timezone.now())
+        confirmed = self.client.post(BULK_APPROVE_URL, {"confirm_token": preview.context["confirm_token"]}, follow=True)
+
+        statuses = {obj.pk: DataDeletionRequest.objects.get(pk=obj.pk).status for obj in (kept, edited, not_picked)}
+        assert statuses == {
+            kept.pk: RequestStatus.APPROVED,
+            edited.pk: RequestStatus.PENDING,
+            not_picked.pk: RequestStatus.PENDING,
+        }
+        assert f"Skipped 1 request that changed since you reviewed them: {edited.pk}" in confirmed.content.decode()
+
+    def test_bulk_approve_refuses_an_execution_mode_a_picked_request_cannot_run(self) -> None:
+        obj = self._request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"], status=RequestStatus.PENDING)
+
+        response = self._bulk_approve([obj], ExecutionMode.DEFERRED, {str(obj.pk): ""})
+
+        assert response.status_code == 400
+        obj.refresh_from_db()
+        assert obj.status == RequestStatus.PENDING
 
     @parameterized.expand([("clickhouse_team", True), ("other_staff", False)])
     def test_requests_list_links_pending_requests_to_approval_for_the_clickhouse_team(

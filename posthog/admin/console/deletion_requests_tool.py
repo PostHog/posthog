@@ -1,11 +1,23 @@
+import json
+from datetime import datetime
+from typing import Any
+
 from django import forms
+from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Count, Q, QuerySet
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
 
-from posthog.admin.console.deletion_request_panels import CLICKHOUSE, STATUS_TONES
-from posthog.admin.console.panels import Gate, Tone
+from posthog.admin.console.deletion_request_panels import (
+    CLICKHOUSE,
+    EXECUTION_MODE_EFFECTS,
+    EXECUTION_MODES,
+    STATUS_TONES,
+    approve_reviewed,
+    criteria_values,
+)
+from posthog.admin.console.panels import Gate, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES, request_type_label
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import (
@@ -20,12 +32,18 @@ from posthog.admin.console.tools import (
     Stat,
     Stats,
     Table,
+    ToolOperation,
 )
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType
+from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.utils import pluralize
 
 REQUESTS_PER_PAGE = 50
+# The bulk approval form lists the oldest pending requests up to this many, so the form stays one page to review.
+MAX_BULK_APPROVALS = 50
+# The preview shows the start of each request's criteria. The request page shows all of them.
+CRITERIA_PREVIEW_CHARS = 200
 
 STATUS_COUNTS = (
     ("Drafts", (RequestStatus.DRAFT,), None),
@@ -152,6 +170,148 @@ def _clickhouse_team_members() -> Table:
     )
 
 
+def _pending_requests() -> list[DataDeletionRequest]:
+    return list(
+        DataDeletionRequest.objects.filter(status=RequestStatus.PENDING)
+        .select_related("created_by")
+        .order_by("created_at")[:MAX_BULK_APPROVALS]
+    )
+
+
+def _creator(obj: DataDeletionRequest) -> str:
+    return obj.created_by.email if obj.created_by else "No user recorded"
+
+
+def _matching_events(obj: DataDeletionRequest) -> str:
+    return "no stats" if obj.count is None else f"{obj.count:,} events"
+
+
+def _revision(obj: DataDeletionRequest) -> str:
+    return obj.criteria_updated_at.isoformat() if obj.criteria_updated_at else ""
+
+
+class BulkApproveForm(ReasonForm):
+    requests = forms.MultipleChoiceField(label="Requests", widget=forms.CheckboxSelectMultiple)
+    execution_mode = forms.ChoiceField(
+        label="Execution mode",
+        choices=ExecutionMode.choices,
+        help_text=" ".join(f"{mode.label}: {effect}" for mode, effect in EXECUTION_MODE_EFFECTS.items()),
+    )
+    # Which edit of each request's criteria the form listed. An approval only lands on that edit.
+    criteria_revisions = forms.CharField(required=False, widget=forms.HiddenInput)
+    field_order = ["requests", "execution_mode", "reason"]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.pending = {str(obj.pk): obj for obj in _pending_requests()}
+        team_names = dict(
+            Team.objects.filter(pk__in={obj.team_id for obj in self.pending.values()}).values_list("id", "name")
+        )
+        field = self.fields["requests"]
+        assert isinstance(field, forms.MultipleChoiceField)
+        field.choices = [
+            (
+                pk,
+                f"{request_type_label(obj)}, {team_names.get(obj.team_id, 'deleted team')} ({obj.team_id}), "
+                f"{_matching_events(obj)}, by {_creator(obj)}",
+            )
+            for pk, obj in self.pending.items()
+        ]
+
+    def clean_criteria_revisions(self) -> dict[str, datetime | None]:
+        try:
+            revisions = json.loads(self.cleaned_data["criteria_revisions"] or "{}")
+            return {pk: datetime.fromisoformat(value) if value else None for pk, value in revisions.items()}
+        except (ValueError, AttributeError):
+            raise forms.ValidationError("Open the form again from the deletion requests page.")
+
+    def clean(self) -> dict:
+        cleaned = super().clean() or {}
+        selected = [self.pending[pk] for pk in cleaned.get("requests", []) if pk in self.pending]
+        revisions = cleaned.get("criteria_revisions")
+        if revisions is not None and any(str(obj.pk) not in revisions for obj in selected):
+            raise forms.ValidationError("Open the form again from the deletion requests page.")
+        if mode := cleaned.get("execution_mode"):
+            unsupported = [
+                obj for obj in selected if ExecutionMode(mode) not in EXECUTION_MODES[RequestType(obj.request_type)]
+            ]
+            if unsupported:
+                self.add_error(
+                    "execution_mode",
+                    f"{ExecutionMode(mode).label} does not apply to: "
+                    + ", ".join(f"{request_type_label(obj)} {obj.pk}" for obj in unsupported),
+                )
+        cleaned["selected"] = selected
+        return cleaned
+
+
+def _criteria_summary(obj: DataDeletionRequest) -> str:
+    summary = "; ".join(
+        f"{criterion.label}: {criterion.value}"
+        for criterion in criteria_values(obj)
+        if criterion.label not in ("Type", "Team")
+    )
+    return summary if len(summary) <= CRITERIA_PREVIEW_CHARS else f"{summary[:CRITERIA_PREVIEW_CHARS].rstrip()}…"
+
+
+def preview_bulk_approval(request: HttpRequest, form: forms.Form) -> Page:
+    selected: list[DataDeletionRequest] = form.cleaned_data["selected"]
+    mode = ExecutionMode(form.cleaned_data["execution_mode"])
+    without_stats = sum(1 for obj in selected if obj.stats_calculated_at is None)
+    blocks: list[Notice | Table] = [
+        Notice(text=f"Approves {pluralize(len(selected), 'request')}. {mode.label}: {EXECUTION_MODE_EFFECTS[mode]}"),
+        Table(
+            columns=("Request", "Team", "Matching events", "Created by", "Criteria"),
+            rows=tuple(
+                Row(
+                    cells=(
+                        Cell(
+                            text=request_type_label(obj),
+                            href=RECORD_TYPES["deletion-request"].url(obj),
+                            detail=str(obj.pk),
+                        ),
+                        Cell(text=str(obj.team_id)),
+                        Cell(text=_matching_events(obj), muted=obj.count is None),
+                        Cell(text=_creator(obj)),
+                        Cell(text=_criteria_summary(obj), mono=True),
+                    )
+                )
+                for obj in selected
+            ),
+        ),
+    ]
+    if without_stats:
+        blocks.append(
+            Notice(
+                text=f"{pluralize(without_stats, 'request')} {'has' if without_stats == 1 else 'have'} no stats. "
+                "Open a request to fetch them before you approve.",
+                tone=Tone.WARNING,
+            )
+        )
+    return Page(blocks=tuple(blocks))
+
+
+def bulk_approve(request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
+    assert form is not None
+    mode = form.cleaned_data["execution_mode"]
+    revisions = form.cleaned_data["criteria_revisions"]
+    approved = 0
+    changed = []
+    for obj in form.cleaned_data["selected"]:
+        if approve_reviewed(request, obj, mode, revisions[str(obj.pk)]):
+            approved += 1
+        else:
+            changed.append(str(obj.pk))
+    if approved:
+        messages.success(request, f"Approved {pluralize(approved, 'deletion request')} ({ExecutionMode(mode).label}).")
+    if changed:
+        messages.warning(
+            request,
+            f"Skipped {pluralize(len(changed), 'request')} that changed since you reviewed them: {', '.join(changed)}.",
+        )
+    return None
+
+
 @console.register_tool
 class DeletionRequestsTool(ConsoleTool):
     key = "deletion-requests"
@@ -216,3 +376,31 @@ class DeletionRequestsTool(ConsoleTool):
                 _clickhouse_team_members(),
             )
         )
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        pending = _pending_requests()
+        if not pending:
+            return []
+        return [
+            ToolOperation(
+                key="approve",
+                label="Approve requests",
+                handler=bulk_approve,
+                preview=preview_bulk_approval,
+                danger=True,
+                form_class=BulkApproveForm,
+                form_initial={
+                    "execution_mode": ExecutionMode.DEFERRED.value,
+                    "criteria_revisions": json.dumps({str(obj.pk): _revision(obj) for obj in pending}),
+                },
+                description=(
+                    f"Approves the pending requests you pick, the oldest {MAX_BULK_APPROVALS} at most. The deletion "
+                    "job picks them up and deletes the matching data."
+                ),
+                undo_hint=(
+                    "Until the deletion job picks a request up, move it back to draft on its page. "
+                    "Data that a run already deleted cannot be restored."
+                ),
+                gate=Gate.owner(),
+            )
+        ]
