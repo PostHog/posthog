@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import http from 'http'
 import { AddressInfo } from 'net'
 import os from 'os'
@@ -121,6 +121,8 @@ describe('githubOrigin', () => {
         gitIn(remote, 'switch', '-q', '-c', 'side')
         commitIn(remote, 'only on a branch', NOW_S - 3600)
         gitIn(remote, 'switch', '-q', 'master')
+        commitIn(remote, 'merged with an older date', NOW_S - 10 * 24 * 3600)
+        gitIn(remote, 'branch', 'backdated')
         commitIn(remote, 'merged later', NOW_S)
         gitIn(checkout, 'init', '-q')
         gitIn(
@@ -131,7 +133,8 @@ describe('githubOrigin', () => {
             '1',
             `file://${remote}`,
             '+refs/heads/pinned:refs/heads/pinned',
-            '+refs/heads/side:refs/heads/side'
+            '+refs/heads/side:refs/heads/side',
+            '+refs/heads/backdated:refs/heads/backdated'
         )
     })
 
@@ -141,17 +144,22 @@ describe('githubOrigin', () => {
     })
 
     it.each([
-        ['a commit master holds', 'pinned', true],
-        ['a commit only on a branch', 'side', false],
+        ['answers from git, without asking GitHub, that a commit master holds is', 'backdated', [], true, 0],
+        ['asks GitHub whether a commit behind an older-dated master commit is', 'pinned', [{ status: 200 }], true, 1],
+        ['asks GitHub whether a commit git finds only on a branch is', 'side', [], false, 1],
     ])(
-        'answers from a shallow checkout, without asking GitHub, whether %s is on master',
-        async (_story, branch, onMaster) => {
+        '%s on master, and leaves the shallow checkout as it was',
+        async (_story, branch, scriptedAnswers, onMaster, requests) => {
             const commit = gitIn(checkout, 'rev-parse', branch)
+            const state = (): string =>
+                `${gitIn(checkout, 'for-each-ref')}\n${readFileSync(path.join(checkout, '.git', 'shallow'), 'utf8')}`
+            const before = state()
+            answers = [...scriptedAnswers]
 
             await expect(githubOrigin(scripted().io, api, checkout, `file://${remote}`).onMaster(commit)).resolves.toBe(
                 onMaster
             )
-            expect(authorizations).toHaveLength(0)
+            expect({ requests: authorizations.length, state: state() }).toEqual({ requests, state: before })
         }
     )
 
@@ -163,7 +171,7 @@ describe('githubOrigin', () => {
         await expect(viaApi(io).onMaster(commit)).resolves.toBe(true)
         expect({ requests: authorizations.length, warned: warned.join('\n') }).toEqual({
             requests: 1,
-            warned: expect.stringContaining(`Git could not tell whether commit ${commit} is on master`),
+            warned: expect.stringContaining(`Git could not confirm that commit ${commit} is on master`),
         })
     })
 

@@ -1,4 +1,7 @@
 import { execFile, execFileSync } from 'child_process'
+import { copyFile, mkdtemp, rm, writeFile } from 'fs/promises'
+import os from 'os'
+import path from 'path'
 import { promisify } from 'util'
 
 import { FetchResponse, internalFetch } from '~/common/utils/request'
@@ -6,7 +9,7 @@ import { FetchResponse, internalFetch } from '~/common/utils/request'
 import { Controller, Origin } from './admission'
 
 const REPOSITORY = 'PostHog/posthog'
-const MASTER_REF = 'refs/scenario-runner/master'
+const MASTER_REF = 'refs/master'
 const GIT_TIMEOUT_MS = 120_000
 const SHALLOW_MARGIN_S = 24 * 60 * 60
 const REQUEST_TIMEOUT_MS = 10_000
@@ -55,33 +58,39 @@ function retryWaitMs(headers: Record<string, string>, now: Date): number {
     return Math.min(Math.max(untilAllowedMs, 0), RETRY_WAIT_CAP_MS)
 }
 
-async function onMasterInGit(repo: string, remote: string, commit: string): Promise<boolean> {
-    const git = async (...args: string[]): Promise<string> =>
+async function onMasterInGit(repo: string, remote: string, commit: string): Promise<true> {
+    const git = async (cwd: string, ...args: string[]): Promise<string> =>
         (
             await promisify(execFile)('git', args, {
-                cwd: repo,
+                cwd,
                 env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
                 timeout: GIT_TIMEOUT_MS,
             })
         ).stdout.trim()
-    const committedS = Number(await git('show', '-s', '--format=%ct', commit))
-    const shallow = (await git('rev-parse', '--is-shallow-repository')) === 'true'
-    await git(
-        'fetch',
-        '--quiet',
-        '--no-tags',
-        ...(shallow ? [`--shallow-since=@${committedS - SHALLOW_MARGIN_S}`] : []),
-        remote,
-        `+refs/heads/master:${MASTER_REF}`
-    )
+    const gitDir = path.resolve(repo, await git(repo, 'rev-parse', '--git-common-dir'))
+    const committedS = Number(await git(repo, 'show', '-s', '--format=%ct', commit))
+    const scratch = await mkdtemp(path.join(os.tmpdir(), 'scenario-origin-'))
     try {
-        await git('merge-base', '--is-ancestor', commit, MASTER_REF)
+        await git(scratch, 'init', '--quiet', '--bare')
+        await writeFile(path.join(scratch, 'objects', 'info', 'alternates'), `${path.join(gitDir, 'objects')}\n`)
+        await copyFile(path.join(gitDir, 'shallow'), path.join(scratch, 'shallow')).catch((error) => {
+            if ((error as { code?: unknown }).code !== 'ENOENT') {
+                throw error
+            }
+        })
+        await git(
+            scratch,
+            'fetch',
+            '--quiet',
+            '--no-tags',
+            `--shallow-since=@${committedS - SHALLOW_MARGIN_S}`,
+            remote,
+            `+refs/heads/master:${MASTER_REF}`
+        )
+        await git(scratch, 'merge-base', '--is-ancestor', commit, MASTER_REF)
         return true
-    } catch (error) {
-        if ((error as { code?: unknown }).code === 1) {
-            return false
-        }
-        throw error
+    } finally {
+        await rm(scratch, { recursive: true, force: true })
     }
 }
 
@@ -111,7 +120,7 @@ export function githubOrigin(
                 return await onMasterInGit(repo, remote, commit)
             } catch (error) {
                 io.warn(
-                    `Git could not tell whether commit ${commit} is on master (${firstLineOf(error)}). Asking GitHub's API.`
+                    `Git could not confirm that commit ${commit} is on master (${firstLineOf(error)}). Asking GitHub's API.`
                 )
             }
             const compare = (): Promise<FetchResponse> =>
