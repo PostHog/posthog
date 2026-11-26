@@ -58,12 +58,6 @@ RUN apt-get update \\
     && apt-get install --yes --no-install-recommends ca-certificates curl git ripgrep \\
     && rm -rf /var/lib/apt/lists/*
 
-# hog and hog-worker from the release, installed with its install script.
-RUN curl -fsSL https://releases.posthog.com/hog/install.sh -o /tmp/install-hog.sh \\
-    && HOG_INSTALL_DIR=/usr/local/bin sh /tmp/install-hog.sh --version $version \\
-    && rm /tmp/install-hog.sh \\
-    && hog --version && test -x /usr/local/bin/hog-worker
-
 # The fake PostHog (scenario: $name) answers for us/eu.posthog.com through this proxy.
 COPY mock-ca.crt /usr/local/share/ca-certificates/hog-mock.crt
 RUN update-ca-certificates
@@ -72,6 +66,14 @@ ENV HTTPS_PROXY=http://host.docker.internal:$port \\
     NO_PROXY=localhost,127.0.0.1,registry.npmjs.org,api.anthropic.com,statsig.anthropic.com,openrouter.ai,api.openai.com,chatgpt.com \\
     NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt \\
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+# hog and hog-worker from the release, installed with its install script. The install skips the proxy,
+# so the image builds from the real release even when the mock isn't running.
+RUN unset HTTPS_PROXY HTTP_PROXY \\
+    && curl -fsSL https://releases.posthog.com/hog/install.sh -o /tmp/install-hog.sh \\
+    && HOG_INSTALL_DIR=/usr/local/bin sh /tmp/install-hog.sh --version $version \\
+    && rm /tmp/install-hog.sh \\
+    && hog --version && test -x /usr/local/bin/hog-worker
 EOF
 done
 
