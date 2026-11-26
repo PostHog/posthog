@@ -162,6 +162,7 @@ describe('impactSteps', () => {
             { ...untracked, opened: 1 },
             [1, undefined],
             [null, 'Tracking off'],
+            ['Tracking off', undefined],
             [
                 null,
                 'Tracking off',
@@ -179,6 +180,7 @@ describe('impactSteps', () => {
             },
             [1, undefined],
             [null, 'Tracking off'],
+            ['Tracking off', undefined],
             [
                 null,
                 'Tracking off',
@@ -197,6 +199,7 @@ describe('impactSteps', () => {
             },
             [60, undefined],
             [null, 'Tracking off'],
+            ['Tracking off', undefined],
             [
                 null,
                 'Tracking off',

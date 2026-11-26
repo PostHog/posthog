@@ -36,8 +36,8 @@ const SENSITIVE_EMAIL_DETAIL =
 
 function sessionStep(impact: TransactionalEmailImpactApi, linkTagging: LinkTagging): ImpactStep {
     const step = { key: 'session', label: 'Started a session', value: null, share: null } as const
-    if (everySendUntracked(impact)) {
-        return { ...step, missing: 'Tracking off', missingDetail: TRACKING_OFF_DETAIL }
+    if (everySendClicksOff(impact)) {
+        return { ...step, missing: 'Tracking off', missingDetail: clicksOffDetail(impact) }
     }
     switch (linkTagging) {
         case 'on':
