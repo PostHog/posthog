@@ -11,6 +11,7 @@ import { ReplicaOf, nameOf } from '../environment/identity'
 import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
+import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
 
@@ -42,7 +43,7 @@ export type DriveWindow = { startedAt: number; endedAt: number; warmedAt?: numbe
 
 type Value = { value: number; censored?: true } | { value: null; censored: true }
 
-type Measured = { key?: string; incomplete?: true } & Value
+type Measured = { key?: string; incomplete?: true; unmeasured?: string } & Value
 
 export type Measurement = { name: string; unit: string } & Measured
 
@@ -53,6 +54,11 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         drive: DriveWindow
         steps: readonly Step[]
         timeline: readonly ValveTimelineEntry[]
+        counters?: CounterReading
+        unread?: string
+        horizonAt?: number
+        converged?: boolean
+        unsettled?: string
     }
 
 export type MeasurementDefinition = Definition & {
@@ -549,6 +555,7 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
     deliveryLatencyMs,
+    counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]
 

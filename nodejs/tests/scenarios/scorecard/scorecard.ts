@@ -37,7 +37,7 @@ function invariantProperties(result: RunVerdict): Record<string, Property> {
 
 function measurementProperties(result: RunVerdict): Record<string, Property> {
     return Object.fromEntries(
-        result.measurements.flatMap(({ name, key, value, incomplete, censored }) => {
+        result.measurements.flatMap(({ name, key, value, incomplete, censored, unmeasured }) => {
             const property = ['m', name, key]
                 .filter((part) => part !== undefined)
                 .join('_')
@@ -46,6 +46,7 @@ function measurementProperties(result: RunVerdict): Record<string, Property> {
                 [property, value],
                 ...(incomplete ? [[`${property}_incomplete`, true]] : []),
                 ...(censored ? [[`${property}_censored`, true]] : []),
+                ...(unmeasured ? [[`${property}_unmeasured`, unmeasured]] : []),
             ]
         })
     )
