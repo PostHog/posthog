@@ -16,6 +16,7 @@ from urllib3.exceptions import ProtocolError
 
 from posthog.models.scoping import team_scope
 from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
@@ -287,17 +288,19 @@ class TestAmbiguousSend(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("connect_timeout", requests.ConnectTimeout(f"Connection to {SECRET_URL} timed out")),
-            ("unreachable", requests.ConnectionError(f"Max retries exceeded with url: {SECRET_URL}")),
-            ("blocked", SSRFBlockedError(f"{SECRET_URL} resolves to a private address")),
+            ("connect_timeout", requests.ConnectTimeout(f"Connection to {SECRET_URL} timed out"), "unreachable"),
+            ("unreachable", requests.ConnectionError(f"Max retries exceeded with url: {SECRET_URL}"), "unreachable"),
+            ("blocked", SSRFBlockedError(f"{SECRET_URL} resolves to a private address"), "blocked_address"),
+            ("unresolved", SSRFBlockedError(UNRESOLVED_HOST_REASON), "unreachable"),
         ]
     )
-    def test_connect_timeout_is_not_ambiguous(self, _name: str, error: Exception) -> None:
+    def test_connect_timeout_is_not_ambiguous(self, _name: str, error: Exception, reason: str) -> None:
         with pinned_post(error=error):
             with pytest.raises(DeliveryError) as raised:
                 WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
 
         assert not isinstance(raised.value, DeliveryAmbiguous)
+        assert raised.value.reason == reason
 
     def test_a_reset_during_the_tls_handshake_is_not_ambiguous(self) -> None:
         with pinned_post(error=_reset_during_tls_handshake()):

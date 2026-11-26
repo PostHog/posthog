@@ -16,6 +16,7 @@ import requests
 from urllib3.exceptions import ProtocolError
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON
 
 from products.alerts_platform.backend.delivery.transport import (
     DeliveryAmbiguous,
@@ -99,7 +100,12 @@ def post_json(
             status = response.status_code
             refused = _is_owner_refusal(status, response, owner_refusals)
             response.close()
-    except SSRFBlockedError:
+    except SSRFBlockedError as error:
+        # The validator also blocks a host that did not resolve, which a DNS outage causes too.
+        if str(error) == UNRESOLVED_HOST_REASON:
+            raise DeliveryError(
+                f"The {display_name} destination's host name did not resolve.", reason="unreachable"
+            ) from None
         raise DeliveryError(
             f"The {display_name} destination URL points to an address PostHog does not send to.",
             reason="blocked_address",
