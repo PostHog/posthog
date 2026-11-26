@@ -875,6 +875,23 @@ class TestCurrentAliasDeprecationHeaders(APIBaseTest):
         self.assertEqual(response["Deprecation"], CURRENT_ALIAS_DEPRECATION)
         self.assertEqual(response["Link"], f'<{CURRENT_ALIAS_DOCS_URL}>; rel="deprecation"')
 
+    def test_successor_keeps_the_path_encoded_and_leaves_out_credentials(self) -> None:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Query string key", user=self.user, secure_value=hash_key_value(key_value), scopes=["*"]
+        )
+        self.client.logout()
+
+        response = self.client.options(
+            f"/api/projects/@current/feature_flags/1%3Fa%0Ab/?limit=1&personal_api_key={key_value}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        successor = f"/api/projects/{self.team.project_id}/feature_flags/1%3Fa%0Ab/?limit=1"
+        self.assertEqual(
+            response["Link"], f'<{successor}>; rel="successor-version", <{CURRENT_ALIAS_DOCS_URL}>; rel="deprecation"'
+        )
+
     def test_request_naming_its_project_is_not_deprecated(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.project_id}/feature_flags/")
 

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
-from django.http import HttpRequest, HttpResponseBase
+from django.http import HttpRequest, HttpResponseBase, QueryDict
+from django.utils.encoding import escape_uri_path
 from django.utils.http import http_date
 
 from posthog.api.request_scope import request_scope_shadow
@@ -14,6 +15,21 @@ CURRENT_ALIAS_DEPRECATION = f"@{int(CURRENT_ALIAS_DEPRECATED_AT.timestamp())}"
 CURRENT_ALIAS_SUNSET = http_date(CURRENT_ALIAS_SUNSET_AT.timestamp())
 # personal_api_keys/@current names the key that signs the request, so it stays.
 DEPRECATED_COLLECTIONS = frozenset({"projects", "environments", "organizations"})
+# Query parameters that carry a credential. A successor link goes back in a response header, so it leaves them out.
+CREDENTIAL_QUERY_PARAMS = ("personal_api_key", "token", "api_key")
+
+
+def successor_url(path: str, query: QueryDict) -> str:
+    """Build a successor link from a decoded request path and the request's query, without credentials.
+
+    The path is escaped again because Django decodes it: an encoded `?` or newline in an id would otherwise move part
+    of the path into the query or make the header invalid.
+    """
+    kept = query.copy()
+    for name in CREDENTIAL_QUERY_PARAMS:
+        kept.pop(name, None)
+    escaped_path = escape_uri_path(path)
+    return f"{escaped_path}?{kept.urlencode()}" if kept else escaped_path
 
 
 def add_current_alias_deprecation_headers(request: HttpRequest, response: HttpResponseBase) -> None:
@@ -49,5 +65,4 @@ def _successor(request: HttpRequest, response: HttpResponseBase, segments: list[
     path = "/" + "/".join([*segments[:2], shadow.current_scope_id, *segments[3:]])
     if request.path.endswith("/"):
         path += "/"
-    query_string = request.META.get("QUERY_STRING", "")
-    return f"{path}?{query_string}" if query_string else path
+    return successor_url(path, request.GET)

@@ -45,7 +45,7 @@ from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
-from posthog.api.current_alias_deprecation import add_current_alias_deprecation_headers
+from posthog.api.current_alias_deprecation import add_current_alias_deprecation_headers, successor_url
 from posthog.api.current_alias_usage import record_scope_usage
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
@@ -914,8 +914,7 @@ class EnvironmentsRewriteMiddleware:
             ENVIRONMENTS_PREFIX_REQUESTS.labels(outcome="env_only").inc()
             return self.get_response(request)
 
-        query_string = request.META.get("QUERY_STRING", "")
-        successor = f"{target_path}?{query_string}" if query_string else target_path
+        successor = successor_url(target_path, request.GET)
 
         # Re-route URL resolution to the projects viewset with no client-visible
         # redirect; method, body, query string, and auth stay on the same request.

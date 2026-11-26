@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.current_alias_deprecation import CURRENT_ALIAS_DEPRECATION, CURRENT_ALIAS_DOCS_URL
@@ -41,9 +42,26 @@ class TestRewriteMechanism(SimpleTestCase):
         self.assertEqual(response["Deprecation"], "true")
         self.assertEqual(response["Link"], '</api/projects/@current/>; rel="successor-version"')
 
-    def test_successor_link_preserves_query_string(self):
-        _, response = self._run("/api/environments/@current/", query_string="format=json")
-        self.assertEqual(response["Link"], '</api/projects/@current/?format=json>; rel="successor-version"')
+    @parameterized.expand(
+        [
+            ("query_string_kept", "/api/environments/@current/", "format=json", "/api/projects/@current/?format=json"),
+            (
+                "credentials_dropped",
+                "/api/environments/@current/",
+                "format=json&personal_api_key=phx_example&token=phc_example&api_key=phc_example",
+                "/api/projects/@current/?format=json",
+            ),
+            (
+                "encoded_delimiters_stay_encoded",
+                "/api/environments/@current/feature_flags/1%3Fa%0Ab/",
+                "",
+                "/api/projects/@current/feature_flags/1%3Fa%0Ab/",
+            ),
+        ]
+    )
+    def test_successor_link(self, _name: str, path: str, query_string: str, successor: str) -> None:
+        _, response = self._run(path, query_string=query_string)
+        self.assertEqual(response["Link"], f'<{successor}>; rel="successor-version"')
 
     def test_env_path_without_projects_counterpart_is_not_rewritten(self):
         # No /api/projects counterpart — the rewrite is skipped and no deprecation headers are added.
