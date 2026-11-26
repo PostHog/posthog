@@ -6,6 +6,7 @@ These evals run coding agents through `hog setup` and `hog skills` in [StuntHog]
 
 - Each session runs in a Docker container with the released hog and hog-worker, installed with `install.sh`.
 - The container sends its HTTPS traffic through a mitmproxy at `host.docker.internal`. The proxy answers for `us.posthog.com`, `eu.posthog.com`, their ingestion hosts, and hog's release manifest, and never reaches the real PostHog. Other traffic passes through unchanged, so skills come from the real GitHub releases.
+- The proxy listens on `127.0.0.1` only, which Docker Desktop forwards `host.docker.internal` to. On Linux Docker Engine, start it with `HOG_MOCK_BIND` and `HOG_MOCK_HOST` set to the `docker0` address, such as `172.17.0.1`.
 - `start.sh` pins the hog release manifest and downloads hog's API catalog once, so `hog api` works against the fake project.
 - hog keeps its default host, so agents see the same region notes and login links as a real user.
 - The proxy port picks the scenario. Each environment's Dockerfile points `HTTPS_PROXY` at one port.
@@ -31,7 +32,7 @@ HOG_VERSION=0.2.0 hog/evals/mock/start.sh
 bun hog/evals/stunthog.ts               # create or update the evals
 bun hog/evals/stunthog.ts --run --only replay,eu --count 3
 bun hog/evals/report.ts                 # scores and failed criteria for the latest run of each eval
-bun hog/evals/report.ts --session <id>  # the commands one agent ran, and its final message
+bun hog/evals/report.ts --session <id>  # the commands one Pi agent ran, and its final message
 ```
 
 OpenRouter refuses a request when the credit left can't cover every request in flight. With little credit, set **Session concurrency** to 1 in StuntHog's settings.

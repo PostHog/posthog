@@ -15,7 +15,7 @@ env="$here/.generated/env"
 
 case $(docker info --format '{{.Architecture}}') in
     aarch64 | arm64) target=bun-linux-arm64 ;;
-    *) target=bun-linux-x64 ;;
+    *) target=bun-linux-x64-baseline ;;
 esac
 
 cd "$here/.."
