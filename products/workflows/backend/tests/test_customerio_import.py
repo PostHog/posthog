@@ -43,6 +43,7 @@ from products.workflows.backend.services.customerio_import import conditions, li
 from products.workflows.backend.services.customerio_import.images import _file_name
 from products.workflows.backend.services.customerio_import.segments import segment_cohort_filters
 from products.workflows.backend.services.customerio_import.translator import (
+    TRANSACTIONAL_TOPIC_CATEGORY,
     WORKFLOW_EMAIL_IS_MARKETING,
     _json_with_liquid,
     translate_campaign,
@@ -407,6 +408,28 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert not any(step == "cio_1" and "sender" in text for _, step, text in messages)
         assert any(step == "cio_7" and "`message`" in text for _, step, text in messages)
         assert (NoteLevel.APPROXIMATED, "cio_7", WORKFLOW_EMAIL_IS_MARKETING) in messages
+
+    def test_an_email_under_a_transactional_topic_imports_as_marketing(self) -> None:
+        source = _onboarding_campaign()
+        actions = [
+            {**action, "subscription_topic_id": 3} if action["id"] == "1" else action for action in source.actions
+        ]
+        options = ImportOptions(
+            snippets={},
+            segment_cohorts={},
+            topic_categories={"3": ImportCategory(id="cat-receipts", category_type="transactional")},
+        )
+
+        translated = translate_campaign(
+            CampaignSource(campaign=source.campaign, actions=actions, templates=source.templates), options
+        )
+
+        welcome = next(action for action in translated.workflow["actions"] if action["id"] == "cio_1")["config"]
+        assert (welcome.get("message_category_id"), welcome.get("message_category_type")) == (None, None)
+        assert any(
+            (note.level, note.step_id, note.message) == (NoteLevel.NEEDS_INPUT, "cio_1", TRANSACTIONAL_TOPIC_CATEGORY)
+            for note in translated.notes
+        )
 
     def test_email_keeps_copies_and_names_what_it_drops(self) -> None:
         source = _onboarding_campaign()

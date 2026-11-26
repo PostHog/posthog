@@ -27,12 +27,14 @@ import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import {
     DEFAULT_BROADCAST_EMAIL,
+    DEFAULT_BROADCAST_EMAIL_SETTINGS,
     DEFAULT_BROADCAST_PUSH,
     DELETED_SENDER_ERROR,
     broadcastWizardLogic,
     getBroadcastTemplatingErrors,
     rateLimitNeededForAudience,
     remainingSendDuration,
+    withoutTransactionalEmailCategory,
 } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -86,6 +88,20 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
 const { ToastContainer, toast } = jest.requireActual('react-toastify')
 
 describe('broadcastWizardLogic', () => {
+    describe('a new email step from these settings', () => {
+        const billing = { ...DEFAULT_BROADCAST_EMAIL_SETTINGS, messageCategoryId: 'cat-billing' }
+
+        it.each([
+            ['drops a transactional category', 'email', 'transactional', null],
+            ['keeps a marketing category', 'email', 'marketing', 'cat-billing'],
+            ['leaves a push broadcast alone', 'push', 'transactional', 'cat-billing'],
+        ] as const)('%s', (_, channel, messageCategoryType, expected) => {
+            expect(
+                withoutTransactionalEmailCategory({ ...billing, messageCategoryType }, channel).messageCategoryId
+            ).toBe(expected)
+        })
+    })
+
     let logic: ReturnType<typeof broadcastWizardLogic.build>
     let latest: HogFlowApi
     let releaseCreate: () => void

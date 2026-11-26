@@ -1065,6 +1065,32 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
 
+    def test_a_transactional_email_staged_before_the_rules_keeps_saving(self):
+        actions = self._email_flow_with_category()["actions"]
+        live = [action for action in actions if action["type"] != "function_email"]
+        stored = HogFlow.objects.create(
+            team=self.team, name="Receipts", status="active", actions=live, draft={"actions": actions}
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{stored.id}", {"actions": actions}, format="json"
+        )
+
+        assert response.status_code == 200, response.json()
+
+    def test_a_transactional_send_workflow_can_get_its_steps_back(self):
+        flow = HogFlow.objects.get(id=create_code_email_workflow(team_id=self.team.id, key="welcome"))
+        sent_steps = deepcopy(flow.actions)
+        HogFlow.objects.filter(id=flow.id).update(actions=[sent_steps[0], sent_steps[2]], edges=[])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"status": "draft", "actions": sent_steps, "edges": flow.edges},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+
     def test_a_support_reply_cannot_keep_a_transactional_email_on_another_trigger(self):
         support_reply = self._email_flow_with_category(trigger_event="$conversation_message_sent")["actions"]
         stored = HogFlow.objects.create(team=self.team, name="Support reply", actions=support_reply)

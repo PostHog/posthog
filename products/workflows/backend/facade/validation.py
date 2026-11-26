@@ -8,7 +8,7 @@ from products.workflows.backend.services.transactional_steps import (
     added_transactional_email_steps,
     is_transactional_origin,
     keeps_transactional_shape,
-    reserved_step_ids,
+    new_reserved_steps,
 )
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function, find_group_field
 from products.workflows.backend.utils.durations import (
@@ -65,7 +65,7 @@ __all__ = [
     "is_signed_duration",
     "is_transactional_origin",
     "keeps_transactional_shape",
+    "new_reserved_steps",
     "realtime_audience_cohort",
     "realtime_cohort_cant_finish_error",
-    "reserved_step_ids",
 ]

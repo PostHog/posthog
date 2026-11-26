@@ -54,10 +54,16 @@ def keeps_transactional_shape(origin_product: str, actions: list[dict[str, Any]]
     )
 
 
-def reserved_step_ids(actions: list[dict[str, Any]]) -> list[str]:
-    return sorted(
-        {action["id"] for action in actions if isinstance(action, dict) and action.get("id") in RESERVED_STEP_IDS}
-    )
+def new_reserved_steps(actions: list[dict[str, Any]], *stored_step_lists: list[dict[str, Any]] | None) -> list[str]:
+    """The reserved step ids in `actions` that no stored step of the same type already has."""
+    stored = {_reserved_step(step) for steps in stored_step_lists for step in steps or []}
+    return sorted({key[0] for action in actions if (key := _reserved_step(action)) and key not in stored})
+
+
+def _reserved_step(step: Any) -> tuple[str, str] | None:
+    if isinstance(step, dict) and step.get("id") in RESERVED_STEP_IDS:
+        return (str(step["id"]), str(step.get("type")))
+    return None
 
 
 def added_transactional_email_steps(
@@ -105,11 +111,17 @@ def _triggers_only_on_support_events(actions: list[dict[str, Any]]) -> bool:
         return False
     if config.get("type") == "internal-event":
         # The internal event consumer matches the entry's id alone.
-        return filters.get("source") == "internal-events" and all(event.get("id") in SUPPORT_EVENTS for event in events)
+        return filters.get("source") == "internal-events" and all(_is_support_event(event) for event in events)
     # The filter compiler matches the event name only on entries of type `events`, so another entry matches any event.
     return config.get("type") == "event" and all(
-        event.get("type") == "events" and event.get("id") in SUPPORT_EVENTS for event in events
+        event.get("type") == "events" and _is_support_event(event) for event in events
     )
+
+
+def _is_support_event(event: dict[str, Any]) -> bool:
+    # A lenient draft can store any JSON value as the id, and a list can't be looked up in a set.
+    event_id = event.get("id")
+    return isinstance(event_id, str) and event_id in SUPPORT_EVENTS
 
 
 def _find(actions: list[Any], step_type: str) -> dict | None:

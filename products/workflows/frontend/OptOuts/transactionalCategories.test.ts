@@ -90,8 +90,8 @@ describe('transactional categories', () => {
             step('function_email', { message_category_id: 'cat-billing', message_category_type: 'transactional' })
         )
 
-        const copied = withMarketingEmailSteps(original)[1].config as { message_category_type?: string | null }
+        const copied = withMarketingEmailSteps(original)[1].config as { message_category_type?: string }
 
-        expect(copied.message_category_type ?? undefined).toBe(expected)
+        expect(copied.message_category_type).toBe(expected)
     })
 })

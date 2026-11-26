@@ -66,9 +66,8 @@ export function withMarketingEmailSteps(workflow: Pick<HogFlow, 'actions'>): Hog
         if (!EMAIL_STEP_TYPES.includes(action.type) || config.message_category_type !== 'transactional') {
             return action
         }
-        return {
-            ...action,
-            config: { ...config, message_category_id: null, message_category_type: null },
-        } as typeof action
+        // The editor accepts a missing category, not a null one.
+        const { message_category_id: _id, message_category_type: _type, ...marketingConfig } = config
+        return { ...action, config: marketingConfig } as typeof action
     })
 }

@@ -359,9 +359,9 @@ from products.workflows.backend.facade.validation import (
     is_signed_duration,
     is_transactional_origin,
     keeps_transactional_shape,
+    new_reserved_steps,
     realtime_audience_cohort,
     realtime_cohort_cant_finish_error,
-    reserved_step_ids,
 )
 from products.workflows.backend.facade.workflows import (
     ADD_TO_STATIC_COHORT_TEMPLATE_ID,
@@ -4386,37 +4386,35 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     ) -> None:
         """Usage reports count a send as transactional by its step id, so only the workflows the transactional send
         APIs made may hold that step, and they keep the shape those APIs run."""
-        # A workflow made through the API before it refused transactional origins has another shape, and saves like
-        # any other workflow.
-        if (
-            origin_product
-            and is_transactional_origin(origin_product)
-            and (
-                stored is None
-                or keeps_transactional_shape(origin_product, _steps(stored.actions), _steps(stored.edges))
-            )
-        ):
+        if origin_product and is_transactional_origin(origin_product):
             actions = _steps(data["actions"]) if "actions" in data else _steps(stored.actions if stored else None)
             edges = _steps(data["edges"]) if "edges" in data else _steps(stored.edges if stored else None)
-            if not keeps_transactional_shape(origin_product, actions, edges):
+            if keeps_transactional_shape(origin_product, actions, edges):
+                self._refuse_marketing_category_on_transactional_step(actions)
+                return
+            # A workflow made through the API before it refused transactional origins has another shape, and saves
+            # like any other workflow.
+            if stored is None or keeps_transactional_shape(
+                origin_product, _steps(stored.actions), _steps(stored.edges)
+            ):
                 raise serializers.ValidationError(
                     {
                         "actions": "This workflow runs a transactional send, so its steps can't change. "
                         "Edit its template to change the message."
                     }
                 )
-            self._refuse_marketing_category_on_transactional_step(actions)
-            return
         if "actions" not in data:
             return
         submitted = _steps(data["actions"])
-        # Only the live steps count as existing: a staged draft can hold an approved suggestion nobody checked.
-        live_steps = _steps(stored.actions) if stored else []
-        if reserved := sorted(set(reserved_step_ids(submitted)) - set(reserved_step_ids(live_steps))):
+        existing = [_steps(stored.actions)] if stored else []
+        # A suggestion reaches the live workflow through the staged draft, so it counts only the live steps as existing.
+        if stored and getattr(self.context.get("view"), "action", None) != "proposals":
+            existing.append(_steps((stored.draft or {}).get("actions")))
+        if reserved := new_reserved_steps(submitted, *existing):
             raise serializers.ValidationError(
                 {"actions": f"The step id '{reserved[0]}' is reserved for transactional sends. Use another id."}
             )
-        if added := added_transactional_email_steps(submitted, live_steps):
+        if added := added_transactional_email_steps(submitted, *existing):
             raise serializers.ValidationError(
                 {
                     "actions": f"Email steps in workflows can't be transactional. Choose a marketing category for "
