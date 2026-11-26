@@ -98,6 +98,7 @@ const SES_ROOM = { CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '2200', CDP_SES_RATE_LI
 const SES_SENDS = 'cdp_ses_send_results_total'
 
 let processMetrics: { url: string; server: http.Server }
+let servingSends = false
 let janitor: { scrapes: number; resetsAfterFirstScrape: number }
 
 beforeAll(async () => {
@@ -107,9 +108,10 @@ beforeAll(async () => {
         const resets = req.url?.includes('role=cdp-cyclotron-v2-janitor')
             ? [`cdp_cyclotron_v2_janitor_stalled ${janitor.scrapes++ === 0 ? 0 : janitor.resetsAfterFirstScrape}`]
             : []
-        const sends = req.url?.includes('role=cdp-cyclotron-worker-email')
-            ? [await register.getSingleMetricAsString(SES_SENDS)]
-            : []
+        const sends =
+            servingSends && req.url?.includes('role=cdp-cyclotron-worker-email')
+                ? [await register.getSingleMetricAsString(SES_SENDS)]
+                : []
         res.end([await registry.metrics(), ...sends, ...resets].join('\n'))
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -1778,7 +1780,7 @@ describe('runner through seed, drive and judge', () => {
             })
         )
         writeFileSync(labels, stringify({ labels: { environment: 'synthetic-env' } }))
-        const { card, profile } = shortSmoke()
+        const { card, profile } = shortSmoke([], 'event_email', { driveFor: '5s' })
         const profilePath = path.join(cacheHome, 'profile.yaml')
         writeFileSync(
             profilePath,
@@ -1787,13 +1789,19 @@ describe('runner through seed, drive and judge', () => {
         const cardPath = path.join(cacheHome, 'card.yaml')
         writeFileSync(cardPath, stringify(card))
         const loaded = load(cardPath, { profilePath })
-        ;(register.getSingleMetric(SES_SENDS) as Counter).reset()
+        const sends = register.getSingleMetric(SES_SENDS) as Counter
+        sends.reset()
+        sends.labels({ result: 'success' }).inc(0)
+        servingSends = true
 
         const result = await createRunner(environmentOf('all'), env, {
             topologyWithinMs: 1000,
             topologyEveryMs: 10,
             counterRead: { withinMs: 5000, quietMs: 0, pollMs: 100 },
-        }).run(loaded, NEVER_ABORTED)
+            alertScrapeIntervalMs: 1000,
+        })
+            .run(loaded, NEVER_ABORTED)
+            .finally(() => (servingSends = false))
         results.push(result)
 
         expect(result.alerts).toEqual({

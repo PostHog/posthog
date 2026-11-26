@@ -21,8 +21,9 @@ type Metrics = { server: Server; url: string; set(value: number): void }
 
 async function serveMetrics(initial: number): Promise<Metrics> {
     let depth = initial
-    const server = createServer((_, response) => {
-        response.end(`# TYPE synthetic_queue_depth gauge\nsynthetic_queue_depth{queue="q"} ${depth}\n`)
+    const server = createServer((request, response) => {
+        const shard = new URL(request.url ?? '/', 'http://localhost').searchParams.get('shard') ?? ''
+        response.end(`# TYPE synthetic_queue_depth gauge\nsynthetic_queue_depth{queue="q",shard="${shard}"} ${depth}\n`)
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const { port } = server.address() as AddressInfo
@@ -100,7 +101,7 @@ describe('alerts on a scenario run', () => {
                     rules: [
                         {
                             alert: 'SyntheticQueueDeepWarning',
-                            expr: 'max by (pod, environment) (synthetic_queue_depth{namespace="synthetic-ns", queue!="a>1"}) > 10',
+                            expr: 'max by (pod, environment) (synthetic_queue_depth{namespace="synthetic-ns", shard="a", queue!="a>1"}) > 10',
                             for: '2s',
                             labels: { severity: 'warning' },
                             annotations: { runbook_url: 'https://example.com/runbook' },
@@ -111,7 +112,7 @@ describe('alerts on a scenario run', () => {
             const transitions = transitionsSeen()
             const alerts = await startAlerts({
                 alerts: { ...files, exclude: [] },
-                targets: [{ role: 'synthetic-role', replica: 0, metricsUrl: metrics.url }],
+                targets: [{ role: 'synthetic-role', replica: 0, metricsUrl: `${metrics.url}?shard=a` }],
                 onTransition: transitions.record,
                 scrapeIntervalMs: 1000,
                 pollMs: 500,

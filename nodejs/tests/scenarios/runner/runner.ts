@@ -458,6 +458,7 @@ export type RunnerOptions = {
     topologyEveryMs?: number
     target?: RunTarget
     counterRead?: CounterRead
+    alertScrapeIntervalMs?: number
 }
 
 export function createRunner(
@@ -469,6 +470,7 @@ export function createRunner(
         topologyEveryMs = TOPOLOGY_EVERY_MS,
         target,
         counterRead = COUNTER_READ,
+        alertScrapeIntervalMs,
     }: RunnerOptions = {}
 ): Runner {
     const stateDir = defaultStateDir(env)
@@ -647,6 +649,7 @@ export function createRunner(
                     (await startAlerts({
                         alerts: loaded.alerts,
                         targets,
+                        scrapeIntervalMs: alertScrapeIntervalMs,
                         onTransition: ({ at, rule, instance, tier, state, value }) =>
                             live.write({
                                 type: 'alert',
