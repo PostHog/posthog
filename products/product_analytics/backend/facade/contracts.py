@@ -99,17 +99,17 @@ class SeriesValuesBlocker(StrEnum):
     TIMEZONE = "timezone"
     PROPERTY_ACCESS_RULES = "property_access_rules"
     DST_TRANSITION = "dst_transition"
-    NOTHING_CLOSED = "nothing_closed"
+    NO_FINISHED_BUCKET = "no_finished_bucket"
     PARTIAL_BUCKET = "partial_bucket"
     DATE_RANGE_TOO_LONG = "date_range_too_long"
     NOT_READY = "not_ready"
 
 
 @dataclass(frozen=True)
-class ClosedSeriesValues:
+class PrecomputedSeriesValues:
     """Stored Trends counts for every bucket before ``live_from``, keyed by the naive bucket start in the team timezone.
 
-    ``live_from`` is the first bucket that still needs a live read, or None when the whole range is closed.
+    ``live_from`` is the first bucket that still needs a live read, or None when the every bucket in the range is finished.
     ``features`` are the supported features the query used, so a comparison can be reported for each one.
     """
 

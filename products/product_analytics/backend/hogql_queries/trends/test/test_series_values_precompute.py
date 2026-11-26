@@ -36,14 +36,14 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.product_analytics.backend.facade.contracts import (
-    ClosedSeriesValues,
+    PrecomputedSeriesValues,
     SeriesValuesBlocker,
     SeriesValuesFeature,
     SeriesValuesUnavailable,
 )
 from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import (
-    closed_series_values,
     execute_precomputed_trends,
+    precomputed_series_values,
 )
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
@@ -220,9 +220,9 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             "products.product_analytics.backend.hogql_queries.trends.series_values_precompute.ensure_precomputed",
             return_value=result,
         ):
-            closed = closed_series_values(TrendsQueryRunner(team=self.team, query=_query()), run_inserts=True)
+            precomputed = precomputed_series_values(TrendsQueryRunner(team=self.team, query=_query()), run_inserts=True)
 
-        assert closed == SeriesValuesUnavailable(reason=SeriesValuesBlocker.NOT_READY)
+        assert precomputed == SeriesValuesUnavailable(reason=SeriesValuesBlocker.NOT_READY)
 
     @time_machine.travel(_NOW, tick=False)
     def test_cold_cache_without_inserts_returns_none(self) -> None:
@@ -286,7 +286,7 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
                 {"interval": IntervalType.HOUR, "dateRange": DateRange(date_from="2023-10-01", date_to="2024-04-01")},
                 "America/New_York",
             ),
-            (SeriesValuesBlocker.NOTHING_CLOSED, {"dateRange": DateRange(date_from="dStart")}, None),
+            (SeriesValuesBlocker.NO_FINISHED_BUCKET, {"dateRange": DateRange(date_from="dStart")}, None),
             (SeriesValuesBlocker.PARTIAL_BUCKET, {"dateRange": DateRange(date_from="-24h")}, None),
             (
                 SeriesValuesBlocker.PARTIAL_BUCKET,
@@ -310,9 +310,11 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         if timezone is not None:
             self._set_timezone(timezone)
 
-        closed = closed_series_values(TrendsQueryRunner(team=self.team, query=_query(**overrides)), run_inserts=True)
+        precomputed = precomputed_series_values(
+            TrendsQueryRunner(team=self.team, query=_query(**overrides)), run_inserts=True
+        )
 
-        assert closed == SeriesValuesUnavailable(reason=reason)
+        assert precomputed == SeriesValuesUnavailable(reason=reason)
         assert not PreaggregationJob.objects.filter(team_id=self.team.pk).exists()
 
     @parameterized.expand(
@@ -327,10 +329,10 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         query = _query(properties=properties)
 
-        closed = closed_series_values(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
+        precomputed = precomputed_series_values(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
 
-        assert isinstance(closed, ClosedSeriesValues)
-        assert closed.features == features
+        assert isinstance(precomputed, PrecomputedSeriesValues)
+        assert precomputed.features == features
 
     @time_machine.travel(_NOW, tick=False)
     def test_refuses_teams_with_property_access_rules(self) -> None:
@@ -338,6 +340,6 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             "products.product_analytics.backend.hogql_queries.trends.series_values_precompute.team_has_property_access_rules",
             return_value=True,
         ):
-            closed = closed_series_values(TrendsQueryRunner(team=self.team, query=_query()), run_inserts=True)
+            precomputed = precomputed_series_values(TrendsQueryRunner(team=self.team, query=_query()), run_inserts=True)
 
-        assert closed == SeriesValuesUnavailable(reason=SeriesValuesBlocker.PROPERTY_ACCESS_RULES)
+        assert precomputed == SeriesValuesUnavailable(reason=SeriesValuesBlocker.PROPERTY_ACCESS_RULES)

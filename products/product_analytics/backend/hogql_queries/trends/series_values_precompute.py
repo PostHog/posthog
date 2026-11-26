@@ -35,7 +35,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     parse_ttl_schedule,
 )
 from products.product_analytics.backend.facade.contracts import (
-    ClosedSeriesValues,
+    PrecomputedSeriesValues,
     SeriesValuesBlocker as Blocker,
     SeriesValuesFeature as Feature,
     SeriesValuesUnavailable,
@@ -203,7 +203,7 @@ def _range_blocker(runner: TrendsQueryRunner, buckets: list[datetime], date_to: 
     if _interval(runner) == "hour" and _crosses_dst(buckets):
         return Blocker.DST_TRANSITION
     if not buckets:
-        return Blocker.NOTHING_CLOSED
+        return Blocker.NO_FINISHED_BUCKET
     if _first_or_last_bucket_is_partial(runner, buckets, date_to):
         return Blocker.PARTIAL_BUCKET
     return None
@@ -334,9 +334,9 @@ def _series_dict(runner: TrendsQueryRunner, values: dict[datetime, int]) -> dict
     }
 
 
-def closed_series_values(
+def precomputed_series_values(
     runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None
-) -> ClosedSeriesValues | SeriesValuesUnavailable:
+) -> PrecomputedSeriesValues | SeriesValuesUnavailable:
     series = _counted_series(runner)
     if isinstance(series, SeriesValuesUnavailable):
         return series
@@ -359,7 +359,7 @@ def closed_series_values(
         read_end_utc = live_from.astimezone(UTC)
     read_start_utc = buckets[0].astimezone(UTC)
     if read_start_utc >= read_end_utc:
-        return SeriesValuesUnavailable(reason=Blocker.NOTHING_CLOSED)
+        return SeriesValuesUnavailable(reason=Blocker.NO_FINISHED_BUCKET)
 
     range_start = read_start_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     range_end = read_end_utc.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -384,9 +384,9 @@ def closed_series_values(
     stored = _read_values(
         runner, job_ids=[str(job_id) for job_id in result.job_ids], start=read_start_utc, end=read_end_utc
     )
-    closed_buckets = [bucket.replace(tzinfo=None) for bucket in buckets if live_from is None or bucket < live_from]
-    return ClosedSeriesValues(
-        values={bucket: stored.get(bucket, 0) for bucket in closed_buckets},
+    finished_buckets = [bucket.replace(tzinfo=None) for bucket in buckets if live_from is None or bucket < live_from]
+    return PrecomputedSeriesValues(
+        values={bucket: stored.get(bucket, 0) for bucket in finished_buckets},
         live_from=live_from,
         freshly_built=result.freshly_built,
         features=features,
@@ -395,14 +395,14 @@ def closed_series_values(
 
 def execute_precomputed_trends(runner: TrendsQueryRunner, *, run_inserts: bool) -> list[dict[str, Any]] | None:
     try:
-        closed = closed_series_values(runner, run_inserts=run_inserts)
-        if isinstance(closed, SeriesValuesUnavailable):
+        precomputed = precomputed_series_values(runner, run_inserts=run_inserts)
+        if isinstance(precomputed, SeriesValuesUnavailable):
             return None
 
-        values = dict(closed.values)
-        if closed.live_from is not None:
+        values = dict(precomputed.values)
+        if precomputed.live_from is not None:
             date_to = runner.query_date_range.date_to()
-            values.update(_live_tail_values(runner, live_from=closed.live_from, date_to=date_to))
+            values.update(_live_tail_values(runner, live_from=precomputed.live_from, date_to=date_to))
 
         return [_series_dict(runner, values)]
     except Exception as exc:
