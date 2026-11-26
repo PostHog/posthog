@@ -120,6 +120,14 @@ describe('InFlightRegistry', () => {
             expect((await admissionHeldBy(files)).files).toEqual(files)
         })
 
+        const changedAfterAdmission = (edit: Partial<EmailAttachmentMetadata>) => (): Promise<Admission> => {
+            const files = oneFileOf(MIB)
+            return admissionHeldBy(files, () => {
+                Object.assign(files[0], edit)
+                requireAdmission(files)
+            })
+        }
+
         it.each([
             ['outside any send', 'outside_any_admission', () => requireAdmission(oneFileOf(MIB))],
             [
@@ -130,24 +138,22 @@ describe('InFlightRegistry', () => {
             [
                 'for files the caller resized after their admission',
                 'other_files',
-                () => {
-                    const files = oneFileOf(MIB)
-                    return admissionHeldBy(files, () => {
-                        files[0].sizeBytes = 64 * MIB
-                        requireAdmission(files)
-                    })
-                },
+                changedAfterAdmission({ sizeBytes: 64 * MIB }),
             ],
             [
                 'for files the caller renamed after their admission',
                 'other_files',
-                () => {
-                    const files = oneFileOf(MIB)
-                    return admissionHeldBy(files, () => {
-                        files[0].filename = 'other.pdf'
-                        requireAdmission(files)
-                    })
-                },
+                changedAfterAdmission({ filename: 'other.pdf' }),
+            ],
+            [
+                'for files the caller retyped after their admission',
+                'other_files',
+                changedAfterAdmission({ contentType: 'text/html' }),
+            ],
+            [
+                'for files the caller inlined after their admission',
+                'other_files',
+                changedAfterAdmission({ contentId: 'logo' }),
             ],
             [
                 'once the admitted send ended',

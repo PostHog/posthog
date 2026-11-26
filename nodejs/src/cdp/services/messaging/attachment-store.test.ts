@@ -599,7 +599,18 @@ describe('S3AttachmentStore', () => {
             })
         })
 
-        it('loads only the admitted files when a caller swaps the list on its live admission', async () => {
+        it.each([
+            [
+                'swaps the list on',
+                (admission: Admission, other: EmailAttachmentMetadata): unknown =>
+                    Reflect.set(admission, 'files', [other]),
+            ],
+            [
+                'edits a file of',
+                (admission: Admission, other: EmailAttachmentMetadata): unknown =>
+                    Object.entries(other).map(([field, value]) => Reflect.set(admission.files[0], field, value)),
+            ],
+        ])('loads only the admitted files when a caller %s its live admission', async (_, tamper) => {
             const admitted = file()
             const swappedIn = file()
             await uploaded(1, admitted)
@@ -607,9 +618,11 @@ describe('S3AttachmentStore', () => {
             const files = [{ sha256: admitted.sha256, filename: 'a.pdf', sizeBytes: admitted.bytes.length }]
 
             const loaded = await inAdmissionFor(files, (admission) => {
-                Reflect.set(admission, 'files', [
-                    { sha256: swappedIn.sha256, filename: 'b.pdf', sizeBytes: swappedIn.bytes.length },
-                ])
+                tamper(admission, {
+                    sha256: swappedIn.sha256,
+                    filename: 'b.pdf',
+                    sizeBytes: swappedIn.bytes.length + 1,
+                })
                 return store.load(1, admission, AbortSignal.timeout(10000))
             })
 
