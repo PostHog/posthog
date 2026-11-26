@@ -61,9 +61,8 @@ const longNameScout = {
     scout_origin: 'custom' as const,
 }
 
-// The page under the new navigation: the scene title the inbox renders, with the menu bar in its row and the actions,
-// over the scout summary. A long custom scout name at two widths guards the row against overlap: the name truncates
-// before the menus or the actions move. The wrapper stands in for the scene container the inbox title and page sit in.
+// The page under the new navigation, with the menu bar in the title row. A long custom name at two widths guards the row
+// against overlap: the name truncates before the menus or actions move. The wrapper stands in for the scene container.
 export const ScoutPageNewNavigation: Story = {
     args: { skillName: longNameScout.skill_name },
     parameters: {
