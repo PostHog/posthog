@@ -21,8 +21,17 @@ export interface SetupInput {
 export type NextAction =
     | { kind: 'run'; command: string; instructions: string }
     | { kind: 'read'; read: string[]; command: string; instructions: string }
-    | { kind: 'wait'; command: string; url: string; code: string | null; expiresAt: string; instructions: string }
-    | { kind: 'done'; instructions: string }
+    | {
+          kind: 'wait'
+          command: string
+          url: string
+          code: string | null
+          expiresAt: string
+          message: string
+          instructions: string
+      }
+    // `message` is the wrap-up to send the person as it is, on the call that finishes setup for an agent.
+    | { kind: 'done'; instructions: string; message?: string }
 
 export interface DoneStep {
     step: StepId
@@ -64,6 +73,7 @@ export interface SetupContext {
     agentsMd?: WrittenFile[]
     events?: EventsContext
     products?: (Product & { chosen: boolean })[]
+    enabled?: string[]
     // PostHog skills that could help in later sessions, at the products step. Agents get the names only.
     skills?: SkillInfo[]
     mcp?: McpContext

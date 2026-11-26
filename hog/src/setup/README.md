@@ -85,25 +85,27 @@ sequenceDiagram
 
     Note over You,PH: 2. login
     hog->>PH: Start a device login
-    hog-->>Agent: wait, with a link and a code
-    Agent->>You: Open the link, check the code, approve. This is US Cloud, tell me instead if you want the EU
+    hog-->>Agent: wait, with the link, the code and next.message
+    Agent->>You: next.message: open the link, check the code, approve. This is US Cloud, tell me instead if you want the EU
     opt You want the other region
         You->>Agent: Use the EU
         Agent->>hog: hog setup --region eu
         hog-->>Agent: wait, with a new link and code
     end
-    Agent->>hog: hog setup (waits for the approval)
+    loop Until approved or expired
+        Agent->>hog: hog setup (waits up to 90 seconds for the approval)
+    end
     You->>PH: Log in or sign up, then approve
     PH-->>hog: Token for one project
 
     Note over You,PH: 3. project, 4. agents-md
-    hog->>PH: Record the products you picked
+    hog->>PH: Record the products you picked, and turn on session recording or exception capture if picked
     hog->>hog: Write posthog.json and the PostHog section in AGENTS.md
 
     Note over You,PH: 5. install
-    hog-->>Agent: read, with two hog skills read commands
-    Agent->>hog: hog skills read posthog:instrument-integration (and its COMMANDMENTS.md)
-    Agent->>Agent: Install PostHog in the app
+    hog-->>Agent: read, with the install skill, its rules, and the skill of each other product picked
+    Agent->>hog: hog skills read posthog:instrument-integration (and its COMMANDMENTS.md, and the product skills)
+    Agent->>Agent: Install PostHog in the app, then set up the other products
     Agent->>hog: hog setup
 
     Note over You,PH: 6. review
@@ -119,5 +121,5 @@ sequenceDiagram
     hog->>hog: Check whether the agent has PostHog's MCP server
     hog->>hog: Write the final PostHog section in AGENTS.md
     hog-->>Agent: done, with the event count, the products, the skills and the MCP check
-    Agent->>You: At the end of its turn: what else PostHog can do, hog skills add, a reverse proxy for a posthog-js app, and hog mcp add when the server is missing
+    Agent->>You: At the end of its turn, next.message: what else PostHog can do, skills, and the MCP server when it is missing, plus a reverse proxy for a posthog-js app without one, each as something to ask the agent for
 ```
