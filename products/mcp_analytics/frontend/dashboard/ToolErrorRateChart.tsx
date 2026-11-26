@@ -66,17 +66,17 @@ export function ToolErrorRateChart({
                     <div className="flex items-center gap-2">
                         {props.action}
                         <ToggleGroup
-                        className="-my-1"
-                        value={[by]}
-                        onValueChange={(next) => next[0] && onByChange(next[0] as ErrorRanking)}
-                        aria-label="Rank tools by"
-                    >
-                        <ToggleGroupItem value="rate" size="sm" data-attr={`${dataAttr}-by-rate`}>
-                            Error rate
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="count" size="sm" data-attr={`${dataAttr}-by-count`}>
-                            Total errors
-                        </ToggleGroupItem>
+                            className="-my-1"
+                            value={[by]}
+                            onValueChange={(next) => next[0] && onByChange(next[0] as ErrorRanking)}
+                            aria-label="Rank tools by"
+                        >
+                            <ToggleGroupItem value="rate" size="sm" data-attr={`${dataAttr}-by-rate`}>
+                                Error rate
+                            </ToggleGroupItem>
+                            <ToggleGroupItem value="count" size="sm" data-attr={`${dataAttr}-by-count`}>
+                                Total errors
+                            </ToggleGroupItem>
                         </ToggleGroup>
                     </div>
                 ) : (
