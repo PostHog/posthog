@@ -58,10 +58,13 @@ export const deliveryKey = (unitId: string, actionId: string): string => `${unit
 
 const ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES = ['TooManyRequestsException', 'ThrottlingException']
 
-const isAccepted = (status: number): boolean => status >= 200 && status < 300
+export const isAccepted = (status: number): boolean => status >= 200 && status < 300
 
-const isNotRetriedByTheEmailService = ({ status, detail }: TruthRecord): boolean =>
-    status >= 400 && status < 500 && !ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES.includes(detail.errorType ?? '')
+export const isThrottled = ({ detail }: TruthRecord): boolean =>
+    ERROR_TYPES_THE_EMAIL_SERVICE_RETRIES.includes(detail.errorType ?? '')
+
+const isNotRetriedByTheEmailService = (record: TruthRecord): boolean =>
+    record.status >= 400 && record.status < 500 && !isThrottled(record)
 
 const isNotRetriedByFetch = (status: number): boolean => !RETRIABLE_STATUS_CODES.includes(status)
 
@@ -369,13 +372,41 @@ function boundsOf({ answer, followUp, expect }: JournalEntry, actionId: string, 
     return { min: flows, max: flows }
 }
 
-type Effect = { recipient: string; flowId?: string }
+export const owedOf = (journal: readonly JournalEntry[], actionId: string, horizonAt: number): number =>
+    journal.reduce((sum, entry) => sum + boundsOf(entry, actionId, horizonAt).min, 0)
 
-const effectsOf = ({ kind, detail, flowId }: DeliveryRecord): Effect[] =>
-    (kind === 'webhook'
-        ? [detail.request?.host ?? '']
-        : addressesOf([...(detail.message?.to ?? []), ...(detail.message?.cc ?? []), ...(detail.message?.bcc ?? [])])
-    ).map((recipient) => ({ recipient, flowId }))
+type Effect = { recipient: string; flowId?: string; request: DeliveryRecord }
+
+const effectsOf = (request: DeliveryRecord): Effect[] =>
+    (request.kind === 'webhook'
+        ? [request.detail.request?.host ?? '']
+        : addressesOf([
+              ...(request.detail.message?.to ?? []),
+              ...(request.detail.message?.cc ?? []),
+              ...(request.detail.message?.bcc ?? []),
+          ])
+    ).map((recipient) => ({ recipient, flowId: request.flowId, request }))
+
+const REPEAT = 'a lease reclaim, a retry inside the job, or a new job under the same id'
+
+function resentPathOf(sends: readonly Effect[]): string | undefined {
+    const requests = [...new Set(sends.map(({ request }) => request))]
+    const byJob = Map.groupBy(requests, ({ invocationId }) => invocationId)
+    if (requests.length < 2 || byJob.has(undefined)) {
+        return undefined
+    }
+    const repeated = [...byJob.values()].filter(({ length }) => length > 1).length
+    if (repeated === 0) {
+        return `${byJob.size} invocation ids sent it: a replay before the queue`
+    }
+    if (byJob.size === 1) {
+        return `one invocation id sent it each time: ${REPEAT}`
+    }
+    const repeaters = repeated === 1 ? 'one of them' : `${repeated} of them`
+    return `${byJob.size} invocation ids sent it, ${repeaters} more than once: a replay before the queue, and ${REPEAT}`
+}
+
+const requestsOf = (sends: readonly Effect[]): number => new Set(sends.map(({ request }) => request)).size
 
 type Shortfall = { unitId: string; actionId: string; recipient?: string; flows: number; expected: number }
 
@@ -387,13 +418,14 @@ type Excess = {
     accepted: number
     expected: number
     excess: number
+    path?: string
 }
 
 const shortfallOf = ({ unitId, actionId, recipient, flows, expected }: Shortfall): string =>
     `${unitId} ${actionId}${recipient === undefined ? '' : ` to ${recipient}`}: accepted ${expected > 1 ? `from ${plural(flows, 'flow')}` : plural(flows, 'time')} by the recovery horizon, expected ${expected}`
 
-const excessOf = ({ unitId, actionId, recipient, flowId, accepted, expected }: Excess): string =>
-    `${unitId} ${actionId} to ${recipient}${flowId === undefined ? '' : ` from ${flowId}`}: accepted ${plural(accepted, 'time')}, expected ${expected}`
+const excessOf = ({ unitId, actionId, recipient, flowId, accepted, expected, path }: Excess): string =>
+    `${unitId} ${actionId} to ${recipient}${flowId === undefined ? '' : ` from ${flowId}`}: accepted ${plural(accepted, 'time')}, expected ${expected}${path === undefined ? '' : ` (${path})`}`
 
 export const noLoss: InvariantDefinition = {
     name: 'no_loss',
@@ -441,13 +473,15 @@ export const noLoss: InvariantDefinition = {
                     const byFlow = [...Map.groupBy(sends, ({ flowId }, i) => flowId ?? i)]
                     const repeats = byFlow.reduce((sum, [, { length }]) => sum + length - 1, 0)
                     const excess = repeats + Math.max(0, byFlow.length - max)
-                    const resent = byFlow.find(([flowId, { length }]) => typeof flowId === 'string' && length > 1)
+                    const repeating = byFlow.filter(([flowId, { length }]) => typeof flowId === 'string' && length > 1)
+                    const resent = repeating.find(([, flowSends]) => requestsOf(flowSends) > 1) ?? repeating[0]
                     if (excess > 0) {
                         extra.push({
                             unitId,
                             actionId,
                             recipient,
                             excess,
+                            path: resent && resentPathOf(resent[1]),
                             ...(resent
                                 ? { flowId: String(resent[0]), accepted: resent[1].length, expected: 1 }
                                 : { accepted: sends.length, expected: max }),
@@ -460,7 +494,7 @@ export const noLoss: InvariantDefinition = {
             missing.reduce((sum, { flows, expected }) => sum + expected - flows, 0) +
             extra.reduce((sum, { excess }) => sum + excess, 0)
         const [lost] = missing
-        const [resent] = extra
+        const resent = extra.find(({ path }) => path !== undefined) ?? extra[0]
         const violation = [lost && shortfallOf(lost), resent && excessOf(resent)].filter(Boolean).join('; ')
         return {
             passed: observed === 0,

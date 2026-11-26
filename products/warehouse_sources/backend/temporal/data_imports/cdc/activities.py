@@ -95,6 +95,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import 
     CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
     cdc_qualified_table_name,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.organization_deactivated import (
+    stop_cdc_for_deactivated_organization,
+    stopped_for_deactivation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
@@ -110,6 +114,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import fold_column_name
+from products.warehouse_sources.backend.temporal.data_imports.organization_state import organization_deactivated
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import (
     protected_masked_columns,
     value_masker,
@@ -158,6 +163,8 @@ CDC_MAX_EXTRACTION_ATTEMPTS = 3
 # and latest_error are refreshed every run regardless — these rows are sync history, and repeating an
 # identical one says nothing new while burying the runs that do.
 CDC_FAILURE_VISIBILITY_COOLDOWN = dt.timedelta(hours=1)
+
+CDC_PAUSED_SCHEDULE_GRACE = dt.timedelta(days=1)
 
 # Per-peek bound on WAL changes. A large backlog is drained over several passes (and, if needed,
 # several scheduled runs) instead of one unbounded read that risks the 2h activity timeout and
@@ -371,6 +378,18 @@ class CDCExtractActivity:
                 sync_type=ExternalDataSchema.SyncType.CDC,
                 should_sync=True,
             ).exclude(deleted=True)
+        )
+
+    def _has_recently_active_cdc_schemas(self) -> bool:
+        # A syncing table's capture runs touch `updated_at`, so a paused table's value is its pause time.
+        return (
+            ExternalDataSchema.objects.filter(
+                source=self.source,
+                sync_type=ExternalDataSchema.SyncType.CDC,
+                updated_at__gte=dt.datetime.now(tz=dt.UTC) - CDC_PAUSED_SCHEDULE_GRACE,
+            )
+            .exclude(deleted=True)
+            .exists()
         )
 
     # ------------------------------------------------------------------
@@ -589,8 +608,8 @@ class CDCExtractActivity:
     def _setup(self) -> bool:
         """Load source + schemas + adapter. Returns False if there's nothing to do.
 
-        Self-cleans the Temporal schedule if the source is deleted or has no
-        active CDC schemas — otherwise the workflow keeps firing forever.
+        Self-cleans the Temporal schedule if the source is deleted, or once no CDC table has been
+        active for `CDC_PAUSED_SCHEDULE_GRACE`. Otherwise the workflow keeps firing forever.
         """
         try:
             self.source = ExternalDataSource.objects.get(pk=self.inputs.source_id)
@@ -614,8 +633,12 @@ class CDCExtractActivity:
 
         self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
-            self.log.info("no_active_cdc_schemas_syncing_schedule")
-            self._sync_own_schedule()
+            # Not every path that resumes a CDC table recreates the schedule, so a recent pause keeps it.
+            if self._has_recently_active_cdc_schemas():
+                self.log.info("no_syncing_cdc_schemas_keeping_schedule")
+            else:
+                self.log.info("no_cdc_schemas_syncing_schedule")
+                self._sync_own_schedule()
             return False
 
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
@@ -1719,6 +1742,7 @@ def cleanup_orphan_slots_activity() -> None:
     """Safety-net sweeper: clean up orphaned CDC slots and monitor WAL lag.
 
     1. For deleted/inactive PostHog-managed sources → drop slot + publication
+    1b. For a deactivated organization → drop a PostHog-managed slot + publication, pause capture
     2. For active sources → check WAL lag:
        - Warning threshold: log warning, update source status
        - Critical threshold (PostHog-managed, safety net on): drop slot, mark error
@@ -1813,7 +1837,30 @@ def cleanup_orphan_slots_activity() -> None:
                     purge_buffer_prefix(source.team_id, str(schema_id), source_log)
                 continue
 
-            # 2. Active sources over the billing limit for longer than the buffer keeps changes
+            # 2. Sources of a deactivated organization. A self-managed slot falls through, so the lag
+            #    check below still covers it while capture keeps advancing it.
+            try:
+                deactivated = organization_deactivated(source.team_id)
+            except Exception:
+                source_log.exception("failed_to_check_organization_active")
+                metrics.get_sweeper_source_errors_metric().add(1)
+                sources_errored += 1
+                deactivated = False
+            if deactivated and cdc_config.management_mode == "posthog":
+                try:
+                    if stopped_for_deactivation(source):
+                        continue
+                    source_log.warning("cdc_stopping_organization_deactivated")
+                    if stop_cdc_for_deactivated_organization(source, cdc_config, adapter):
+                        slots_dropped += 1
+                        continue
+                except Exception:
+                    # The source keeps running, so the lag check below still covers it until a later sweep stops it.
+                    source_log.exception("failed_to_stop_cdc_organization_deactivated")
+                    metrics.get_sweeper_source_errors_metric().add(1)
+                    sources_errored += 1
+
+            # 3. Active sources over the billing limit for longer than the buffer keeps changes
             try:
                 cleared = clear_kept_slot_billing_expiry(source)
                 if cleared:
@@ -1837,7 +1884,7 @@ def cleanup_orphan_slots_activity() -> None:
                     metrics.get_sweeper_source_errors_metric().add(1)
                     sources_errored += 1
 
-            # 3. Active sources — check WAL lag
+            # 4. Active sources — check WAL lag
             source_started = dt.datetime.now(tz=dt.UTC)
             try:
                 with adapter.management_connection(source, connect_timeout=10) as conn:
@@ -1866,12 +1913,13 @@ def cleanup_orphan_slots_activity() -> None:
                 and cdc_config.auto_drop_slot
                 and retention_cap_mb is None
             )
-            # A missing schedule shows as lag, so only a lagging source pays for the Temporal lookup. A slot
-            # this sweep drops gets no schedule, because its first run would race the drop. Repair recreates it.
+            # A slot this sweep drops gets no schedule, because its first run would race the drop.
             schedule_restored = False
-            if not will_auto_drop and lag_mb >= min(cdc_config.lag_warning_threshold_mb, critical_threshold_mb):
+            if not will_auto_drop:
                 try:
-                    schedule_restored = restore_missing_extraction_schedule(source)
+                    schedule_restored = restore_missing_extraction_schedule(
+                        source, lagging=lag_mb >= min(cdc_config.lag_warning_threshold_mb, critical_threshold_mb)
+                    )
                     if schedule_restored:
                         source_log.warning("cdc_extraction_schedule_restored", lag_mb=round(lag_mb, 1))
                 except Exception:

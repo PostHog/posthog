@@ -215,7 +215,6 @@ def classify_fingerprints(messages_by_fingerprint: dict[str, str], team: Team) -
     if resolve_ai_gateway_config() is None:
         raise FailureClassificationUnavailable("AI gateway is not configured")
     client = build_openai_client(
-        "django",
         ai_product="mcp_analytics",
         properties={"ai_feature": "failure-classification"},
         distinct_id=f"team/{team.id}/mcp-analytics-failure-classifier",

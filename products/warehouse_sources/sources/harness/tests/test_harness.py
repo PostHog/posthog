@@ -327,3 +327,192 @@ def test_infrastructures_resume_skips_completed_environments(driver: SourceDrive
     assert [r.param("environmentIdentifier") for r in result.requests if r.path == "/ng/api/infrastructures"] == [
         "prod"
     ]
+
+
+def test_user_groups_page_the_selected_project(driver: SourceDriver) -> None:
+    page = {"data": {"content": [{"identifier": "release-managers", "name": "Release managers"}], "totalPages": 2}}
+    result = driver.run("user_groups", [ScriptedResponse(json=page), ScriptedResponse(json=page)])
+    assert result.raised is None
+    assert [row["identifier"] for row in result.rows] == ["release-managers", "release-managers"]
+    assert result.paths == ["/ng/api/user-groups", "/ng/api/user-groups"]
+    assert result.params("pageIndex") == ["0", "1"]
+    assert result.params("pageSize") == ["100", "100"]
+    assert result.params("projectIdentifier") == ["example-project", "example-project"]
+
+
+EXECUTIONS = [
+    {"planExecutionId": "run-1", "pipelineIdentifier": "build"},
+    {"planExecutionId": "run-2", "pipelineIdentifier": "deploy"},
+    {"planExecutionId": "run-3", "pipelineIdentifier": "deploy"},
+]
+
+CHILD_BODIES: dict[str, dict[str, Any]] = {
+    "approval_instances": {
+        "run-1": [
+            {"id": "approval-1", "type": "HarnessApproval", "status": "APPROVED", "created": 100},
+            {"id": "approval-2", "type": "JiraApproval", "status": "REJECTED", "created": 200},
+        ],
+        "run-2": [],
+    },
+    "execution_notes": {
+        "run-1": {"status": "SUCCESS", "data": {"notes": "Rolled back after the canary failed."}},
+        "run-2": {"status": "SUCCESS", "data": {"notes": ""}},
+    },
+    "execution_annotations": {
+        "run-1": {
+            "status": "SUCCESS",
+            "data": {
+                "planExecutionId": "run-1",
+                "annotations": [
+                    {"contextId": "ctx-a", "summary": "Canary started", "priority": 1},
+                    {"contextId": "ctx-b", "summary": "Canary failed", "priority": 2},
+                ],
+            },
+        },
+        "run-2": {"status": "SUCCESS", "data": None},
+    },
+}
+
+
+def execution_child_responder(name: str) -> Any:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/pipeline/api/pipelines/execution/summary":
+            return ScriptedResponse(json={"data": {"content": EXECUTIONS, "totalPages": 1}})
+        execution = next(e["planExecutionId"] for e in EXECUTIONS if e["planExecutionId"] in request.path.split("/"))
+        body = CHILD_BODIES[name].get(execution)
+        return ScriptedResponse(status=404, json={"status": "ERROR"}) if body is None else ScriptedResponse(json=body)
+
+    return respond
+
+
+@pytest.mark.parametrize(
+    ("name", "paths", "query", "account_header", "expected"),
+    [
+        (
+            "approval_instances",
+            [f"/v1/orgs/example-org/projects/example-project/approvals/execution/run-{n}" for n in (1, 2, 3)],
+            {},
+            "example-account",
+            [
+                {
+                    "id": "approval-1",
+                    "type": "HarnessApproval",
+                    "status": "APPROVED",
+                    "created": 100,
+                    "planExecutionId": "run-1",
+                },
+                {
+                    "id": "approval-2",
+                    "type": "JiraApproval",
+                    "status": "REJECTED",
+                    "created": 200,
+                    "planExecutionId": "run-1",
+                },
+            ],
+        ),
+        (
+            "execution_notes",
+            [f"/pipeline/api/pipelines/execution/run-{n}/notes" for n in (1, 2, 3)],
+            {"accountIdentifier": ("example-account",)},
+            None,
+            [{"notes": "Rolled back after the canary failed.", "planExecutionId": "run-1"}],
+        ),
+        (
+            "execution_annotations",
+            [f"/pipeline/api/pipelines/execution/run-{n}/annotations" for n in (1, 2, 3)],
+            {
+                "accountIdentifier": ("example-account",),
+                "orgIdentifier": ("example-org",),
+                "projectIdentifier": ("example-project",),
+                "pipelineIdentifier": ("build",),
+            },
+            None,
+            [
+                {"contextId": "ctx-a", "summary": "Canary started", "priority": 1, "planExecutionId": "run-1"},
+                {"contextId": "ctx-b", "summary": "Canary failed", "priority": 2, "planExecutionId": "run-1"},
+            ],
+        ),
+    ],
+)
+def test_execution_children_fan_out_over_executions(
+    driver: SourceDriver,
+    name: str,
+    paths: list[str],
+    query: dict[str, tuple[str, ...]],
+    account_header: str | None,
+    expected: list[dict[str, Any]],
+) -> None:
+    result = driver.run(name, execution_child_responder(name))
+    assert result.raised is None
+    assert result.rows == expected
+    children = [r for r in result.requests if r.path != "/pipeline/api/pipelines/execution/summary"]
+    assert [r.path for r in children] == paths
+    assert all(r.method == "GET" for r in children)
+    assert dict(children[0].query) == query
+    assert {r.headers.get("harness-account") for r in children} == {account_header}
+    assert children[1].param("pipelineIdentifier") == ("deploy" if "pipelineIdentifier" in query else None)
+
+
+def test_execution_child_resume_skips_completed_executions(driver: SourceDriver) -> None:
+    result = driver.run(
+        "execution_notes",
+        execution_child_responder("execution_notes"),
+        resume_state=HarnessResumeConfig(completed=["/pipeline/api/pipelines/execution/run-1/notes"]),
+    )
+    assert result.raised is None
+    assert result.rows == []
+    assert [r.path for r in result.requests if r.path.endswith("/notes")] == [
+        "/pipeline/api/pipelines/execution/run-2/notes",
+        "/pipeline/api/pipelines/execution/run-3/notes",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "body"),
+    [
+        ("approval_instances", [{"type": "HarnessApproval"}]),
+        ("execution_annotations", {"data": {"annotations": [{"summary": "No context"}]}}),
+    ],
+)
+def test_execution_child_row_without_identifier_fails(driver: SourceDriver, name: str, body: Any) -> None:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/pipeline/api/pipelines/execution/summary":
+            return ScriptedResponse(json={"data": {"content": EXECUTIONS[:1], "totalPages": 1}})
+        return ScriptedResponse(json=body)
+
+    result = driver.run(name, respond)
+    assert isinstance(result.raised, ValueError)
+    assert "without an identifier" in str(result.raised)
+
+
+def paged_executions_responder(request: RecordedRequest) -> ScriptedResponse:
+    if request.path == "/pipeline/api/pipelines/execution/summary":
+        page = int(request.param("page") or 0)
+        rows = [{"planExecutionId": f"run-{page}-{n}", "pipelineIdentifier": "build"} for n in range(2)]
+        return ScriptedResponse(json={"data": {"content": rows, "totalPages": 4}})
+    return ScriptedResponse(json={"data": {"notes": f"Notes for {request.path.split('/')[-2]}."}})
+
+
+def test_execution_child_state_keeps_only_recent_parent_pages(driver: SourceDriver) -> None:
+    result = driver.run("execution_notes", paged_executions_responder)
+    assert result.raised is None
+    assert len(result.rows) == 8
+    assert max(len(state.completed or []) for state in result.saved_states) <= 4
+    assert result.saved_states[-1].parent == {"page": 2}
+    assert result.saved_states[-1].completed == [
+        f"/pipeline/api/pipelines/execution/run-{page}-{n}/notes" for page in (2, 3) for n in range(2)
+    ]
+
+
+def test_execution_child_resume_starts_at_the_saved_parent_page(driver: SourceDriver) -> None:
+    result = driver.run(
+        "execution_notes",
+        paged_executions_responder,
+        resume_state=HarnessResumeConfig(
+            completed=["/pipeline/api/pipelines/execution/run-2-0/notes"], parent={"page": 2}
+        ),
+    )
+    assert result.raised is None
+    parent_pages = [r.param("page") for r in result.requests if r.path.endswith("/summary")]
+    assert parent_pages == ["2", "3"]
+    assert [row["planExecutionId"] for row in result.rows] == ["run-2-1", "run-3-0", "run-3-1"]

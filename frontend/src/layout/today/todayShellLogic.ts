@@ -20,8 +20,9 @@ import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { isDefinitionDetailPath } from './todayData'
+import { homePaneRouteForPath, isHomePanePath } from './todayHome'
 import { isErrorTrackingIssuePath } from './todayMonitor'
-import { isTodayPaneEnabled } from './todayPaneFlags'
+import { isTodayHomePaneEnabled, isTodayPaneEnabled } from './todayPaneFlags'
 import { paneConfigProductForPath } from './todayPaneProducts'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
 import { TODAY_PRODUCT_PANES, isProductPane } from './todayProductPanes'
@@ -143,6 +144,10 @@ export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet)
     if (path === '/' || isUnderPath(path, urls.projectHomepage())) {
         return 'home'
     }
+    const homePaneRoute = homePaneRouteForPath(path, featureFlags)
+    if (homePaneRoute) {
+        return homePaneRoute
+    }
     if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
     }
@@ -210,7 +215,9 @@ function productsPaneListsPath(path: string): boolean {
  */
 function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
     return (
-        ((routePane === 'analytics' || isProductPane(routePane)) && productsPaneListsPath(path)) ||
+        // Home's own pages, the Today page among them, still switch to Home. Only the Inbox and Pulse stay.
+        ((routePane === 'analytics' || isProductPane(routePane) || (routePane === 'home' && isHomePanePath(path))) &&
+            productsPaneListsPath(path)) ||
         (routePane === 'people' && isPeopleListPath(path))
     )
 }
@@ -382,7 +389,7 @@ export interface todayShellLogicMeta {
             routePane: TodayRailPane | null,
             featureFlags: FeatureFlagsSet
         ) => TodayRailPane
-        paneHasSidebar: (activePane: TodayRailPane) => boolean
+        paneHasSidebar: (activePane: TodayRailPane, featureFlags: FeatureFlagsSet) => boolean
         currentView: (
             location: {
                 hash: string
@@ -548,7 +555,11 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 return isTodayPaneEnabled(pane, featureFlags) ? pane : 'home'
             },
         ],
-        paneHasSidebar: [(s) => [s.activePane], (activePane: TodayRailPane): boolean => activePane !== 'home'],
+        paneHasSidebar: [
+            (s) => [s.activePane, s.featureFlags],
+            (activePane: TodayRailPane, featureFlags: FeatureFlagsSet): boolean =>
+                activePane !== 'home' || isTodayHomePaneEnabled(featureFlags),
+        ],
         currentView: [
             (s) => [router.selectors.location, s.activePane, s.sidebarOpen],
             (

@@ -85,6 +85,12 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
 
     this.log.info("Resume state rebuilt", {
       turns: conversation.length,
+      logGaps: entries.filter((entry) =>
+        isNotification(
+          entry.notification?.method,
+          POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP,
+        ),
+      ).length,
       hasSessionId: !!sessionId,
       interrupted: false,
     });

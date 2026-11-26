@@ -239,6 +239,24 @@ describe('pairOf', () => {
         })
     })
 
+    it('summarises a queue read more often than one call takes arguments', () => {
+        const reads = 200_000
+        const queue = Array.from({ length: reads }, (_, read) => ({
+            at: DRIVE.startedAt + (read * (DRIVE.endedAt - DRIVE.startedAt)) / reads,
+            due: read === reads - 1 ? 900 : 3,
+            running: 0,
+            oldestDueSeconds: read === reads - 1 ? 60 : 1,
+            inserted: read,
+        }))
+
+        expect(pairOf(CARD, CLEAN, { ...BREACHED, queue }).runs?.[1].queue).toEqual({
+            dueAtStart: 3,
+            peakDue: 900,
+            growth: 897,
+            peakOldestDueSeconds: 60,
+        })
+    })
+
     it('hashes the control as the card it runs: the same card with its valves removed', () => {
         const yaml = parse(readFileSync(path.join(CARDS, 'destination-errors.yaml'), 'utf8'))
         const valveFree = loadText('valve-free', {
@@ -264,25 +282,30 @@ describe('pairOf', () => {
 })
 
 describe('pairProblemsOf', () => {
-    it.each<[string, typeof CARD, RegExp | undefined]>([
-        ['a card with valves that judges no_loss', CARD, undefined],
+    const FAILING_OVER = {
+        ...CARD,
+        card: {
+            ...CARD.card,
+            valves: [{ valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '5s', for: '10s' }],
+        },
+    }
+
+    it.each<[string, typeof CARD, boolean, RegExp | undefined]>([
+        ['a card with valves that judges no_loss', CARD, false, undefined],
         [
             'a card without valves',
             { ...CARD, card: { ...CARD.card, valves: [] } },
+            false,
             /needs a card that applies valves and judges no_loss/,
         ],
         [
             'a card with a valve that runs only on a run host',
-            {
-                ...CARD,
-                card: {
-                    ...CARD.card,
-                    valves: [{ valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '5s', for: '10s' }],
-                },
-            },
+            FAILING_OVER,
+            false,
             /pg\.failover runs only on a run host/,
         ],
-    ])('takes or refuses %s', (_story, loaded, refusal) => {
-        expect(pairProblemsOf(loaded)).toEqual(refusal === undefined ? [] : [expect.stringMatching(refusal)])
+        ['that card on a run host', FAILING_OVER, true, undefined],
+    ])('takes or refuses %s', (_story, loaded, onHost, refusal) => {
+        expect(pairProblemsOf(loaded, onHost)).toEqual(refusal === undefined ? [] : [expect.stringMatching(refusal)])
     })
 })
