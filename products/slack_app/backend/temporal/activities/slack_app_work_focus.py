@@ -10,7 +10,10 @@ logger = structlog.get_logger(__name__)
 
 @activity.defn
 def find_slack_app_work_focus_activity(inputs: SlackAppWorkFocusInputs) -> str:
-    from products.slack_app.backend.logic.daily_focus import stop_daily_focus_without_installation
+    from products.slack_app.backend.logic.daily_focus import (
+        report_daily_focus_run,
+        stop_daily_focus_without_installation,
+    )
     from products.slack_app.backend.logic.onboarding.work_focus import (
         find_and_send_daily_focus,
         find_and_send_work_focus,
@@ -26,13 +29,16 @@ def find_slack_app_work_focus_activity(inputs: SlackAppWorkFocusInputs) -> str:
     if inputs.since is not None:
         # A daily run queued before runs carried their claimed time cannot bind its send claim, so it sends nothing.
         if inputs.run_at is None:
-            return "superseded"
-        return find_and_send_daily_focus(
-            integration,
-            inputs.slack_user_id,
-            since=datetime.fromtimestamp(inputs.since, tz=UTC),
-            run_at=datetime.fromtimestamp(inputs.run_at, tz=UTC),
-        )
+            outcome = "superseded"
+        else:
+            outcome = find_and_send_daily_focus(
+                integration,
+                inputs.slack_user_id,
+                since=datetime.fromtimestamp(inputs.since, tz=UTC),
+                run_at=datetime.fromtimestamp(inputs.run_at, tz=UTC),
+            )
+        report_daily_focus_run(integration, inputs.slack_user_id, outcome)
+        return outcome
     return find_and_send_work_focus(integration, inputs.slack_user_id)
 
 

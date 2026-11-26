@@ -63,7 +63,9 @@ export function ToolErrorRateChart({
             theme={theme}
             action={
                 onByChange ? (
-                    <ToggleGroup
+                    <div className="flex items-center gap-2">
+                        {props.action}
+                        <ToggleGroup
                         className="-my-1"
                         value={[by]}
                         onValueChange={(next) => next[0] && onByChange(next[0] as ErrorRanking)}
@@ -75,7 +77,8 @@ export function ToolErrorRateChart({
                         <ToggleGroupItem value="count" size="sm" data-attr={`${dataAttr}-by-count`}>
                             Total errors
                         </ToggleGroupItem>
-                    </ToggleGroup>
+                        </ToggleGroup>
+                    </div>
                 ) : (
                     props.action
                 )

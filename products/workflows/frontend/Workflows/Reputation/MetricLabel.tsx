@@ -10,10 +10,13 @@ export function MetricLabel({
     description?: string
 }): JSX.Element {
     const labelNode = (
-        <Tooltip title={tooltip}>
-            <div className="text-secondary text-xs border-b border-dotted border-current inline-block cursor-default">
+        <Tooltip title={tooltip} openOnClick>
+            <button
+                type="button"
+                className="text-secondary text-xs border-b border-dotted border-current inline-block cursor-default text-left"
+            >
                 {label}
-            </div>
+            </button>
         </Tooltip>
     )
     if (!description) {

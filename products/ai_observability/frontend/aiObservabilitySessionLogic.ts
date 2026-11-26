@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -194,7 +195,7 @@ export const aiObservabilitySessionLogic = kea<aiObservabilitySessionLogicType>(
 
     urlToAction(({ actions, values }) => ({
         [urls.aiObservabilitySession(':id')]: ({ id }, { timestamp, date_from, date_to }) => {
-            actions.setSessionId(id ?? '')
+            actions.setSessionId(tryDecodeURIComponent(id ?? ''))
             if (timestamp) {
                 actions.setDateRange(timestamp || null)
             } else if (date_from || date_to) {

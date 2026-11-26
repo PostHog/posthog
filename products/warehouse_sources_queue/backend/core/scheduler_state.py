@@ -270,17 +270,19 @@ class SchedulerStateTable:
         conn: psycopg.Connection[Any],
         kind: str,
         since: datetime,
+        team_id: int | None = None,
     ) -> list[DecisionRecord]:
-        """Read the would-fire decisions for one kind."""
+        """Read the would-fire decisions for one kind, for one team when ``team_id`` is set."""
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
                 SELECT team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds
                 FROM {SCHEDULER_DECISION_TABLE}
                 WHERE kind = %(kind)s AND decision = 'would_fire' AND due_at >= %(since)s
+                    AND (%(team_id)s::bigint IS NULL OR team_id = %(team_id)s)
                 ORDER BY due_at
                 """,
-                {"kind": kind, "since": since},
+                {"kind": kind, "since": since, "team_id": team_id},
             )
             rows = cur.fetchall()
         return [DecisionRecord(**row) for row in rows]

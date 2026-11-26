@@ -1,6 +1,7 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -144,7 +145,7 @@ class TestRealtimeReadiness(BaseTest):
     @parameterized.expand(
         [
             # The keys are set with `nx=True` and each kind has its own handler, so a cohort
-            # created with one leaf kind and edited to add the other inside the five-minute
+            # created with one leaf kind and edited to add the other inside the debounce
             # countdown carries a different trigger per kind. The edit is the one that decides.
             (
                 "created",
@@ -169,8 +170,8 @@ class TestRealtimeReadiness(BaseTest):
     def test_debounced_save_reads_as_a_build_before_its_run_exists(
         self, _name: str, triggers: dict[str, str], expected: str
     ) -> None:
-        # The run-creation task waits five minutes. Without the debounce key, every cohort would
-        # read as needs_attention for those five minutes, right after the save that asked for it.
+        # The run-creation task waits out a countdown. Without the debounce key, every cohort would
+        # read as needs_attention during the countdown, right after the save that asked for it.
         leaves = [BEHAVIORAL_LEAF] + ([PERSON_LEAF] if len(triggers) > 1 else [])
         cohort = self._cohort(filters=filters(*leaves))
         for kind, trigger in triggers.items():
@@ -492,6 +493,51 @@ class TestRealtimeReadiness(BaseTest):
                 },
                 (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 14),
             ),
+            # The save refuses unsupported criteria before it checks history, so shortening the window would not help.
+            (
+                "unsupported_criteria_and_history_over_limit",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "filters": filters(
+                        {**BEHAVIORAL_LEAF, "time_value": 2, "time_interval": "year", "bytecode_error": "Unsupported"}
+                    ),
+                },
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.UNSUPPORTED_CRITERIA, None),
+            ),
+            (
+                "members_over_limit",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "count": 20_000_001,
+                    "filters": filters({**BEHAVIORAL_LEAF, "bytecode": ["_H", 1]}),
+                },
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.MEMBERS_OVER_LIMIT, None),
+            ),
+            # The save refuses a criterion with both, and what is stored can't say which of the two is stale, so
+            # naming a later check would send a person to fix something that leaves the cohort daily.
+            (
+                "criterion_with_bytecode_and_an_error",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "count": 20_000_001,
+                    "filters": {
+                        **filters(
+                            {
+                                **BEHAVIORAL_LEAF,
+                                "time_value": 2,
+                                "time_interval": "year",
+                                "bytecode": ["_H", 1],
+                                "bytecode_error": "Unsupported",
+                            }
+                        ),
+                        "filterTestAccounts": True,
+                    },
+                },
+                (CohortRealtimeState.DAILY, None, None),
+            ),
             # Past the plan but within the pipeline's cap, so the history is not what keeps it daily.
             (
                 "daily_past_the_plan_within_the_cap",
@@ -545,6 +591,36 @@ class TestRealtimeReadiness(BaseTest):
         assert (
             (readiness.state, readiness.reason, readiness.history_limit_days) if readiness is not None else None
         ) == expected
+
+    @parameterized.expand(
+        [
+            ("west_of_utc_a_day_behind", "America/Los_Angeles", datetime(2026, 11, 26, 4, 0, tzinfo=UTC), None, None),
+            (
+                "east_of_utc_a_day_ahead",
+                "Pacific/Auckland",
+                datetime(2026, 11, 25, 12, 0, tzinfo=UTC),
+                CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT,
+                14,
+            ),
+        ]
+    )
+    def test_an_off_cohort_is_judged_on_the_team_day(
+        self, _name: str, team_timezone: str, now: datetime, reason: str | None, history_limit_days: int | None
+    ) -> None:
+        self.team.timezone = team_timezone
+        self.team.save()
+        cohort = self._cohort(
+            realtime_enabled_at=None, filters=filters({**BEHAVIORAL_LEAF, "explicit_datetime": "2026-11-11"})
+        )
+
+        with time_machine.travel(now, tick=False):
+            readiness = resolve_realtime_readiness([cohort])[cohort.id]
+
+        assert (readiness.state, readiness.reason, readiness.history_limit_days) == (
+            CohortRealtimeState.OFF,
+            reason,
+            history_limit_days,
+        )
 
     def test_a_person_property_cohort_is_targetable_and_names_no_readiness_moment(self) -> None:
         # Flags read person properties off the person as they evaluate, so this cohort is

@@ -91,8 +91,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
             <div className="min-w-0 flex-1 basis-80">
                 <h4 className="m-0">{filtersHeading(rankings)}</h4>
                 <p className="m-0 text-xs text-muted" data-attr="content-autopilot-rankings-answers">
-                    {brandedAnswersNote(rankings.branded, rankings.answers)} Visibility is the share of those answers
-                    that name a brand or cite its site.{' '}
+                    {brandedAnswersNote(rankings.branded, rankings.answers)}{' '}
                     {rankings.competitors_confirmed ? (
                         <>
                             Competitors are the ones you confirmed in{' '}
@@ -215,6 +214,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 {
                                     title: 'Visibility',
                                     key: 'visibility',
+                                    tooltip: 'The share of these answers that name the brand or cite its site.',
                                     align: 'right',
                                     render: (_, brand) => (
                                         <span className="tabular-nums">
@@ -226,7 +226,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Change',
                                     key: 'previous_visibility',
                                     align: 'right',
-                                    tooltip: `Compared with the ${rankings.days} days before, in percentage points.`,
+                                    tooltip: `Compared with the ${rankings.days} days before, in percentage points. Left blank when those days have under a quarter of this range's answers.`,
                                     render: (_, brand) => {
                                         const change = visibilityChange(brand.visibility, brand.previous_visibility)
                                         if (change === null) {

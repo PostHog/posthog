@@ -14,7 +14,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -71,6 +71,7 @@ from products.alerts.backend.models.alert import (
     AlertConfiguration,
     AlertSubscription,
 )
+from products.alerts.backend.platform_hooks import key_scopes_lack_metrics
 from products.alerts.backend.platform_insight_alert import interval_of, native_insight_alert_view
 from products.alerts_platform.backend.facade.api import (
     count_configurations,
@@ -79,6 +80,7 @@ from products.alerts_platform.backend.facade.api import (
     native_configuration_team_id,
     native_source_config_values,
     owned_copies_by_legacy_id,
+    rows_with_counted_copies,
     runtime_by_public_id,
     update_configuration,
 )
@@ -187,6 +189,22 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     )
 
 
+def insight_alerts_prefetch(*, to_attr: str, insight_path: str = "") -> Prefetch:
+    """A `Prefetch` loading each insight's alerts with the joins the alert serializer reads.
+
+    `insight_path` is the relation from the queryset's model to the insight, such as `insight` for
+    dashboard tiles, and stays empty for an insight queryset. The alerts land in a list on each
+    insight's `to_attr`. The serializer emits each alert's threshold and subscribed users, so without
+    the joins every alert in a response costs two more queries.
+    """
+    # Sets no team filter of its own: the prefetch is scoped by the queryset it is attached to, and an
+    # alert always belongs to its insight's team.
+    # nosemgrep: idor-lookup-without-team
+    queryset = AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related("subscribed_users")
+    lookup = f"{insight_path}__alertconfiguration_set" if insight_path else "alertconfiguration_set"
+    return Prefetch(lookup, queryset=queryset, to_attr=to_attr)
+
+
 def enabled_alerts_created_by(*, team_ids: Collection[int], user_id: int) -> list[contracts.CreatedAlert]:
     """The enabled alerts the user created in these teams on insights that are not deleted, with an
     insight row or without."""
@@ -235,7 +253,18 @@ def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInvent
     # Deferred: the cutover module imports `posthog.tasks.alerts.utils`, which imports this facade.
     from products.alerts.backend.platform_cutover import insight_state_of_platform  # noqa: PLC0415
 
-    rows = _insight_owned_rows().filter(team_id=team_id)
+    team_rows = _insight_owned_rows().filter(team_id=team_id)
+    rows = team_rows.exclude(
+        id__in=rows_with_counted_copies(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            legacy_configuration_ids=list(team_rows.values_list("id", flat=True)),
+        )
+    )
+    enabled_row_ids = set(team_rows.filter(enabled=True).values_list("id", flat=True))
+    enabled_row_ids -= rows_with_counted_copies(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=enabled_row_ids, enabled_only=True
+    )
     held = list_configurations(
         team_id=team_id,
         source_kinds=[SourceKind.INSIGHT.value],
@@ -286,7 +315,7 @@ def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInvent
     recent = sorted([*row_summaries, *held_summaries], key=lambda summary: summary.created_at, reverse=True)
     return contracts.AlertInventory(
         total_count=rows.count() + held.total,
-        enabled_count=rows.filter(enabled=True).count() + enabled_held,
+        enabled_count=len(enabled_row_ids) + enabled_held,
         recent=tuple(recent[:recent_limit]),
     )
 
@@ -866,6 +895,7 @@ __all__ = [
     "forecast_detector_access_error",
     "forecast_rule",
     "is_llm_detector_config",
+    "key_scopes_lack_metrics",
     "llm_detector_access_error",
     "validate_alert_write",
 ]

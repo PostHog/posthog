@@ -17,6 +17,8 @@ const TRUTH_PAGE = 1000
 
 export type LivePhase = 'reset' | 'seed' | 'drive' | 'converge' | 'judge' | 'end'
 
+export type RunStop = { phase: 'connect' | Exclude<LivePhase, 'end'>; stack: string }
+
 export type LiveTruth = Pick<TruthRecord, 'seq' | 'at' | 'kind' | 'unitId' | 'actionId' | 'status' | 'fault'>
 
 export type LiveRecord =
@@ -32,7 +34,7 @@ export type LiveRecord =
           journal: Pick<JournalEntry, 'unitId' | 'kind' | 'offeredAt' | 'answer' | 'expect'>[]
           truth: LiveTruth[]
       }
-    | { type: 'end'; at: number; status: string; statusReason: string }
+    | { type: 'end'; at: number; status: string; statusReason: string; stopped?: RunStop }
 
 export type LiveSources = {
     timeline(): ValveTimelineEntry[]

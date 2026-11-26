@@ -1,11 +1,18 @@
-import { EMAIL_DOCUMENT_VERSION, emailDocumentFromValue, emptyEmailDoc, withoutEmailDocument } from './emailDocument'
+import {
+    EMAIL_DOCUMENT_VERSION,
+    emailDocumentFromValue,
+    emptyEmailDoc,
+    fontOptions,
+    fontUrlFor,
+    withoutEmailDocument,
+} from './emailDocument'
 
 const wrap = (html: string): Record<string, any> => ({
     body: { rows: [{ columns: [{ contents: [{ type: 'html', values: { html } }] }] }] },
 })
 const stored = { version: EMAIL_DOCUMENT_VERSION, doc: emptyEmailDoc() }
 
-describe('emailDocumentFromValue', () => {
+describe('emailDocument', () => {
     it.each([
         {
             name: 'html that matches what the document rendered opens the document',
@@ -42,5 +49,16 @@ describe('emailDocumentFromValue', () => {
 
         expect(withoutEmailDocument(design)).toBe(design)
         expect(withoutEmailDocument({ ...design, emailDocument: stored })).toEqual(design)
+    })
+
+    it.each([
+        "'Ubuntu',Tahoma,Verdana,Segoe,sans-serif",
+        "'Ubuntu', Tahoma, Verdana, Segoe, sans-serif",
+        'Ubuntu, Tahoma, Verdana, Segoe, sans-serif',
+    ])('lists a font written as %s once, under the value the email has', (value) => {
+        const ubuntu = fontOptions(value).filter((font) => font.label === 'Ubuntu')
+
+        expect(ubuntu.map((font) => font.value)).toEqual([value])
+        expect(fontUrlFor(value)).toBe('https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700')
     })
 })

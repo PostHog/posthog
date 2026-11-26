@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import shlex
 from ipaddress import IPv4Address
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
@@ -10,9 +11,14 @@ from uuid import uuid4
 from django.conf import settings
 
 import modal
-from modal.exception import NotFoundError, SandboxFilesystemNotFoundError
+from modal.exception import (
+    Error as ModalError,
+    NotFoundError,
+    SandboxFilesystemNotFoundError,
+)
 from modal.stream_type import StreamType
 
+from products.tasks.backend.logic.services.agent_egress_git_setup import GIT_HELPER_PATH, git_credential_helper
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     SandboxConfig,
@@ -21,6 +27,7 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 from products.tasks.backend.logic.services.sandbox_config import (
     AGENT_EGRESS_DOMAIN_PATTERN,
+    MAX_SANDBOX_TTL_SECONDS,
     agent_egress_enrollment_enabled,
     agent_egress_enrollment_environment,
     agent_egress_staging_environment,
@@ -183,6 +190,10 @@ finally:
 """
 
 
+class AgentEgressCertificateDeliveryError(RuntimeError):
+    pass
+
+
 class ModalEgressProbe:
     def __init__(
         self,
@@ -223,7 +234,9 @@ class ModalEgressProbe:
         return output
 
     @staticmethod
-    def _destination(endpoint: str, ttl_seconds: int, dev_proxy_ipv4: str | None) -> tuple[str, IPv4Address | None]:
+    def _destination(
+        endpoint: str, ttl_seconds: int, dev_proxy_ipv4: str | None, *, max_ttl_seconds: int = 1800
+    ) -> tuple[str, IPv4Address | None]:
         target = urlsplit(endpoint)
         if (
             target.scheme != "https"
@@ -236,7 +249,7 @@ class ModalEgressProbe:
             or target.path not in ("", "/")
             or target.query
             or target.fragment
-            or not 60 <= ttl_seconds <= 1800
+            or not 60 <= ttl_seconds <= max_ttl_seconds
         ):
             raise ValueError("Invalid egress probe endpoint or lifetime")
         target_port = target.port or 443
@@ -342,7 +355,9 @@ class ModalEgressProbe:
         dev_proxy_ipv4: str | None = None,
     ) -> ModalEgressProbe:
         sandbox_class = cls._sandbox_class()
-        hostname, proxy_ip = cls._destination(endpoint, ttl_seconds, dev_proxy_ipv4)
+        hostname, proxy_ip = cls._destination(
+            endpoint, ttl_seconds, dev_proxy_ipv4, max_ttl_seconds=MAX_SANDBOX_TTL_SECONDS
+        )
         raw = modal.Sandbox.from_id(sandbox_id)
         if raw.poll() is not None:
             raise ValueError("The egress sandbox has ended")
@@ -421,17 +436,20 @@ class ModalEgressProbe:
 
     def renew_certificate(self, certificate: str) -> None:
         candidate = f"/run/egress/relay-{uuid4().hex}.pem"
-        self.sidecar.filesystem.write_text(certificate, candidate)
-        self._execute(
-            self.sidecar,
-            "python3",
-            "-c",
-            _RENEW_CERTIFICATE,
-            "/run/egress",
-            candidate,
-            "http://127.0.0.1:9090/metrics",
-            timeout=7,
-        )
+        try:
+            self.sidecar.filesystem.write_text(certificate, candidate)
+            self._execute(
+                self.sidecar,
+                "python3",
+                "-c",
+                _RENEW_CERTIFICATE,
+                "/run/egress",
+                candidate,
+                "http://127.0.0.1:9090/metrics",
+                timeout=7,
+            )
+        except (OSError, RuntimeError, ModalError) as error:
+            raise AgentEgressCertificateDeliveryError("Relay certificate delivery failed") from error
 
     def publish_capability(self, token: str) -> None:
         guest = self.sandbox._sandbox
@@ -446,6 +464,42 @@ class ModalEgressProbe:
             temporary,
             self.capability_path,
         )
+
+    def configure_git_read(self, repository: str) -> None:
+        helper = git_credential_helper(
+            relay_name=self.relay_name, capability_path=self.capability_path, repository=repository.lower()
+        )
+        guest = self.sandbox._sandbox
+        guest.filesystem.write_text(helper, GIT_HELPER_PATH)
+        self._execute(guest, "chmod", "600", GIT_HELPER_PATH)
+        endpoint = f"http://{self.relay_name}:8080/v1/git/{repository.lower()}.git"
+        commands = []
+        for key, value in (
+            (f"credential.{endpoint}.helper", ""),
+            (f"credential.{endpoint}.useHttpPath", "true"),
+            (f"http.{endpoint}.followRedirects", "false"),
+            (f"url.{endpoint}.insteadOf", f"https://github.com/{repository.lower()}.git"),
+        ):
+            commands.append(["git", "config", "--global", "--replace-all", key, value])
+        if repository != repository.lower():
+            commands.append(
+                [
+                    "git",
+                    "config",
+                    "--global",
+                    "--add",
+                    f"url.{endpoint}.insteadOf",
+                    f"https://github.com/{repository}.git",
+                ]
+            )
+        commands.append(
+            ["git", "config", "--global", "--add", f"credential.{endpoint}.helper", f"!python3 {GIT_HELPER_PATH}"]
+        )
+        command = " && ".join(shlex.join(args) for args in commands)
+        self._execute(guest, "sh", "-c", command)
+        result = self.sandbox.execute_in_task_filesystem(command, timeout_seconds=60)
+        if result.exit_code != 0:
+            raise RuntimeError("Git egress route setup failed")
 
     def probe(self, *, count: int = 1, concurrency: int = 1) -> dict[int, int]:
         if not 1 <= count <= 1000 or not 1 <= concurrency <= 32:

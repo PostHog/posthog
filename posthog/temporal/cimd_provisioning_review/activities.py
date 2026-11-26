@@ -35,7 +35,8 @@ _ALREADY_SETTLED = StageResult(outcome=ReviewOutcome.ALREADY_SETTLED, stage="", 
 
 _STATUS_FOR_OUTCOME = {
     ReviewOutcome.ACCEPT: ProvisioningReviewStatus.ACCEPTED,
-    ReviewOutcome.REJECT: ProvisioningReviewStatus.REJECTED,
+    # Only staff block. The pipeline declines, which leaves the partner's organization a way to ask again.
+    ReviewOutcome.REJECT: ProvisioningReviewStatus.DECLINED,
     ReviewOutcome.NEEDS_HUMAN: ProvisioningReviewStatus.NEEDS_HUMAN,
 }
 

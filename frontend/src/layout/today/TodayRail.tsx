@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useState } from 'react'
 
+import { cn } from '@posthog/quill'
 import { PostHogErrorBoundary } from '@posthog/react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -14,6 +16,12 @@ import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import type { TodayRailPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TODAY_PANES } from './todayRailItems'
+import {
+    TODAY_RAIL_SHORT_PADDING_CLASS,
+    TODAY_RAIL_SHORT_STACK_CLASS,
+    TodayRailMetrics,
+    todayRailMetrics,
+} from './todayRailShort'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 import { TodaySpacesLogicMount } from './TodaySpacesLogicMount'
@@ -32,14 +40,15 @@ const RAIL_PREVIEWS = Object.fromEntries(
         .map((pane) => [pane, { kind: 'rail', pane }])
 ) as Partial<Record<TodayRailPane, TodayRailPreview>>
 
-const RAIL_TILE_HEIGHT = 56
-const RAIL_GAP = 12
-
-export function railPanesThatFit(panes: TodayRailPane[], height: number | undefined): number {
+export function railPanesThatFit(
+    panes: TodayRailPane[],
+    height: number | undefined,
+    { tileHeight, gap }: TodayRailMetrics
+): number {
     if (height === undefined) {
         return panes.length
     }
-    return Math.max(0, Math.floor((height + RAIL_GAP) / (RAIL_TILE_HEIGHT + RAIL_GAP)))
+    return Math.max(0, Math.floor((height + gap) / (tileHeight + gap)))
 }
 
 export function TodayRail(): JSX.Element {
@@ -57,7 +66,8 @@ export function TodayRail(): JSX.Element {
     const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
     const { currentProjectId } = useValues(projectLogic)
     const { ref: paneListRef, height: paneListHeight } = useResizeObserver<HTMLDivElement>()
-    const fitCount = railPanesThatFit(railPanes, paneListHeight)
+    const { windowSize } = useWindowSize()
+    const fitCount = railPanesThatFit(railPanes, paneListHeight, todayRailMetrics(windowSize.height))
     const visiblePanes = railPanes.slice(0, fitCount)
     const overflowPanes = railPanes.slice(fitCount)
 
@@ -95,13 +105,20 @@ export function TodayRail(): JSX.Element {
                 aria-label="Main"
                 onPointerEnter={() => setPointerInRail(true)}
                 onPointerLeave={() => setPointerInRail(false)}
-                className="TodayShell__rail flex shrink-0 flex-col items-center gap-3 bg-[var(--chrome)] pt-3 pb-3"
+                className={cn(
+                    'TodayShell__rail flex shrink-0 flex-col items-center gap-3 bg-[var(--chrome)] pt-3 pb-3',
+                    TODAY_RAIL_SHORT_STACK_CLASS,
+                    TODAY_RAIL_SHORT_PADDING_CLASS
+                )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: TODAY_RAIL_WIDTH }}
             >
                 <div
                     ref={paneListRef}
-                    className="flex min-h-0 w-full flex-1 flex-col items-center gap-3 overflow-hidden"
+                    className={cn(
+                        'flex min-h-0 w-full flex-1 flex-col items-center gap-3 overflow-hidden',
+                        TODAY_RAIL_SHORT_STACK_CLASS
+                    )}
                 >
                     {visiblePanes.map(renderTile)}
                 </div>

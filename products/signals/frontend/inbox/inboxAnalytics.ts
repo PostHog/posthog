@@ -303,6 +303,9 @@ export type InboxQueryChange =
 /** Surface a scout-management event fired from. Matches the desktop values. */
 export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner' | 'report_detail'
 
+/** Which control a scout delete came from, where one surface offers more than one. */
+export type ScoutDeleteEntryPoint = 'header' | 'settings'
+
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
@@ -345,6 +348,7 @@ export type ScoutActionType =
     | 'click_ask_ai_starter'
     | 'ask_ai'
     | 'save_note_from_ai'
+    | 'stop_run'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -952,7 +956,8 @@ export function captureInboxReportSourceSuggestionClicked(params: { report: Sign
 export type InboxReportTagSurface = 'card' | 'detail'
 
 /**
- * A tag chip was clicked, which adds that tag to the Tags filter or removes it. The resulting query
+ * A tag chip was clicked. On a card it adds that tag to the Tags filter or removes it, and on the
+ * report detail it sets the filter to that tag alone and opens the Reports list. The resulting query
  * also fires `Inbox query changed`; this event says the chip, not the menu, was the way in.
  */
 export function captureInboxReportTagClicked(params: {

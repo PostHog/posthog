@@ -42,6 +42,7 @@ from ee.api.agentic_provisioning.constants import (
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
+from ee.api.agentic_provisioning.teams import assert_user_can_create_project
 from ee.api.agentic_provisioning.tokens import user_can_access_team
 
 if TYPE_CHECKING:
@@ -281,6 +282,9 @@ def get_or_create_partner_organization_team(
 
     approved_organization_id is the organization the consent page showed, or None when it showed
     a new one.
+
+    Raises ProjectCreationRefusedError when the reused organization has no partner project left
+    and the user may not add one.
     """
     with transaction.atomic():
         # Serializes one user's consents, so two concurrent confirms cannot both miss the
@@ -293,6 +297,7 @@ def get_or_create_partner_organization_team(
             authorize_organization(organization)
             team = find_partner_team(locked_user, partner, organization)
             if team is None:
+                assert_user_can_create_project(locked_user, organization)
                 team = Team.objects.create_with_data(initiating_user=locked_user, organization=organization)
                 TeamProvisioningConfig.objects.create(team=team, application=partner)
             return team, False

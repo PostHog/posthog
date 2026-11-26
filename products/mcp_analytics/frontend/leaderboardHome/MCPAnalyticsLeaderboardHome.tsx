@@ -2,6 +2,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { useChartTheme } from 'lib/charts/hooks'
 import { BrandMark } from 'lib/components/BrandMark/BrandMark'
@@ -28,7 +30,7 @@ import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackProm
 import { MCPAnalyticsFirstLook } from '../firstLook/MCPAnalyticsFirstLook'
 import { INSTRUMENTATION_FIXES } from '../instrumentationFixes'
 import { mcpTabUrlWithFilter } from '../mcpAnalyticsFiltersLogic'
-import { mcpToolReportUrl } from '../mcpAnalyticsToolQualityLogic'
+import { mcpToolQualityUrlWithDates, mcpToolReportUrl } from '../mcpAnalyticsToolQualityLogic'
 import {
     mcpDashboardOverviewLogic,
     rankedToolsEmptyMessage,
@@ -341,6 +343,20 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         by={errorsBy}
                         onByChange={setErrorsBy}
                         dataAttr="mcp-dashboard-errors"
+                        action={
+                            <LemonButton
+                                className="-my-1"
+                                type="secondary"
+                                size="xsmall"
+                                to={mcpToolQualityUrlWithDates(dateFilter, null, {
+                                    column: 'error_rate_pct',
+                                    direction: 'DESC',
+                                })}
+                                data-attr="mcp-dashboard-error-rate-tools-view-all"
+                            >
+                                View all tools
+                            </LemonButton>
+                        }
                     />
                     <ToolLatencyChart
                         rows={latencyRanking}
@@ -354,6 +370,20 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                                 tool,
                                 latencyRanking.map((row) => row.tool)
                             )
+                        }
+                        action={
+                            <LemonButton
+                                className="-my-1"
+                                type="secondary"
+                                size="xsmall"
+                                to={mcpToolQualityUrlWithDates(dateFilter, null, {
+                                    column: 'p95_duration_ms',
+                                    direction: 'DESC',
+                                })}
+                                data-attr="mcp-dashboard-slowest-tools-view-all"
+                            >
+                                View all tools
+                            </LemonButton>
                         }
                     />
                 </TwoColumns>
