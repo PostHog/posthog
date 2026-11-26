@@ -240,7 +240,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             return Promise.resolve({ rows: [], rowCount: 0 })
         }
         ;(this as any).cyclotronPool = {
-            query: jest.fn((sql: string, params: any[]) => dispatch(sql, params)),
+            query: jest.fn((sql: string | { text: string; values: any[] }, params?: any[]) =>
+                typeof sql === 'string' ? dispatch(sql, params ?? []) : dispatch(sql.text, sql.values)
+            ),
             connect: jest.fn(() =>
                 Promise.resolve({
                     query: jest.fn((sql: string, params: any[]) => dispatch(sql, params)),
@@ -437,8 +439,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 const pool = (matcher as any).cyclotronPool
                 const query = pool.query
                 let refreshFails = true
-                pool.query = jest.fn((sql: string, params: any[]) =>
-                    refreshFails && sql.includes('MIN(created_at)')
+                pool.query = jest.fn((sql: any, params?: any[]) =>
+                    refreshFails && typeof sql === 'string' && sql.includes('MIN(created_at)')
                         ? Promise.reject(new Error('db down'))
                         : query(sql, params)
                 )

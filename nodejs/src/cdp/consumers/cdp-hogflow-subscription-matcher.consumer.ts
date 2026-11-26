@@ -1057,7 +1057,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
               ]
             : []
         let sql: string
+        let name: string
         if (watchers && parked) {
+            name = 'hogflow-matcher-watchers-and-parked'
             sql = `SELECT 'watcher' AS source, id, team_id, function_id, run_id, parent_run_id::text AS parent_run_id,
                     NULL::text AS action_id, distinct_id, person_id, flow_version, goal, created_at, expires_at,
                     NULL::timestamptz AS scheduled, NULL::text AS status
@@ -1068,6 +1070,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                  FROM (${shiftPlaceholders(PARKED_LOOKUP_SQL, watcherParams.length)}) p`
         } else {
             sql = watchers ? WATCHER_LOOKUP_SQL : PARKED_LOOKUP_SQL
+            name = watchers ? 'hogflow-matcher-watchers' : 'hogflow-matcher-parked'
         }
         const stopWatcherTimer = watchers ? histogramHogflowMatcherFindWatchers.startTimer() : undefined
         const stopParkedTimer = parked
@@ -1075,7 +1078,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             : undefined
         let result
         try {
-            result = await this.cyclotronPool.query(sql, [...watcherParams, ...parkedParams])
+            // Named, so each connection plans the statement once instead of on every lookup.
+            result = await this.cyclotronPool.query({ name, text: sql, values: [...watcherParams, ...parkedParams] })
         } finally {
             stopWatcherTimer?.()
             stopParkedTimer?.()
