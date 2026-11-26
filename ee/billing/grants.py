@@ -31,8 +31,6 @@ BILLING_READ_SCOPE = "billing:read"
 BILLING_WRITE_SCOPE = "billing:write"
 
 OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
-# Gates the organization billing API and the MCP tools that call it, until the API is opened up.
-ORGANIZATION_BILLING_API_FLAG = "organization-billing-api"
 MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
 BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
 BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)

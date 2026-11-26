@@ -891,7 +891,7 @@ export const getBillingFeaturesRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get the features the organization's plans include
  */
 export const billingFeaturesRetrieve = async (
@@ -909,7 +909,7 @@ export const getBillingForecastRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get the forecast for the rest of the billing period
  */
 export const billingForecastRetrieve = async (
@@ -960,7 +960,7 @@ export const getBillingInvoicesListUrl = (organizationId: string, params?: Billi
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary List the organization's invoices
  */
 export const billingInvoicesList = async (
@@ -979,7 +979,7 @@ export const getBillingInvoicesContentRetrieveUrl = (organizationId: string, inv
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Download an invoice as PDF
  */
 export const billingInvoicesContentRetrieve = async (
@@ -1022,7 +1022,7 @@ export const getBillingLimitsRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get the organization's spend limits
  */
 export const billingLimitsRetrieve = async (
@@ -1095,7 +1095,7 @@ export const getBillingProductsListUrl = (organizationId: string, params?: Billi
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary List the organization's products
  */
 export const billingProductsList = async (
@@ -1130,7 +1130,7 @@ export const getBillingProductsRetrieveUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get one product
  */
 export const billingProductsRetrieve = async (
@@ -1150,7 +1150,7 @@ export const getBillingProductsSummaryRetrieveUrl = (organizationId: string) => 
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get every product in summary
  */
 export const billingProductsSummaryRetrieve = async (
@@ -1168,7 +1168,7 @@ export const getBillingProjectListUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta. Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
+ * In beta: the organization billing API's shapes may change while it is in beta. Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
  * @summary List the projects with usage
  */
 export const billingProjectList = async (
@@ -1186,7 +1186,7 @@ export const getBillingSpendSummaryRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get spend so far this billing period
  */
 export const billingSpendSummaryRetrieve = async (
@@ -1216,7 +1216,7 @@ export const getBillingSpendExportDownloadUrl = (organizationId: string, params?
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Export spend as CSV
  */
 export const billingSpendExportDownload = async (
@@ -1250,7 +1250,7 @@ export const getBillingSpendTimeseriesRetrieveUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Spend over time
  */
 export const billingSpendTimeseriesRetrieve = async (
@@ -1296,7 +1296,7 @@ export const getBillingSubscriptionRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get the organization's subscription
  */
 export const billingSubscriptionRetrieve = async (
@@ -1386,7 +1386,7 @@ export const getBillingUsageSummaryRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get usage so far this billing period
  */
 export const billingUsageSummaryRetrieve = async (
@@ -1416,7 +1416,7 @@ export const getBillingUsageExportDownloadUrl = (organizationId: string, params?
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Export usage as CSV
  */
 export const billingUsageExportDownload = async (
@@ -1435,7 +1435,7 @@ export const getBillingUsageStatusRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get usage against limits, without the counts
  */
 export const billingUsageStatusRetrieve = async (
@@ -1468,7 +1468,7 @@ export const getBillingUsageTimeseriesRetrieveUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Usage over time
  */
 export const billingUsageTimeseriesRetrieve = async (
@@ -1524,7 +1524,7 @@ export const getBillingProjectSpendExportDownloadUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Export a project's share of spend as CSV
  */
 export const billingProjectSpendExportDownload = async (
@@ -1558,7 +1558,7 @@ export const getBillingProjectSpendTimeseriesRetrieveUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary A project's share of spend over time
  */
 export const billingProjectSpendTimeseriesRetrieve = async (
@@ -1580,7 +1580,7 @@ export const getBillingProjectUsageRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Get a project's usage so far this billing period
  */
 export const billingProjectUsageRetrieve = async (
@@ -1613,7 +1613,7 @@ export const getBillingProjectUsageExportDownloadUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary Export a project's usage as CSV
  */
 export const billingProjectUsageExportDownload = async (
@@ -1647,7 +1647,7 @@ export const getBillingProjectUsageTimeseriesRetrieveUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * In beta: the organization billing API's shapes may change while it is in beta.
  * @summary A project's usage over time
  */
 export const billingProjectUsageTimeseriesRetrieve = async (

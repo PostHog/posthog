@@ -96,17 +96,10 @@ class OrganizationBillingTestMixin(APILicensedTest):
         self.organization_membership.save()
         owner_only = patch("ee.billing.grants._owner_only_billing_enabled", return_value=False)
         member_read = patch("ee.billing.grants._member_billing_usage_spend_read_access_enabled", return_value=False)
-        # The viewset is behind a feature flag. It is on for the suite, and off in the one test
-        # about the gate.
-        api_flag = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
         self.owner_only = owner_only.start()
         self.member_read = member_read.start()
-        # The patcher as well as the mock: a case that wants the real helper has to stop it.
-        self.api_flag_patcher = api_flag
-        self.api_flag = api_flag.start()
         self.addCleanup(owner_only.stop)
         self.addCleanup(member_read.stop)
-        self.addCleanup(api_flag.stop)
 
     def _url(self, path: str) -> str:
         return f"/api/organizations/{self.organization.id}/billing/{path}"
@@ -134,22 +127,13 @@ class OrganizationBillingTestMixin(APILicensedTest):
 
 class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_endpoints_are_behind_the_feature_flag(self, mock_get):
-        self.api_flag.return_value = False
-        response = self.client.get(self._url("subscription/"))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        mock_get.assert_not_called()
+    def test_endpoints_answer_without_a_feature_flag(self, mock_get):
+        mock_get.return_value = _response(SUBSCRIPTION)
 
-        # A flag key nobody has created yet answers None, not False, and so does a flag service
-        # that cannot be reached. The gate is the only thing between an unannounced API and the
-        # open internet, so neither may read as a yes. Patched at the client rather than at the
-        # helper above it, because the helper is where None becomes a refusal.
-        self.api_flag_patcher.stop()
-        self.addCleanup(self.api_flag_patcher.start)
-        with patch("posthoganalytics.feature_enabled", return_value=None):
+        with patch("posthoganalytics.feature_enabled", return_value=False):
             response = self.client.get(self._url("subscription/"))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        mock_get.assert_not_called()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_session_callers_are_throttled_too(self, mock_get):

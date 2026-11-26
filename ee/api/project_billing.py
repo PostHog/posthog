@@ -21,7 +21,6 @@ from rest_framework.response import Response
 
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models import Team
-from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 
 from ee.api.billing import BillingExportThrottle, BillingQueryTimeout, BillingUsageRequestSerializer
@@ -97,7 +96,7 @@ class ProjectBillingViewSet(BillingReadViewSet):
     psak_allowed_actions = PROJECT_BILLING_READ_ACTIONS
     scope_object_read_actions = PROJECT_BILLING_READ_ACTIONS
     # The routing mixin adds the project membership check for project routes.
-    permission_classes = [permissions.IsAuthenticated, PostHogFeatureFlagPermission]
+    permission_classes = [permissions.IsAuthenticated]
 
     def _project_team_ids(self) -> list[int]:
         """Every team in the project. Billing reports usage per team, and a project's environments are
