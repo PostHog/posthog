@@ -3,9 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 
-import { LoadedCard, load } from '../cards'
+import { LoadedCard, load, loadText } from '../cards'
 import type { InvariantResult } from '../judge/judge'
 import { RunResult } from '../runner/runner'
+import { RunReport } from '../store/runs'
 import { FakeProjectApi, TOKEN, startFakeProjectApi } from './fake-project-api'
 import { Provenance, provenanceOf } from './provenance'
 import { scorecardOf } from './scorecard'
@@ -55,6 +56,14 @@ const RESULT: RunResult = {
         { name: 'role_cpu_seconds', key: 'cdp-cyclotron-worker-email', value: 4.5, unit: 's', incomplete: true },
         { name: 'delivery_latency_ms', key: 'p95', value: 820, unit: 'ms' },
         { name: 'drain_seconds', value: null, unit: 's', censored: true },
+        {
+            name: 'counter_drift',
+            key: 'email_sent_events',
+            value: null,
+            unit: 'messages',
+            censored: true,
+            unmeasured: 'the stack runs no ingestion',
+        },
     ],
     admissions: [{ name: 'host', passed: true, reason: 'host CPU 41% busy in the baseline, under the 80% ceiling' }],
     bars: [
@@ -133,11 +142,13 @@ describe('scorecard', () => {
                     owners: [],
                     run_id: RUN_ID,
                     card_id: 'smoke',
-                    card_version: 3,
+                    card_version: 4,
                     card_hash: SMOKE.cardHash,
                     profile_name: 'synthetic',
                     profile_hash: SMOKE.profileHash,
                     topology_hash: null,
+                    config_hash: null,
+                    service_versions: null,
                     head_sha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
                     head_dirty: true,
                     origin: 'local-agent',
@@ -176,7 +187,11 @@ describe('scorecard', () => {
                     m_delivery_latency_ms_p95: 820,
                     m_drain_seconds: null,
                     m_drain_seconds_censored: true,
+                    m_counter_drift_email_sent_events: null,
+                    m_counter_drift_email_sent_events_censored: true,
+                    m_counter_drift_email_sent_events_unmeasured: 'the stack runs no ingestion',
                     admissions: RESULT.admissions,
+                    load_targets: null,
                     bars: RESULT.bars,
                     valve_timeline: [],
                     role_restarts: RESULT.restarts,
@@ -196,19 +211,57 @@ describe('scorecard', () => {
     it('reports a run that stopped before the drive with empty verdict fields', () => {
         const stopped: RunResult = {
             ...RESULT,
+            status: 'invalid',
+            statusReason: 'the run stopped: statement timeout',
             units: undefined,
             convergence: undefined,
+            janitorResets: undefined,
             invariants: [],
+            measurements: [],
+            admissions: [],
+            bars: [],
+            restarts: undefined,
+            stopped: { phase: 'seed', stack: 'Error: statement timeout\n    at seed (runner.ts:1:1)' },
         }
 
         expect(scorecardOf(stopped, SMOKE, PROVENANCE)).toMatchObject({
+            stopped_phase: 'seed',
+            stopped_stack: 'Error: statement timeout\n    at seed (runner.ts:1:1)',
             units_target: null,
             units_offered: null,
             send_retries: null,
             converged: null,
             unfinished_jobs: null,
+            janitor_resets: null,
             invariants_failed: [],
+            admissions: [],
+            bars: [],
+            role_restarts: [],
         })
+    })
+
+    it("records how a card's own traffic derives its load targets, without the profile's numbers", () => {
+        const loaded = loadText('chaos card', {
+            card: JSON.stringify({
+                ...SMOKE.card,
+                drive: { for: '30s', traffic: [{ name: 'event_email' }, { name: 'event_webhook' }] },
+            }),
+            profile: JSON.stringify({
+                name: 'full-traffic',
+                traffic: {
+                    event_email: { ratePerSecond: 3, parks: 1 },
+                    event_webhook: { ratePerSecond: 2 },
+                    transactional_email: { ratePerSecond: 1, parks: 2 },
+                },
+                settings: { CDP_SES_RATE_LIMIT_CAPACITY: '500' },
+                load: { targets: { claimsPerSecond: { hogflow: 8, email: 6 } }, tolerance: 0.1 },
+            }),
+        })
+
+        expect(scorecardOf(RESULT, loaded, PROVENANCE).load_targets).toEqual([
+            { rate: 'claimsPerSecond.hogflow', from: ['event_email', 'event_webhook'], share: 1 },
+            { rate: 'claimsPerSecond.email', from: ['event_email'], share: 0.5 },
+        ])
     })
 
     it.each<[string, InvariantResult, object]>([
@@ -252,6 +305,47 @@ describe('scorecard', () => {
                     part: 'role:cdp-cyclotron-worker-email',
                 },
                 reason: 'pickup_p99_under broke at the 10x step',
+                readings: [
+                    [
+                        {
+                            name: 'writer_cpu_under',
+                            unit: '%',
+                            limit: 70,
+                            value: 41.5,
+                            part: 'db:cyclotron',
+                            passed: true,
+                        },
+                        {
+                            name: 'pickup_p99_under',
+                            unit: 's',
+                            limit: 5,
+                            value: 1,
+                            key: 'email',
+                            part: 'role:cdp-cyclotron-worker-email',
+                            passed: true,
+                        },
+                    ],
+                    [
+                        {
+                            name: 'writer_cpu_under',
+                            unit: '%',
+                            limit: 70,
+                            value: null,
+                            passed: null,
+                            unjudged:
+                                'no writer CPU reading for the minute at 2026-01-05T10:01:00.000Z in the 10x step',
+                        },
+                        {
+                            name: 'pickup_p99_under',
+                            unit: 's',
+                            limit: 5,
+                            value: 10,
+                            key: 'email',
+                            part: 'role:cdp-cyclotron-worker-email',
+                            passed: false,
+                        },
+                    ],
+                ],
             },
             {
                 ramp_steps: [
@@ -260,12 +354,59 @@ describe('scorecard', () => {
                         started_at: '2026-01-05T10:00:00.000Z',
                         ended_at: '2026-01-05T10:01:00.000Z',
                         stretched: null,
+                        on_time: true,
+                        bars: [
+                            {
+                                name: 'writer_cpu_under',
+                                unit: '%',
+                                limit: 70,
+                                value: 41.5,
+                                key: null,
+                                part: 'db:cyclotron',
+                                passed: true,
+                                unjudged: null,
+                            },
+                            {
+                                name: 'pickup_p99_under',
+                                unit: 's',
+                                limit: 5,
+                                value: 1,
+                                key: 'email',
+                                part: 'role:cdp-cyclotron-worker-email',
+                                passed: true,
+                                unjudged: null,
+                            },
+                        ],
                     },
                     {
                         scale: 10,
                         started_at: '2026-01-05T10:01:00.000Z',
                         ended_at: '2026-01-05T10:02:15.000Z',
                         stretched: 'held the 10x rate past its planned end until the 5x step was judged',
+                        on_time: false,
+                        bars: [
+                            {
+                                name: 'writer_cpu_under',
+                                unit: '%',
+                                limit: 70,
+                                value: null,
+                                key: null,
+                                part: null,
+                                passed: null,
+                                unjudged:
+                                    'no writer CPU reading for the minute at 2026-01-05T10:01:00.000Z in the 10x step',
+                            },
+                            {
+                                name: 'pickup_p99_under',
+                                unit: 's',
+                                limit: 5,
+                                value: 10,
+                                key: 'email',
+                                part: 'role:cdp-cyclotron-worker-email',
+                                passed: false,
+                                unjudged: null,
+                            },
+                        ],
                     },
                 ],
                 ramp_end: 'broke',
@@ -391,6 +532,42 @@ describe('scorecard', () => {
                 ramp_stop_scale: 10,
                 ramp_stop_reason: '3 of 29 deliveries were lost in the 10x step (10.34%), over the 5% hard limit',
                 ramp_ran_to_end: false,
+            },
+        ],
+        [
+            'no on-time answer for a step with a bar unjudged or no bar judged',
+            {
+                end: 'ceiling',
+                sustainedScale: 10,
+                reason: 'every step held up to the 10x ceiling',
+                readings: [
+                    [
+                        {
+                            name: 'writer_cpu_under',
+                            unit: '%',
+                            limit: 70,
+                            value: null,
+                            passed: null,
+                            unjudged: 'the local stack has no Aurora writer to read CPU from',
+                        },
+                        {
+                            name: 'pickup_p99_under',
+                            unit: 's',
+                            limit: 5,
+                            value: 1,
+                            key: 'email',
+                            part: 'role:cdp-cyclotron-worker-email',
+                            passed: true,
+                        },
+                    ],
+                    [],
+                ],
+            },
+            {
+                ramp_steps: [
+                    expect.objectContaining({ scale: 5, on_time: null }),
+                    expect.objectContaining({ scale: 10, on_time: null, bars: [] }),
+                ],
             },
         ],
         [
@@ -554,6 +731,19 @@ describe('scorecard', () => {
         const after = scorecardOf(RESULT, loaded, provenance).fingerprint
 
         expect(after !== before).toBe(changes)
+    })
+
+    it('keeps the config hash and service versions through the run store, which takes unknown keys', () => {
+        const scorecard = scorecardOf(
+            { ...RESULT, configHash: 'a'.repeat(64), services: ['plugins example/plugins@sha256:1 sha256:2'] },
+            SMOKE,
+            PROVENANCE
+        )
+
+        expect(RunReport.parse({ scorecard }).scorecard).toMatchObject({
+            config_hash: 'a'.repeat(64),
+            service_versions: ['plugins example/plugins@sha256:1 sha256:2'],
+        })
     })
 
     it('gives no fingerprint when the code versions are unknown', () => {

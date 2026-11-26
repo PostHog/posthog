@@ -125,6 +125,17 @@ class SourceFilterPreviewSustainedThrottle(_SourceFilterPreviewThrottle):
     rate = "300/hour"
 
 
+class SourceFilterValidateBurstThrottle(_SourceFilterPreviewThrottle):
+    # The editor checks the expression on each typing pause, and the check reads no warehouse data.
+    scope = "signal_source_filter_validate_burst"
+    rate = "120/minute"
+
+
+class SourceFilterValidateSustainedThrottle(_SourceFilterPreviewThrottle):
+    scope = "signal_source_filter_validate_sustained"
+    rate = "3000/hour"
+
+
 class ReportSearchThrottle(PersonalApiKeyOrUserRateThrottle):
     # Per project, because a semantic search reads every report vector of the project from ClickHouse
     # and a fleet of scouts shares one project's budget.

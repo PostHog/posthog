@@ -101,7 +101,7 @@ export function ScoutDetailHeader({
                 <ScoutExemptionBadge config={config} group="watching" />
                 <ScoutOwners config={config} />
                 <span className="flex-1" />
-                <ScoutDetailActions config={config} />
+                <ScoutDetailActions config={config} rollup={rollup} />
             </div>
 
             {config.description && <ScoutDescription text={config.description} />}

@@ -7119,7 +7119,12 @@
                     "products.*.addons.*.tiered",
                     "products.*.addons.*.trial",
                     "products.*.addons.*.inclusion_only",
-                    "products.*.addons.*.legacy_product"
+                    "products.*.addons.*.legacy_product",
+                    "products.*.description",
+                    "products.*.addons.*.description",
+                    "available_product_features.*.description",
+                    "available_product_features.*.note",
+                    "available_product_features.*.is_plan_default"
                 ],
                 "expandable": []
             },
@@ -11504,6 +11509,64 @@
             "validators": []
         }
     },
+    "cohorts-set-realtime": {
+        "name": "cohorts-set-realtime",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/cohorts/{id}/realtime/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "enabled",
+                    "key": "enabled"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": {
+                "kind": "omit",
+                "fields": [
+                    "filters.properties.values.*.values.*.bytecode",
+                    "filters.properties.values.*.values.*.bytecode_error",
+                    "filters.properties.values.*.values.*.conditionHash",
+                    "filters.properties.values.*.bytecode",
+                    "filters.properties.values.*.bytecode_error",
+                    "filters.properties.values.*.conditionHash"
+                ],
+                "expandable": []
+            },
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/cohorts",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "result"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {
+                "id": "castStringToInt"
+            },
+            "validators": []
+        }
+    },
     "comment-count": {
         "name": "comment-count",
         "kind": "http",
@@ -14708,71 +14771,34 @@
         "response": {
             "list": false,
             "filter": {
-                "kind": "omit",
+                "kind": "pick",
                 "fields": [
-                    "user_access_level",
-                    "creation_mode",
-                    "deleted",
-                    "breakdown_colors",
-                    "data_color_theme_id",
-                    "quick_filter_ids",
-                    "tiles.*.color",
-                    "tiles.*.transparent_background",
-                    "tiles.*.show_description",
-                    "tiles.*.button_tile",
-                    "tiles.*.insight.result",
-                    "tiles.*.insight.hasMore",
-                    "tiles.*.insight.columns",
-                    "tiles.*.insight.hogql",
-                    "tiles.*.insight.types",
-                    "tiles.*.insight.query_status",
-                    "tiles.*.insight.cache_target_age",
-                    "tiles.*.insight.next_allowed_client_refresh",
-                    "tiles.*.insight.filters_hash",
-                    "tiles.*.insight.dashboards",
-                    "tiles.*.insight.dashboard_tiles",
-                    "tiles.*.insight.user_access_level",
-                    "tiles.*.insight.filters",
-                    "tiles.*.insight.is_sample",
-                    "tiles.*.insight.order",
-                    "tiles.*.insight.deleted",
-                    "tiles.*.insight.alerts",
-                    "tiles.*.insight.timezone",
-                    "tiles.*.insight.resolved_date_range",
-                    "tiles.*.insight.resolved_compare_date_range",
-                    "tiles.*.insight.filter_override_context",
-                    "created_by.uuid",
-                    "created_by.distinct_id",
-                    "created_by.is_email_verified",
-                    "created_by.hedgehog_config",
-                    "tiles.*.insight.created_by.uuid",
-                    "tiles.*.insight.created_by.distinct_id",
-                    "tiles.*.insight.created_by.is_email_verified",
-                    "tiles.*.insight.created_by.hedgehog_config",
-                    "tiles.*.insight.last_modified_by.uuid",
-                    "tiles.*.insight.last_modified_by.distinct_id",
-                    "tiles.*.insight.last_modified_by.is_email_verified",
-                    "tiles.*.insight.last_modified_by.hedgehog_config",
-                    "tiles.*.text.dashboard_tiles",
-                    "tiles.*.text.created_by.uuid",
-                    "tiles.*.text.created_by.distinct_id",
-                    "tiles.*.text.created_by.is_email_verified",
-                    "tiles.*.text.created_by.hedgehog_config",
-                    "tiles.*.text.last_modified_by.uuid",
-                    "tiles.*.text.last_modified_by.distinct_id",
-                    "tiles.*.text.last_modified_by.is_email_verified",
-                    "tiles.*.text.last_modified_by.hedgehog_config",
-                    "tiles.*.widget.dashboard_tiles",
-                    "tiles.*.widget.created_by.uuid",
-                    "tiles.*.widget.created_by.distinct_id",
-                    "tiles.*.widget.created_by.is_email_verified",
-                    "tiles.*.widget.created_by.hedgehog_config",
-                    "tiles.*.widget.last_modified_by.uuid",
-                    "tiles.*.widget.last_modified_by.distinct_id",
-                    "tiles.*.widget.last_modified_by.is_email_verified",
-                    "tiles.*.widget.last_modified_by.hedgehog_config"
+                    "id",
+                    "name",
+                    "description",
+                    "pinned",
+                    "tags",
+                    "filters",
+                    "variables",
+                    "grid_spacing",
+                    "layout_compaction",
+                    "group_display",
+                    "groups",
+                    "tiles.*.id",
+                    "tiles.*.layouts",
+                    "tiles.*.group_key",
+                    "tiles.*.badge",
+                    "tiles.*.filters_overrides",
+                    "tiles.*.insight.id",
+                    "tiles.*.insight.short_id",
+                    "tiles.*.insight.name",
+                    "tiles.*.insight.derived_name",
+                    "tiles.*.text.id",
+                    "tiles.*.widget.id",
+                    "tiles.*.widget.widget_type",
+                    "tiles.*.widget.name"
                 ],
-                "expandable": []
+                "selectable": false
             },
             "stripNulls": true,
             "enrich": {
@@ -15963,6 +15989,38 @@
                     "csv": false
                 }
             ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "data-warehouse-data-health-issues-retrieve": {
+        "name": "data-warehouse-data-health-issues-retrieve",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/data_warehouse/data_health_issues/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
             "body": null,
             "injectBody": {},
             "softDelete": null,
@@ -27153,6 +27211,47 @@
             "validators": []
         }
     },
+    "inbox-monitor-pr": {
+        "name": "inbox-monitor-pr",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/monitor_pr/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "pr_url",
+                    "key": "pr_url"
+                },
+                {
+                    "param": "note",
+                    "key": "note"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "inbox-my-settings-get": {
         "name": "inbox-my-settings-get",
         "kind": "http",
@@ -27643,6 +27742,11 @@
                     "param": "offset",
                     "key": "offset",
                     "csv": false
+                },
+                {
+                    "param": "type",
+                    "key": "type",
+                    "csv": false
                 }
             ],
             "body": null,
@@ -27658,7 +27762,7 @@
                 "kind": "list",
                 "baseUrl": "/inbox"
             },
-            "agentNote": "Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan applies, verify the issue from the report's evidence.\n",
+            "agentNote": "Find the newest applicable `## Verification plan`, which is a `note` artefact. Treat it as guidance, not evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan applies, verify the issue from the report's evidence.\n",
             "informational": null,
             "textInclude": []
         },
@@ -28065,7 +28169,7 @@
                 "suffix": "",
                 "source": "result"
             },
-            "agentNote": null,
+            "agentNote": "Put this report's `_posthogUrl` in the description of each pull request that fixes it, so that reviewers can see the context. Then attach each pull request to the report with `pull_requests` on this tool.\n",
             "informational": null,
             "textInclude": []
         },
@@ -28503,8 +28607,8 @@
                 "fields": [
                     "id",
                     "title",
-                    "summary",
-                    "metrics",
+                    "summary_lead",
+                    "repo_slug",
                     "tags",
                     "status",
                     "priority",
@@ -28560,7 +28664,7 @@
                 "field": "id",
                 "suffix": ""
             },
-            "agentNote": "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. With no user to ask, leave it and work on another report. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n",
+            "agentNote": "A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before you change code for a report, read it with inbox-reports-retrieve and claim it with inbox-reports-claim. Put the report's `_posthogUrl` in your pull request description so that reviewers can see the context, then attach the pull request with inbox-reports-claim and `pull_requests`.\n",
             "informational": null,
             "textInclude": []
         },
@@ -28805,7 +28909,7 @@
                 "suffix": "",
                 "source": "result"
             },
-            "agentNote": "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. With no user to ask, leave it and work on another report. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n",
+            "agentNote": "Before you change code, claim the report with inbox-reports-claim and read its work log with inbox-report-artefacts-list. If `assignee` shows another person or their agent, ask your user before you take it over. Put this report's `_posthogUrl` in your pull request description so that reviewers can see the context, then attach the pull request with inbox-reports-claim and `pull_requests`.\n",
             "informational": null,
             "textInclude": []
         },
@@ -29977,11 +30081,20 @@
                     "favorited",
                     "dashboards",
                     "created_at",
-                    "created_by",
+                    "created_by.id",
+                    "created_by.first_name",
+                    "created_by.last_name",
+                    "created_by.email",
                     "last_modified_at",
-                    "last_modified_by",
+                    "last_modified_by.id",
+                    "last_modified_by.first_name",
+                    "last_modified_by.last_name",
+                    "last_modified_by.email",
                     "last_viewed_at",
-                    "alerts"
+                    "alerts.*.id",
+                    "alerts.*.name",
+                    "alerts.*.state",
+                    "alerts.*.enabled"
                 ],
                 "selectable": false
             },
@@ -40492,10 +40605,19 @@
             "list": false,
             "filter": {
                 "kind": "omit",
-                "fields": ["live_events_token", "heatmaps_screenshot_secret", "default_modifiers"],
+                "fields": [
+                    "live_events_token",
+                    "heatmaps_screenshot_secret",
+                    "default_modifiers",
+                    "available_setup_task_ids",
+                    "onboarding_tasks",
+                    "live_events_columns",
+                    "product_intents.*.created_at",
+                    "product_intents.*.updated_at"
+                ],
                 "expandable": []
             },
-            "stripNulls": false,
+            "stripNulls": true,
             "enrich": null,
             "agentNote": null,
             "informational": null,
@@ -41586,8 +41708,8 @@
     "query-logs": {
         "name": "query-logs",
         "kind": "http",
-        "requires": ["hook:logs/redactCredentialsHooks"],
-        "hooks": "logs/redactCredentialsHooks",
+        "requires": ["hook:logs/queryLogsHooks"],
+        "hooks": "logs/queryLogsHooks",
         "uiApp": null,
         "request": {
             "method": "POST",
@@ -41609,7 +41731,7 @@
             "list": false,
             "filter": {
                 "kind": "pick",
-                "fields": ["results", "columns"],
+                "fields": ["results", "columns", "hasMore", "nextCursor", "next"],
                 "selectable": false
             },
             "stripNulls": false,
@@ -57719,7 +57841,19 @@
         },
         "response": {
             "list": false,
-            "filter": null,
+            "filter": {
+                "kind": "omit",
+                "fields": [
+                    "actions.*.config.inputs.*.bytecode",
+                    "actions.*.config.inputs.*.transpiled",
+                    "draft.actions.*.config.inputs.*.bytecode",
+                    "draft.actions.*.config.inputs.*.transpiled"
+                ],
+                "expandable": [
+                    "actions.*.config.inputs.email.value.design",
+                    "draft.actions.*.config.inputs.email.value.design"
+                ]
+            },
             "stripNulls": false,
             "enrich": {
                 "kind": "item",

@@ -292,7 +292,8 @@ Other cases to know:
   Code that saves a whole cohort row still can.
 - **A seeder-side failure.**
   A run the seeder fails keeps its stamp empty and frees its slot.
-  Nothing re-creates it.
+  Nothing re-creates it on its own.
+  A person can ask for the build again with "Try again" on the cohort page, which calls the cohort API's `realtime` action with `enabled: true`.
 - **A cohort is too large to build.**
   When the save path refuses a behavioral run on the scan limit, or because the count hit its time cap, it stores the refusal in `cohort_backfill_refusals`, one row per cohort, with the numbers or the timeout in `message`.
   A count that times out while the ClickHouse kill switch lowers that cap is an error instead, which the trigger task retries.

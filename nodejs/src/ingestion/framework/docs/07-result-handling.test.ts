@@ -15,7 +15,7 @@
  *
  * ## Redirect Options
  *
- * `redirect(reason, output, preserveKey?, awaitAck?)` takes two optional flags,
+ * `redirect(reason, output, { preserveKey?, awaitAck? })` takes two optional flags,
  * both defaulting to `true`:
  *
  * - **`preserveKey`** (default `true`): keep the original Kafka message key on
@@ -238,9 +238,9 @@ describe('Result Handling', () => {
                 return Promise.resolve(
                     items.map((item) => {
                         if (item.priority === 'high') {
-                            return redirect('High priority routing', HIGH_PRIORITY_OUTPUT, true) // preserveKey = true
+                            return redirect('High priority routing', HIGH_PRIORITY_OUTPUT, { preserveKey: true }) // preserveKey = true
                         } else if (item.priority === 'broadcast') {
-                            return redirect('Broadcast routing', BROADCAST_OUTPUT, false) // preserveKey = false
+                            return redirect('Broadcast routing', BROADCAST_OUTPUT, { preserveKey: false }) // preserveKey = false
                         }
                         return ok(item)
                     })
@@ -330,7 +330,7 @@ describe('Result Handling', () => {
         function createRoutingStep(): ChunkProcessingStep<{ v: string }, { v: string }, 'overflow'> {
             return function routingStep(items) {
                 // awaitAck defaults to true (fourth arg omitted)
-                return Promise.resolve(items.map(() => redirect('Overflow', OVERFLOW, true)))
+                return Promise.resolve(items.map(() => redirect('Overflow', OVERFLOW, { preserveKey: true })))
             }
         }
 
@@ -380,7 +380,9 @@ describe('Result Handling', () => {
         function createRoutingStep(): ChunkProcessingStep<{ v: string }, { v: string }, 'overflow'> {
             return function routingStep(items) {
                 // preserveKey = true, awaitAck = false
-                return Promise.resolve(items.map(() => redirect('Overflow', OVERFLOW, true, false)))
+                return Promise.resolve(
+                    items.map(() => redirect('Overflow', OVERFLOW, { preserveKey: true, awaitAck: false }))
+                )
             }
         }
 

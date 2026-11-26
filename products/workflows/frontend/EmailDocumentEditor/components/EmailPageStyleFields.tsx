@@ -12,6 +12,7 @@ import { EmailFieldRow } from './fields/EmailFieldRow'
 import { EmailNumberField } from './fields/EmailNumberField'
 import { EmailSectionTitle } from './fields/EmailSectionTitle'
 import { EmailSidesField } from './fields/EmailSidesField'
+import { NUMBER_LIMITS } from './fields/numberLimits'
 
 export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Element {
     const page = resolvePageStyle(editor.state.doc.attrs.page)
@@ -53,6 +54,7 @@ export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Elemen
             </EmailFieldRow>
             <EmailNumberField
                 label="Padding"
+                limit={NUMBER_LIMITS.padding}
                 value={page.padding}
                 onChange={required('padding')}
                 attr="email-editor-page-padding"
@@ -84,9 +86,8 @@ export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Elemen
             />
             <EmailNumberField
                 label="Width"
+                limit={NUMBER_LIMITS.bodyWidth}
                 value={page.bodyWidth}
-                min={200}
-                max={1200}
                 onChange={required('bodyWidth')}
                 attr="email-editor-body-width"
             />
@@ -99,12 +100,14 @@ export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Elemen
             />
             <EmailNumberField
                 label="Corner radius"
+                limit={NUMBER_LIMITS.cornerRadius}
                 value={page.bodyBorderRadius}
                 onChange={required('bodyBorderRadius')}
                 attr="email-editor-body-radius"
             />
             <EmailNumberField
                 label="Border"
+                limit={NUMBER_LIMITS.border}
                 value={page.bodyBorderWidth}
                 onChange={required('bodyBorderWidth')}
                 attr="email-editor-body-border"
@@ -144,18 +147,16 @@ export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Elemen
                                 </EmailFieldRow>
                                 <EmailNumberField
                                     label="Font size"
+                                    limit={NUMBER_LIMITS.baseTextSize}
                                     value={page.fontSize}
-                                    min={8}
-                                    max={40}
                                     onChange={required('fontSize')}
                                     attr="email-editor-theme-font-size"
                                 />
                                 <EmailNumberField
                                     label="Line height"
                                     suffix="%"
+                                    limit={NUMBER_LIMITS.lineHeight}
                                     value={page.lineHeight}
-                                    min={80}
-                                    max={300}
                                     onChange={required('lineHeight')}
                                 />
                                 <EmailColorField
@@ -164,9 +165,24 @@ export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Elemen
                                     onChange={required('linkColor')}
                                     attr="email-editor-theme-link"
                                 />
-                                <EmailNumberField label="Heading 1" value={page.h1Size} onChange={required('h1Size')} />
-                                <EmailNumberField label="Heading 2" value={page.h2Size} onChange={required('h2Size')} />
-                                <EmailNumberField label="Heading 3" value={page.h3Size} onChange={required('h3Size')} />
+                                <EmailNumberField
+                                    label="Heading 1"
+                                    limit={NUMBER_LIMITS.textSize}
+                                    value={page.h1Size}
+                                    onChange={required('h1Size')}
+                                />
+                                <EmailNumberField
+                                    label="Heading 2"
+                                    limit={NUMBER_LIMITS.textSize}
+                                    value={page.h2Size}
+                                    onChange={required('h2Size')}
+                                />
+                                <EmailNumberField
+                                    label="Heading 3"
+                                    limit={NUMBER_LIMITS.textSize}
+                                    value={page.h3Size}
+                                    onChange={required('h3Size')}
+                                />
                                 <EmailColorField
                                     label="Button"
                                     value={page.buttonBackgroundColor}
@@ -180,6 +196,7 @@ export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Elemen
                                 />
                                 <EmailNumberField
                                     label="Button radius"
+                                    limit={NUMBER_LIMITS.cornerRadius}
                                     value={page.buttonBorderRadius}
                                     onChange={required('buttonBorderRadius')}
                                 />
