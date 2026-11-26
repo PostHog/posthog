@@ -99,7 +99,7 @@ async function postBatch(teamId: number, body: QueryBatchRequestApi, timer: Quer
             },
             body: JSON.stringify(body),
         })
-        timer.response(response.status)
+        timer.response(response.status, response.headers.get('traceresponse'))
         if (response.status !== 429 || attempt >= THROTTLE_RETRY_DELAYS_MS.length) {
             return response
         }

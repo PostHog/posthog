@@ -4847,16 +4847,16 @@ Note: Conversations are synced via /conversation_export rather than the paged co
 
 ## Dockerhub — gaps
 
-Today (6): `repositories`, `tags`, `org_members`, `org_groups`, `audit_logs`, `audit_log_actions`
+Today (8): `repositories`, `tags`, `org_members`, `org_groups`, `org_group_members`, `audit_logs`, `audit_log_actions`, `repository_pulls`
 
 Diffed against: <https://docs.docker.com/reference/api/hub/latest.yaml>
 
 - [x] `GET /v2/orgs/{org_name}/members` — org membership roster — the lookup that resolves the creator/last_updater usernames already present on repositories (high)
 - [x] `GET /v2/auditlogs/{account}` — audit log event stream (pushes, permission changes, deletions); the only event-shaped table in the Hub API (high)
-- [ ] `GET /v2/orgs/{org_name}/groups/{group_name}/members` — team↔user membership junction for access analysis (medium)
+- [x] `GET /v2/orgs/{org_name}/groups/{group_name}/members` — team↔user membership junction for access analysis (medium)
 - [x] `GET /v2/orgs/{org_name}/groups` — team lookup that group membership rows point at (medium)
 - [x] `GET /v2/auditlogs/{account}/actions` — lookup enumerating audit action types for categorizing log rows (medium)
-- [ ] `GET /v2/namespaces/{namespace}/pulls (DVP Data API)` — per-repo pull counts over time — the headline usage metric, but only available to Docker Verified Publishers (low)
+- [x] `GET /v2/namespaces/{namespace}/pulls (DVP Data API)` — per-repo pull counts over time — the headline usage metric, but only available to Docker Verified Publishers (low)
 
 Note: The org-scoped endpoints are now covered; they only return data when the configured namespace is an organization and the token belongs to an owner, so `get_endpoint_permissions` reports them as unavailable on a personal namespace. The remaining group-membership junction needs a second fan-out level over `org_groups`. Pull analytics live in a separate spec (https://docs.docker.com/reference/api/dvp/latest.yaml) gated behind Verified Publisher status. Access-token, SCIM schema, and org-settings endpoints were excluded as plumbing.
 
@@ -6203,10 +6203,10 @@ Diffed against: <https://api.freshservice.com/>
 - [x] `sla_policies` — lookup that resolves the SLA policy ID on tickets into targets and escalation rules (medium)
 - [x] `tickets/{id}/tasks (and problem/change/release tasks)` — sub-task breakdown and completion state under each ticket (medium) — synced as `ticket_tasks`, `problem_tasks`, `change_tasks` and `release_tasks`
 - [x] `approvals` — account-wide approval records with approver, state and timestamps — the service-request bottleneck metric (medium) — the listing needs a filter beyond `parent`, so it is swept once per ticket/change module and approval status
-- [ ] `alerts (+ alert logs)` — alert-management records that precede incidents; logs give the state transition history (medium)
-- [ ] `service_catalog/items (+ service_categories lookup)` — resolves what was actually requested in each service request, and the category lookup (medium)
-- [ ] `tickets/{id}/csat_response` — satisfaction score per ticket — the headline support quality metric (medium)
-- [ ] `solutions/articles (+ categories, folders)` — knowledge base content with view/hit counts for deflection analysis (low)
+- [x] `alerts (+ alert logs)` — alert-management records that precede incidents; logs give the state transition history (medium) — synced as `alerts`; alert logs not built, because a log row has no documented unique id
+- [x] `service_catalog/items (+ service_categories lookup)` — resolves what was actually requested in each service request, and the category lookup (medium) — synced as `service_items` and `service_categories`
+- [x] `tickets/{id}/csat_response` — satisfaction score per ticket — the headline support quality metric (medium) — synced as `ticket_csat_responses`
+- [x] `solutions/articles (+ categories, folders)` — knowledge base content with view/hit counts for deflection analysis (low) — synced as `solution_categories`, `solution_folders` and `solution_articles`
 
 Note: Freshservice's single-page API reference exposes ~680 anchored operations. Static table list in the source; no dynamic discovery. Coverage is good on the top-level ITSM objects but misses every sub-resource hanging off tickets/problems/changes/releases.
 
@@ -7794,10 +7794,10 @@ Diffed against: <https://api.insightly.com/v3.1/swagger/docs/v3.1>
 - [x] `/Ticket` — Insightly Service tickets, an entire product area with no table today (high). Added as `Ticket`.
 - [x] `/Quotation and /QuotationLineItem` — quotes and their line items, the pre-close revenue pipeline (medium). Added as `Quotation` and `QuotationLineItem`.
 - [x] `/Product, /Pricebook, /PricebookEntry` — lookups resolving PRODUCT_ID and PRICEBOOK_ENTRY_ID on opportunity and quotation line items (medium). Added as `Product`, `Pricebook`, and `PricebookEntry`.
-- [ ] `/Milestones` — project milestones and their completion dates, the delivery-tracking grain under Projects (medium)
-- [ ] `/OpportunityCategories, /ProjectCategories, /TaskCategories` — lookups resolving the CATEGORY_ID already present on the synced opportunities, projects and tasks (medium)
-- [ ] `/Teams and /TeamMembers` — team membership for rolling per-rep opportunity and task metrics up to teams (medium)
-- [ ] `/Prospect and /MarketingVisits` — marketing-side prospect records and site visit events, upstream of Leads (medium)
+- [x] `/Milestones` — project milestones and their completion dates, the delivery-tracking grain under Projects (medium). Added as `Milestones`, incremental through `/Milestones/Search`.
+- [x] `/OpportunityCategories, /ProjectCategories, /TaskCategories` — lookups resolving the CATEGORY_ID already present on the synced opportunities, projects and tasks (medium). Added as `OpportunityCategories`, `ProjectCategories`, and `TaskCategories`.
+- [x] `/Teams and /TeamMembers` — team membership for rolling per-rep opportunity and task metrics up to teams (medium). Added as `Teams` and `TeamMembers`.
+- [x] `/Prospect and /MarketingVisits` — marketing-side prospect records and site visit events, upstream of Leads (medium). Added as `Prospect` (incremental through `/Prospect/Search`) and `MarketingVisits`.
 
 Note: https://api.insightly.com/v3.1/swagger/docs/v3 (the URL linked from the Help page) 500s; the working spec is .../swagger/docs/v3.1, which I fetched and parsed. The API is also generically extensible: /{objectName}, /{objectName}/Search and /CustomObjects expose user-defined objects, so a dynamic-table mode would be feasible here, though the current source is a fixed 11-table list. Excluded: FileAttachments/Image/ImageField (binary), Follow/Follows, Permissions, DocumentTemplates, ActivitySets, and the Community\*/Forum\*/KnowledgeArticle\* portal surface (low analytical value for most tenants).
 
@@ -9676,15 +9676,15 @@ Note (2026-11-19): The v2 Swagger file needs an API key, so I used the public AP
 
 ## Mention — gaps
 
-Today (7): `accounts`, `alert_authors`, `alert_daily_stats`, `alert_tags`, `alert_tasks`, `alerts`, `mentions`
+Today (8): `accounts`, `alert_authors`, `alert_daily_stats`, `alert_shares`, `alert_tags`, `alert_tasks`, `alerts`, `mentions`
 
 Diffed against: <https://dev.mention.com/current/>
 
 - [x] `GET /accounts/{account_id}/stats` — Per-alert statistics with country, tone, weekday and influencer breakdowns - the product's headline metric (high)
 - [x] `GET /accounts/{account_id}/alerts/{alert_id}/authors` — Author/influencer breakdown per alert, with scores; a key analytical dimension over mentions (high)
 - [x] `GET /accounts/{account_id}/alerts/{alert_id}/tasks` — Task assignments on mentions - the workflow state layered over the mentions we already sync (medium)
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/mentions/{mention_id}/children` — Child/duplicate mentions, needed to deduplicate or measure syndication reach (medium) — not built: it needs one request per mention on top of the full mentions walk, and each `mentions` row already carries its first page of children plus the `total` count
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/shares` — Alert share membership, showing who has access to each alert (low)
+- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/mentions/{mention_id}/children` — Child/duplicate mentions, needed to deduplicate or measure syndication reach (medium) — not built: it needs one request per mention on top of the full mentions walk, and each `mentions` row already carries its first page of children plus the `total` count. Skipped: one request per mention, and each `mentions` row already carries its first page of children.
+- [x] `GET /accounts/{account_id}/alerts/{alert_id}/shares` — Alert share membership, showing who has access to each alert (low). Added as `alert_shares` (full refresh)
 
 Note: The reference is a static HTML tree; the full endpoint list is readable from the index page's link set. MENTION_ENDPOINTS is a static dict with no dynamic discovery, and all four tables are full-refresh.
 
@@ -10930,11 +10930,11 @@ Today (8): `Charges`, `Customers`, `Disputes`, `Events`, `Recipients`, `Refunds`
 
 Diffed against: <https://docs.omise.co/api-reference>
 
-- [ ] `Cards (GET /customers/{id}/cards)` — resolve default_card IDs and analyze the complete saved card inventory by customer (high)
-- [ ] `Schedules (GET /schedules)` — analyze recurring charges and transfers, including active schedules and future billing obligations (high)
-- [ ] `Occurrences (GET /schedules/{id}/occurrences)` — measure successful, failed, and skipped scheduled payments over time (high)
-- [ ] `Receipts (GET /receipts)` — reconcile processing fees, taxes, and adjustments with transaction totals (medium)
-- [ ] `Payment Links+ Links (GET https://linksplus-api.omise.co/external/:team_id/links)` — analyze payment link amounts, expiry dates, and lifecycle states (medium)
+- [x] `Cards (GET /customers/{id}/cards)` — resolve default_card IDs and analyze the complete saved card inventory by customer (high) — shipped as `Cards`
+- [x] `Schedules (GET /schedules)` — analyze recurring charges and transfers, including active schedules and future billing obligations (high) — shipped as `Schedules`
+- [x] `Occurrences (GET /schedules/{id}/occurrences)` — measure successful, failed, and skipped scheduled payments over time (high) — shipped as `Occurrences`
+- [x] `Receipts (GET /receipts)` — reconcile processing fees, taxes, and adjustments with transaction totals (medium) — shipped as `Receipts`
+- [ ] `Payment Links+ Links (GET https://linksplus-api.omise.co/external/:team_id/links)` — analyze payment link amounts, expiry dates, and lifecycle states (medium) Skipped: needs a separate Payment Links+ dashboard API key and team ID on another host, which the source does not collect.
 
 Note: Parsed official resource references for schedules, occurrences, receipts, cards, and Payment Links+. Customer responses embed a paginated card list; the source does not request its remaining pages. Occurrences need schedule IDs; Payment Links+ needs a separate key and host. Excluded tokens, capabilities, document uploads, and account settings.
 
@@ -15149,11 +15149,11 @@ Diffed against: <https://developers.toriihq.com/sitemap.xml>
 - [x] `apps/{idApp}/users` — app-to-user membership/license assignment rows; the join table that makes Apps and Users analytically useful (high) → `AppUsers` (full refresh, fan-out over `Apps`)
 - [x] `roles` — lookup table resolving the role ids carried on users and app owners (high) → `Roles` (full refresh)
 - [x] `apps/metadata, users/metadata, contracts/metadata, transactions/metadata` — custom-field definitions that resolve the field ids present on rows we already sync (medium) → `FieldsMetadata` (full refresh, one table for all four entities)
-- [ ] `workflows` — automation definitions referenced by execution logs and access requests (medium)
+- [x] `workflows` — automation definitions referenced by execution logs and access requests (medium) → `Workflows` (full refresh, regular workflows)
 - [x] `workflows/actionExecutions` — action execution log, the event stream for offboarding/provisioning automation (medium) → `ActionExecutions` (full refresh, no server-side time filter)
-- [ ] `audit` — admin audit log of changes to apps, contracts and users (medium)
-- [ ] `users/{idUser}/apps` — per-user app portfolio; complements the app-users join for user-centric queries (low)
-- [ ] `workflows/audit` — workflow change history (low)
+- [x] `audit` — admin audit log of changes to apps, contracts and users (medium) → `Audit` (incremental on `creationTime`, synthetic hash `id`)
+- [ ] `users/{idUser}/apps` — per-user app portfolio; complements the app-users join for user-centric queries (low) Skipped: same user-app pairs as `AppUsers`, and it needs one request per user.
+- [ ] `workflows/audit` — workflow change history (low) Skipped: `/audit` already returns the same workflow event types, so the `Audit` table covers it.
 
 Note: Docs are a JS-rendered ReadMe site with no downloadable OAS, so the endpoint list came from the docs sitemap; individual reference pages were fetched to confirm titles (e.g. getappsidappusers = 'List application users', getroles = 'List roles'). SCIM v2 endpoints and app-catalog access-request policies were excluded as plumbing/config.
 

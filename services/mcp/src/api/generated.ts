@@ -9666,6 +9666,25 @@ export namespace Schemas {
       variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
     }
 
+    /**
+     * Exposed entities with no row of the metric query that counted, by variant.
+     */
+    export type ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows = {[key: string]: number} | null;
+
+    /**
+     * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+     */
+    export type ExperimentWarehouseNativeRowsLeftOutUnknownVariants = {[key: string]: number} | null;
+
+    export interface ExperimentWarehouseNativeRowsLeftOut {
+      /** Exposure rows with an empty entity_id. */
+      empty_id?: number | null;
+      /** Exposed entities with no row of the metric query that counted, by variant. */
+      exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows;
+      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+      unknown_variants?: ExperimentWarehouseNativeRowsLeftOutUnknownVariants;
+    }
+
     export interface ExperimentQueryResponse {
       baseline?: ExperimentStatsBaseValidated | null;
       /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
@@ -9675,6 +9694,8 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
+      /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
@@ -51219,7 +51240,7 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
@@ -51546,6 +51567,8 @@ export namespace Schemas {
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
+      /** Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: ExperimentExposureQueryResponseTotalExposures;
@@ -53882,7 +53905,7 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
@@ -93849,7 +93872,7 @@ export namespace Schemas {
       readonly is_legacy?: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure?: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event?: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health?: ExperimentHealth | null;
@@ -108422,6 +108445,8 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
+      /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
@@ -108444,6 +108469,8 @@ export namespace Schemas {
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
+      /** Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: QueryResponseAlternative20TotalExposures;
@@ -145828,6 +145855,13 @@ export namespace Schemas {
      * @minimum 1
      */
     page?: number;
+    };
+
+    export type ExperimentsHealthRetrieveParams = {
+    /**
+     * Check a draft as it will be when its launch succeeds. The checks that run only after launch also run, as if the experiment launched now with no exposures, calculation or flag change yet. Has no effect on a launched experiment.
+     */
+    at_launch?: boolean;
     };
 
     export type ExperimentsRunningTimeTargetRetrieveParams = {

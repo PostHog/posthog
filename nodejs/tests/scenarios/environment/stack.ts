@@ -26,6 +26,7 @@ export const STACK = {
     sesRateLimiterValkey: SES_RATE_LIMITER_VALKEY,
     personhogReadinessUrl: 'http://127.0.0.1:9101/_readiness',
     kafkaContainer: 'posthog-kafka-1',
+    composeProject: 'posthog',
     templates: ['template-email', 'template-webhook'],
 }
 
@@ -362,6 +363,21 @@ export async function terminateRoleConnections(
         )
         return terminated.rows[0].terminated
     }, postgresUrl)
+}
+
+const DOCKER_READ_WITHIN_MS = 10_000
+
+export async function serviceImagesOf(docker: string): Promise<string[]> {
+    const run = (args: string[]): Promise<string> =>
+        promisify(execFile)(docker, args, { timeout: DOCKER_READ_WITHIN_MS }).then(({ stdout }) => stdout)
+    const containers = (await run(['ps', '-q', '--filter', `label=com.docker.compose.project=${STACK.composeProject}`]))
+        .split('\n')
+        .filter(Boolean)
+    if (containers.length === 0) {
+        return []
+    }
+    const format = '{{index .Config.Labels "com.docker.compose.service"}} {{.Config.Image}} {{.Image}}'
+    return (await run(['inspect', '--format', format, ...containers])).split('\n').filter(Boolean).sort()
 }
 
 export async function rolesNotReady(specs: RoleSpec[]): Promise<RoleSpec[]> {

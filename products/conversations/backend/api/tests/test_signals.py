@@ -187,14 +187,22 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert "human_outcome" not in (self.ticket.ai_triage or {})
 
-    def test_automated_update_does_not_replace_draft_for_human_outcome(self, mock_on_commit):
+    @parameterized.expand([("automated_update_key",), ("internal_note_key",)])
+    def test_keyed_ai_note_does_not_replace_draft_for_human_outcome(self, mock_on_commit, context_key):
         draft = "Add the snippet to the head of every page."
         self._create_ai_message(draft)
-        self._create_ai_message("Pull request update", item_context={"automated_update_key": "pr-123"})
+        self._create_ai_message("Pull request update", item_context={context_key: "pr-123"})
         self._create_team_message(draft)
 
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_internal_note_without_a_draft_records_no_human_outcome(self, mock_on_commit):
+        self._create_ai_message("Agent findings", item_context={"internal_note_key": "inbox-report-1"})
+        self._create_team_message("Thanks, we are looking into this.")
+
+        self.ticket.refresh_from_db()
+        assert "human_outcome" not in (self.ticket.ai_triage or {})
 
     def test_used_draft_then_edited_send_upgrades_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page, then reload to send a pageview."

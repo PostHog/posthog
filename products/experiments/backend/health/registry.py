@@ -118,7 +118,7 @@ from products.experiments.backend.health.checks.unserved_variants import (
 from products.experiments.backend.health.checks.zero_exposures import zero_exposures, zero_exposures_values
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import ZERO_EXPOSURES_GRACE_HOURS
-from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip, CheckValues
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, CheckRows, CheckSkip, CheckValues
 
 
 @frozen
@@ -500,20 +500,30 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
 _CHECK_FAILED = "Couldn't check because the check failed"
 
 
-def evaluate(ctx: HealthContext, checks: Sequence[HealthCheck]) -> ExperimentHealth:
+def evaluate(
+    ctx: HealthContext, checks: Sequence[HealthCheck], *, launched: HealthContext | None = None
+) -> ExperimentHealth:
+    """`launched` is the draft as it is when its launch succeeds. A check that runs only after launch then runs on it
+    too, and its outcome replaces "Runs after launch". A check that couldn't check on it keeps "Runs after launch",
+    because what it reads, such as the latest calculation or the flag history, loads only for a running experiment."""
     findings: list[ExperimentHealthFinding] = []
     results: list[ExperimentHealthCheckResult] = []
     for check in checks:
+        read_from = ctx
         try:
             outcome = check.run(ctx)
+            if launched is not None and _runs_after_launch(outcome):
+                launched_outcome = check.run(launched)
+                if not _not_checked(launched_outcome):
+                    outcome, read_from = launched_outcome, launched
         except Exception as error:
             # The findings ride on the health action, the exposure answer and `experiment launched`, so one
             # failing check must not fail them or hide the findings of the other checks.
             capture_exception(error)
             results.append(_result(check, ExperimentHealthCheckStatus.NOT_CHECKED, _CHECK_FAILED, {}, ()))
             continue
-        values = _read(check.read, ctx, {})
-        rows = _read(check.read_rows, ctx, ())
+        values = _read(check.read, read_from, {})
+        rows = _read(check.read_rows, read_from, ())
         match outcome:
             case CheckSkip(status=status, reason=reason):
                 results.append(_result(check, status, reason, values, rows))
@@ -525,6 +535,14 @@ def evaluate(ctx: HealthContext, checks: Sequence[HealthCheck]) -> ExperimentHea
             case _:
                 assert_never(outcome)
     return ExperimentHealth(findings=tuple(findings), checks=tuple(results))
+
+
+def _runs_after_launch(outcome: CheckOutcome) -> bool:
+    return isinstance(outcome, CheckSkip) and outcome.reason == RUNS_AFTER_LAUNCH
+
+
+def _not_checked(outcome: CheckOutcome) -> bool:
+    return isinstance(outcome, CheckSkip) and outcome.status == ExperimentHealthCheckStatus.NOT_CHECKED
 
 
 def not_checked_health(checks: Sequence[HealthCheck], reason: str) -> ExperimentHealth:

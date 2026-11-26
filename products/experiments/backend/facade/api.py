@@ -225,13 +225,19 @@ def _nodes_read_without_exposure_copy(experiment: ExperimentModel) -> list[dict[
 
 
 def get_experiment_health(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
+    *,
+    team_id: int,
+    experiment_id: int,
+    reader_access: ExperimentHealthReaderAccess,
+    user: User | None,
+    at_launch: bool = False,
 ) -> ExperimentHealth:
     """The findings and the result of each health check that reads the experiment, its flag, its linked metrics,
     and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows, and the
-    flag's settings that decide the variant. The metric queries compile with `user`'s warehouse access."""
+    flag's settings that decide the variant. The metric queries compile with `user`'s warehouse access. With
+    `at_launch`, a draft's checks that run only after launch run as if it launched now."""
     return evaluate_experiment_health(
-        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
+        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user, at_launch=at_launch
     )
 
 
