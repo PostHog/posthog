@@ -1,9 +1,8 @@
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from datetime import datetime
-from functools import partial
 from typing import Any, Literal
 
 import structlog
@@ -24,6 +23,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.alerts.backend.evaluation.attempt_budget import attempt_outlasts
+from products.alerts.backend.evaluation.query_slot import QuerySlotFull
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.contracts import PrecomputedSeriesValues, SeriesValuesUnavailable
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner, precomputed_series_values
@@ -134,14 +134,78 @@ def compare_precomputed_values(
     )
 
 
-# The shadow comparisons that the check in progress asked for. A build can take a minute, so `run_extractor`
-# collects them while it holds the ClickHouse query slot and runs them after it released the slot.
-_requested: ContextVar[list[Callable[[], None]] | None] = ContextVar("series_values_shadow_requests", default=None)
+@frozen
+class ShadowComparisonRequest:
+    """A shadow comparison that a check asked for, to run after the check, in a query slot of its own."""
+
+    alert: AlertConfiguration
+    query: TrendsQuery
+    filters_override: dict | None
+    calculation_result: InsightResult
+    alert_kind: AlertKind
+
+    def run(self, query_slot: Callable[[], AbstractContextManager[object]]) -> None:
+        started = time.monotonic()
+        try:
+            live = self.calculation_result.result
+            if not live:
+                comparison = ShadowComparison(outcome="unavailable", reason="no_live_result")
+            elif len(live) > 1:
+                # The comparison takes the first series of both results. An alert on a result with several
+                # may watch another one, and a match on the first would say nothing about it.
+                comparison = ShadowComparison(outcome="unavailable", reason="multiple_series")
+            elif not attempt_outlasts(SHADOW_BUILD_BUDGET_SECONDS + SHADOW_ATTEMPT_MARGIN_SECONDS):
+                # The build runs before the check is recorded. An attempt that ends during the build loses
+                # the live result, and leaves an INSERT running that no cleanup stops.
+                comparison = ShadowComparison(outcome="unavailable", reason="attempt_out_of_time")
+            else:
+                comparison = self._compare_in(query_slot, live)
+        except _CANCELLATION:
+            raise
+        except Exception as err:
+            capture_exception(
+                err,
+                {
+                    "feature": "alerts",
+                    "phase": "series_values_shadow",
+                    "team_id": self.alert.team_id,
+                    "alert_id": str(self.alert.id),
+                },
+            )
+            comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
+        _record(
+            self.alert,
+            self.alert_kind,
+            "trends",
+            comparison,
+            duration_seconds=time.monotonic() - started,
+            live_cached=self.calculation_result.is_cached,
+        )
+
+    def _compare_in(
+        self, query_slot: Callable[[], AbstractContextManager[object]], live: list[Any]
+    ) -> ShadowComparison:
+        try:
+            # The build and the read are ClickHouse queries, so they count against the caller's query cap.
+            with query_slot():
+                runner = effective_trends_runner(
+                    self.alert.team, self.query, self.filters_override, self.alert.created_by
+                )
+                precomputed = precomputed_series_values(runner, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
+        except QuerySlotFull:
+            return ShadowComparison(outcome="unavailable", reason="no_query_slot")
+        return compare_precomputed_values(precomputed, live)
+
+
+# The shadow comparisons that the check in progress asked for. A build can take a minute, so a caller
+# that wants them collects them during the check and runs each one afterwards, in a query slot of its
+# own. Without a collector nothing is shadowed.
+_requested: ContextVar[list[ShadowComparisonRequest] | None] = ContextVar("series_values_shadow_requests", default=None)
 
 
 @contextmanager
-def collecting_shadow_comparisons() -> Iterator[list[Callable[[], None]]]:
-    requested: list[Callable[[], None]] = []
+def collecting_shadow_comparisons() -> Iterator[list[ShadowComparisonRequest]]:
+    requested: list[ShadowComparisonRequest] = []
     token = _requested.set(requested)
     try:
         yield requested
@@ -158,58 +222,21 @@ def compare_series_values_shadow(
     alert_kind: AlertKind,
 ) -> None:
     requested = _requested.get()
-    if requested is not None:
-        requested.append(partial(_compare, alert, query, filters_override, calculation_result, alert_kind=alert_kind))
-
-
-def _compare(
-    alert: AlertConfiguration,
-    query: TrendsQuery,
-    filters_override: dict | None,
-    calculation_result: InsightResult,
-    *,
-    alert_kind: AlertKind,
-) -> None:
-    started = time.monotonic()
-    try:
-        if not is_series_values_precompute_enabled(alert.team):
-            return
-        live = calculation_result.result
-        if not live:
-            comparison = ShadowComparison(outcome="unavailable", reason="no_live_result")
-        elif len(live) > 1:
-            # The comparison takes the first series of both results. An alert on a result with several may
-            # watch another one, and a match on the first would say nothing about it.
-            comparison = ShadowComparison(outcome="unavailable", reason="multiple_series")
-        elif not attempt_outlasts(SHADOW_BUILD_BUDGET_SECONDS + SHADOW_ATTEMPT_MARGIN_SECONDS):
-            # The build runs before the check is recorded. An attempt that ends during the build loses the
-            # live result, and leaves an INSERT running that no cleanup stops.
-            comparison = ShadowComparison(outcome="unavailable", reason="attempt_out_of_time")
-        else:
-            runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
-            precomputed = precomputed_series_values(runner, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
-            comparison = compare_precomputed_values(precomputed, live)
-    except _CANCELLATION:
-        raise
-    except Exception as err:
-        capture_exception(
-            err,
-            {"feature": "alerts", "phase": "series_values_shadow", "team_id": alert.team_id, "alert_id": str(alert.id)},
+    if requested is not None and is_series_values_precompute_enabled(alert.team):
+        requested.append(
+            ShadowComparisonRequest(
+                alert=alert,
+                query=query,
+                filters_override=filters_override,
+                calculation_result=calculation_result,
+                alert_kind=alert_kind,
+            )
         )
-        comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
-    _record(
-        alert,
-        alert_kind,
-        "trends",
-        comparison,
-        duration_seconds=time.monotonic() - started,
-        live_cached=calculation_result.is_cached,
-    )
 
 
 def record_unsupported_insight_kind(alert: AlertConfiguration, insight_kind: str) -> None:
     try:
-        if not is_series_values_precompute_enabled(alert.team):
+        if _requested.get() is None or not is_series_values_precompute_enabled(alert.team):
             return
         _record(
             alert,

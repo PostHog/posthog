@@ -1,5 +1,5 @@
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
 from typing import Any
 
@@ -19,6 +19,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorQueryWasCancelled
 
 from products.alerts.backend.evaluation.dispatcher import check_alert_for_insight
+from products.alerts.backend.evaluation.query_slot import QuerySlotFull
 from products.alerts.backend.evaluation.series_values_shadow import (
     SHADOW_BUILD_BUDGET_SECONDS,
     SHADOW_COMPARISON_EVENT,
@@ -26,6 +27,7 @@ from products.alerts.backend.evaluation.series_values_shadow import (
     collecting_shadow_comparisons,
     compare_precomputed_values,
     compare_series_values_shadow,
+    effective_trends_runner,
 )
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
@@ -58,8 +60,14 @@ def _query_slot() -> Iterator[None]:
     yield
 
 
-def _platform_check(alert: AlertConfiguration) -> Any:
-    return check_alert_for_insight(alert, query_slot=_query_slot)
+def _platform_check(
+    alert: AlertConfiguration, query_slot: Callable[[], AbstractContextManager[object]] = _query_slot
+) -> Any:
+    with collecting_shadow_comparisons() as comparisons:
+        result = check_alert_for_insight(alert)
+    for comparison in comparisons:
+        comparison.run(query_slot)
+    return result
 
 
 def _trends_query(interval: str) -> dict[str, Any]:
@@ -269,7 +277,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
         assert properties["features"] == ["event_name", "event_property_filters"]
 
-    def test_a_check_outside_the_platform_run_is_not_shadowed(self) -> None:
+    def test_a_check_that_nobody_collects_for_is_not_shadowed(self) -> None:
         alert = self._alert(detector=None)
 
         with self._enrolled(), patch(f"{_SHADOW}.posthoganalytics.capture") as capture:
@@ -278,10 +286,10 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert _shadow_events(capture) == []
         assert self._jobs() == 0
 
-    def test_the_shadow_runs_after_the_query_slot_is_released(self) -> None:
+    def test_the_build_and_the_read_run_inside_the_slot_the_comparison_is_given(self) -> None:
         alert = self._alert(detector=None)
         slots_held: list[bool] = []
-        held_when_recorded: list[bool] = []
+        held_when_the_shadow_query_starts: list[bool] = []
 
         @contextmanager
         def query_slot() -> Iterator[None]:
@@ -291,14 +299,28 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
             finally:
                 slots_held.pop()
 
-        def record(**kwargs: Any) -> None:
-            if kwargs.get("event") == SHADOW_COMPARISON_EVENT:
-                held_when_recorded.append(bool(slots_held))
+        def runner(*args: Any, **kwargs: Any) -> Any:
+            held_when_the_shadow_query_starts.append(bool(slots_held))
+            return effective_trends_runner(*args, **kwargs)
 
-        with self._enrolled(), patch(f"{_SHADOW}.posthoganalytics.capture", side_effect=record):
-            check_alert_for_insight(alert, query_slot=query_slot)
+        with self._enrolled(), patch(f"{_SHADOW}.effective_trends_runner", side_effect=runner):
+            _platform_check(alert, query_slot)
 
-        assert held_when_recorded == [False]
+        assert held_when_the_shadow_query_starts == [True]
+        assert slots_held == []
+
+    def test_a_full_query_pool_skips_the_comparison(self) -> None:
+        alert = self._alert(detector=None)
+
+        def full_pool() -> AbstractContextManager[object]:
+            raise QuerySlotFull()
+
+        with self._enrolled(), patch(f"{_SHADOW}.posthoganalytics.capture") as capture:
+            _platform_check(alert, full_pool)
+
+        [properties] = _shadow_events(capture)
+        assert (properties["outcome"], properties["reason"]) == ("unavailable", "no_query_slot")
+        assert self._jobs() == 0
 
     def test_a_result_with_several_series_is_not_compared(self) -> None:
         count = {"kind": "EventsNode", "event": "signed_up", "math": "total"}
@@ -346,8 +368,8 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
                     InsightResult(result=live, last_refresh=None, cache_key=None, is_cached=is_cached, timezone=None),
                     alert_kind="threshold",
                 )
-            for compare in requested:
-                compare()
+            for comparison in requested:
+                comparison.run(_query_slot)
 
         [properties] = _shadow_events(capture)
         assert (properties["outcome"], properties["reason"]) == ("unavailable", "no_live_result")

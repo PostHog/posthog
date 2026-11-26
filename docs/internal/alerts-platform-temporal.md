@@ -587,7 +587,7 @@ A full logs backfill hit ClickHouse's per-user concurrent query limit and had to
 2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
 3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
 4. Widen the sample only while both stay flat. Two pools bound the parallel run, whatever the sample size:
-   - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the queries that run in ClickHouse at once. A check holds one of these slots only while its query runs. A check that gets no slot within 45 seconds records nothing and stays due for a later tick.
+   - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the queries that run in ClickHouse at once. A check holds one of these slots only while its query runs. A check that gets no slot within 45 seconds records nothing and stays due for a later tick. A stored series values shadow comparison takes a slot of its own after the check's query, without waiting, and is skipped when none is free.
    - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS` caps the checks admitted at once, and defaults to the query cap. An admitted check also locks itself, so a later run never starts the same check while it runs. An admitted check holds an evaluation worker slot until it ends, including while it waits for a query slot, so keep this cap inside the workers' activity slots.
 
    Each worker reads both caps from its own environment, so set them to the same values on every worker that runs insight checks, the AI detector worker included.

@@ -50,6 +50,11 @@ from products.alerts.backend.evaluation.attempt_budget import attempt_outlasts
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES
 from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
+from products.alerts.backend.evaluation.query_slot import QuerySlotFull
+from products.alerts.backend.evaluation.series_values_shadow import (
+    ShadowComparisonRequest,
+    collecting_shadow_comparisons,
+)
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
 from products.alerts.backend.insight_alert_state_machine import (
     INSIGHT_ALERT_POLICY,
@@ -144,7 +149,7 @@ QUERY_SLOT_POLL_SECONDS = 0.5
 QUERY_SLOT_LEASE_SECONDS = int((alert_timeouts(None).evaluate_start_to_close + timedelta(minutes=2)).total_seconds())
 
 
-class ClickHouseBudgetFull(Exception):
+class ClickHouseBudgetFull(QuerySlotFull):
     """No ClickHouse slot came free in time. The check records nothing, so it stays due."""
 
 
@@ -395,6 +400,16 @@ def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, q
                 raise
         delay = min(delay * policy.backoff_coefficient, longest)
     raise AssertionError("The retry loop returns or raises on its last try")
+
+
+def _run_shadow_comparisons(comparisons: Sequence[ShadowComparisonRequest], check_slot: ClickHouseQuerySlot) -> None:
+    """Runs the stored series values comparisons that a check asked for, after its query slot is free.
+
+    Each one takes a slot of its own, so its build and read stay inside the ClickHouse query cap. It
+    does not wait for one: a comparison decides nothing, so it is skipped when every slot is taken.
+    """
+    for comparison in comparisons:
+        comparison.run(ClickHouseQuerySlot(f"{check_slot.holder}:shadow", wait_seconds=0))
 
 
 def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
@@ -720,11 +735,12 @@ def _decide(
         return _decide_grouped(check, snapshot, alert, now=now, query_slot=query_slot)
     started_at = time.monotonic()
     try:
-        result = _with_capacity_retries(
-            lambda: check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot),
-            alert,
-            query_slot,
-        )
+        with collecting_shadow_comparisons() as shadow_comparisons:
+            result = _with_capacity_retries(
+                lambda: check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot),
+                alert,
+                query_slot,
+            )
     except ClickHouseBudgetFull:
         return None
     except LLMDetectorUnavailableError as error:
@@ -759,6 +775,7 @@ def _decide(
     except Exception as error:
         return _query_failed(check, snapshot, alert, error, now=now)
     duration_ms = int((time.monotonic() - started_at) * 1000) - query_slot.waited_ms
+    _run_shadow_comparisons(shadow_comparisons, query_slot)
 
     if result.skipped_reason is not None:
         return _skipped(check, snapshot, now=now)
@@ -892,9 +909,10 @@ def _decide_grouped(
         )
     started_at = time.monotonic()
     try:
-        evaluated = _with_capacity_retries(
-            lambda: check_alert_per_series(alert, query_slot=query_slot), alert, query_slot
-        )
+        with collecting_shadow_comparisons() as shadow_comparisons:
+            evaluated = _with_capacity_retries(
+                lambda: check_alert_per_series(alert, query_slot=query_slot), alert, query_slot
+            )
     except ClickHouseBudgetFull:
         return None
     except AlertDataUnavailableError as error:
@@ -903,9 +921,10 @@ def _decide_grouped(
         return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
         return _query_failed(check, snapshot, alert, error, now=now)
+    duration_ms = int((time.monotonic() - started_at) * 1000) - query_slot.waited_ms
+    _run_shadow_comparisons(shadow_comparisons, query_slot)
     if not isinstance(evaluated, PerSeriesEvaluation):
         return _skipped(check, snapshot, now=now)
-    duration_ms = int((time.monotonic() - started_at) * 1000) - query_slot.waited_ms
 
     decision = decide_groups(
         check,

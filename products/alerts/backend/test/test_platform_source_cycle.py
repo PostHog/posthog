@@ -1,7 +1,7 @@
 import json
 import time
 from collections.abc import Callable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, cast
@@ -43,6 +43,7 @@ from products.alerts.backend.evaluation.contract import (
     AlertOwnerAccessError,
 )
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
+from products.alerts.backend.evaluation.query_slot import QuerySlotFull
 from products.alerts.backend.judge.contract import (
     FORECAST_DETECTOR_PAUSED_ERROR_CODE,
     FORECAST_DETECTOR_UNAVAILABLE_MESSAGE,
@@ -586,6 +587,53 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert starved is None
         assert evaluation is not None and evaluation.outcomes[0].failure is None
         assert held_during_query == [{"test:1"}]
+        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
+
+    @parameterized.expand([("free_pool", False, [{"test:1:shadow"}], 0), ("full_pool", True, [], 1)])
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
+    def test_a_shadow_comparison_takes_a_query_slot_of_its_own_without_waiting(
+        self, _name: str, pool_is_full: bool, held_during_comparison: list[set[str]], skipped: int
+    ) -> None:
+        configuration = self._copy(self._alert())
+        slot = slot_of(configuration.next_check_at, CUTOFF)
+        expires_at = time.time() + 3600
+        (admitted,) = plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at)
+        other_query_until = time.time() + 60
+        held: list[set[str]] = []
+        skips = 0
+
+        class Comparison:
+            def run(self, query_slot: Callable[[], AbstractContextManager[object]]) -> None:
+                nonlocal skips
+                try:
+                    with query_slot():
+                        held.append(inflight_alert_ids(QUERY_INFLIGHT_KEY))
+                except QuerySlotFull:
+                    skips += 1
+
+        def query(
+            *args: Any, query_slot: Callable[[], AbstractContextManager[object]], **kwargs: Any
+        ) -> AlertEvaluationResult:
+            with query_slot():
+                pass
+            if pool_is_full:
+                admit_evaluation_slots(["other-query"], limit=1, expires_at=other_query_until, key=QUERY_INFLIGHT_KEY)
+            return AlertEvaluationResult(value=1.0, breaches=[])
+
+        with (
+            patch(f"{_MODULE}.check_alert_for_insight", side_effect=query),
+            patch(f"{_MODULE}.collecting_shadow_comparisons", return_value=nullcontext([Comparison()])),
+        ):
+            started = time.monotonic()
+            evaluation = evaluate_insight_check(
+                self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test"
+            )
+            waited_seconds = time.monotonic() - started
+        release_evaluation_slot("other-query", held_until=other_query_until, key=QUERY_INFLIGHT_KEY)
+
+        assert evaluation is not None and evaluation.outcomes[0].failure is None
+        assert (held, skips) == (held_during_comparison, skipped)
+        assert waited_seconds < 10
         assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
 
     @parameterized.expand(
