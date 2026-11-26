@@ -1,10 +1,12 @@
 """Downloads an email image from a third-party host, bounded in size and time, without following redirects."""
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from http.client import HTTPException
 
 import requests
+from requests.adapters import HTTPAdapter
 from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 _TIMEOUT_SECONDS = 10
@@ -19,10 +21,27 @@ class FetchedImage:
     failure: str | None
 
 
-def fetch_image(url: str, *, deadline: float, max_bytes: int) -> FetchedImage:
+class _KeepDoubleSlash(HTTPAdapter):
+    """requests folds a path that starts with `//` into one slash. Unlayer serves some files only at `//projects/...`."""
+
+    def request_url(self, request: requests.PreparedRequest, proxies: dict) -> str:
+        url = super().request_url(request, proxies)
+        path = request.path_url
+        return path if path.startswith("//") and url == f"/{path.lstrip('/')}" else url
+
+
+def fetch_image(url: str, *, deadline: float, max_bytes: int, keep_double_slash: bool = False) -> FetchedImage:
     """The caller checks the host first: this follows no redirects, so the host checked is the host read."""
+    if not keep_double_slash:
+        return _fetch(requests.get, url, deadline=deadline, max_bytes=max_bytes)
+    with requests.Session() as session:
+        session.mount("https://", _KeepDoubleSlash())
+        return _fetch(session.get, url, deadline=deadline, max_bytes=max_bytes)
+
+
+def _fetch(get: Callable[..., requests.Response], url: str, *, deadline: float, max_bytes: int) -> FetchedImage:
     try:
-        with requests.get(
+        with get(
             url,
             timeout=_TIMEOUT_SECONDS,
             allow_redirects=False,

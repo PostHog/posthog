@@ -57,26 +57,43 @@ def find_team_ids_containing(text: str) -> set[int]:
 
 
 def _containing(queryset: models.QuerySet[MessageTemplate], text: str) -> models.QuerySet[MessageTemplate]:
-    # The text cast stays in the WHERE clause, so the scan never returns a full copy of each content blob.
-    return queryset.annotate(_text_content=Cast("content", models.TextField())).filter(_text_content__contains=text)
+    # The text casts stay in the WHERE clause, so the scan never returns a full copy of each content blob.
+    return queryset.annotate(
+        _text_content=Cast("content", models.TextField()),
+        _text_draft=Cast("draft_content", models.TextField()),
+    ).filter(models.Q(_text_content__contains=text) | models.Q(_text_draft__contains=text))
 
 
 def rewrite_content(
     template_id: UUID, rewrite: Callable[[Any], tuple[Any, int]], *, team_ids: list[int] | None, dry_run: bool
 ) -> int:
     if dry_run:
-        return rewrite(_templates(team_ids).get(pk=template_id).content)[1]
+        template = _templates(team_ids).get(pk=template_id)
+        return sum(rewrite(getattr(template, field))[1] for field in _CONTENT_FIELDS)
 
     # Read the row again under a row lock, so a concurrent save is not overwritten with a stale blob.
     with transaction.atomic():
         template = _templates(team_ids).select_for_update().get(pk=template_id)
-        new_content, occurrences = rewrite(template.content)
+        changed: list[str] = []
+        occurrences = 0
+        for field in _CONTENT_FIELDS:
+            value = getattr(template, field)
+            if value is None:
+                continue
+            new_value, found = rewrite(value)
+            if found:
+                setattr(template, field, new_value)
+                changed.append(field)
+                occurrences += found
         if not occurrences:
             return 0
-        template.content = new_content
         # updated_at is auto_now, so listing it bumps it. The editor's stale-write check reads it.
-        template.save(update_fields=["content", "updated_at"])
+        template.save(update_fields=[*changed, "updated_at"])
     return occurrences
+
+
+# An unpublished draft becomes the sent content when it is published, so it is rewritten too.
+_CONTENT_FIELDS = ("content", "draft_content")
 
 
 def _with_tags(queryset: models.QuerySet[MessageTemplate]) -> models.QuerySet[MessageTemplate]:
