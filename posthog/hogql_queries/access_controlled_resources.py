@@ -278,11 +278,12 @@ def queried_access_controlled_resources(
         if filter_expression:
             expressions.append(filter_expression)
         try:
-            fields = [
-                field for expression in expressions for field in GetFieldsTraverser(parse_expr(expression)).fields
-            ]
+            parsed = [parse_expr(expression) for expression in expressions]
         except BaseHogQLError:
             return None
+        if any(_has_query_tag(node) or _has_subquery(node) for node in parsed):
+            return None  # what a subquery or query tag reads isn't a field name -> fail closed
+        fields = [field for node in parsed for field in GetFieldsTraverser(node).fields]
         account_scopes = {"account"}
         if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
             account_scopes.add("ticket")
@@ -441,6 +442,25 @@ def _has_placeholder_table(select) -> bool:
 
     finder = _PlaceholderTableFinder()
     finder.visit(select)
+    return finder.found
+
+
+def _has_subquery(node) -> bool:
+    # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
+
+    class _SubqueryFinder(TraversingVisitor):
+        found = False
+
+        def visit_select_query(self, node: ast.SelectQuery) -> None:
+            self.found = True
+
+        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+            self.found = True
+
+    finder = _SubqueryFinder()
+    finder.visit(node)
     return finder.found
 
 

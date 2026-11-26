@@ -214,6 +214,15 @@ class TestQueriedAccessControlledResources(BaseTest):
 
     @parameterized.expand(
         [
+            ("query_tag", "<HogQLQuery query='SELECT any(distinct_id) FROM system.support_tickets' /> AS ticket_id"),
+            ("subquery", "(SELECT any(distinct_id) FROM system.support_tickets) AS ticket_id"),
+        ]
+    )
+    def test_accounts_query_reading_through_a_subquery_fails_closed(self, _name, expression):
+        assert queried_access_controlled_resources(AccountsQuery(select=[expression]), self.team) is None
+
+    @parameterized.expand(
+        [
             ("warehouse_table", "some_dw_table", set()),
             ("trace_spans", "posthog.trace_spans", {"tracing"}),
         ]

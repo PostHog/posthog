@@ -760,6 +760,26 @@ class TestDeniedTableError(BaseTest):
                 True,
             ),
             (
+                "trace_read_through_a_join_to_a_renamed_view",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("events", "renamed_away")],
+                None,
+                False,
+                True,
+            ),
+            (
+                "trace_read_through_a_foreign_key_to_a_deleted_table",
+                "none",
+                "SELECT id AS name FROM postgres.shop.orders",
+                False,
+                [("postgres.shop.archived_customers", "posthog.trace_spans")],
+                None,
+                False,
+                True,
+            ),
+            (
                 "join_deleted_after_build",
                 "none",
                 "SELECT event AS name FROM events",
@@ -837,23 +857,29 @@ class TestDeniedTableError(BaseTest):
             for source, target in joins
         ]
         if any(source.startswith("postgres.") for source, _target in joins):
-            shop = ExternalDataSource.objects.create(
-                team=self.team,
-                source_id="shop",
-                connection_id="shop",
-                status=ExternalDataSource.Status.COMPLETED,
-                source_type=ExternalDataSourceType.POSTGRES,
-                prefix="shop",
-            )
-            for table_name in ("shop_postgres_orders", "shop_postgres_customers"):
-                DataWarehouseTable.objects.create(
+            # Two sources sharing the `postgres.shop` namespace, so foreign keys link their tables.
+            for source_id, tables in (
+                ("shop", [("shop_postgres_orders", False)]),
+                ("shop_archive", [("shop_postgres_customers", False), ("shop_postgres_archived_customers", True)]),
+            ):
+                shop = ExternalDataSource.objects.create(
                     team=self.team,
-                    name=table_name,
-                    format="Parquet",
-                    url_pattern=f"https://bucket.example.com/{table_name}/*",
-                    columns={"id": "String", "customer_id": "String"},
-                    external_data_source=shop,
+                    source_id=source_id,
+                    connection_id=source_id,
+                    status=ExternalDataSource.Status.COMPLETED,
+                    source_type=ExternalDataSourceType.POSTGRES,
+                    prefix="shop",
                 )
+                for table_name, deleted in tables:
+                    DataWarehouseTable.objects.create(
+                        team=self.team,
+                        name=table_name,
+                        format="Parquet",
+                        url_pattern=f"https://bucket.example.com/{table_name}/*",
+                        columns={"id": "String", "customer_id": "String"},
+                        external_data_source=shop,
+                        deleted=deleted,
+                    )
         for _source, target in joins:
             if target.startswith("models."):
                 DataWarehouseSavedQuery.objects.create(
