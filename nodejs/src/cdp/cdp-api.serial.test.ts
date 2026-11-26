@@ -3167,6 +3167,12 @@ describe('CDP API', () => {
                     { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing' } } },
                     { ...body, send: { ...codeSend, category: { id: 'news', type: 'transactional' } } },
                 ],
+                [
+                    'a code send after its category was archived',
+                    'transactional_email/send',
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing' } } },
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing', archived: true } } },
+                ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
                 async (_desc, route, first, retry) => {
@@ -3648,6 +3654,16 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(400)
                 expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+                expect(await queuedSends(hogFlow.id)).toEqual([])
+            })
+
+            it('refuses a send in an archived category that is no retry of an accepted send', async () => {
+                const archived = { ...codeSend, category: { id: 'news', type: 'marketing', archived: true } }
+
+                const res = await sendAccepted(hogFlow.id, { ...body, send: archived })
+
+                expect(res.status).toEqual(400)
+                expect(res.body).toEqual({ error: 'category_not_found' })
                 expect(await queuedSends(hogFlow.id)).toEqual([])
             })
         })

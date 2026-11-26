@@ -1569,6 +1569,9 @@ export class CdpApi {
                 if (recalled) {
                     return answer(recalled)
                 }
+                if (send?.category?.archived) {
+                    return reply('category_not_found', 400, { error: 'category_not_found' })
+                }
                 const references = send?.attachments ?? []
                 if (references.length > 0 && !this.attachmentUploads.isAllowed(parseInt(req.params.team_id))) {
                     return reply('field_not_accepted', 400, { error: 'field_not_accepted' })

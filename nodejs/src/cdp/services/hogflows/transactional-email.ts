@@ -211,7 +211,11 @@ export const AcceptedSendSchema = z
             .readonly()
             .optional(),
         category: z
-            .object({ id: z.string().min(1), type: z.enum(['marketing', 'transactional']) })
+            .object({
+                id: z.string().min(1),
+                type: z.enum(['marketing', 'transactional']),
+                archived: z.literal(true).optional(),
+            })
             .strict()
             .readonly()
             .optional(),
@@ -326,6 +330,7 @@ export type TransactionalEmailOutcome =
     | 'workflow_shape_not_supported'
     | 'attachment_not_uploaded'
     | 'message_too_large'
+    | 'category_not_found'
     | 'email_render_limit_exceeded'
     | 'utm_value_too_long'
     | 'email_body_too_many_tags'
