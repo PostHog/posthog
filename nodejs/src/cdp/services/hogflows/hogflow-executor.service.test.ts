@@ -131,7 +131,8 @@ class SesV2Fake {
             return
         }
         const { Destination, Content } = parseJSON(Buffer.concat(chunks).toString())
-        if (!Destination?.ToAddresses?.length) {
+        const recipients: string[] = Destination?.ToAddresses ?? []
+        if (recipients.length === 0 || recipients.some((recipient) => !recipient.includes('@'))) {
             response
                 .writeHead(400, { 'content-type': 'application/json', 'x-amzn-errortype': 'BadRequestException' })
                 .end(JSON.stringify({ message: 'Missing final recipients' }))
