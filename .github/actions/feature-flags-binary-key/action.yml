@@ -71,7 +71,7 @@ runs:
                   if not entry:
                       continue
                   meta, raw_path = entry.split(b"\t", 1)
-                  path, mode = raw_path.decode(errors="replace"), meta.split(b" ")[0].decode()
+                  path, mode = os.fsdecode(raw_path), meta.split(b" ")[0].decode()
                   if mode == "160000":
                       refuse(f"{path!r} is a submodule")
                   # The index stores a symlink's target string, not the target's contents, so a
