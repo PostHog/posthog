@@ -17,13 +17,13 @@ To try a definition written by an agent, copy the recipe, edit it and pass its J
 
 ## Compose a host
 
-| Piece | What the embedding app supplies |
-| --- | --- |
-| `meep-workflows` | Validate agent JSON with `Workflow::parse`. Use `runner::run` with a `runner::Host` for headless work. That host supplies sources, optional AI and agent operations, time, state and dataset access. `Run` returns the result and per-step trace. |
-| Mounted workflow catalog | Give each view its own `ManualCatalog` and delegate its foreground `native.workflows.*` requests. Identical registration is idempotent. Editors can submit an expected definition to detect concurrent changes. The latest invocation owns the displayed trace. |
-| `meep-workflow-ui` | Feed `Outline` a definition and trace. Supply optional source icons and an edit callback. The native `editor::CodeEditor` accepts a definition, an edit target and a request handler for saves, previews and any additional operations the host exposes. |
-| `meep-render` | Mount the script with its own `ViewHost`. The renderer supplies the mounted runner, the per-view dataset and the native `WorkflowOutline` and `WorkflowEditor` elements. Register and run from an event handler or initialization. Render from local data. |
-| `meep_posthog::workflows` | Bind the deployment, project and flow ID in `BoundWorkflow`. Supply the host’s access token per request. Bind only the operations the particular view may use. The gallery grants the history view a read of recent activity. |
+| Piece                     | What the embedding app supplies                                                                                                                                                                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `meep-workflows`          | Validate agent JSON with `Workflow::parse`. Use `runner::run` with a `runner::Host` for headless work. That host supplies sources, optional AI and agent operations, time, state and dataset access. `Run` returns the result and per-step trace.               |
+| Mounted workflow catalog  | Give each view its own `ManualCatalog` and delegate its foreground `native.workflows.*` requests. Identical registration is idempotent. Editors can submit an expected definition to detect concurrent changes. The latest invocation owns the displayed trace. |
+| `meep-workflow-ui`        | Feed `Outline` a definition and trace. Supply optional source icons and an edit callback. The native `editor::CodeEditor` accepts a definition, an edit target and a request handler for saves, previews and any additional operations the host exposes.        |
+| `meep-render`             | Mount the script with its own `ViewHost`. The renderer supplies the mounted runner, the per-view dataset and the native `WorkflowOutline` and `WorkflowEditor` elements. Register and run from an event handler or initialization. Render from local data.      |
+| `meep_posthog::workflows` | Bind the deployment, project and flow ID in `BoundWorkflow`. Supply the host’s access token per request. Bind only the operations the particular view may use. The gallery grants the history view a read of recent activity.                                   |
 
 For an LLM-assisted pipeline, use an explicit AI or agent step, persist its output if the run must be reproducible, then pass that output to pure shaping steps. For repeatable projections, put external reads before the transformation and use stable row keys. A multi-step flow may have observable side effects before a later failure. An app that needs an atomic multi-table publish can expose one transactional host operation for the final write.
 

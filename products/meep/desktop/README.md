@@ -15,20 +15,20 @@ An agent-authored workflow can supply the data for a view through a host-selecte
 
 ## Choose the pieces your host needs
 
-| Package | Responsibility | First-party dependencies |
-| --- | --- | --- |
-| [meep-ui](crates/meep-render/meep-script/meep-ui/) | Semantic theme, typography, controls, settings forms, composer and layouts. Disable default features for headless theme tokens. | None |
-| [meep-shell](crates/meep-shell/) | Native glass window, workspace and Settings navigation, palette picker, View session pane, topic chat transcript and composer, and agent/model picker | meep-ui, meep-protocol |
-| [meep-script](crates/meep-render/meep-script/) | JavaScript engine, validation, datasets, scene models and authoring contract | meep-ui with toolkit features disabled |
-| [meep-render](crates/meep-render/) | Mount a script in a GPUI window. The host implements the operations scripts can request. | meep-ui, meep-script, meep-workflows, meep-workflow-ui (feature-dependent) |
-| [meep-workflows](crates/meep-render/meep-workflows/) | Workflow definitions and an optional interpreter. The host supplies persistence and external effects. | None |
-| [meep-workflow-ui](crates/meep-render/meep-workflow-ui/) | Native step outline, timings, visual form and JSON or expression editor | meep-ui, meep-workflows (native editor) |
-| [meep-ingest](crates/meep-ingest/) | Normalize connector events, group messages, route watches and deduplicate replays | meep-topic, meep-store |
-| [meep-engine](crates/meep-engine/) | Run topic inboxes, task workers and workflows, persist changes and search across topics | meep-ai, meep-topic, meep-ingest, meep-policy, meep-wire, meep-connections, meep-store |
-| [meep-store](crates/meep-store/) | Typed, revisioned SQLite records and atomic transactions on a host-owned connection | None |
-| [meep-protocol](crates/meep-protocol/) | Serializable agent session and transcript records | None |
-| [meep-notifications](crates/meep-notifications/) | Scoped system notification delivery, scheduling, cancellation and an in-memory backend | None |
-| [meep-posthog](crates/meep-posthog/) | Project-scoped HTTP (`api`, always available) with optional `oauth`, `tasks`, `chat`, `mcp` and `workflows` features | meep-protocol (`chat`) |
+| Package                                                  | Responsibility                                                                                                                                        | First-party dependencies                                                               |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [meep-ui](crates/meep-render/meep-script/meep-ui/)       | Semantic theme, typography, controls, settings forms, composer and layouts. Disable default features for headless theme tokens.                       | None                                                                                   |
+| [meep-shell](crates/meep-shell/)                         | Native glass window, workspace and Settings navigation, palette picker, View session pane, topic chat transcript and composer, and agent/model picker | meep-ui, meep-protocol                                                                 |
+| [meep-script](crates/meep-render/meep-script/)           | JavaScript engine, validation, datasets, scene models and authoring contract                                                                          | meep-ui with toolkit features disabled                                                 |
+| [meep-render](crates/meep-render/)                       | Mount a script in a GPUI window. The host implements the operations scripts can request.                                                              | meep-ui, meep-script, meep-workflows, meep-workflow-ui (feature-dependent)             |
+| [meep-workflows](crates/meep-render/meep-workflows/)     | Workflow definitions and an optional interpreter. The host supplies persistence and external effects.                                                 | None                                                                                   |
+| [meep-workflow-ui](crates/meep-render/meep-workflow-ui/) | Native step outline, timings, visual form and JSON or expression editor                                                                               | meep-ui, meep-workflows (native editor)                                                |
+| [meep-ingest](crates/meep-ingest/)                       | Normalize connector events, group messages, route watches and deduplicate replays                                                                     | meep-topic, meep-store                                                                 |
+| [meep-engine](crates/meep-engine/)                       | Run topic inboxes, task workers and workflows, persist changes and search across topics                                                               | meep-ai, meep-topic, meep-ingest, meep-policy, meep-wire, meep-connections, meep-store |
+| [meep-store](crates/meep-store/)                         | Typed, revisioned SQLite records and atomic transactions on a host-owned connection                                                                   | None                                                                                   |
+| [meep-protocol](crates/meep-protocol/)                   | Serializable agent session and transcript records                                                                                                     | None                                                                                   |
+| [meep-notifications](crates/meep-notifications/)         | Scoped system notification delivery, scheduling, cancellation and an in-memory backend                                                                | None                                                                                   |
+| [meep-posthog](crates/meep-posthog/)                     | Project-scoped HTTP (`api`, always available) with optional `oauth`, `tasks`, `chat`, `mcp` and `workflows` features                                  | meep-protocol (`chat`)                                                                 |
 
 Use a Cargo path dependency or pin a Git dependency to a commit in this repository. When copying files, keep each package's path dependency layout. Copying `crates/meep-render/` includes its script engine, workflow runner, widgets and assets. For the shell, copy its dependency directories too. The PostHog adapters can run in a headless host.
 

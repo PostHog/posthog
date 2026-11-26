@@ -10,22 +10,31 @@ Read `skills/emil-design-eng/SKILL.md` before generating UI, `skills/apple-desig
 
 ```js
 view({
-  state: { count: 0, items: [] },          // defaults; saved state is merged over them
-  async init() { await load(); },          // runs once per mount: load data here
-  render(s) {                              // pure: return elements, no I/O
+  state: { count: 0, items: [] }, // defaults; saved state is merged over them
+  async init() {
+    await load()
+  }, // runs once per mount: load data here
+  render(s) {
+    // pure: return elements, no I/O
     return Page(
-      Header({ title: "Counter", subtitle: s.count + " clicks" },
-        Button("Add", { variant: "primary", onClick: () => setState({ count: s.count + 1 }) })),
-      List({ count: s.items.length, row: (i) => ListRow(s.items[i].title, s.items[i].detail) }),
-    );
+      Header(
+        { title: 'Counter', subtitle: s.count + ' clicks' },
+        Button('Add', { variant: 'primary', onClick: () => setState({ count: s.count + 1 }) })
+      ),
+      List({ count: s.items.length, row: (i) => ListRow(s.items[i].title, s.items[i].detail) })
+    )
   },
-  commands: {                              // what agents and the shell can invoke
-    increment() { setState((st) => ({ count: st.count + 1 })); return { ok: true }; },
+  commands: {
+    // what agents and the shell can invoke
+    increment() {
+      setState((st) => ({ count: st.count + 1 }))
+      return { ok: true }
+    },
   },
-  keys: { "cmd-k": () => host.focus("search"), down: () => move(1) },
-  badge: (s) => s.count,                 // optional sidebar count or short text (4 characters)
-  inspect: (s) => ({ count: s.count }),    // optional summary for views_inspect
-});
+  keys: { 'cmd-k': () => host.focus('search'), down: () => move(1) },
+  badge: (s) => s.count, // optional sidebar count or short text (4 characters)
+  inspect: (s) => ({ count: s.count }), // optional summary for views_inspect
+})
 ```
 
 Call `view()` exactly once. Helper functions and constants may live anywhere in the file.
@@ -45,20 +54,22 @@ Views use QuickJS, not a browser or Node. **`Intl` is unavailable**, including `
 
 ```js
 function formatDate(value) {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime())
-    ? date.toISOString().slice(0, 10) + " UTC" : "—";
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) + ' UTC' : '—'
 }
 function formatNumber(value) {
-  if (!Number.isFinite(value)) return "—";
-  if (Math.abs(value) >= 1e21) return value.toExponential(2);
-  const parts = value.toFixed(2).split(".");
-  return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",") + "." + parts[1];
+  if (!Number.isFinite(value)) return '—'
+  if (Math.abs(value) >= 1e21) return value.toExponential(2)
+  const parts = value.toFixed(2).split('.')
+  return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + parts[1]
 }
-view({ render: () => Page(
-  Text(formatDate("2026-11-14T10:30:00Z")), // 2026-11-14 UTC
-  Text(formatNumber(12345.6)),              // 12,345.60
-) });
+view({
+  render: () =>
+    Page(
+      Text(formatDate('2026-11-14T10:30:00Z')), // 2026-11-14 UTC
+      Text(formatNumber(12345.6)) // 12,345.60
+    ),
+})
 ```
 
 For local civil dates, use `getFullYear()`, `getMonth() + 1`, and `getDate()`, padding month/day with `String(n).padStart(2, "0")`; label the result as local time. For a JSON-only deep copy use `JSON.parse(JSON.stringify(value))` (it drops unsupported JSON values). Keep source-provided IDs, or generate a view-local counter for new records; `Math.random` is not a cryptographic UUID. Pass URL strings to the documented host APIs rather than constructing a `URL` object. Native `Chart` also supports `format`, `prefix` and `suffix` (see `COMPONENTS.md`).
@@ -67,20 +78,20 @@ For local civil dates, use `getFullYear()`, `getMonth() + 1`, and `getDate()`, p
 
 Everything that leaves the script goes through `host`. Every call is made **as this view**: the broker checks this view's live permissions on each call, so a revoked permission takes effect immediately. Never cache an authorization decision. While the app window is available, missing grants for CLI, source calls, and native capabilities automatically open an approval sheet and hold the request until the user decides. Acceptance continues the original call; concurrent requests share the decision. A declined automatic request stays declined for this view revision during the app session (settings can grant access explicitly). Missing installations/connections and unsafe CLI arguments cannot be approved this way.
 
-| Call | Result |
-| --- | --- |
-| `await host.call(source, tool, args)` | Result of an MCP tool or a REST/GraphQL API action. A REST action that answers in plain text returns `{text}`. `source` is a connection ID or case-insensitive connected source name; names must be unique. |
+| Call                                                                          | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `await host.call(source, tool, args)`                                         | Result of an MCP tool or a REST/GraphQL API action. A REST action that answers in plain text returns `{text}`. `source` is a connection ID or case-insensitive connected source name; names must be unique.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `await host.cli(nameOrPermitId, ["pr", "list", ...], { timeoutMs, pattern })` | `{ success, exit_code, data, stdout, stderr }`. Use an executable name (e.g. `"gh"`) or grant ID; the longest granted action prefix wins. Every CLI, `gh` included, runs as granted: a granted action with any further arguments, or, for a command without subcommands, the whole command (its action is `[]`). A command no grant covers, reads or writes alike (`gh pr comment`, `gh api graphql`, `trunk merge`), shows the user that exact command; they allow it once or always, and the call continues. Just call it from the user's action; don't build a workaround or ask for a token. Pass `pattern` (see **Command patterns**) so Always allow saves only that shape of command. `data` is parsed JSON when present. |
-| `await host.sources()` | Sources and tools this view may call now. |
-| `await host.describe(source)` | Input schemas for that source's permitted tools. Discover before writing a decoder. |
-| `await host.cliActions()` | CLI grants this view may run: `[{ id, name, action, executable, directory }]`. |
-| `await host.permissions()` | This view's grants, plus every connected source and installed CLI with its discovered actions. |
-| `await host.request(change)` | Asks the user for access in this view. Resolves `true` only if they allow it. |
-| `host.openUrl(url)` | Opens an `https`, `http` or `mailto` URL from a direct user event: a click, key, menu choice, typed change, submit or drop. One URL per event; later calls in the same event do nothing. Initialization, timers, host-result callbacks, agent-invoked commands, `onLayout`, hover, pointer moves, scrolling and dragging cannot open URLs. |
-| `host.copy(text)` | Copies text to the clipboard from a direct user event only (the same events as `host.openUrl`). |
-| `host.focus(id)` | Focuses the `Input` or `Textarea` with this id. |
-| `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval` | Timers. Intervals run at most once per frame. At most 64 timers. |
-| `console.log/warn/error` | Lines appear in `views_inspect` as `__logs`. |
+| `await host.sources()`                                                        | Sources and tools this view may call now.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `await host.describe(source)`                                                 | Input schemas for that source's permitted tools. Discover before writing a decoder.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `await host.cliActions()`                                                     | CLI grants this view may run: `[{ id, name, action, executable, directory }]`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `await host.permissions()`                                                    | This view's grants, plus every connected source and installed CLI with its discovered actions.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `await host.request(change)`                                                  | Asks the user for access in this view. Resolves `true` only if they allow it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `host.openUrl(url)`                                                           | Opens an `https`, `http` or `mailto` URL from a direct user event: a click, key, menu choice, typed change, submit or drop. One URL per event; later calls in the same event do nothing. Initialization, timers, host-result callbacks, agent-invoked commands, `onLayout`, hover, pointer moves, scrolling and dragging cannot open URLs.                                                                                                                                                                                                                                                                                                                                                                                       |
+| `host.copy(text)`                                                             | Copies text to the clipboard from a direct user event only (the same events as `host.openUrl`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `host.focus(id)`                                                              | Focuses the `Input` or `Textarea` with this id.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval`                  | Timers. Intervals run at most once per frame. At most 64 timers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `console.log/warn/error`                                                      | Lines appear in `views_inspect` as `__logs`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 Host calls reject with an `Error` when they fail or are denied. Catch them and show a specific message in the view; never leave a spinner running.
 
@@ -88,10 +99,15 @@ Host calls reject with an `Error` when they fail or are denied. Catch them and s
 
 ```js
 view({
-  needs: [{ source: "PostHog", tools: ["exec"] }, { cli: "gh", action: ["search", "prs"] }],
-  async init() { /* host.call("PostHog", "exec", args); host.cli("gh", ["search", "prs", ...]); */ },
+  needs: [
+    { source: 'PostHog', tools: ['exec'] },
+    { cli: 'gh', action: ['search', 'prs'] },
+  ],
+  async init() {
+    /* host.call("PostHog", "exec", args); host.cli("gh", ["search", "prs", ...]); */
+  },
   render: () => Page(),
-});
+})
 ```
 
 On mount the host lists all missing actions in one approval before `init` runs. Allow grants available actions together; Deny grants none and is remembered for this script revision. Missing connections appear as “Connect … in Settings” and grant nothing. CLI needs name exact leaf actions. Use `action: []` to request a whole command whose help lists no subcommands. Names never bypass this view's permissions; ambiguous names require choosing an ID (or renaming the connections).
@@ -99,9 +115,15 @@ On mount the host lists all missing actions in one approval before `init` runs. 
 **Asking for access.** `host.request` takes the same shape the agent's `permissions_request` tool uses, plus a reason the user reads:
 
 ```js
-await host.request({ kind: "mcp", source: "linear", tool: "list_issues", reason: "Show your open issues." });
-await host.request({ kind: "cli", tool_id: gh.id, action: ["pr", "list"], reason: "List open pull requests." });
-await host.request({ kind: "cli", tool_id: gh.id, action: ["pr", "comment"], pattern: ["pr", "comment", "{number}", "--body", "{body}"], reason: "Comment on pull requests." });
+await host.request({ kind: 'mcp', source: 'linear', tool: 'list_issues', reason: 'Show your open issues.' })
+await host.request({ kind: 'cli', tool_id: gh.id, action: ['pr', 'list'], reason: 'List open pull requests.' })
+await host.request({
+  kind: 'cli',
+  tool_id: gh.id,
+  action: ['pr', 'comment'],
+  pattern: ['pr', 'comment', '{number}', '--body', '{body}'],
+  reason: 'Comment on pull requests.',
+})
 ```
 
 The window shows the request above the view with Allow and Deny. Nothing changes until the user allows it. Only ask after a user action (a "Request access" button), never on load or in a loop, and never ask again after a denial: a denied request resolves `false` without showing again unless it comes from a direct user event. The reason is shown as one short paragraph (line breaks become spaces). A CLI action needs no discovered help; `cli_discover` only tells you which actions exist. A command without subcommands is requested whole, with the action `[]`; one whose help lists subcommands can't be. Use `host.permissions()` to find the source or CLI tool ID. Adding a connection itself is a Settings action; a view cannot do it.
@@ -110,12 +132,14 @@ The window shows the request above the view with Allow and Deny. Nothing changes
 
 **CLI rules.** Users approve an executable, a working folder and an exact action such as `["pr", "list"]`, or one exact command once. A grant for `["pr", "list"]` runs `gh pr list` plus arguments; it never authorizes `gh pr merge`, aliases or leading global flags. A command runs as it does in the user's Terminal, with their environment, sign-in, Keychain and settings, so a CLI the user has signed in to works without a connection or token. Arguments are a string array with no shell expansion and no interactive input. Four commands can run at once, with a 30 second default timeout and 256 KiB per output stream. A working folder is not a filesystem sandbox. Prefer JSON output (`--json`). Check `success` and show `stderr` on failure.
 
-**Command patterns.** Always allow on an action lets the view run it with *any* arguments. For a write, and always for a raw request (`gh api`, `kubectl exec`, `aws … --cli-input-json`), give the command's shape instead, so the user allows exactly that and nothing wider:
+**Command patterns.** Always allow on an action lets the view run it with _any_ arguments. For a write, and always for a raw request (`gh api`, `kubectl exec`, `aws … --cli-input-json`), give the command's shape instead, so the user allows exactly that and nothing wider:
 
 ```js
-const ADD_COMMENT = "query=mutation($id:ID!,$body:String!){addComment(input:{subjectId:$id,body:$body}){clientMutationId}}";
-await host.cli("gh", ["api", "graphql", "-f", ADD_COMMENT, "-F", `id=${pr.id}`, "-f", `body=${text}`],
-  { pattern: ["api", "graphql", "-f", ADD_COMMENT, "-F", "id={id}", "-f", "body={body}"] });
+const ADD_COMMENT =
+  'query=mutation($id:ID!,$body:String!){addComment(input:{subjectId:$id,body:$body}){clientMutationId}}'
+await host.cli('gh', ['api', 'graphql', '-f', ADD_COMMENT, '-F', `id=${pr.id}`, '-f', `body=${text}`], {
+  pattern: ['api', 'graphql', '-f', ADD_COMMENT, '-F', 'id={id}', '-f', 'body={body}'],
+})
 ```
 
 A pattern is the whole argument list. Every argument is fixed text except `{name}` (a whole argument) or `key={name}` (what follows the first `=`); fixed text may contain braces, so a query is fine. Write it on one line, starting with the action. The user sees the command as its heading (`gh api graphql`) and one row per argument, named after your `{name}`s and flags, with the changing rows tagged "Can change", the sentence "Always allow: this view can run this again whenever only id and body change.", and the exact text behind Show full command. A GraphQL query reads as its operation ("GraphQL mutation · addComment"), so name the mutation for what it does. Afterwards a command of that shape runs without asking; any other shape asks again. A changing part is one argument: as a whole argument it can't start with `-`, and after `=` it can't start with `@` (gh `-F` and curl `-d` read files from `@`). Pass values through `-f`/raw fields rather than `-F` when they may start with `@`. Name each part for what it is (`body`, `number`, `repo`): the user reads the names. A pattern that doesn't fit its own command fails with the reason instead of asking. `needs` declares actions only; ask for a pattern with `host.cli` or `host.request`.
@@ -128,16 +152,16 @@ Every element is a function returning a plain object. Containers take an optiona
 
 **Layout**
 
-| Element | Use |
-| --- | --- |
-| `Page(props, ...children)` | The root. Full size, page insets, system type. Return one `Page` from `render`. |
-| `Reading(...)` | A centered reading column (≤720 px). Put it in `Page({ align: "center" })`. |
-| `Column(...)`, `Row(...)` | Vertical and horizontal stacks with an 8 px gap. `Row` centers vertically. |
-| `Box(...)` | A plain container with no defaults. |
-| `Scroll({ id }, ...)` | A vertically scrolling column that fills the remaining height. |
-| `Card(...)` | A quiet surface with a hairline border and 16 px padding. |
-| `Header({ title, subtitle }, ...actions)` | The view's title row with actions on the right. |
-| `Divider()`, `Spacer()` | A 1 px rule; flexible space. |
+| Element                                   | Use                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------- |
+| `Page(props, ...children)`                | The root. Full size, page insets, system type. Return one `Page` from `render`. |
+| `Reading(...)`                            | A centered reading column (≤720 px). Put it in `Page({ align: "center" })`.     |
+| `Column(...)`, `Row(...)`                 | Vertical and horizontal stacks with an 8 px gap. `Row` centers vertically.      |
+| `Box(...)`                                | A plain container with no defaults.                                             |
+| `Scroll({ id }, ...)`                     | A vertically scrolling column that fills the remaining height.                  |
+| `Card(...)`                               | A quiet surface with a hairline border and 16 px padding.                       |
+| `Header({ title, subtitle }, ...actions)` | The view's title row with actions on the right.                                 |
+| `Divider()`, `Spacer()`                   | A 1 px rule; flexible space.                                                    |
 
 **Text**
 
@@ -151,36 +175,51 @@ Icons are [Lucide](https://lucide.dev) names: `refresh-cw`, `plus`, `trash`, `se
 
 **Controls**
 
-| Element | Props |
-| --- | --- |
-| `Button(label, props)` | `onClick`, `variant: "primary" \| "secondary"` (default ghost), `icon`, `disabled` |
-| `IconButton(icon, props)` | `label` (required accessible name), `onClick`, `disabled`, `variant: "primary"` (a filled circle for the one action a surface exists for, such as Send) |
-| `Input(props)` | `id`, `value`, `placeholder`, `label`, `masked`, `invalid`, `onChange(text)`, `onSubmit(text)` (Enter) |
-| `Textarea(props)` | `id`, `value`, `placeholder`, `label`, `rows`, `h`, `onChange(text)`, `bare` (no border or fill, inside a surface that draws its own, like a composer) |
-| `Checkbox(props)` | `checked`, `label`, `disabled`, `onChange(bool)` |
-| `Toggle(props)` | A switch: `checked`, `label`, `disabled`, `onChange(bool)` |
-| `Select(props)` | A dropdown: `id`, `value`, `options` (strings or `{ value, label }`), `label`, `placeholder`, `disabled`, `onChange(value)`, `quiet` (a borderless pill sized to its value, for settings inside another surface) |
-| `Tabs(props)` | A segmented control: `id`, `items` (labels), `selected` (index), `underline`, `onChange(index)` |
-| `Progress({ value })` | A 0–1 progress bar; optional `color`. |
+| Element                   | Props                                                                                                                                                                                                            |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button(label, props)`    | `onClick`, `variant: "primary" \| "secondary"` (default ghost), `icon`, `disabled`                                                                                                                               |
+| `IconButton(icon, props)` | `label` (required accessible name), `onClick`, `disabled`, `variant: "primary"` (a filled circle for the one action a surface exists for, such as Send)                                                          |
+| `Input(props)`            | `id`, `value`, `placeholder`, `label`, `masked`, `invalid`, `onChange(text)`, `onSubmit(text)` (Enter)                                                                                                           |
+| `Textarea(props)`         | `id`, `value`, `placeholder`, `label`, `rows`, `h`, `onChange(text)`, `bare` (no border or fill, inside a surface that draws its own, like a composer)                                                           |
+| `Checkbox(props)`         | `checked`, `label`, `disabled`, `onChange(bool)`                                                                                                                                                                 |
+| `Toggle(props)`           | A switch: `checked`, `label`, `disabled`, `onChange(bool)`                                                                                                                                                       |
+| `Select(props)`           | A dropdown: `id`, `value`, `options` (strings or `{ value, label }`), `label`, `placeholder`, `disabled`, `onChange(value)`, `quiet` (a borderless pill sized to its value, for settings inside another surface) |
+| `Tabs(props)`             | A segmented control: `id`, `items` (labels), `selected` (index), `underline`, `onChange(index)`                                                                                                                  |
+| `Progress({ value })`     | A 0–1 progress bar; optional `color`.                                                                                                                                                                            |
 
 Text fields are retained native controls: caret, selection and input methods survive every re-render. Give every `Input`/`Textarea` a stable `id`. `value` is controlled only when the script changes it (clearing after submit, reset); typing is never echoed back. An `Input` with `id: "search"` makes ⌘F work automatically (see below).
 
-**Documents**: `BlockEditor({ id, value, markdown, placeholder, readOnly, onChange(blocks) })` is a Notion-style editor for notes, specs, journals and any long text a person writes and returns to. Use it whenever the view's content *is* a document; use `Textarea` for a short field inside a form, and `Markdown` to show text nobody edits here.
+**Documents**: `BlockEditor({ id, value, markdown, placeholder, readOnly, onChange(blocks) })` is a Notion-style editor for notes, specs, journals and any long text a person writes and returns to. Use it whenever the view's content _is_ a document; use `Textarea` for a short field inside a form, and `Markdown` to show text nobody edits here.
 
 - `value` is an array of blocks: `{ id, type, text, marks?, checked?, indent? }`. `type` is `paragraph`, `h1`, `h2`, `h3`, `bullet`, `numbered`, `todo`, `quote`, `code` or `divider`. `marks` are `{ type: "bold" | "italic" | "code" | "strike" | "link", start, end, url? }`, with offsets in JavaScript string units. `checked` is for `todo`; `indent` (0–6) nests list items.
 - Pass `markdown: string` instead of `value` to start from Markdown. `toMarkdown(blocks)` and `fromMarkdown(text)` convert either way (pure and synchronous).
 - `onChange(blocks)` runs once typing pauses (and when the editor loses focus), never per keystroke. Save the blocks in state; persist them through your normal save path. `value` is controlled like `Input`: the editor is reset only when the script passes a document it was not just given.
 - Give it a stable `id` and the height to scroll in (`grow: true` inside a `Page`, or `h`); it scrolls itself and keeps the caret in view. It reserves a 48 px gutter on the left for the drag handle, so place it with `ml: -48` when the text must line up with a header.
-- Everything else is built in: the slash menu, Markdown shortcuts (`#`, `-`, `1.`, `[]`, `>`, ```` ``` ````, `---`, `**bold**`, `*italic*`, `` `code` ``, `~~strike~~`), ⌘B/⌘I/⌘E/⌘⇧S/⌘K, ⌘⌥0–8 to turn blocks into other kinds, drag handles, copy and paste as Markdown and rich text, undo, and IME input. Don't rebuild any of it around the editor.
+- Everything else is built in: the slash menu, Markdown shortcuts (`#`, `-`, `1.`, `[]`, `>`, ` ``` `, `---`, `**bold**`, `*italic*`, `` `code` ``, `~~strike~~`), ⌘B/⌘I/⌘E/⌘⇧S/⌘K, ⌘⌥0–8 to turn blocks into other kinds, drag handles, copy and paste as Markdown and rich text, undo, and IME input. Don't rebuild any of it around the editor.
 
 ```js
 view({
-  state: { doc: [{ type: "h1", text: "Meeting notes" }, { type: "todo", text: "Send the recap" }] },
-  render(s) {
-    return Page(Reading({ grow: true },
-      BlockEditor({ id: "notes", value: s.doc, grow: true, placeholder: "Start writing", onChange: (doc) => setState({ doc }) })));
+  state: {
+    doc: [
+      { type: 'h1', text: 'Meeting notes' },
+      { type: 'todo', text: 'Send the recap' },
+    ],
   },
-});
+  render(s) {
+    return Page(
+      Reading(
+        { grow: true },
+        BlockEditor({
+          id: 'notes',
+          value: s.doc,
+          grow: true,
+          placeholder: 'Start writing',
+          onChange: (doc) => setState({ doc }),
+        })
+      )
+    )
+  },
+})
 ```
 
 **Disabled controls.** `RadioGroup`, `Rating`, `Slider` and `Accordion` accept `disabled: true` to prevent interaction while preserving their displayed values. RadioGroup items may pair any JSON `value` with a string `label`; its selected `value` uses the same JSON value.
@@ -190,8 +229,8 @@ view({
 **Images**: `Image(source, { id, alt, w, h, fit })` displays a PNG, JPEG, WebP or GIF (first frame) on Mac. Use a picked file handle from `host.files.pick()`, `{ id: folder.id, path: "photos/cover.jpg" }` from a picked folder, or a public HTTPS URL. A remote image shows a **Load image** button until the user approves its exact domain for this view. Later images from that domain load automatically. Users can manage these approvals and set app-wide Allow or Block rules under Settings → Security & Trust. App-wide rules take priority. Use the final HTTPS URL when an image redirects to another domain.
 
 ```js
-Image(state.photo, { id: "photo", alt: "Ridgeline at sunrise", w: "full", h: 240, fit: "cover" })
-Image("https://images.example.com/cover.jpg", { id: "cover", alt: "Book cover", w: 160, h: 224 })
+Image(state.photo, { id: 'photo', alt: 'Ridgeline at sunrise', w: 'full', h: 240, fit: 'cover' })
+Image('https://images.example.com/cover.jpg', { id: 'cover', alt: 'Book cover', w: 160, h: 224 })
 ```
 
 **Forms**: `Form({ id }, ...)` constrains a form to a readable measure. `Field({ label, for, hint, optional, error }, control)` adds a label (clicking it focuses the control named by `for`), a hint or a specific error. `Actions({ status }, ...buttons)` is the footer row. `Section(title, detail)` titles a group. Read `FORMS.md`.
@@ -230,12 +269,19 @@ Every install and edit returns `design_score` and `design_grade` with its warnin
 `motion` on any styled element:
 
 ```js
-Card({ id: "toast", show: visible, motion: {
-  initial: { opacity: 0, y: 8 },          // on mount (and where it returns from)
-  animate: { opacity: 1, y: 0, bg: "inset" }, // the target; changing it animates
-  exit:    { opacity: 0, y: 4 },          // when show turns false, then removed
-  transition: { duration: 180, ease: "out", delay: 0 },
-}}, Text("Saved"))
+Card(
+  {
+    id: 'toast',
+    show: visible,
+    motion: {
+      initial: { opacity: 0, y: 8 }, // on mount (and where it returns from)
+      animate: { opacity: 1, y: 0, bg: 'inset' }, // the target; changing it animates
+      exit: { opacity: 0, y: 4 }, // when show turns false, then removed
+      transition: { duration: 180, ease: 'out', delay: 0 },
+    },
+  },
+  Text('Saved')
+)
 ```
 
 - **Properties**: `x`, `y` (px offset from layout), `opacity`, `w`, `h` (px), `radius`, `bg`, `color`, `borderColor` (tokens or hex), and on `Icon` also `scale` and `rotate` (degrees). GPUI can't scale or rotate layout boxes, only vector marks.
@@ -335,39 +381,39 @@ waits up to three seconds and checks access again before acting.
 
 ### Feedback and native integration
 
-| API | Contract |
-| --- | --- |
-| `host.native.info()` | `{version:1, capabilities, utcOffset}`; capabilities are supported names, not grants. |
-| `host.toast.show({id,title,body?,style?,action?})` | `{id}`. Style `info` (default), `success`, `error`, `progress`. Same ID replaces existing feedback. Ordinary toasts leave after 6 seconds on screen, waiting while the pointer rests on them or View is in the background; progress remains until updated/dismissed. Window-only. |
-| `host.toast.update(options)` | Same complete object as show; replaces rather than merges. |
-| `host.toast.dismiss(id)` | `{id}`. Idempotent. |
-| `host.notifications.send({id?,title,body?,delivery?,sound?,action?})` | Durable inbox entry. Delivery `system` (default), `inApp`, or `both`. Optional `sound:"default"\|"none"` (default sound). Returns `{id,stored:true,system:null\|{submitted,error?}}`; system submission does not prove OS display. Same ID replaces the entry. View retains up to 100 entries per view and 500 across all views for up to 30 days. |
-| `host.notifications.list()` / `.dismiss(id)` | List stored entries / remove by ID. These work after notification permission is revoked. |
-| `host.confirm({title,message?,confirmLabel?,cancelLabel?})` | Boolean; cancellation returns `false`. Native dialog, five-minute timeout. The window title identifies this view; your title remains the question above the message. Title 1–256 bytes, message up to 8192, labels up to 64 each. One confirm or file panel may be open per view; another rejects. |
-| `host.files.pick({title?,multiple?,extensions?})` | Array of `{id,name}` handles or `null` on cancel. Picker selection grants access only to chosen files; files in hidden or credential folders, `~/Library` (outside cloud folders), system folders and View's data are refused. Max 128 handles per view. The person can remove any handle in the view's permissions. |
-| `host.files.readText(id)` / `.release(id)` | Read UTF-8, max 128 KB / release a file or folder handle. No arbitrary paths. |
-| `host.files.pickFolder({title?})` | `{id,name}` or `null` on cancel. The person chooses a folder in the system panel; the view may then list and read inside it only, read-only. Max 16 folders per view; the handle persists with the view, so keep `id` in state. |
-| `host.files.list(folderId,{path?,limit?,cursor?})` | One level of the folder: `{entries:[{name,path,kind,size,modified,type,downloaded}],cursor}`. `path` is relative to the chosen folder (`""` or omitted for the folder itself), `kind` is `file` or `folder`, `type` the lowercase extension, `downloaded:false` marks a cloud file not yet on this Mac. Sorted by name; `limit` 1–1000, default 200; pass `cursor` for the next page until it is `null`. |
-| `host.files.readText(folderId,{path})` / `host.files.stat(folderId,{path?})` | A UTF-8 text file inside the folder, max 128 KB / one entry without reading it. |
-| `host.files.saveText({name,text})` | Save dialog, `{saved:true}` or `null` on cancel. Max request size 128 KB; existing-file replacement is confirmed by the dialog. |
-| `host.clipboard.readText()` / `.paste(text,{delayMs?}?)` / `.copy(text)` | Read text / paste into the frontmost app / existing clipboard copy. Paste temporarily supplies text marked transient/concealed, then restores all prior clipboard formats after a reader fetches it; a newer copy is left alone. A target that doesn't fetch it within five seconds rejects, with its outcome unknown. Clipboard managers that honor these markers don't record the temporary text. `delayMs` is an integer 0–3000 (default 0). Copy still changes the clipboard normally and needs a direct user event. |
-| `host.selection.readText({delayMs?}?)` | Selected text from the frontmost app; requires Accessibility and an app that exposes selection. `delayMs` is an integer 0–3000 (default 0). |
-| `host.apps.open(url)` | Open a custom app URL or web URL with its registered application. No `file:`, `data:` or `javascript:` URLs, and none that run something, connect to a server or dial (`shortcuts:`, `applescript:`, `smb:`, `ssh:`, `vnc:`, `ftp:`, `tel:`, `facetime:` and the like). |
-| `host.calendar.calendars()` | `[{id,title,account,writable}]`, every calendar on this Mac (`account` is e.g. `iCloud`, `Google`, `Exchange`). Requires `calendar.read`. |
-| `host.calendar.events({start,end,calendars?,limit?})` | Occurrences overlapping the range, earliest first: `{id,title,start,end,allDay,calendar,calendarId,location,notes,url,status,organizer,attendees,recurring}`. RFC3339 instants, end after start, at most 366 days. `calendars` is an array of IDs (default all). `limit` 1–1000, default 200; a full page means narrow the range. Requires `calendar.read`. |
-| `host.calendar.authorization()` | `{status,platform:"macos"}`: `notDetermined`, `fullAccess`, `writeOnly`, `denied` or `restricted`. No grant needed; never prompts. |
-| `host.calendar.create({title,start,end,calendar?,notes?,location?})` | `{id}` from Calendar. RFC3339 instants, end after start. Named calendar or first available calendar. Requires `calendar.write`. |
-| `host.systemReminders.lists()` | `[{id,title,account,writable}]`, every reminders list on this Mac. Requires `reminders.read`. |
-| `host.systemReminders.items({lists?,completed?,dueAfter?,dueBefore?,limit?})` | `{id,title,notes,list,listId,due,dueAllDay,completed,completedAt,priority,url}`. Default: incomplete ones, soonest due first, then `priority` (`high`, `medium`, `low` or null), undated last. `completed:true` returns completed ones, most recent first. `dueAfter`/`dueBefore` are RFC3339 instants (`dueAfter <= due < dueBefore`) and leave undated reminders out. `lists` is an array of IDs (default all). `limit` 1–1000, default 200. Requires `reminders.read`. |
-| `host.systemReminders.authorization()` | `{status,platform:"macos"}`: `notDetermined`, `fullAccess`, `denied` or `restricted`. No grant needed; never prompts. |
-| `host.systemReminders.create({title,due?,list?,notes?})` | `{id}` from Apple Reminders. Optional RFC3339 due instant, named list or default list. Separate from View reminders. Requires `reminders.write`. |
-| `host.contacts.search({query,limit?})` | People whose name, organization or email address contains `query` (case-insensitive), best match first: `[{id,name,organization,jobTitle,emails:[{label,value}],phones:[{label,value}]}]`. `query` is required, 1–100 bytes. `limit` 1–25, default 10. Requires `contacts.read`. |
-| `host.contacts.get(id)` | One contact in the same shape, or `null` when it no longer exists. Requires `contacts.read`. |
-| `host.contacts.authorization()` | `{status,platform:"macos"}`: `notDetermined`, `fullAccess`, `limited`, `denied` or `restricted`. No grant needed; never prompts. |
-| `host.mail.mailboxes()` | `[{id,name,account,path,unread}]`: All Inboxes first (`id:"inbox"`, `account:null`, `path:[]`), then each Mail account's mailboxes, its own Inbox first. Nested mailboxes are listed too: `path` names them from the account down (`["[Gmail]","Sent Mail"]`), so same-named ones read apart. Requires `mail.read`. |
-| `host.mail.messages({mailbox?,limit?,before?,unreadOnly?})` | Newest first: `[{id,subject,from:{name,email},to:[{name,email}],date,read,flagged,mailbox,mailboxId,account,url,incomplete?}]`. `incomplete:true` marks a message whose headers Mail hadn't downloaded yet: its `to` is empty and `url` null until a later read. `mailbox` is an ID from `mailboxes()` (default: the unified inbox). `limit` 1–50, default 20. `before`: pass the last message's `id` for the next page (exact, even when messages share a second); an RFC3339 instant takes only older messages. `unreadOnly` looks at the newest 200 messages only. Requires `mail.read`. |
-| `host.mail.message(id)` | The same plus `cc`, `text` (plain text, at most 32 KB, `clipped:true` when cut) and `attachments:[{name,size}]`; `null` when the message is gone. Requires `mail.read`. |
-| `host.mail.authorization()` | `{status,platform:"macos"}`: `granted`, `notDetermined`, `denied` or `mailNotRunning`. No grant needed; never prompts and never opens Mail. |
+| API                                                                           | Contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host.native.info()`                                                          | `{version:1, capabilities, utcOffset}`; capabilities are supported names, not grants.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `host.toast.show({id,title,body?,style?,action?})`                            | `{id}`. Style `info` (default), `success`, `error`, `progress`. Same ID replaces existing feedback. Ordinary toasts leave after 6 seconds on screen, waiting while the pointer rests on them or View is in the background; progress remains until updated/dismissed. Window-only.                                                                                                                                                                                                                                                                                                           |
+| `host.toast.update(options)`                                                  | Same complete object as show; replaces rather than merges.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `host.toast.dismiss(id)`                                                      | `{id}`. Idempotent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `host.notifications.send({id?,title,body?,delivery?,sound?,action?})`         | Durable inbox entry. Delivery `system` (default), `inApp`, or `both`. Optional `sound:"default"\|"none"` (default sound). Returns `{id,stored:true,system:null\|{submitted,error?}}`; system submission does not prove OS display. Same ID replaces the entry. View retains up to 100 entries per view and 500 across all views for up to 30 days.                                                                                                                                                                                                                                          |
+| `host.notifications.list()` / `.dismiss(id)`                                  | List stored entries / remove by ID. These work after notification permission is revoked.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `host.confirm({title,message?,confirmLabel?,cancelLabel?})`                   | Boolean; cancellation returns `false`. Native dialog, five-minute timeout. The window title identifies this view; your title remains the question above the message. Title 1–256 bytes, message up to 8192, labels up to 64 each. One confirm or file panel may be open per view; another rejects.                                                                                                                                                                                                                                                                                          |
+| `host.files.pick({title?,multiple?,extensions?})`                             | Array of `{id,name}` handles or `null` on cancel. Picker selection grants access only to chosen files; files in hidden or credential folders, `~/Library` (outside cloud folders), system folders and View's data are refused. Max 128 handles per view. The person can remove any handle in the view's permissions.                                                                                                                                                                                                                                                                        |
+| `host.files.readText(id)` / `.release(id)`                                    | Read UTF-8, max 128 KB / release a file or folder handle. No arbitrary paths.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `host.files.pickFolder({title?})`                                             | `{id,name}` or `null` on cancel. The person chooses a folder in the system panel; the view may then list and read inside it only, read-only. Max 16 folders per view; the handle persists with the view, so keep `id` in state.                                                                                                                                                                                                                                                                                                                                                             |
+| `host.files.list(folderId,{path?,limit?,cursor?})`                            | One level of the folder: `{entries:[{name,path,kind,size,modified,type,downloaded}],cursor}`. `path` is relative to the chosen folder (`""` or omitted for the folder itself), `kind` is `file` or `folder`, `type` the lowercase extension, `downloaded:false` marks a cloud file not yet on this Mac. Sorted by name; `limit` 1–1000, default 200; pass `cursor` for the next page until it is `null`.                                                                                                                                                                                    |
+| `host.files.readText(folderId,{path})` / `host.files.stat(folderId,{path?})`  | A UTF-8 text file inside the folder, max 128 KB / one entry without reading it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `host.files.saveText({name,text})`                                            | Save dialog, `{saved:true}` or `null` on cancel. Max request size 128 KB; existing-file replacement is confirmed by the dialog.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `host.clipboard.readText()` / `.paste(text,{delayMs?}?)` / `.copy(text)`      | Read text / paste into the frontmost app / existing clipboard copy. Paste temporarily supplies text marked transient/concealed, then restores all prior clipboard formats after a reader fetches it; a newer copy is left alone. A target that doesn't fetch it within five seconds rejects, with its outcome unknown. Clipboard managers that honor these markers don't record the temporary text. `delayMs` is an integer 0–3000 (default 0). Copy still changes the clipboard normally and needs a direct user event.                                                                    |
+| `host.selection.readText({delayMs?}?)`                                        | Selected text from the frontmost app; requires Accessibility and an app that exposes selection. `delayMs` is an integer 0–3000 (default 0).                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `host.apps.open(url)`                                                         | Open a custom app URL or web URL with its registered application. No `file:`, `data:` or `javascript:` URLs, and none that run something, connect to a server or dial (`shortcuts:`, `applescript:`, `smb:`, `ssh:`, `vnc:`, `ftp:`, `tel:`, `facetime:` and the like).                                                                                                                                                                                                                                                                                                                     |
+| `host.calendar.calendars()`                                                   | `[{id,title,account,writable}]`, every calendar on this Mac (`account` is e.g. `iCloud`, `Google`, `Exchange`). Requires `calendar.read`.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `host.calendar.events({start,end,calendars?,limit?})`                         | Occurrences overlapping the range, earliest first: `{id,title,start,end,allDay,calendar,calendarId,location,notes,url,status,organizer,attendees,recurring}`. RFC3339 instants, end after start, at most 366 days. `calendars` is an array of IDs (default all). `limit` 1–1000, default 200; a full page means narrow the range. Requires `calendar.read`.                                                                                                                                                                                                                                 |
+| `host.calendar.authorization()`                                               | `{status,platform:"macos"}`: `notDetermined`, `fullAccess`, `writeOnly`, `denied` or `restricted`. No grant needed; never prompts.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `host.calendar.create({title,start,end,calendar?,notes?,location?})`          | `{id}` from Calendar. RFC3339 instants, end after start. Named calendar or first available calendar. Requires `calendar.write`.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `host.systemReminders.lists()`                                                | `[{id,title,account,writable}]`, every reminders list on this Mac. Requires `reminders.read`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `host.systemReminders.items({lists?,completed?,dueAfter?,dueBefore?,limit?})` | `{id,title,notes,list,listId,due,dueAllDay,completed,completedAt,priority,url}`. Default: incomplete ones, soonest due first, then `priority` (`high`, `medium`, `low` or null), undated last. `completed:true` returns completed ones, most recent first. `dueAfter`/`dueBefore` are RFC3339 instants (`dueAfter <= due < dueBefore`) and leave undated reminders out. `lists` is an array of IDs (default all). `limit` 1–1000, default 200. Requires `reminders.read`.                                                                                                                   |
+| `host.systemReminders.authorization()`                                        | `{status,platform:"macos"}`: `notDetermined`, `fullAccess`, `denied` or `restricted`. No grant needed; never prompts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `host.systemReminders.create({title,due?,list?,notes?})`                      | `{id}` from Apple Reminders. Optional RFC3339 due instant, named list or default list. Separate from View reminders. Requires `reminders.write`.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `host.contacts.search({query,limit?})`                                        | People whose name, organization or email address contains `query` (case-insensitive), best match first: `[{id,name,organization,jobTitle,emails:[{label,value}],phones:[{label,value}]}]`. `query` is required, 1–100 bytes. `limit` 1–25, default 10. Requires `contacts.read`.                                                                                                                                                                                                                                                                                                            |
+| `host.contacts.get(id)`                                                       | One contact in the same shape, or `null` when it no longer exists. Requires `contacts.read`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `host.contacts.authorization()`                                               | `{status,platform:"macos"}`: `notDetermined`, `fullAccess`, `limited`, `denied` or `restricted`. No grant needed; never prompts.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `host.mail.mailboxes()`                                                       | `[{id,name,account,path,unread}]`: All Inboxes first (`id:"inbox"`, `account:null`, `path:[]`), then each Mail account's mailboxes, its own Inbox first. Nested mailboxes are listed too: `path` names them from the account down (`["[Gmail]","Sent Mail"]`), so same-named ones read apart. Requires `mail.read`.                                                                                                                                                                                                                                                                         |
+| `host.mail.messages({mailbox?,limit?,before?,unreadOnly?})`                   | Newest first: `[{id,subject,from:{name,email},to:[{name,email}],date,read,flagged,mailbox,mailboxId,account,url,incomplete?}]`. `incomplete:true` marks a message whose headers Mail hadn't downloaded yet: its `to` is empty and `url` null until a later read. `mailbox` is an ID from `mailboxes()` (default: the unified inbox). `limit` 1–50, default 20. `before`: pass the last message's `id` for the next page (exact, even when messages share a second); an RFC3339 instant takes only older messages. `unreadOnly` looks at the newest 200 messages only. Requires `mail.read`. |
+| `host.mail.message(id)`                                                       | The same plus `cc`, `text` (plain text, at most 32 KB, `clipped:true` when cut) and `attachments:[{name,size}]`; `null` when the message is gone. Requires `mail.read`.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `host.mail.authorization()`                                                   | `{status,platform:"macos"}`: `granted`, `notDetermined`, `denied` or `mailNotRunning`. No grant needed; never prompts and never opens Mail.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 An action is `{label,command,args?}`: the host opens **this view** and invokes the
 named `commands` entry. Use serializable arguments (max 8 KB), never callbacks.
@@ -462,15 +508,23 @@ are `host.calendar` and `host.systemReminders`. Reminders default to OS notifica
 
 ```js
 await host.reminders.schedule({
-  id: "follow-up:42", title: "Follow up on issue 42",
-  schedule: {kind:"after", delayMs:60 * 60 * 1000},
-  action: {label:"Open issue", command:"open_issue", args:{id:42}},
-});
+  id: 'follow-up:42',
+  title: 'Follow up on issue 42',
+  schedule: { kind: 'after', delayMs: 60 * 60 * 1000 },
+  action: { label: 'Open issue', command: 'open_issue', args: { id: 42 } },
+})
 await host.background.register({
-  id:"refresh", command:"refresh", args:{},
-  schedule:{kind:"calendar",frequency:"weekly",days:["mon","tue","wed","thu","fri"],
-            time:"09:00",timezone:"Europe/Madrid"},
-});
+  id: 'refresh',
+  command: 'refresh',
+  args: {},
+  schedule: {
+    kind: 'calendar',
+    frequency: 'weekly',
+    days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+    time: '09:00',
+    timezone: 'Europe/Madrid',
+  },
+})
 ```
 
 Scheduled commands run in the mounted engine; closed views persist changed top-level state keys
@@ -492,10 +546,16 @@ Invalid parts are dropped; commands must be declared by the view and open it bef
 Errors clear the badge/card and are logged. Reconnect keeps locally edited top-level state keys.
 
 ```js
-view({ state: { items: [] }, render: s => Page(Text(s.items.length)),
-  badge: s => ({ value: s.items.length, title: "Items to review",
-    items: [{ label: "Refresh inbox", marker: {shape:"circle", color:"accent"}, command: "refresh", args: {} }] }),
-  commands: { refresh: async () => setState({ items: await host.call("inbox", "list", {}) }) } });
+view({
+  state: { items: [] },
+  render: (s) => Page(Text(s.items.length)),
+  badge: (s) => ({
+    value: s.items.length,
+    title: 'Items to review',
+    items: [{ label: 'Refresh inbox', marker: { shape: 'circle', color: 'accent' }, command: 'refresh', args: {} }],
+  }),
+  commands: { refresh: async () => setState({ items: await host.call('inbox', 'list', {}) }) },
+})
 ```
 
 A `schedule` is exactly one of:
@@ -559,13 +619,13 @@ No recorded step execution is shown as such, rather than inferred from run statu
 Version 2 includes all basic step kinds below, optional `title` on every step,
 and these orchestration steps:
 
-| `kind` | Fields | Result |
-| --- | --- | --- |
-| `parallel` | `branches:[{id,title?,steps,result}]` (2–8) | Object keyed by branch ID; branches have isolated output scopes and settle before continuing |
-| `map` | `items`, `steps`, `result`, `concurrency?` (1–4, default 3), `limit?` (1–1000, default 256) | Array in input order; `/item` and `/index` select this iteration; oversized inputs fail rather than truncate |
-| `merge` | `base`, `joins:[{from,leftKey,rightKey,as,many?}]` | Left join of object rows; keys are JSON pointers. `many:false` rejects duplicate keys and yields null for missing matches; `many:true` yields an array. Scalar key types stay distinct |
-| `try` | `steps`, `result`, `fallback?`, `catch?`, `rethrow?` | Successful result or fallback after optional cleanup steps; `/error/message` is available in catch/fallback. `rethrow:true` reports failure after cleanup. Cancellation bypasses recovery |
-| `expression` | `code`, `input?` | Run a pure Rhai program in the Rust expression runtime; result is JSON. Prefer this over custom JavaScript commands for data logic |
+| `kind`       | Fields                                                                                      | Result                                                                                                                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `parallel`   | `branches:[{id,title?,steps,result}]` (2–8)                                                 | Object keyed by branch ID; branches have isolated output scopes and settle before continuing                                                                                              |
+| `map`        | `items`, `steps`, `result`, `concurrency?` (1–4, default 3), `limit?` (1–1000, default 256) | Array in input order; `/item` and `/index` select this iteration; oversized inputs fail rather than truncate                                                                              |
+| `merge`      | `base`, `joins:[{from,leftKey,rightKey,as,many?}]`                                          | Left join of object rows; keys are JSON pointers. `many:false` rejects duplicate keys and yields null for missing matches; `many:true` yields an array. Scalar key types stay distinct    |
+| `try`        | `steps`, `result`, `fallback?`, `catch?`, `rethrow?`                                        | Successful result or fallback after optional cleanup steps; `/error/message` is available in catch/fallback. `rethrow:true` reports failure after cleanup. Cancellation bypasses recovery |
+| `expression` | `code`, `input?`                                                                            | Run a pure Rhai program in the Rust expression runtime; result is JSON. Prefer this over custom JavaScript commands for data logic                                                        |
 
 #### Native expressions
 
@@ -599,21 +659,21 @@ Array loops use `for (value, index) in rows { ... }`. Iterate map entries with
 `for key in object.keys() { let value = object[key]; ... }`. In-place `.sort()`
 and `.sort(|a,b| comparator)` return unit; native `sort_by` returns a sorted copy.
 
-| Helper | Behavior |
-| --- | --- |
-| `left_join(base, rows, leftKey, rightKey, as, many)` | Indexed left join. Keys are fields or JSON pointers; scalar key types stay distinct. Missing matches yield null/[]; duplicate single matches reject |
-| `index_by(rows,key)`, `group_by(rows,key)` | Index/group into maps using string keys; last duplicate wins for index |
-| `sort_by(rows,key,descending)` | Stable native sort |
-| `unique(values)`, `flatten(arrays)`, `pluck(rows,key)` | Stable distinct values, flatten one level, select a field |
-| `merge(a,b)`, `pick(map,fields)`, `omit(map,fields)` | Shallow merge/projection/removal |
-| `get(value,path,default)`, `coalesce(value,default)`, `truthy(value)` | Field/JSON-pointer lookup, null default, JS-compatible truthiness |
-| `take(arrayOrText,n)` | Bounded prefix (text uses Unicode characters) |
-| `json(value)`, `parse_json(text)`, `unwrap_json(response)` | JSON text encode/decode; unwrap text-content tool responses |
-| `matches(text,regex)`, `capture(text,regex)`, `captures(text,regex)` | Rust regex; capture arrays include the full match and numbered groups. No lookaround/backreferences |
-| `replace_re(text,regex,replacement)`, `replace_text(text,needle,replacement)`, `trimmed(text)` | Pure text operations; regex replacement accepts `$1`, etc. |
-| `iso_date(epochMs)`, `iso_time(epochMs)` | Pure UTC formatting |
-| `timestamp(text)` | UTC epoch milliseconds from RFC3339 (including offsets), a date, or an unzoned ISO timestamp; invalid text returns null |
-| `join(values, separator)` / `values.join(separator)` | Bounded native text joining; null contributes an empty field |
+| Helper                                                                                         | Behavior                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `left_join(base, rows, leftKey, rightKey, as, many)`                                           | Indexed left join. Keys are fields or JSON pointers; scalar key types stay distinct. Missing matches yield null/[]; duplicate single matches reject |
+| `index_by(rows,key)`, `group_by(rows,key)`                                                     | Index/group into maps using string keys; last duplicate wins for index                                                                              |
+| `sort_by(rows,key,descending)`                                                                 | Stable native sort                                                                                                                                  |
+| `unique(values)`, `flatten(arrays)`, `pluck(rows,key)`                                         | Stable distinct values, flatten one level, select a field                                                                                           |
+| `merge(a,b)`, `pick(map,fields)`, `omit(map,fields)`                                           | Shallow merge/projection/removal                                                                                                                    |
+| `get(value,path,default)`, `coalesce(value,default)`, `truthy(value)`                          | Field/JSON-pointer lookup, null default, JS-compatible truthiness                                                                                   |
+| `take(arrayOrText,n)`                                                                          | Bounded prefix (text uses Unicode characters)                                                                                                       |
+| `json(value)`, `parse_json(text)`, `unwrap_json(response)`                                     | JSON text encode/decode; unwrap text-content tool responses                                                                                         |
+| `matches(text,regex)`, `capture(text,regex)`, `captures(text,regex)`                           | Rust regex; capture arrays include the full match and numbered groups. No lookaround/backreferences                                                 |
+| `replace_re(text,regex,replacement)`, `replace_text(text,needle,replacement)`, `trimmed(text)` | Pure text operations; regex replacement accepts `$1`, etc.                                                                                          |
+| `iso_date(epochMs)`, `iso_time(epochMs)`                                                       | Pure UTC formatting                                                                                                                                 |
+| `timestamp(text)`                                                                              | UTC epoch milliseconds from RFC3339 (including offsets), a date, or an unzoned ISO timestamp; invalid text returns null                             |
+| `join(values, separator)` / `values.join(separator)`                                           | Bounded native text joining; null contributes an empty field                                                                                        |
 
 Rhai backtick strings work well for regex source. The expression runtime has no
 host, file, module, socket, process, import, eval or ambient-clock access. Keep I/O
@@ -684,18 +744,31 @@ their internals and timer callbacks remain custom JavaScript.
 
 ```js
 const syncInbox = {
-  version: 1, id: "sync-inbox", title: "Sync inbox",
-  description: "Refresh the saved inbox every fifteen minutes.",
-  trigger: {kind:"schedule", schedule:{kind:"interval", everyMs:15 * 60 * 1000}},
+  version: 1,
+  id: 'sync-inbox',
+  title: 'Sync inbox',
+  description: 'Refresh the saved inbox every fifteen minutes.',
+  trigger: { kind: 'schedule', schedule: { kind: 'interval', everyMs: 15 * 60 * 1000 } },
   steps: [
-    {id:"load", kind:"source", source:"inbox", tool:"list_items", arguments:{status:"open"}},
-    {id:"save", kind:"dataset", table:"items", operation:"set", value:{$ref:"/steps/load/items"}, options:{key:"id"}},
-    {id:"check", kind:"if", condition:{op:"truthy", value:{$ref:"/steps/load/needsAttention", default:false}},
-     then:[{id:"notice", kind:"notify", options:{title:"Inbox needs attention", delivery:"inApp"}}]},
+    { id: 'load', kind: 'source', source: 'inbox', tool: 'list_items', arguments: { status: 'open' } },
+    {
+      id: 'save',
+      kind: 'dataset',
+      table: 'items',
+      operation: 'set',
+      value: { $ref: '/steps/load/items' },
+      options: { key: 'id' },
+    },
+    {
+      id: 'check',
+      kind: 'if',
+      condition: { op: 'truthy', value: { $ref: '/steps/load/needsAttention', default: false } },
+      then: [{ id: 'notice', kind: 'notify', options: { title: 'Inbox needs attention', delivery: 'inApp' } }],
+    },
   ],
-};
+}
 // From a user action, request `background` and the actions this flow needs first.
-await host.workflows.register(syncInbox);
+await host.workflows.register(syncInbox)
 ```
 
 Discover real sources/tools before choosing them; `inbox/list_items` above is illustrative.
@@ -720,16 +793,16 @@ Keep this callback limited to control synchronization, not data refresh or paid 
 
 Step IDs are unique across the entire workflow, including both branches:
 
-| `kind` | Fields | Effect / step result |
-| --- | --- | --- |
-| `source` | `source`, `tool`, `arguments?` | `host.call`; result is the tool response |
-| `cli` | `permit`, `args`, `options?` | `host.cli`; options may include `timeoutMs`; result is CLI output |
-| `ai` | `options` | `host.ai.run`; result includes `output`, `cached`, `model` |
-| `notify` | `options` | `host.notifications.send`; same delivery and permission rules |
-| `state` | `patch` | Shallow `setState`; result is the resolved patch |
+| `kind`    | Fields                                     | Effect / step result                                                                                                |
+| --------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `source`  | `source`, `tool`, `arguments?`             | `host.call`; result is the tool response                                                                            |
+| `cli`     | `permit`, `args`, `options?`               | `host.cli`; options may include `timeoutMs`; result is CLI output                                                   |
+| `ai`      | `options`                                  | `host.ai.run`; result includes `output`, `cached`, `model`                                                          |
+| `notify`  | `options`                                  | `host.notifications.send`; same delivery and permission rules                                                       |
+| `state`   | `patch`                                    | Shallow `setState`; result is the resolved patch                                                                    |
 | `dataset` | `table`, `operation`, `value?`, `options?` | `host.data` operation (`set`, `patch`, `remove`, `clear`, `rows`, `count`, `aggregate`); result is its return value |
-| `command` | `command`, `args?` | Await a named custom JavaScript command; result is its JSON return value |
-| `if` | `condition`, `then`, `else?` | Execute one branch; result is the condition boolean |
+| `command` | `command`, `args?`                         | Await a named custom JavaScript command; result is its JSON return value                                            |
+| `if`      | `condition`, `then`, `else?`               | Execute one branch; result is the condition boolean                                                                 |
 
 Arguments, options, patches and condition operands support nested references:
 `{$ref:"/input/owner"}`, `{$ref:"/state/items"}`, `{$ref:"/steps/load/items/0"}`.
@@ -828,25 +901,37 @@ All methods are synchronous; mutation throws on invalid rows/keys or size overfl
 - `aggregate(name,{groupBy,ops:{total:{op:'sum',field:'score'}}})` returns
   `[{group,count,total}]`; ops: count/sum/avg/min/max; at most 2000 groups.
 - `badge(state, data)` receives read-only count/rows/aggregate methods. Keep its result small.
-`Table({id,data,query,columns,groupBy?,collapsed?,rowHeight?,selected?,onRowClick,
+  `Table({id,data,query,columns,groupBy?,collapsed?,rowHeight?,selected?,onRowClick,
 onSort,onToggleGroup,empty?})` has a fixed header and only builds visible rows (default height 28).
-Columns: `{field,title,w:100,grow?,align:'left'|'center'|'right',kind:'text'}`.
-Kinds: text, mono, number (`decimals`), date (`format:'short'|'relative'`), badge/tag
-(`colors:{value:color}`), link (`urlField`), progress (0–1, `color`), checks
-(`ok`, `fail`, `pending` name row fields, defaulting to those names).
-Optional `cell:row=>element` runs only for visible rows, cached until the next render;
-no text inputs inside rows. Stock cells and scrolling need no JS per row.
-Selection is controlled: onRowClick(key), onSort({field,dir}), onToggleGroup(group).
-Use `keys.up/down` to update selected; Table reveals it. Collapsed is an array of group values.
+  Columns: `{field,title,w:100,grow?,align:'left'|'center'|'right',kind:'text'}`.
+  Kinds: text, mono, number (`decimals`), date (`format:'short'|'relative'`), badge/tag
+  (`colors:{value:color}`), link (`urlField`), progress (0–1, `color`), checks
+  (`ok`, `fail`, `pending` name row fields, defaulting to those names).
+  Optional `cell:row=>element` runs only for visible rows, cached until the next render;
+  no text inputs inside rows. Stock cells and scrolling need no JS per row.
+  Selection is controlled: onRowClick(key), onSort({field,dir}), onToggleGroup(group).
+  Use `keys.up/down` to update selected; Table reveals it. Collapsed is an array of group values.
 
 ```js
-view({state:{q:'',selected:null},
-  init(){if(!host.data.count('work'))host.data.set('work',[{id:1,title:'Review'}],{key:'id'});},
-  badge:(s,d)=>d.count('work'),
-  render:s=>Page(Input({id:'q',value:s.q,onChange:q=>setState({q})}),
-    Table({id:'work',data:'work',query:{text:{value:s.q,fields:['title']}},
-      columns:[{field:'title',title:'Title',grow:true}],selected:s.selected,
-      onRowClick:selected=>setState({selected})}))});
+view({
+  state: { q: '', selected: null },
+  init() {
+    if (!host.data.count('work')) host.data.set('work', [{ id: 1, title: 'Review' }], { key: 'id' })
+  },
+  badge: (s, d) => d.count('work'),
+  render: (s) =>
+    Page(
+      Input({ id: 'q', value: s.q, onChange: (q) => setState({ q }) }),
+      Table({
+        id: 'work',
+        data: 'work',
+        query: { text: { value: s.q, fields: ['title'] } },
+        columns: [{ field: 'title', title: 'Title', grow: true }],
+        selected: s.selected,
+        onRowClick: (selected) => setState({ selected }),
+      })
+    ),
+})
 ```
 
 ## Agent execution, background jobs and optional chat
@@ -866,18 +951,27 @@ when it starts; duplicate client message IDs and observation do not charge again
 ```js
 // No chat or streaming required.
 const run = await host.agents.start({
-  prompt: "Summarize these notes.", input: selectedNotes,
-  selection: { profile: chosenProfileId }
-});
-const answer = await host.agents.result(run.id);
-setState({ summary: answer.output });
+  prompt: 'Summarize these notes.',
+  input: selectedNotes,
+  selection: { profile: chosenProfileId },
+})
+const answer = await host.agents.result(run.id)
+setState({ summary: answer.output })
 
 // Independently choose background lifetime and observation.
-const job = await host.agents.start({ prompt: "Write a digest.", input: items,
-  execution: "background", selection: { profile: chosenProfileId } });
-const stopObserving = await host.agents.subscribe(job.id, event => {
-  if (event.type === "activity") setState({ activity: event.value.summary });
-}, { events: ["activity", "status"] });
+const job = await host.agents.start({
+  prompt: 'Write a digest.',
+  input: items,
+  execution: 'background',
+  selection: { profile: chosenProfileId },
+})
+const stopObserving = await host.agents.subscribe(
+  job.id,
+  (event) => {
+    if (event.type === 'activity') setState({ activity: event.value.summary })
+  },
+  { events: ['activity', 'status'] }
+)
 // stopObserving() does not stop the job; host.agents.cancel(job.id) does.
 ```
 
@@ -929,12 +1023,19 @@ explicitly. Check final status before reporting success.
 Tools select an exact source action, CLI permit or view command:
 
 ```js
-const tools = [{
-  name: "filter_tasks", description: "Show open or all tasks.",
-  command: "filter_tasks",
-  inputSchema: {type:"object", properties:{status:{type:"string",enum:["open","all"]}},
-    required:["status"], additionalProperties:false}
-}];
+const tools = [
+  {
+    name: 'filter_tasks',
+    description: 'Show open or all tasks.',
+    command: 'filter_tasks',
+    inputSchema: {
+      type: 'object',
+      properties: { status: { type: 'string', enum: ['open', 'all'] } },
+      required: ['status'],
+      additionalProperties: false,
+    },
+  },
+]
 // Or {name,description,source,tool,inputSchema}, or
 // {name,description,permit,inputSchema:{type:"object",properties:{args:{type:"array",items:{type:"string"}}}}}.
 ```

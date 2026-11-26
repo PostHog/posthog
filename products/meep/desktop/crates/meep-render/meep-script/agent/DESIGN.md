@@ -10,14 +10,14 @@ Spacing 4, 8, 12, 16, 20, 24, 32, 40, 48, 64 px. Use 24 px page insets, and 16 p
 
 ## Theme contract: roles, not literal colors
 
-| Purpose | Token / component |
-| --- | --- |
-| Main reading surface and text | `canvas` + `ink`; prefer `Page`, `Reading`, `Text` |
-| Supporting text | `secondary`; prefer `Caption` |
-| Recessed surface or selected row | `inset` / `selected`, with `ink` text |
-| Border or divider | `rule` |
-| Primary action | Native `Button`; custom accent fills require `accentForeground` text |
-| Error / success | `danger` / `positive`, with explicit wording or an icon |
+| Purpose                          | Token / component                                                    |
+| -------------------------------- | -------------------------------------------------------------------- |
+| Main reading surface and text    | `canvas` + `ink`; prefer `Page`, `Reading`, `Text`                   |
+| Supporting text                  | `secondary`; prefer `Caption`                                        |
+| Recessed surface or selected row | `inset` / `selected`, with `ink` text                                |
+| Border or divider                | `rule`                                                               |
+| Primary action                   | Native `Button`; custom accent fills require `accentForeground` text |
+| Error / success                  | `danger` / `positive`, with explicit wording or an icon              |
 
 Pass token names directly as style props. Never resolve a token to today's hex value or cache a palette in view state. Native elements resolve their defaults at paint time, including already-installed views. Literal brand/content/chart colors are deliberate exceptions, not a way to style the surrounding UI. Explain an intentional exception when validation warns about it.
 

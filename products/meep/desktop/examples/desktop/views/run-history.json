@@ -1,12 +1,32 @@
 {
-  "version": 2,
-  "id": "refresh-history",
-  "title": "Refresh run history",
-  "trigger": { "kind": "manual" },
-  "steps": [
-    { "id": "read", "kind": "source", "title": "Read recent runs", "source": "activity", "tool": "recent", "arguments": {} },
-    { "id": "project", "kind": "expression", "title": "Format run records", "input": { "$ref": "/steps/read" },
-      "code": "input.map(|r| #{ id: r.id, shortId: r.id.sub_string(0, 8), outcome: if r.status == \"succeeded\" { \"Succeeded\" } else if r.status == \"failed\" { \"Failed\" } else { r.status }, duration: if r.durationMs == () { \"—\" } else { r.durationMs.to_string() + \" ms\" } })" },
-    { "id": "save", "kind": "dataset", "title": "Replace the run history", "table": "runs", "operation": "set", "value": { "$ref": "/steps/project" }, "options": {"key":"id"} }
-  ]
+    "version": 2,
+    "id": "refresh-history",
+    "title": "Refresh run history",
+    "trigger": { "kind": "manual" },
+    "steps": [
+        {
+            "id": "read",
+            "kind": "source",
+            "title": "Read recent runs",
+            "source": "activity",
+            "tool": "recent",
+            "arguments": {}
+        },
+        {
+            "id": "project",
+            "kind": "expression",
+            "title": "Format run records",
+            "input": { "$ref": "/steps/read" },
+            "code": "input.map(|r| #{ id: r.id, shortId: r.id.sub_string(0, 8), outcome: if r.status == \"succeeded\" { \"Succeeded\" } else if r.status == \"failed\" { \"Failed\" } else { r.status }, duration: if r.durationMs == () { \"—\" } else { r.durationMs.to_string() + \" ms\" } })"
+        },
+        {
+            "id": "save",
+            "kind": "dataset",
+            "title": "Replace the run history",
+            "table": "runs",
+            "operation": "set",
+            "value": { "$ref": "/steps/project" },
+            "options": { "key": "id" }
+        }
+    ]
 }

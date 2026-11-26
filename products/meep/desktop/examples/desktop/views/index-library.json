@@ -1,10 +1,10 @@
 {
-  "version": 2,
-  "id": "index-library",
-  "title": "Index reading collections",
-  "trigger": { "kind": "manual" },
-  "steps": [
-    { "id": "read", "kind": "source", "source": "library", "tool": "index", "arguments": {} },
-    { "id": "save", "kind": "state", "patch": { "indexed": { "$ref": "/steps/read/indexed" } } }
-  ]
+    "version": 2,
+    "id": "index-library",
+    "title": "Index reading collections",
+    "trigger": { "kind": "manual" },
+    "steps": [
+        { "id": "read", "kind": "source", "source": "library", "tool": "index", "arguments": {} },
+        { "id": "save", "kind": "state", "patch": { "indexed": { "$ref": "/steps/read/indexed" } } }
+    ]
 }
