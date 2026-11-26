@@ -584,6 +584,7 @@ class TestReviewDecisions:
 
         assert listed.review_state == "approved"
         assert listed.decision is not None and listed.decision.from_earlier_commit is True
+        assert (listed.reviewed_at, listed.approved_hash) == (listed.decision.at, "b1")
         approvals.finalize_run(run_id=head.id, user_id=user.id)
         approval = BaselineApproval.objects.get(repo=repo, pr_number=1, identifier="Button")
         assert (approval.content_hash, approval.approved_by_id) == ("b1", bob.id)

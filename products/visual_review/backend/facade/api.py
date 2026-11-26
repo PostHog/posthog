@@ -66,6 +66,7 @@ from .enums import (
     DecisionChannel,
     DecisionState,
     QuarantineLiftState,
+    ReviewState,
     RunGate,
     RunPurpose,
     RunReviewFilter,
@@ -295,14 +296,21 @@ def _to_snapshot(
     reviewed_by = infos.get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
     diff_meta = _parse_diff_metadata(snapshot.diff_metadata)
     review_state = snapshot.review_state
+    reviewed_at = snapshot.reviewed_at
+    approved_hash = snapshot.approved_hash
     decision: contracts.SnapshotDecision | None = None
     earlier: contracts.EarlierSnapshotDecision | None = None
     if decisions is not None:
         effective = decisions.effective(snapshot)
         review_state = review_decisions.effective_review_state(snapshot.review_state, effective)
+        # The older review fields describe the same decision as `review_state`, not what the row last stored.
         if effective.decision is not None:
             decision = _to_snapshot_decision(effective.decision, decisions.run_commit_sha, infos)
             reviewed_by = _user(effective.decision.by_id, infos)
+            reviewed_at = effective.decision.at
+            approved_hash = (effective.decision.key.new_hash or "") if effective.accepted else ""
+        elif review_state == ReviewState.PENDING:
+            reviewed_by, reviewed_at, approved_hash = None, None, ""
         if effective.earlier is not None:
             key = review_decisions.key_of(snapshot.identifier, snapshot.baseline_hash, snapshot.current_hash)
             earlier = _to_earlier_decision(effective.earlier, key, infos)
@@ -318,8 +326,8 @@ def _to_snapshot(
         diff_percentage=snapshot.diff_percentage,
         diff_pixel_count=snapshot.diff_pixel_count,
         review_state=review_state,
-        reviewed_at=snapshot.reviewed_at,
-        approved_hash=snapshot.approved_hash,
+        reviewed_at=reviewed_at,
+        approved_hash=approved_hash,
         tolerated_hash_id=snapshot.tolerated_hash_match_id,
         is_quarantined=snapshot.is_quarantined,
         reviewed_by=reviewed_by,
