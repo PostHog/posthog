@@ -3,14 +3,10 @@ import re
 import ast
 import sys
 import importlib
-import dataclasses
 from collections import defaultdict
 from pathlib import Path
 
 from unittest import TestCase, mock
-
-from django.conf import settings
-from django.test import override_settings
 
 from infi.clickhouse_orm.utils import import_submodules
 from parameterized import parameterized
@@ -312,20 +308,15 @@ class TestUniqueMigrationPrefixes(TestCase):
 class TestWarpstreamIngestionConsumers(TestCase):
     @parameterized.expand(
         [
-            ("self_hosted_one_broker", "", ["kafka:9092"], 0, 6),
-            ("self_hosted_split_broker", "", ["ingestion:9092"], 6, 0),
-            ("cloud_one_broker", "US", ["kafka:9092"], 6, 0),
-            ("cloud_split_broker", "US", ["ingestion:9092"], 6, 0),
+            ("local_dev", "", True, 0, 6),
+            ("hobby", "", False, 6, 0),
+            ("e2e", "E2E", True, 6, 0),
+            ("cloud", "US", False, 6, 0),
         ]
     )
-    def test_second_consumer_exists_only_where_it_reads_another_broker(
-        self, _name: str, deployment: str, ingestion_hosts: list[str], created: int, dropped: int
+    def test_second_consumer_is_dropped_only_on_local_dev_stacks(
+        self, _name: str, deployment: str, debug: bool, created: int, dropped: int
     ) -> None:
-        profiles = {
-            **settings.KAFKA_PROFILES,
-            "default": dataclasses.replace(settings.KAFKA_PROFILES["default"], hosts=["kafka:9092"]),
-            "ingestion": dataclasses.replace(settings.KAFKA_PROFILES["ingestion"], hosts=ingestion_hosts),
-        }
         modules = [
             importlib.import_module("posthog.clickhouse.migrations.0227_warpstream_kafka_engines"),
             importlib.import_module("posthog.clickhouse.migrations.0396_drop_local_warpstream_ingestion_kafka_engines"),
@@ -333,7 +324,7 @@ class TestWarpstreamIngestionConsumers(TestCase):
         try:
             with (
                 mock.patch("posthog.settings.CLOUD_DEPLOYMENT", deployment),
-                override_settings(KAFKA_PROFILES=profiles),
+                mock.patch("posthog.settings.DEBUG", debug),
             ):
                 counts = [len(importlib.reload(module).operations) for module in modules]
         finally:
