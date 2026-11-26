@@ -1,14 +1,16 @@
 import './SectionTile.css'
 import './TileHoverReveal.css'
 
+import clsx from 'clsx'
 import { type ReactNode, useCallback, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconDrag } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
 
 import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { OnSectionRows } from '../grid/TileGrid'
+import { showsBorder } from '../presentation/tileAppearance'
 import { AddTileMenu } from './AddTileMenu'
 import { TileContextMenu, hasTileMenu, useSectionActions } from './TileContextMenu'
 import { TileMenuButton } from './TileMenuButton'
@@ -62,9 +64,8 @@ export function SectionTile({
 
     return (
         <TileContextMenu actions={actions}>
-            <Section collapsed={collapsed}>
+            <Section border={showsBorder(widget)}>
                 <SectionHeader
-                    draggable={editable}
                     actions={
                         (showAdd || hasMenu) && (
                             <SectionActions>
@@ -103,12 +104,12 @@ export function SectionTile({
 }
 
 /** A section is a quill card, so it reads like a tile that holds tiles. */
-export function Section({ collapsed, children }: { collapsed: boolean; children: ReactNode }): JSX.Element {
+export function Section({ border = true, children }: { border?: boolean; children: ReactNode }): JSX.Element {
     return (
         <Card
             size="sm"
             role="group"
-            className={collapsed ? 'SectionTile SectionTile--collapsed' : 'SectionTile'}
+            className={border ? 'SectionTile' : 'SectionTile SectionTile--no-border'}
             data-attr="dashboard-v2-section"
         >
             {children}
@@ -117,21 +118,10 @@ export function Section({ collapsed, children }: { collapsed: boolean; children:
 }
 
 /** The section's title bar, which is also what the section is dragged by. */
-export function SectionHeader({
-    draggable,
-    actions,
-    children,
-}: {
-    draggable: boolean
-    actions?: ReactNode
-    children: ReactNode
-}): JSX.Element {
+export function SectionHeader({ actions, children }: { actions?: ReactNode; children: ReactNode }): JSX.Element {
     return (
         <CardHeader className="SectionTile__header TileGrid__handle">
-            <div className="flex items-center gap-1 min-w-0">
-                {draggable && <IconDrag className="TileHoverReveal size-4 shrink-0 text-muted-foreground" />}
-                {children}
-            </div>
+            <div className="flex items-center gap-1 min-w-0">{children}</div>
             {actions}
         </CardHeader>
     )
@@ -184,7 +174,7 @@ export function SectionTitle({
         label = (
             <Button
                 size="xs"
-                className="quill-card__title min-w-0 max-w-full"
+                className="quill-card__title min-w-0 max-w-full shrink"
                 tooltip="Rename"
                 data-attr="dashboard-v2-section-rename"
                 onClick={() => setDraft(title)}
@@ -193,19 +183,23 @@ export function SectionTitle({
             </Button>
         )
     } else {
-        label = <CardTitle className="truncate">{title}</CardTitle>
+        label = <CardTitle className="TileGrid__text truncate">{title}</CardTitle>
     }
 
     return (
         <div className="flex items-center gap-1 min-w-0">
             <Button
                 size="icon-xs"
+                className="SectionTile__toggle"
                 aria-label={collapsed ? 'Expand' : 'Collapse'}
                 aria-expanded={!collapsed}
                 data-attr="dashboard-v2-section-toggle"
                 onClick={onToggle}
             >
-                {collapsed ? <IconChevronRight /> : <IconChevronDown />}
+                {/* One icon turned, because the down chevron's glyph is drawn smaller than the right one. */}
+                <IconChevronRight
+                    className={clsx('transition-transform motion-reduce:transition-none', !collapsed && 'rotate-90')}
+                />
             </Button>
             {label}
         </div>

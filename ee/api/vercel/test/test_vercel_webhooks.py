@@ -19,7 +19,8 @@ from posthog.ingress.vercel.provider import MILLISECONDS_PER_SECOND, VERCEL_DELI
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.api.vercel.test.base import VercelTestBase
+from ee.api.vercel.test.base import VERCEL_TEST_ACCESS_TOKEN, VercelTestBase
+from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL
 
 SECRET = "test_webhook_secret"
 STALE_MARGIN_SECONDS = 60
@@ -32,7 +33,17 @@ def _forward_response(status_code: int) -> MagicMock:
     return response
 
 
-@override_settings(VERCEL_CLIENT_INTEGRATION_SECRET=SECRET)
+def _vercel_token_response() -> MagicMock:
+    token_response = MagicMock(status_code=200)
+    token_response.json.return_value = {
+        "access_token": VERCEL_TEST_ACCESS_TOKEN,
+        "token_type": "Bearer",
+        "expires_in": 3600,
+    }
+    return token_response
+
+
+@override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET=SECRET)
 class TestVercelWebhooks(VercelTestBase):
     def setUp(self):
         super().setUp()
@@ -184,12 +195,14 @@ class TestVercelWebhooks(VercelTestBase):
             "user_mappings": {"vercel_user_1": self.user.pk},
             "account": old_account,
         }
-        self.installation.sensitive_config = {"credentials": {"access_token": "test_token", "token_type": "Bearer"}}
+        self.installation.sensitive_config = {"credentials": {"access_token": "long_lived", "token_type": "Bearer"}}
         self.installation.save()
         new_owner = self._create_user("new-owner@example.com")
         both_mappings = {"vercel_user_1": self.user.pk, "vercel_user_2": new_owner.pk}
 
         def answer_while_sso_maps_another_user(session, method, url, **kwargs):
+            if url == VERCEL_OAUTH_TOKEN_URL:
+                return _vercel_token_response()
             OrganizationIntegration.objects.filter(pk=self.installation.pk).update(
                 config={**self.installation.config, "user_mappings": both_mappings}
             )
@@ -210,7 +223,7 @@ class TestVercelWebhooks(VercelTestBase):
         self.assertEqual(
             (method, url), ("GET", f"https://api.vercel.com/v1/installations/{self.installation_id}/account")
         )
-        self.assertEqual(session.headers["Authorization"], "Bearer test_token")
+        self.assertEqual(session.headers["Authorization"], f"Bearer {VERCEL_TEST_ACCESS_TOKEN}")
         expected_account: dict = {
             "url": "https://vercel.com/new-team/~/integrations/posthog/icfg_old",
             "name": "New team",
@@ -244,13 +257,18 @@ class TestVercelWebhooks(VercelTestBase):
     def test_a_transfer_whose_account_lookup_fails_is_not_receipted(self, vercel_request):
         vercel_response = MagicMock(status_code=500, text="upstream error")
         vercel_response.raise_for_status.side_effect = HTTPError(response=vercel_response)
-        vercel_request.return_value = vercel_response
+        vercel_request.side_effect = lambda method, url, **kwargs: (
+            _vercel_token_response() if url == VERCEL_OAUTH_TOKEN_URL else vercel_response
+        )
         config_before = dict(self.installation.config)
 
         response = self._post(self._transfer_payload(self.installation_id))
 
         self.assertEqual(response.status_code, 500)
-        vercel_request.assert_called_once()
+        self.assertEqual(
+            [call.args[1] for call in vercel_request.call_args_list],
+            [VERCEL_OAUTH_TOKEN_URL, f"https://api.vercel.com/v1/installations/{self.installation_id}/account"],
+        )
         self.installation.refresh_from_db()
         self.assertEqual(self.installation.config, config_before)
 

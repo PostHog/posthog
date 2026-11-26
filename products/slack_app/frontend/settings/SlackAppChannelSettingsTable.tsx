@@ -5,6 +5,7 @@ import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { SlackIntegrationInactiveBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
@@ -42,7 +43,8 @@ export function SlackAppChannelSettingsTable({ integration }: { integration: Int
     const { channels } = useValues(slackAppSettingsLogic)
     const { openChannelModal, removeChannel } = useActions(slackAppSettingsLogic)
     const channelLogic = slackIntegrationLogic({ id: integration.id })
-    const { slackChannels, allSlackChannelsLoading, attemptedSlackChannelIds } = useValues(channelLogic)
+    const { slackChannels, allSlackChannelsLoading, attemptedSlackChannelIds, slackIntegrationInactiveMessage } =
+        useValues(channelLogic)
     const { loadAllSlackChannels, loadSlackChannelById } = useActions(channelLogic)
 
     useEffect(() => {
@@ -65,73 +67,78 @@ export function SlackAppChannelSettingsTable({ integration }: { integration: Int
     }, [channels, slackChannels, allSlackChannelsLoading, attemptedSlackChannelIds, loadSlackChannelById])
 
     return (
-        <LemonTable
-            dataSource={channels ?? []}
-            rowKey="slack_channel_id"
-            onRow={(channel) => ({ onClick: () => openChannelModal(channel), className: 'cursor-pointer' })}
-            emptyState="No channel has its own settings yet."
-            columns={[
-                {
-                    title: 'Channel',
-                    key: 'channel',
-                    render: (_, channel) => {
-                        const slackChannel = slackChannels.find((c) => c.id === channel.slack_channel_id)
-                        return (
-                            <div className="py-1">
-                                <div className="flex items-center gap-2 font-semibold">
-                                    {slackChannelLabel(slackChannel, channel.slack_channel_id)}
-                                    {slackChannel?.is_ext_shared ? (
-                                        <LemonTag size="small" type="muted">
-                                            Shared
-                                        </LemonTag>
+        <>
+            {slackIntegrationInactiveMessage ? (
+                <SlackIntegrationInactiveBanner message={slackIntegrationInactiveMessage} />
+            ) : null}
+            <LemonTable
+                dataSource={channels ?? []}
+                rowKey="slack_channel_id"
+                onRow={(channel) => ({ onClick: () => openChannelModal(channel), className: 'cursor-pointer' })}
+                emptyState="No channel has its own settings yet."
+                columns={[
+                    {
+                        title: 'Channel',
+                        key: 'channel',
+                        render: (_, channel) => {
+                            const slackChannel = slackChannels.find((c) => c.id === channel.slack_channel_id)
+                            return (
+                                <div className="py-1">
+                                    <div className="flex items-center gap-2 font-semibold">
+                                        {slackChannelLabel(slackChannel, channel.slack_channel_id)}
+                                        {slackChannel?.is_ext_shared ? (
+                                            <LemonTag size="small" type="muted">
+                                                Shared
+                                            </LemonTag>
+                                        ) : null}
+                                    </div>
+                                    {channel.updated_by_name && channel.updated_at ? (
+                                        <div className="text-secondary text-xs">
+                                            Changed by {channel.updated_by_name} <TZLabel time={channel.updated_at} />
+                                        </div>
                                     ) : null}
                                 </div>
-                                {channel.updated_by_name && channel.updated_at ? (
-                                    <div className="text-secondary text-xs">
-                                        Changed by {channel.updated_by_name} <TZLabel time={channel.updated_at} />
-                                    </div>
-                                ) : null}
-                            </div>
-                        )
+                            )
+                        },
                     },
-                },
-                {
-                    title: 'Settings',
-                    key: 'settings',
-                    render: (_, channel) => <ChannelSettingTags channel={channel} />,
-                },
-                {
-                    key: 'actions',
-                    width: 0,
-                    render: (_, channel) => (
-                        <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                onClick={() => openChannelModal(channel)}
-                                data-attr="slack-app-channel-settings-edit"
-                            >
-                                Edit
-                            </LemonButton>
-                            <More
-                                data-attr="slack-app-channel-settings-more"
-                                overlay={
-                                    <LemonMenuOverlay
-                                        items={[
-                                            {
-                                                label: 'Remove channel settings',
-                                                status: 'danger',
-                                                onClick: () => removeChannel(channel.slack_channel_id),
-                                                'data-attr': 'slack-app-channel-settings-remove',
-                                            },
-                                        ]}
-                                    />
-                                }
-                            />
-                        </div>
-                    ),
-                },
-            ]}
-        />
+                    {
+                        title: 'Settings',
+                        key: 'settings',
+                        render: (_, channel) => <ChannelSettingTags channel={channel} />,
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: (_, channel) => (
+                            <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => openChannelModal(channel)}
+                                    data-attr="slack-app-channel-settings-edit"
+                                >
+                                    Edit
+                                </LemonButton>
+                                <More
+                                    data-attr="slack-app-channel-settings-more"
+                                    overlay={
+                                        <LemonMenuOverlay
+                                            items={[
+                                                {
+                                                    label: 'Remove channel settings',
+                                                    status: 'danger',
+                                                    onClick: () => removeChannel(channel.slack_channel_id),
+                                                    'data-attr': 'slack-app-channel-settings-remove',
+                                                },
+                                            ]}
+                                        />
+                                    }
+                                />
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+        </>
     )
 }

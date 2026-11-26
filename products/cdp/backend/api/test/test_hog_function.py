@@ -307,6 +307,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
             ("$logs_alert_incident_opened",),
             ("$metrics_alert_broken",),
             ("$traces_alert_incident_closed",),
+            ("$insight_alert_incident_opened",),
         ]
     )
     def test_generic_api_can_edit_an_alert_destination_of_an_editable_source(self, event_id):
@@ -387,6 +388,22 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
             ("edit with both write scopes", "patch", "", ["hog_function:write", "logs:write"], status.HTTP_200_OK),
             ("edit with hog function write only", "patch", "", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
             ("edit with logs write only", "patch", "", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "edit insight destination with both write scopes",
+                "patch",
+                "",
+                ["hog_function:write", "alert:write"],
+                status.HTTP_200_OK,
+                ("$insight_alert_incident_opened",),
+            ),
+            (
+                "edit insight destination with hog function write only",
+                "patch",
+                "",
+                ["hog_function:write"],
+                status.HTTP_403_FORBIDDEN,
+                ("$insight_alert_incident_opened",),
+            ),
             ("restore revision", "post", "revisions/1/restore", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
             ("publish", "post", "publish/", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
             ("discard draft", "post", "discard_draft/", ["hog_function:write"], status.HTTP_403_FORBIDDEN),

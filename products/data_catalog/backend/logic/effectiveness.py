@@ -822,7 +822,6 @@ async def measure_team(
     chains = await database_sync_to_async(window.chains, thread_sensitive=False)()
 
     async with build_async_anthropic_client(
-        product="django",
         ai_product="data_catalog_effectiveness",
         team_id=team_id,
         trace_id=f"data-catalog-effectiveness-{team_id}-{window_start.date()}",

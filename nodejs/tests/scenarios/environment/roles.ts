@@ -1,10 +1,11 @@
+import { createHash } from 'crypto'
 import { z } from 'zod'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { PluginServerMode } from '~/common/config'
-import { overrideConfigWithEnv } from '~/common/config/config'
+import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
-import { CdpRole, Profile } from '../cards'
+import { CdpRole, PROCESS_ENV_SETTINGS, Profile } from '../cards'
 import { ReplicaOf } from './identity'
 import { MARKER_KEY } from './processes'
 
@@ -63,6 +64,32 @@ export type RoleId = ReplicaOf<Role>
 
 export type RoleSpec = RoleId & { port: number; env: NodeJS.ProcessEnv }
 
+const SECRET_OR_PLACE_SETTING =
+    /SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|SALT|TOKEN|SIGNING|USER(NAME)?$|_CERT(_KEY)?(_B64)?$|_KEYS?$|_KEY_ID$|_HOSTS?$|_ADDR(ESS)?$|_ENDPOINTS?$|_URLS?$|_DSN$|_BROKERS?$|BROKER_LIST$|_DIR$|_LOCATION$/
+const LIST_SETTING = /_KEYS$|_HOSTS$|_URLS$|_BROKERS$|BROKER_LIST$/
+const PLAIN_VALUE = /^[\w.-]*$/
+
+const presenceOf = (key: string, value: string): string =>
+    (LIST_SETTING.test(key) ? value.split(',').some((part) => part.trim()) : value !== '') ? 'set' : ''
+
+const fingerprintOf = (key: string, value: string | undefined): string | undefined =>
+    value !== undefined && (SECRET_OR_PLACE_SETTING.test(key) || !PLAIN_VALUE.test(value))
+        ? presenceOf(key, value)
+        : value
+
+export function configHashOf(specs: RoleSpec[]): string {
+    const settings = new Set([...Object.keys(getDefaultConfig()), ...PROCESS_ENV_SETTINGS])
+    const configs = specs.map(({ role, replica, env }) => [
+        role,
+        replica,
+        Object.entries(env)
+            .filter(([key]) => settings.has(key))
+            .map(([key, value]) => [key, fingerprintOf(key, value)])
+            .sort(([a], [b]) => a!.localeCompare(b!)),
+    ])
+    return createHash('sha256').update(JSON.stringify(configs)).digest('hex')
+}
+
 const REPLICA_PORT_OFFSET = 100
 
 export const portOf = ({ role, replica }: RoleId): number => ROLE_PORTS[role] + REPLICA_PORT_OFFSET * replica
@@ -115,8 +142,6 @@ export function roleSpecs(
         AWS_ACCESS_KEY_ID: 'scenario',
         AWS_SECRET_ACCESS_KEY: 'scenario',
         PERSONHOG_ENABLED: 'true',
-        CDP_INTAKE_KAFKA_ASYNC_TEAMS: '*',
-        CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: 'true',
         ...settings,
     }
     return roleIdsOf(replicas).map((id, index) => ({

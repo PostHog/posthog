@@ -2,6 +2,7 @@ import json
 import uuid
 import datetime as dt
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import time_machine
@@ -9,6 +10,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.core.management import call_command
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -1670,6 +1672,87 @@ class TestAEOPromptAPI(APIBaseTest):
         )
 
         assert response.status_code == expected, response.json()
+
+    def _active_prompts(self) -> list[str]:
+        return sorted(
+            AEOPrompt.objects.for_team(self.team.id)
+            .filter(active=True, archived_at__isnull=True)
+            .values_list("prompt", flat=True)
+        )
+
+    def _project_at_limit(self, limit: int) -> dict[str, str]:
+        ids = self._import_prompts([{"prompt": text} for text in ("on one?", "on two?", "off?", "archived?")])
+        self.client.patch(f"{self.url}{ids['off?']}/", {"active": False}, format="json")
+        self.client.delete(f"{self.url}{ids['archived?']}/")
+        call_command("set_aeo_prompt_limit", team_id=self.team.id, max_active_prompts=limit)
+        return ids
+
+    def _assert_refused_by_the_limit(self, response: Any, expected_detail: str) -> None:
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "prompt_limit_reached"
+        assert response.json()["detail"] == expected_detail
+        assert self._active_prompts() == ["on one?", "on two?"]
+        assert AEOPrompt.objects.for_team(self.team.id).count() == 4
+
+    @parameterized.expand(
+        [
+            (
+                "past_the_room_left",
+                3,
+                ["new?", "newer?"],
+                "This would turn on 2 prompts, but only 1 more fit in this project's limit of 3 tracked prompts. "
+                "Turn off some prompts first.",
+            ),
+            (
+                "when_full",
+                2,
+                ["new?"],
+                "You're tracking 2 prompts, and this project can track up to 2. Turn off some prompts first.",
+            ),
+        ]
+    )
+    def test_an_import_past_the_limit_is_refused_whole(
+        self, _name: str, limit: int, texts: list[str], expected_detail: str
+    ) -> None:
+        self._project_at_limit(limit)
+
+        response = self.client.post(
+            f"{self.url}bulk_import/", {"prompts": [{"prompt": text} for text in texts]}, format="json"
+        )
+
+        self._assert_refused_by_the_limit(response, expected_detail)
+
+    @parameterized.expand(
+        [
+            ("turn_on", "off?", {"active": True}),
+            ("restore_turned_on", "archived?", {"archived": False, "active": True}),
+        ]
+    )
+    def test_turning_a_prompt_on_when_full_is_refused(self, _name: str, prompt: str, body: dict) -> None:
+        ids = self._project_at_limit(2)
+
+        response = self.client.patch(f"{self.url}{ids[prompt]}/", body, format="json")
+
+        self._assert_refused_by_the_limit(
+            response,
+            "You're tracking 2 prompts, and this project can track up to 2. Turn off some prompts first.",
+        )
+
+    def test_a_project_over_a_lowered_limit_keeps_its_prompts_and_can_only_turn_them_off(self) -> None:
+        ids = self._import_prompts([{"prompt": "first?"}, {"prompt": "second?"}, {"prompt": "third?"}])
+        call_command("set_aeo_prompt_limit", team_id=self.team.id, max_active_prompts=1)
+
+        retopic = self.client.patch(f"{self.url}{ids['first?']}/", {"topic": "Replay"}, format="json")
+        turn_off = self.client.patch(f"{self.url}{ids['second?']}/", {"active": False}, format="json")
+        turn_back_on = self.client.patch(f"{self.url}{ids['second?']}/", {"active": True}, format="json")
+
+        assert (retopic.status_code, turn_off.status_code, turn_back_on.status_code) == (
+            status.HTTP_200_OK,
+            status.HTTP_200_OK,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        assert self._active_prompts() == ["first?", "third?"]
+        assert self.client.get(f"/api/projects/{self.team.id}/aeo_setup/context/").json()["max_active_prompts"] == 1
 
     def _brand(self, team: Team, domain: str, kind: str = "unknown") -> str:
         brand = AEOBrand.objects.for_team(team.id).create(

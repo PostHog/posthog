@@ -36,7 +36,16 @@ export interface dashboardV2LogicActions {
     }
     commitDashboard: (dashboard: Dashboard) => {
         dashboard: {
+            allowFilters?: boolean | undefined
             description?: string | undefined
+            filters?:
+                | {
+                      config: unknown
+                      id: string
+                      label?: string | undefined
+                      type: string
+                  }[]
+                | undefined
             tabs: (
                 | {
                       href: string
@@ -55,6 +64,13 @@ export interface dashboardV2LogicActions {
                           }
                           widget:
                               | {
+                                    appearance?:
+                                        | {
+                                              background?: boolean | undefined
+                                              backgroundColor?: string | undefined
+                                              border?: boolean | undefined
+                                          }
+                                        | undefined
                                     collapsed?: boolean | undefined
                                     minRows?: number | undefined
                                     tiles: any
@@ -65,17 +81,19 @@ export interface dashboardV2LogicActions {
                                     appearance?:
                                         | {
                                               background?: boolean | undefined
+                                              backgroundColor?: string | undefined
+                                              border?: boolean | undefined
                                           }
                                         | undefined
                                     config: unknown
                                     description?: string | undefined
                                     parts?:
                                         | {
-                                              description?: boolean | undefined
                                               footer?: boolean | undefined
                                               header?: boolean | undefined
                                           }
                                         | undefined
+                                    ref?: string | undefined
                                     refreshedAt?: string | undefined
                                     title?: string | undefined
                                     type: string
@@ -116,7 +134,16 @@ export interface dashboardV2LogicMeta {
         canUndo: (history: DashboardHistory) => boolean
         canRedo: (history: DashboardHistory) => boolean
         disabledReasonFor: (dashboard: {
+            allowFilters?: boolean | undefined
             description?: string | undefined
+            filters?:
+                | {
+                      config: unknown
+                      id: string
+                      label?: string | undefined
+                      type: string
+                  }[]
+                | undefined
             tabs: (
                 | {
                       href: string
@@ -135,6 +162,13 @@ export interface dashboardV2LogicMeta {
                           }
                           widget:
                               | {
+                                    appearance?:
+                                        | {
+                                              background?: boolean | undefined
+                                              backgroundColor?: string | undefined
+                                              border?: boolean | undefined
+                                          }
+                                        | undefined
                                     collapsed?: boolean | undefined
                                     minRows?: number | undefined
                                     tiles: any
@@ -145,17 +179,19 @@ export interface dashboardV2LogicMeta {
                                     appearance?:
                                         | {
                                               background?: boolean | undefined
+                                              backgroundColor?: string | undefined
+                                              border?: boolean | undefined
                                           }
                                         | undefined
                                     config: unknown
                                     description?: string | undefined
                                     parts?:
                                         | {
-                                              description?: boolean | undefined
                                               footer?: boolean | undefined
                                               header?: boolean | undefined
                                           }
                                         | undefined
+                                    ref?: string | undefined
                                     refreshedAt?: string | undefined
                                     title?: string | undefined
                                     type: string
@@ -176,7 +212,16 @@ export interface dashboardV2LogicMeta {
         }) => (action: DashboardV2Action) => string | null
         activeTab: (
             dashboard: {
+                allowFilters?: boolean | undefined
                 description?: string | undefined
+                filters?:
+                    | {
+                          config: unknown
+                          id: string
+                          label?: string | undefined
+                          type: string
+                      }[]
+                    | undefined
                 tabs: (
                     | {
                           href: string
@@ -195,6 +240,13 @@ export interface dashboardV2LogicMeta {
                               }
                               widget:
                                   | {
+                                        appearance?:
+                                            | {
+                                                  background?: boolean | undefined
+                                                  backgroundColor?: string | undefined
+                                                  border?: boolean | undefined
+                                              }
+                                            | undefined
                                         collapsed?: boolean | undefined
                                         minRows?: number | undefined
                                         tiles: any
@@ -205,17 +257,19 @@ export interface dashboardV2LogicMeta {
                                         appearance?:
                                             | {
                                                   background?: boolean | undefined
+                                                  backgroundColor?: string | undefined
+                                                  border?: boolean | undefined
                                               }
                                             | undefined
                                         config: unknown
                                         description?: string | undefined
                                         parts?:
                                             | {
-                                                  description?: boolean | undefined
                                                   footer?: boolean | undefined
                                                   header?: boolean | undefined
                                               }
                                             | undefined
+                                        ref?: string | undefined
                                         refreshedAt?: string | undefined
                                         title?: string | undefined
                                         type: string

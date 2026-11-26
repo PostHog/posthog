@@ -423,8 +423,14 @@ def require_verified_email_for_login(user: User) -> None:
     raise EmailVerificationPending(str(user.uuid), inbox_provider=inbox_lookup.result())
 
 
-class _BrowserTokenField(serializers.Field):
-    """A token the login page may send. A value that is not a string reads as empty, so it never fails a login."""
+class BrowserTokenField(serializers.Field):
+    """A token a login or signup page may send. A value that is not a string reads as empty, so it never fails the request."""
+
+    def validate_empty_values(self, data: Any) -> tuple[bool, Any]:
+        # DRF refuses a null before to_internal_value runs, so a null reads as empty here
+        if data is None:
+            return (True, "")
+        return super().validate_empty_values(data)
 
     def to_internal_value(self, data: Any) -> str:
         return data if isinstance(data, str) else ""
@@ -436,10 +442,20 @@ class _BrowserTokenField(serializers.Field):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
-    radar_signals_id = _BrowserTokenField(
+    radar_signals_id = BrowserTokenField(
         required=False,
         default="",
         help_text="Token from the WorkOS Radar browser script. It links the device signals the browser collected to this login.",
+    )
+    turnstile_token = BrowserTokenField(
+        required=False,
+        default="",
+        help_text="Cloudflare Turnstile token. Send it with challenge_nonce after a login attempt answers challenge_required.",
+    )
+    challenge_nonce = BrowserTokenField(
+        required=False,
+        default="",
+        help_text="Nonce from the challenge_required error. It ties the Turnstile token to the attempt that got the challenge.",
     )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
@@ -517,8 +533,7 @@ class LoginSerializer(serializers.Serializer):
         if handler.is_locked(axes_request, credentials=axes_credentials):
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
-        # A re-auth comes from a signed-in session, so Radar has nothing to add to it. The login
-        # form cannot show a Turnstile challenge, so only a block verdict refuses the login.
+        # A re-auth comes from a signed-in session, so Radar has nothing to add to it
         radar_attempt = None
         if not was_authenticated_before_login_attempt:
             try:
@@ -529,7 +544,10 @@ class LoginSerializer(serializers.Serializer):
                     action=RadarAction.SIGNIN,
                     auth_method=RadarAuthMethod.PASSWORD,
                     user_id=str(existing_user.distinct_id) if existing_user else None,
-                    challenge_allowed=False,
+                    turnstile_token=str(validated_data.get("turnstile_token") or ""),
+                    challenge_nonce=str(validated_data.get("challenge_nonce") or ""),
+                    # Without a site key the form cannot show a challenge, so only a block verdict refuses the login
+                    challenge_allowed=bool(settings.CLOUDFLARE_TURNSTILE_SITE_KEY),
                     call_site="login",
                     signals_id=str(validated_data.get("radar_signals_id") or ""),
                     account_id=str(existing_user.uuid) if existing_user else None,
@@ -560,7 +578,13 @@ class LoginSerializer(serializers.Serializer):
 
         if radar_attempt and radar_attempt.attempt_id:
             # Reported when the session signs in, so a login that stops at a second factor is never reported
-            remember_login_attempt(request, radar_attempt.attempt_id, user.pk, valid_for_seconds=CODE_TTL_SECONDS)
+            remember_login_attempt(
+                request,
+                radar_attempt.attempt_id,
+                user.pk,
+                valid_for_seconds=CODE_TTL_SECONDS,
+                challenge_completed=radar_attempt.challenge_completed,
+            )
 
         try:
             refused = security_access_refused(

@@ -3496,6 +3496,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_connect_token",
         "sandbox_jwt_kid",
         "agent_egress_probe",
+        "agent_egress_git_reads",
         DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
