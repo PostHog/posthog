@@ -57,7 +57,7 @@ const sesThrottleResponsesTotal = new Counter({
 
 const sesSendResultsTotal = new Counter({
     name: 'cdp_ses_send_results_total',
-    help: 'SES SendEmail calls by result: success, throttled (rescheduled, with the error code in cdp_ses_throttle_responses_total), a known SES error name, or other.',
+    help: 'SES SendEmail calls by result: success, throttled (rescheduled, with the error code in cdp_ses_throttle_responses_total), may_have_sent (failed without a resend, because an earlier attempt may have reached SES), a known SES error name, or other.',
     labelNames: ['result'],
 })
 
@@ -85,13 +85,6 @@ function boundedSendResultLabel(error: unknown): string {
     return isOneOf(SES_REFUSAL_NAMES, name) || name === 'TimeoutError' ? name : 'other'
 }
 
-function failureOf(error: unknown, deadline: AbortSignal | undefined, mayHaveReachedSes: boolean): SesSendOutcome {
-    const failure = classifiedFailure(error, deadline)
-    return failure.kind === 'not_sent' && mayHaveReachedSes
-        ? { kind: 'unknown', message: MAY_HAVE_SENT[failure.reason] }
-        : failure
-}
-
 function classifiedFailure(error: unknown, deadline: AbortSignal | undefined): SesSendOutcome {
     if (deadline?.aborted) {
         return { kind: 'not_sent', reason: 'before_deadline', cause: error }
@@ -111,21 +104,33 @@ const FIRST_STEP_AFTER_SIGNING = 'deserialize'
 
 const BENEATH_THE_DESERIALIZER = 'low'
 
-const sesRefused = (response: unknown): boolean => {
+const sesReadAndRefused = (response: unknown): boolean => {
     const statusCode = (response as { statusCode?: number } | undefined)?.statusCode
-    return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
+    return statusCode !== undefined && statusCode >= 400 && statusCode < 500
 }
+
+const CONNECT_ERROR_CODES = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH']
+
+const neverReachedSes = (error: unknown): boolean =>
+    isOneOf(CONNECT_ERROR_CODES, (error as { code?: string } | undefined)?.code)
 
 function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
     let attemptsSesMayHaveAccepted = 0
     command.middlewareStack.add(
         (next) => async (args) => {
             attemptsSesMayHaveAccepted++
-            const httpAnswer = await next(args)
-            if (sesRefused(httpAnswer.response)) {
-                attemptsSesMayHaveAccepted--
+            try {
+                const httpAnswer = await next(args)
+                if (sesReadAndRefused(httpAnswer.response)) {
+                    attemptsSesMayHaveAccepted--
+                }
+                return httpAnswer
+            } catch (error: unknown) {
+                if (neverReachedSes(error)) {
+                    attemptsSesMayHaveAccepted--
+                }
+                throw error
             }
-            return httpAnswer
         },
         { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
     )
@@ -180,8 +185,13 @@ export class SesTransport {
             return { kind: 'accepted', messageId: response.MessageId }
         } catch (error: unknown) {
             observeDuration('error')
+            const failure = classifiedFailure(error, deadline)
+            if (failure.kind === 'not_sent' && anAttemptSesMayHaveAccepted()) {
+                sesSendResultsTotal.inc({ result: 'may_have_sent' })
+                return { kind: 'unknown', message: MAY_HAVE_SENT[failure.reason] }
+            }
             sesSendResultsTotal.inc({ result: boundedSendResultLabel(error) })
-            return failureOf(error, deadline, anAttemptSesMayHaveAccepted())
+            return failure
         }
     }
 

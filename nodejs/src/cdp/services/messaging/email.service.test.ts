@@ -877,23 +877,39 @@ describe('EmailService', () => {
                 })
             })
 
-            it('fails the job without a resend when SES records the email, drops the answer, then throttles the retry', async () => {
-                ses.failInTurn('accept-then-drop-connection', tooManyRequests)
+            it.each<[string, FakeSesFault]>([
+                ['drops the answer', 'accept-then-drop-connection'],
+                [
+                    'answers 500',
+                    { acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' } },
+                ],
+            ])(
+                'fails the job without a resend when SES records the email, %s, then throttles the retry',
+                async (_name, firstAnswer) => {
+                    ses.failInTurn(firstAnswer, tooManyRequests)
+                    service.sesTransport = sesTransportFor(ses, { retryStrategy: oneRetryAfter(0) })
+                    const before = await metricValue('cdp_ses_send_results_total', { result: 'may_have_sent' })
 
-                const result = await service.executeSendEmail(invocation)
+                    const result = await service.executeSendEmail(invocation)
 
-                expect({
-                    finished: result.finished,
-                    rescheduledAt: result.invocation.queueScheduledAt,
-                    error: result.error,
-                    sent: ses.sent.length,
-                }).toEqual({
-                    finished: true,
-                    rescheduledAt: invocation.queueScheduledAt,
-                    error: expect.stringMatching(/^Failed to send email via SES: /),
-                    sent: 1,
-                })
-            })
+                    expect({
+                        finished: result.finished,
+                        rescheduledAt: result.invocation.queueScheduledAt,
+                        error: result.error,
+                        failed: result.metrics.map((metric) => metric.metric_name),
+                        counted:
+                            (await metricValue('cdp_ses_send_results_total', { result: 'may_have_sent' })) - before,
+                        sent: ses.sent.length,
+                    }).toEqual({
+                        finished: true,
+                        rescheduledAt: invocation.queueScheduledAt,
+                        error: 'Failed to send email via SES: SES throttled a retry after an earlier attempt that may have sent the email, so it is not sent again.',
+                        failed: ['email_failed'],
+                        counted: 1,
+                        sent: 1,
+                    })
+                }
+            )
 
             it.each(throttleCases)('counts an SES send that fails with %s as throttled', async (_name, fault) => {
                 const labels = { result: 'throttled' }
@@ -3055,6 +3071,15 @@ describe('EmailService', () => {
                         emailService.sesTransport = sesTransportFor(ses, {
                             credentials: () => new Promise<never>(() => {}),
                         })
+                    },
+                ],
+                [
+                    'SES refuses the connection and the SDK is still backing off',
+                    (emailService: EmailService) => {
+                        emailService.sesTransport = sesTransportFor(
+                            { endpoint: 'http://127.0.0.1:1' },
+                            { retryStrategy: oneRetryAfter(2_000) }
+                        )
                     },
                 ],
                 [
