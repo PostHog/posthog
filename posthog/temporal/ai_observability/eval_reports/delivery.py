@@ -12,6 +12,7 @@ from urllib.parse import quote, urlencode
 
 import structlog
 from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
@@ -47,9 +48,23 @@ class _CitationLinksMarkdownIt(MarkdownIt):
         super().__init__("commonmark", {"html": False})
         self.enable("table").disable("image")
         self._citation_urls = {self.normalizeLink(url) for url in citation_urls}
+        # Mail clients auto-link URL- and domain-shaped text, so every text and code node is defanged too.
+        self.add_render_rule("text", lambda _renderer, tokens, idx, _options, _env: _defang(tokens[idx]))
+        self.add_render_rule(
+            "code_inline", lambda _renderer, tokens, idx, _options, _env: f"<code>{_defang(tokens[idx])}</code>"
+        )
+        for block in ("code_block", "fence"):
+            self.add_render_rule(
+                block,
+                lambda _renderer, tokens, idx, _options, _env: f"<pre><code>{_defang(tokens[idx])}</code></pre>\n",
+            )
 
     def validateLink(self, url: str) -> bool:
         return url in self._citation_urls
+
+
+def _defang(token: Token) -> str:
+    return sanitize_email_string(token.content)
 
 
 _slack_converter = SlackMarkdownConverter()

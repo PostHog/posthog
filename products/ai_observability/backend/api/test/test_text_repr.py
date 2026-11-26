@@ -11,12 +11,6 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
-
-from products.access_control.backend.facade.contracts import PropertyAccessLevel
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.event_definitions.backend.models import PropertyDefinition
-
 
 class TestTextReprAPI(APIBaseTest):
     """Test text repr API endpoints."""
@@ -820,7 +814,7 @@ class TestCachingBehavior(APIBaseTest):
 
         viewset = AIObservabilityTextReprViewSet()
         viewset.team_id = self.team.id
-        cache_key = viewset._get_cache_key("$ai_generation", "gen_cache_test", {"truncated": True})
+        cache_key = viewset._get_cache_key("$ai_generation", request_data["data"], {"truncated": True})
         cached_result = cache.get(cache_key)
         self.assertIsNotNone(cached_result)
         self.assertEqual(cached_result["text"], first_text)
@@ -836,38 +830,19 @@ class TestCachingBehavior(APIBaseTest):
         self.assertEqual(response2.data["text"], first_text)
         self.assertEqual(response2.data["metadata"]["char_count"], first_metadata["char_count"])
 
-    def test_restricted_member_does_not_read_unrestricted_cached_rendering(self):
+    def test_cached_rendering_is_only_served_for_the_same_payload(self):
         url = f"/api/environments/{self.team.id}/llm_analytics/text_repr/"
-        event = {"id": "gen_restricted", "event": "$ai_generation", "properties": {"$ai_input": "private-input"}}
-        unrestricted = self.client.post(url, {"event_type": "$ai_generation", "data": event}, format="json")
-        self.assertEqual(unrestricted.status_code, status.HTTP_200_OK)
-        self.assertIn("private-input", unrestricted.data["text"])
+        full = {"id": "gen_payload", "event": "$ai_generation", "properties": {"$ai_input": "private-input"}}
+        first = self.client.post(url, {"event_type": "$ai_generation", "data": full}, format="json")
+        self.assertIn("private-input", first.data["text"])
 
-        reader = self._create_user("text-repr-reader@example.com")
-        self.organization.available_product_features = [
-            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=PropertyDefinition.objects.create(
-                team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
-            ),
-            organization_member=reader.organization_memberships.get(organization=self.organization),
-            access_level=PropertyAccessLevel.NONE.value,
-        )
-        self.client.force_login(reader)
-        restricted = self.client.post(
-            url,
-            {
-                "event_type": "$ai_generation",
-                "data": {"id": "gen_restricted", "event": "$ai_generation", "properties": {}},
-            },
-            format="json",
+        self.client.force_login(self._create_user("text-repr-reader@example.com"))
+        response = self.client.post(
+            url, {"event_type": "$ai_generation", "data": {**full, "properties": {}}}, format="json"
         )
 
-        self.assertEqual(restricted.status_code, status.HTTP_200_OK)
-        self.assertNotIn("private-input", restricted.data["text"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("private-input", response.data["text"])
 
     def test_cache_key_differs_by_options(self):
         """Should use different cache keys for different options."""
@@ -913,8 +888,8 @@ class TestCachingBehavior(APIBaseTest):
         viewset = AIObservabilityTextReprViewSet()
         viewset.team_id = self.team.id
 
-        cache_key1 = viewset._get_cache_key("$ai_generation", "gen_options_test", {"truncated": True})
-        cache_key2 = viewset._get_cache_key("$ai_generation", "gen_options_test", {"truncated": False})
+        cache_key1 = viewset._get_cache_key("$ai_generation", base_request["data"], {"truncated": True})
+        cache_key2 = viewset._get_cache_key("$ai_generation", base_request["data"], {"truncated": False})
 
         self.assertNotEqual(cache_key1, cache_key2)
         self.assertIsNotNone(cache.get(cache_key1))
@@ -964,8 +939,8 @@ class TestCachingBehavior(APIBaseTest):
         viewset = AIObservabilityTextReprViewSet()
         viewset.team_id = self.team.id
 
-        cache_key1 = viewset._get_cache_key("$ai_generation", "gen_id_test_1", {})
-        cache_key2 = viewset._get_cache_key("$ai_generation", "gen_id_test_2", {})
+        cache_key1 = viewset._get_cache_key("$ai_generation", request1["data"], {})
+        cache_key2 = viewset._get_cache_key("$ai_generation", request2["data"], {})
 
         self.assertNotEqual(cache_key1, cache_key2)
         self.assertIsNotNone(cache.get(cache_key1))
@@ -1000,11 +975,11 @@ class TestCachingBehavior(APIBaseTest):
 
         viewset1 = AIObservabilityTextReprViewSet()
         viewset1.team_id = self.team.id
-        cache_key1 = viewset1._get_cache_key("$ai_generation", "gen_team_test", {})
+        cache_key1 = viewset1._get_cache_key("$ai_generation", request_data["data"], {})
 
         viewset2 = AIObservabilityTextReprViewSet()
         viewset2.team_id = other_team.id
-        cache_key2 = viewset2._get_cache_key("$ai_generation", "gen_team_test", {})
+        cache_key2 = viewset2._get_cache_key("$ai_generation", request_data["data"], {})
 
         # Cache keys should be different due to different team IDs
         self.assertNotEqual(cache_key1, cache_key2)
@@ -1059,8 +1034,8 @@ class TestCachingBehavior(APIBaseTest):
         viewset = AIObservabilityTextReprViewSet()
         viewset.team_id = self.team.id
 
-        cache_key1 = viewset._get_cache_key("$ai_trace", "trace_cache_1", {})
-        cache_key2 = viewset._get_cache_key("$ai_trace", "trace_cache_2", {})
+        cache_key1 = viewset._get_cache_key("$ai_trace", request1["data"], {})
+        cache_key2 = viewset._get_cache_key("$ai_trace", request2["data"], {})
 
         self.assertNotEqual(cache_key1, cache_key2)
         self.assertIsNotNone(cache.get(cache_key1))

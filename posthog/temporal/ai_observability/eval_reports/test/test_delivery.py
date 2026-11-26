@@ -198,11 +198,17 @@ class TestRenderSectionHtml(SimpleTestCase):
         self.assertNotIn("<a ", html)
         self.assertNotIn("<img", html)
 
-    def test_defangs_bare_url_in_title(self):
-        html = _render_section_html(
-            "Action required: https://evil.example/login", "body", project_id=1, citation_map={}
-        )
-        self.assertNotIn("https://evil.example/login", html)
+    @parameterized.expand(
+        [
+            ("title_url", "Action required: https://evil.example/login", "body", "https://evil.example/login"),
+            ("body_url", "Summary", "Sign in at https://evil.example/login", "https://evil.example/login"),
+            ("body_domain", "Summary", "Sign in at evil.example/login", "evil.example"),
+            ("body_code_block", "Summary", "```\nevil.example/login\n```", "evil.example"),
+        ]
+    )
+    def test_defangs_urls_and_domains(self, _name: str, title: str, content: str, link_text: str):
+        html = _render_section_html(title, content, project_id=1, citation_map={})
+        self.assertNotIn(link_text, html)
 
     def test_renders_bold_markdown(self):
         html = _render_section_html("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
