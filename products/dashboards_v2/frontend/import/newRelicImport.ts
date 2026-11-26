@@ -8,6 +8,7 @@ import {
     chartPanel,
     idMaker,
     importedTile,
+    inline,
     notePanel,
     reportBuilder,
 } from './importReport'
@@ -151,7 +152,7 @@ export function importNewRelic(input: unknown): ImportResult {
                 }
                 const heading = viz
                     ? '**Needs translating.** This NRQL has no SQL version yet.'
-                    : `**Not supported yet:** ${vizId}`
+                    : `**Not supported yet:** \`${inline(vizId)}\``
                 return finish(
                     notePanel(
                         widgetTitle,

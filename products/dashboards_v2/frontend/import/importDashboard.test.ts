@@ -300,6 +300,13 @@ describe('importDashboard', () => {
         expect(statuses(result)).toEqual({ Odd: 'unsupported' })
     })
 
+    it('keeps markdown in a New Relic visualization id out of the note heading', () => {
+        const widget = { title: 'Odd', visualization: { id: 'viz.x\n```\n# Injected' }, rawConfiguration: {} }
+        const result = imported({ name: 'Odd', pages: [{ name: 'Page', widgets: [widget] }] })
+
+        expect(byTitle(result)['Odd'].panel.config.text).toContain('**Not supported yet:** `viz.x # Injected`')
+    })
+
     it('gives each column of a New Relic line chart its own query and leaves out a query with another time range', () => {
         const widget = {
             title: 'Latency',
