@@ -328,13 +328,14 @@ def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_m
     content, placeholders = _citation_placeholders(content.replace("&", "&amp;"), citation_map)
     # Whatever syntax the agent used, a live `<!channel>` or `<url|label>` needs a `<`, so every `<` left
     # after conversion is escaped and only citation links are written back.
-    mrkdwn_content = _slack_converter.convert(content).replace("<", "&lt;")
+    # Slack auto-links domain-shaped text too, so it is defanged before the citation links go back in.
+    mrkdwn_content = defang_text(_slack_converter.convert(content).replace("<", "&lt;"))
     for placeholder, cited_id in placeholders.items():
         link = citation_map[cited_id]
         mrkdwn_content = mrkdwn_content.replace(
             placeholder, f"<{_make_citation_link(project_id, link)}|{_citation_link_label(cited_id, link)}>"
         )
-    return f"*{escape_slack_mrkdwn(strip_external_links_markdown(title))}*\n{mrkdwn_content}"
+    return f"*{escape_slack_mrkdwn(defang_text(strip_external_links_markdown(title)))}*\n{mrkdwn_content}"
 
 
 def _report_url(project_id: int, evaluation_id: str, report_run_id: str) -> str:

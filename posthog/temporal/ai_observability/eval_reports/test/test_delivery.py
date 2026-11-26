@@ -253,13 +253,13 @@ class TestRenderSectionMrkdwn(SimpleTestCase):
 
     def test_renders_agent_chosen_title(self):
         result = _render_section_mrkdwn("Cost spike in gpt-5.2", "Body", project_id=1, citation_map={})
-        self.assertIn("*Cost spike in gpt-5.2*", result)
+        self.assertIn("*Cost spike in gpt-5.2*", result.replace("\u200b", ""))
 
     def test_escapes_slack_markup_in_title(self):
         result = _render_section_mrkdwn(
             "Drop <!channel> <https://evil.example|sign in>", "Body", project_id=1, citation_map={}
         )
-        self.assertIn("*Drop &lt;!channel&gt; &lt;https://evil.example|sign in&gt;*", result)
+        self.assertIn("*Drop &lt;!channel&gt; &lt;https://evil.example|sign in&gt;*", result.replace("\u200b", ""))
 
     @parameterized.expand(
         [
@@ -279,11 +279,13 @@ class TestRenderSectionMrkdwn(SimpleTestCase):
         [
             ("title", "Action required: https://evil.example/login", "Body"),
             ("body", "Summary", "Sign in at https://evil.example/login"),
+            ("title_domain", "Action required: evil.example/login", "Body"),
+            ("body_domain", "Summary", "Sign in at evil.example/login"),
         ]
     )
     def test_bare_external_urls_are_inert(self, _name: str, title: str, content: str):
         result = _render_section_mrkdwn(title, content, project_id=1, citation_map={})
-        self.assertIn("`https://evil.example/login`", result)
+        self.assertNotIn("evil.example", result)
 
     def test_keeps_citation_links_live(self):
         citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
