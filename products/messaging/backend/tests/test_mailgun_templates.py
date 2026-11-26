@@ -212,10 +212,40 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "isn't valid Handlebars, so it appears as plain text",
             ),
             ("go", {"template": "{{.x}}", "engine": "go"}, "maps may print their keys in a different order"),
+            (
+                "unknown_variable",
+                {"template": "<p>{{name}} %tag_name%</p>"},
+                "can't convert %tag_name%, so the email shows it as written",
+            ),
+            (
+                "unknown_variable_in_a_go_subject",
+                {"template": "{{.x}}", "engine": "go", "headers": {"Subject": "Hi %first%"}},
+                "can't convert %first%, so the email shows it as written",
+            ),
+            (
+                "browser_link_by_text",
+                {"template": '<a href="https://example.com/e/{{id}}"><b>View this email in your browser</b></a>'},
+                "no view in browser link, so https://example.com/e/{{id}} still points where it did in Mailgun",
+            ),
+            (
+                "browser_link_by_variable",
+                {"template": "<a href=%recipient.web_version_url%>Here</a>", "engine": "go"},
+                "no view in browser link, so %recipient.web_version_url% still points",
+            ),
         ]
     )
     def test_notes_name_what_to_review(self, _name: str, version: dict, expected: str) -> None:
         assert any(expected in note for note in convert_version(version).notes)
+
+    @parameterized.expand(
+        [
+            ("encoded_characters_in_a_link", '<a href="https://example.com/caf%C3%A9%20bar">x</a>'),
+            ("percent_signs_in_text", "100% of 50%off% today"),
+            ("other_link_with_online_in_it", '<a href="https://example.com">Browse our online store</a>'),
+        ]
+    )
+    def test_text_that_only_looks_like_a_tag_or_browser_link_gets_no_note(self, _name: str, template: str) -> None:
+        assert convert_version({"template": template, "headers": {"Subject": "Hi"}}).notes == ()
 
     def test_a_go_value_prints_lists_and_maps_the_go_way(self) -> None:
         converted = convert_text("<p>{{.x}}</p>", engine="go").text
