@@ -14,7 +14,7 @@ export async function searchProjectProperties(search: string, signal: AbortSigna
     const projectId = String(ApiConfig.getCurrentProjectId())
     const [events, persons] = await Promise.all(
         [PropertyDefinitionsListType.Event, PropertyDefinitionsListType.Person].map((type) =>
-            propertyDefinitionsList(projectId, { type, search, limit: LIMIT }, { signal })
+            propertyDefinitionsList(projectId, { type, search, limit: LIMIT, exclude_hidden: true }, { signal })
         )
     )
     const seen = new Set<string>()

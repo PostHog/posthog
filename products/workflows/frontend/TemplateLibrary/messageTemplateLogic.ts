@@ -68,6 +68,11 @@ function warnAboutPendingTags(event: BeforeUnloadEvent): void {
     event.preventDefault()
 }
 
+/** Content as the server stores it: without unset keys or a null design, which the form may still hold. */
+function asStored(content: TemplateContent | null): TemplateContent | null {
+    return content ? JSON.parse(JSON.stringify({ ...content, email: omitNullDesign(content.email) })) : null
+}
+
 /** The form edits the draft when there is one. The draft field stays off the form value, so a publish never sends it. */
 function splitDraft(template: MessageTemplate): {
     form: MessageTemplate
@@ -460,16 +465,19 @@ export interface messageTemplateLogicActions {
     saveDraftDone: (
         draft: TemplateContent,
         updatedAt: string,
-        serverDraft: TemplateContent | null
+        serverDraft?: TemplateContent | null
     ) => {
         draft: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
         }
-        serverDraft: {
-            email: EmailTemplate
-            templating: 'hog' | 'liquid'
-        } | null
+        serverDraft:
+            | {
+                  email: EmailTemplate
+                  templating: 'hog' | 'liquid'
+              }
+            | null
+            | undefined
         updatedAt: string
     }
     saveDraftFailed: () => {
@@ -768,7 +776,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setDraftState: (draft: TemplateContent | null, published: TemplateContent) => ({ draft, published }),
         autoSaveDraft: true,
         saveDraft: true,
-        saveDraftDone: (draft: TemplateContent, updatedAt: string, serverDraft: TemplateContent | null) => ({
+        saveDraftDone: (draft: TemplateContent, updatedAt: string, serverDraft?: TemplateContent | null) => ({
             draft,
             updatedAt,
             serverDraft,
@@ -861,7 +869,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             null as TemplateContent | null,
             {
                 setDraftState: (_, { draft }) => draft,
-                saveDraftDone: (_, { serverDraft }) => serverDraft,
+                saveDraftDone: (_, { draft, serverDraft }) => (serverDraft !== undefined ? serverDraft : draft),
             },
         ],
         publishedContent: [
@@ -1106,7 +1114,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.templateEditedElsewhere(event)
             }
         },
+        setDraftState: ({ draft }) => {
+            cache.serverDraft = draft
+        },
         syncExternalEdit: () => {
+            // A draft only holds what the person typed, so a reload that finds it gone must not take the text with it.
+            // Reload from the banner is the person choosing the other version, so it takes nothing along.
+            // The server's own copy of the draft, which it stores normalized, so a reload compares like with like.
+            const serverDraft = cache.serverDraft !== undefined ? cache.serverDraft : values.savedDraft
+            cache.beforeSync = values.externallyEdited ? null : { draft: serverDraft, content: values.template.content }
             actions.setSyncingExternalEdit(true)
             actions.loadTemplate()
         },
@@ -1201,11 +1217,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     // The form type still allows the legacy 'hog' templating, which templates never use.
                     draft_content: { ...content, email: omitNullDesign(content.email) } as MessageTemplateContentApi,
                 })
-                actions.saveDraftDone(
-                    content,
-                    updated.updated_at,
-                    (updated.draft_content as TemplateContent | null | undefined) ?? null
-                )
+                const serverDraft = (updated.draft_content as TemplateContent | null | undefined) ?? null
+                cache.serverDraft = serverDraft
+                actions.saveDraftDone(content, updated.updated_at, serverDraft)
             } catch {
                 actions.saveDraftFailed()
                 lemonToast.error("Couldn't save your draft. Your changes are still in the editor.")
@@ -1435,10 +1449,21 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         loadTemplateSuccess: ({ template }) => {
             ;(cache as MessageTemplateCache).ownSettingSnapshot = null
             if (values.isSyncingExternalEdit) {
+                const beforeSync = cache.beforeSync as {
+                    draft: TemplateContent | null
+                    content: TemplateContent
+                } | null
+                cache.beforeSync = null
+                const draftLostElsewhere =
+                    !!beforeSync?.draft &&
+                    !objectsEqual(asStored(beforeSync.draft), asStored(values.savedDraft ?? values.publishedContent))
                 // The server copy replaces the form. A Reload from the banner discards the local edits on purpose.
-                actions.resetTemplate(template)
+                // A draft replaced or removed elsewhere held the person's typing, so it stays and the banner asks.
+                actions.resetTemplate(
+                    draftLostElsewhere && beforeSync ? { ...template, content: beforeSync.content } : template
+                )
                 actions.setSyncingExternalEdit(false)
-                actions.setExternallyEdited(false)
+                actions.setExternallyEdited(draftLostElsewhere)
             }
             actions.replayDeferredExternalEdit()
         },

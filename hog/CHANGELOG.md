@@ -1,5 +1,22 @@
 # hog
 
+## 0.2.1 — 2026-11-26
+
+### Patch changes
+
+- [80884f7c8eb](https://github.com/PostHog/posthog/commit/80884f7c8eb418ca08e98e462983bbfac434b024) Tool results from the PostHog MCP are no longer shortened to 100,000 tokens. Only clients with their own documented limit, such as Codex, get a shortened result. — Thanks @richardsolomou!
+- [b99a19bc9cc](https://github.com/PostHog/posthog/commit/b99a19bc9cca775a5a55ed858fc06da1250b8dc9) fix(mcp): run the path cleaning sample preview in ClickHouse — Thanks @richardsolomou!
+- Changes built into hog since v0.2.0, from these pull requests:
+
+  - [#141604](https://github.com/PostHog/posthog/pull/141604) feat(aeo): cap active ai visibility prompts per team
+  - [#142406](https://github.com/PostHog/posthog/pull/142406) feat(cohorts): add mcp tool to turn realtime on and off
+  - [#141651](https://github.com/PostHog/posthog/pull/141651) feat(marketing-analytics): show server data gaps in recommendations
+  - [#141002](https://github.com/PostHog/posthog/pull/141002) feat(experiments): run the after-launch health checks on a draft at launch
+  - [#142110](https://github.com/PostHog/posthog/pull/142110) feat(signals): compact inbox list rows and defaults for mcp
+  - [#142422](https://github.com/PostHog/posthog/pull/142422) fix(mcp): keep the knowledge availability answer for an hour
+  - [#138743](https://github.com/PostHog/posthog/pull/138743) fix(feature-flags): let mcp flag tools set and keep release condition names
+  - [#142317](https://github.com/PostHog/posthog/pull/142317) chore(aio): remove the llma-tagger-list mcp redirect
+
 ## 0.2.0 — 2026-11-25
 
 ### Minor changes

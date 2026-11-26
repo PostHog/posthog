@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
 
-from posthog.schema import IntervalType
+from posthog.schema import DetectorType, IntervalType
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -24,9 +24,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
 
+from products.alerts.backend.facade.lazy_judge import MemberState
 from products.signals.backend.anomaly_scores.config import DEFAULT_PROFILE
 from products.signals.backend.anomaly_scores.queue import SCORE_EVENT, SOURCE_INSIGHT
 from products.signals.backend.anomaly_scores.scoring import bucket_end
@@ -102,7 +104,7 @@ SELECT
     countIf(score IS NOT NULL),
     countIf(score IS NOT NULL AND flag = 1),
     maxIf(bucket_start, score IS NOT NULL),
-    groupArrayIf(tuple(bucket_start, value, score), score IS NOT NULL AND flag = 1)
+    groupArrayIf(tuple(bucket_start, value, score, details), score IS NOT NULL AND flag = 1)
 FROM ({_LATEST_BUCKETS})
 WHERE bucket_start >= {{range_from}}
 GROUP BY insight_id, series_key
@@ -120,7 +122,7 @@ LIMIT {{limit}}
 """
 
 _POINTS_QUERY = f"""
-SELECT insight_id, series_key, bucket_start, value, flag
+SELECT insight_id, series_key, bucket_start, value, flag, if(flag = 1, details, '')
 FROM ({_LATEST_BUCKETS})
 WHERE score IS NOT NULL
 ORDER BY insight_id, series_key, bucket_start DESC
@@ -152,11 +154,34 @@ WHERE bucket_start >= {since} AND bucket_start <= {until}
 """
 
 
+class AnomalyJudgeKind(LabeledStrEnum):
+    """The kinds of anomaly the AI judge names. The judge's `none` is left out, because it names no kind."""
+
+    SPIKE = "spike", "Spike"
+    DROP = "drop", "Drop"
+    FLATLINE = "flatline", "Flatline"
+    TREND_BREAK = "trend_break", "Trend break"
+    LEVEL_SHIFT = "level_shift", "Level shift"
+    PATTERN_CHANGE = "pattern_change", "Pattern change"
+
+
+@frozen
+class JudgeVerdict:
+    """What the AI judge said about a flagged bucket. Both are None when it gave no verdict."""
+
+    kind: AnomalyJudgeKind | None = None
+    reason: str | None = None
+
+
+NO_VERDICT = JudgeVerdict()
+
+
 @frozen
 class FlaggedPoint:
     bucket_start: datetime.datetime
     value: float | None
     score: float | None
+    verdict: JudgeVerdict = NO_VERDICT
 
 
 @frozen
@@ -164,6 +189,8 @@ class SeriesPoint:
     bucket_start: datetime.datetime
     value: float | None
     flag: bool
+    # Set on a flagged bucket only.
+    verdict: JudgeVerdict = NO_VERDICT
 
 
 @frozen
@@ -233,6 +260,8 @@ class ScoredBucket:
     flag: bool | None = None
     scored_at: datetime.datetime | None = None
     details: dict[str, Any] | None = None
+    # Set on a flagged bucket only.
+    verdict: JudgeVerdict = NO_VERDICT
 
 
 @frozen
@@ -301,6 +330,28 @@ def _details(value: Any) -> dict[str, Any] | None:
     except ValueError:
         return None
     return details if isinstance(details, dict) else None
+
+
+def judge_verdict(details: Mapping[str, Any] | None) -> JudgeVerdict:
+    """The kind and reason of the AI member in the stored ``$anomaly_details`` of a bucket.
+
+    Every reader takes them from here, so no caller parses ``members``. A member that was not asked has no verdict.
+    A kind the judge adds later reads as None, so a caller only ever gets a kind it knows.
+    """
+    members = details.get("members") if details is not None else None
+    if not isinstance(members, list):
+        return NO_VERDICT
+    judge = next(
+        (member for member in members if isinstance(member, dict) and member.get("type") == DetectorType.LLM.value),
+        None,
+    )
+    if judge is None or judge.get("state") not in (MemberState.FIRED.value, MemberState.NOT_FIRED.value):
+        return NO_VERDICT
+    kind, rationale = judge.get("kind"), judge.get("rationale")
+    return JudgeVerdict(
+        kind=AnomalyJudgeKind(kind) if kind in AnomalyJudgeKind.values else None,
+        reason=(rationale.strip() or None) if isinstance(rationale, str) else None,
+    )
 
 
 def _scope(insight_ids: Collection[int] | None, series_key: str | None) -> ast.Expr:
@@ -431,8 +482,13 @@ def series_summaries(
     ) in rows[:MAX_SERIES]:
         flagged_points = sorted(
             (
-                FlaggedPoint(bucket_start=_local(start, timezone), value=_float(value), score=_float(score))
-                for start, value, score in points
+                FlaggedPoint(
+                    bucket_start=_local(start, timezone),
+                    value=_float(value),
+                    score=_float(score),
+                    verdict=judge_verdict(_details(details)),
+                )
+                for start, value, score, details in points
             ),
             key=lambda point: point.bucket_start,
             reverse=True,
@@ -528,6 +584,7 @@ def latest_buckets(
             flag=None if flag is None else bool(flag),
             scored_at=None if scored_at is None else _local(scored_at, timezone),
             details=_details(details),
+            verdict=judge_verdict(_details(details)) if flag else NO_VERDICT,
         )
         for key, start, score, flag, value, details, scored_at in rows[:limit]
         if key
@@ -573,9 +630,14 @@ def series_points(
     rows = cast(list[tuple[Any, ...]], response.results or [])
     timezone = team.timezone_info
     points: dict[tuple[int, str], list[SeriesPoint]] = {key: [] for key in series}
-    for insight_id, key, start, value, flag in reversed(rows):
+    for insight_id, key, start, value, flag, details in reversed(rows):
         points[(insight_id, key)].append(
-            SeriesPoint(bucket_start=_local(start, timezone), value=_float(value), flag=bool(flag))
+            SeriesPoint(
+                bucket_start=_local(start, timezone),
+                value=_float(value),
+                flag=bool(flag),
+                verdict=judge_verdict(_details(details)) if flag else NO_VERDICT,
+            )
         )
     return points
 

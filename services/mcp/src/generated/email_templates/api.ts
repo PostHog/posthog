@@ -205,6 +205,12 @@ export const MessagingTemplatesListParams = () => zod.object({
 })
 
 export const messagingTemplatesListQueryBasicDefault = false
+export const messagingTemplatesListQuerySearchDefault = ``
+export const messagingTemplatesListQuerySearchMax = 400
+
+export const messagingTemplatesListQueryTagsItemMax = 255
+
+export const messagingTemplatesListQueryTagsMax = 500
 
 export const MessagingTemplatesListQueryParams = () => zod.object({
     basic: zod
@@ -213,8 +219,19 @@ export const MessagingTemplatesListQueryParams = () => zod.object({
         .describe(
             'With true, leave out `content` and `draft_content` from each template, for lists that show names and metadata only. `has_draft` still says whether a draft exists.'
         ),
+    created_by: zod.number().optional().describe('List only templates created by the user with this ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .max(messagingTemplatesListQuerySearchMax)
+        .default(messagingTemplatesListQuerySearchDefault)
+        .describe('List only templates whose name, description or a tag contains this text, ignoring case.'),
+    tags: zod
+        .array(zod.string().max(messagingTemplatesListQueryTagsItemMax))
+        .max(messagingTemplatesListQueryTagsMax)
+        .optional()
+        .describe('List only templates that carry at least one of these tags. Repeat the parameter for each tag.'),
     transactional: zod
         .boolean()
         .nullish()
@@ -255,7 +272,6 @@ export const messagingTemplatesCreateBodyContentOnePushOneDataMaxOne = 4000
 export const messagingTemplatesCreateBodyTypeMax = 24
 
 export const MessagingTemplatesCreateBody = () => zod.strictObject({
-    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesCreateBodyNameMax)
@@ -483,7 +499,6 @@ export const messagingTemplatesPartialUpdateBodyContentOnePushOneDataMaxOne = 40
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
 export const MessagingTemplatesPartialUpdateBody = () => zod.strictObject({
-    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesPartialUpdateBodyNameMax)

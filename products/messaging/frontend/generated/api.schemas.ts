@@ -1198,8 +1198,6 @@ export interface UserBasicApi {
 }
 
 export interface MessageTemplateApi {
-    /** Project folder for the new email template. */
-    _create_in_folder?: string
     readonly id: string
     /**
      * Human-readable template name shown in the library.
@@ -1259,8 +1257,6 @@ export interface PaginatedMessageTemplateListApi {
 }
 
 export interface PatchedMessageTemplateApi {
-    /** Project folder for the new email template. */
-    _create_in_folder?: string
     readonly id?: string
     /**
      * Human-readable template name shown in the library.
@@ -1390,14 +1386,6 @@ export interface MakeTransactionalApi {
      * * `email` - email
      * * `push` - push */
     expected_type?: ExpectedTypeEnumApi
-}
-
-export interface MessageTemplatePlacementApi {
-    /**
-     * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
-     * @nullable
-     */
-    path: string | null
 }
 
 /**
@@ -1771,6 +1759,13 @@ export interface TransactionalEmailImpactApi {
     after_click: TransactionalEmailConversionsApi | null
     /** Delivered sends nobody clicked and how many converted. Null without an event. */
     without_click: TransactionalEmailConversionsApi | null
+    /**
+     * Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends at most. Sends that went out while link tagging was off carry no tag. Null when link_tagging_enabled is false, when the user has no access to querying events, or when the count could not be computed.
+     * @nullable
+     */
+    sessions: number | null
+    /** Whether the project setting that tags tracked links on the sender's own domain with ph_workflow_run is on now. The tag connects a click to its session. When false, sessions is null. Set it with workflows_config.email_workflow_run_link_tag_enabled in the project settings. */
+    link_tagging_enabled: boolean
 }
 
 export interface TransactionalEmailResultsApi {
@@ -2002,6 +1997,10 @@ export type MessagingTemplatesListParams = {
      */
     basic?: boolean
     /**
+     * List only templates created by the user with this ID.
+     */
+    created_by?: number
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -2009,6 +2008,17 @@ export type MessagingTemplatesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * List only templates whose name, description or a tag contains this text, ignoring case.
+     * @maxLength 400
+     */
+    search?: string
+    /**
+     * List only templates that carry at least one of these tags. Repeat the parameter for each tag.
+     * @maxItems 500
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * With true, list only templates sent over the transactional email API. With false, only the others. Leave out to list all templates.
      * @nullable

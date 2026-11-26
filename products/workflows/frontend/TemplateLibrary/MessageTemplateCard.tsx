@@ -1,3 +1,5 @@
+import './MessageTemplatesGrid.scss'
+
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
@@ -30,13 +32,13 @@ export function MessageTemplateCard({
                         {actions}
                     </div>
                 )}
-                <div className="w-full overflow-hidden grow">
+                <div className="MessageTemplateItem__preview w-full overflow-hidden grow">
                     {emailHtml ? (
                         <iframe
                             srcDoc={emailHtml}
                             sandbox="allow-same-origin"
                             title="Message template preview"
-                            className="w-full h-full border-0 bg-white pointer-events-none"
+                            className="MessageTemplateItem__preview-frame border-0 bg-white pointer-events-none"
                         />
                     ) : (
                         <FallbackCoverImage src={undefined} alt="cover photo" index={index} className="h-full" />

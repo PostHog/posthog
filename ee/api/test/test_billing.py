@@ -1758,7 +1758,7 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
     UNLOCKED_WRITE_ACTIONS = {
         "deactivate",
         "cancel_trial",
-        "patch",
+        "update_limits",
         "license",
         "authorize_status",
         "apply_startup_program",
@@ -2532,16 +2532,25 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_get_usage_data.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("limits_route", "/api/billing//", status.HTTP_403_FORBIDDEN),
+            ("list_route", "/api/billing/", status.HTTP_403_FORBIDDEN),
+            ("read_only_route", "/api/billing/period/", status.HTTP_405_METHOD_NOT_ALLOWED),
+        ]
+    )
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
     @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=True)
-    def test_owner_only_billing_rejects_admin_limit_update(self, _mock_feature_enabled, mock_update_billing):
+    def test_owner_only_billing_rejects_admin_limit_update(
+        self, _name: str, url: str, expected_status: int, _mock_feature_enabled, mock_update_billing
+    ):
         response = self.client.patch(
-            "/api/billing//",
+            url,
             data={"custom_limits_usd": {"events": 10}},
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, expected_status)
         mock_update_billing.assert_not_called()
 
     def test_mutating_action_rejects_wildcard_personal_api_key(self):
@@ -3101,7 +3110,7 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         [
             ("activate", "post", "/api/billing/activate", {"products": "all_products:"}, BILLING_ACCESS_DENIED_MESSAGE),
             ("deactivate", "post", "/api/billing/deactivate", {"products": "product_1"}, BILLING_ACCESS_DENIED_MESSAGE),
-            ("patch", "patch", "/api/billing//", {"custom_limits_usd": {}}, BILLING_ACCESS_DENIED_MESSAGE),
+            ("update_limits", "patch", "/api/billing//", {"custom_limits_usd": {}}, BILLING_ACCESS_DENIED_MESSAGE),
             (
                 "subscription_switch_plan",
                 "post",

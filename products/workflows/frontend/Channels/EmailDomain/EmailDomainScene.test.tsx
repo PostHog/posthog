@@ -201,8 +201,13 @@ describe('EmailDomainScene', () => {
         })
         expect(tab.location.href).toContain(`redirect_uri=${encodeURIComponent(returnUrl)}`)
         expect(backend.senderConfig(SENDER_ID)?.setup_method).toBe('auto')
+        expect(screen.getByText('Approve the settings in Cloudflare, then come back to this tab.')).toBeInTheDocument()
 
         backend.approveDomainConnect(DOMAIN)
+        click('email-domain-auto-configure-check-again')
+        await flush()
+        expectStep('Checking your settings…')
+
         cleanup()
         await open(returnPath)
         expect(router.values.location.search).toBe(originQuery)

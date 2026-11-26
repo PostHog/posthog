@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mapNotificationToLogRecord, OtelRunTelemetry } from "./otel-telemetry";
@@ -110,6 +113,13 @@ describe("OtelRunTelemetry", () => {
           agent_version: "1.0.0",
           session_id: "acp-1",
         },
+      },
+      {
+        name: "session_log_gap",
+        entry: makeEntry("_posthog/session_log_gap", { droppedCount: 2 }),
+        severityText: "WARN",
+        body: "session log gap",
+        attrs: { dropped_count: 2 },
       },
       {
         name: "double-prefixed extension method",
@@ -726,6 +736,83 @@ describe("OtelRunTelemetry", () => {
       );
       expect(surface).not.toContain("SECRET");
       expect(surface).not.toContain(".env");
+    });
+
+    it("counts completed reads of wiki content pages, and exports no path", async () => {
+      await telemetry.shutdown();
+      mockSpanExport.mockClear();
+      const wiki = mkdtempSync(join(tmpdir(), "context-wiki-"));
+      try {
+        vi.stubEnv("POSTHOG_CONTEXT_LAYER_PATH", `${wiki}/`);
+        telemetry = new OtelRunTelemetry(
+          {
+            url: "https://us.i.posthog.com/i/v1/logs",
+            token: "phc_test_key",
+            tracesUrl: "https://us.i.posthog.com/i/v1/traces",
+            flushIntervalMs: 100,
+          },
+          RESOURCE,
+        );
+        telemetry.append(RUN_ID, makeEntry("session/prompt", { prompt: [] }));
+        const tool = (
+          toolCallId: string,
+          kind: string,
+          status: string,
+          start: string[],
+          update: string[],
+        ): void => {
+          telemetry.append(
+            RUN_ID,
+            sessionUpdate({
+              sessionUpdate: "tool_call",
+              toolCallId,
+              kind,
+              status: "pending",
+              locations: start.map((path) => ({ path })),
+            }),
+          );
+          telemetry.append(
+            RUN_ID,
+            sessionUpdate({
+              sessionUpdate: "tool_call_update",
+              toolCallId,
+              status,
+              locations: update.map((path) => ({ path })),
+            }),
+          );
+        };
+        tool(
+          "read",
+          "read",
+          "completed",
+          [`${wiki}/areas/secret-acquisition.md`, `${wiki}/AGENTS.md`],
+          [
+            `${wiki}/projects/1/spaces/growth.md`,
+            `${wiki}/index.md`,
+            `${wiki}/../repos/app/notes.md`,
+          ],
+        );
+        tool("failed", "read", "failed", [`${wiki}/areas/missing.md`], []);
+        tool("edit", "edit", "completed", [`${wiki}/decisions/d.md`], []);
+        await telemetry.shutdown();
+
+        const byId = (id: string) =>
+          exportedSpans().find((span) => span.attributes.tool_call_id === id)
+            ?.attributes;
+        expect(byId("read")).toMatchObject({
+          context_wiki_page_reads: 2,
+          context_wiki_page_kinds: "areas,spaces",
+        });
+        expect(byId("failed")).not.toHaveProperty("context_wiki_page_reads");
+        expect(byId("edit")).not.toHaveProperty("context_wiki_page_reads");
+        const surface = JSON.stringify(
+          exportedSpans().map((span) => span.attributes),
+        );
+        expect(surface).not.toContain("secret-acquisition");
+        expect(surface).not.toContain("growth");
+      } finally {
+        rmSync(wiki, { recursive: true, force: true });
+      }
     });
 
     it("keeps correlation context attached to its run during concurrent turns", async () => {

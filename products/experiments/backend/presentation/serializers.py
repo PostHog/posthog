@@ -10,7 +10,7 @@ import math
 from copy import deepcopy
 from dataclasses import asdict
 from functools import cached_property
-from typing import Annotated, Any, Literal, TypeGuard
+from typing import Annotated, Any, Literal, TypeGuard, cast
 
 from django.db import models
 
@@ -39,14 +39,23 @@ from posthog.schema import (
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, replace_tags_on_object
-from posthog.models.team.team import Team
+from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
-from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade import experiment_validation
 from products.experiments.backend.facade.contracts import (
+    DEFAULT_LIST_LIMIT,
+    FIRST_SESSION_HORIZON_HOURS,
+    MAX_BUCKET_SCAN_DAYS,
+    MAX_CARD_HIGHLIGHTS,
+    MAX_CARD_RECORDINGS,
+    MAX_DELTA_SCAN_DAYS,
+    MAX_LIST_LIMIT,
+    MAX_PROPERTY_FILTERS,
+    MAX_SESSION_BUCKET_LIMIT,
+    MAX_SESSION_CONTEXT_BATCH,
     CreateExperimentInput,
     ExperimentBasic,
     ExperimentDetail,
@@ -61,45 +70,26 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthStatsMethod,
     ExperimentHealthValueKey,
     ExperimentHoldoutView,
-    ExperimentValidationError,
-    RunningTimeMode,
-)
-from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
-from products.experiments.backend.facade.experiment_validation import holdout_exists
-from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.metric_events import MetricSourceRole
-from products.experiments.backend.models.experiment import (
-    Experiment,
-    ExperimentMetricsRecalculation,
-    get_experiment_rule,
-)
-from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
-from products.experiments.backend.session_buckets import (
-    MAX_BUCKET_SCAN_DAYS,
-    MAX_SESSION_BUCKET_LIMIT,
     ExperimentSessionBucket,
-)
-from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
-from products.experiments.backend.session_event_deltas import (
-    FIRST_SESSION_HORIZON_HOURS,
-    MAX_CARD_HIGHLIGHTS,
-    MAX_CARD_RECORDINGS,
-    MAX_DELTA_SCAN_DAYS,
+    ExperimentUpdate,
+    ExperimentUpdateTarget,
     ExperimentWatchCardKind,
     ExperimentWatchCardStrength,
     ExperimentWatchEmptyReason,
-)
-from products.experiments.backend.setup_context import (
-    DEFAULT_LIST_LIMIT,
-    MAX_LIST_LIMIT,
-    MAX_PROPERTY_FILTERS,
     PreviousExperimentState,
+    RunningTimeMode,
     SdkLibCategory,
     SetupContextSectionStatus,
 )
+from products.experiments.backend.facade.enums import (
+    FEATURE_FLAG_CONFIG_KEYS,
+    RUNNING_TIME_METRIC_TYPES,
+    ExperimentResultConfigurationStatus,
+    MetricSourceRole,
+)
+from products.experiments.backend.facade.llm_metric_templates import TEMPLATE_NAMES
+from products.experiments.backend.models.experiment import ExperimentMetricsRecalculation
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
-from products.feature_flags.backend.facade.config import ConfigFormatError
-from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -141,7 +131,7 @@ class _HoldoutIdField(serializers.IntegerField):
         except (TypeError, ValueError):
             self.fail("incorrect_type", data_type=type(data).__name__)
         team_id = self.context.get("team_id")
-        if not team_id or not holdout_exists(team_id=team_id, holdout_id=holdout_id):
+        if not team_id or not experiment_validation.holdout_exists(team_id=team_id, holdout_id=holdout_id):
             self.fail("does_not_exist", pk_value=data)
         return holdout_id
 
@@ -812,82 +802,13 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Ser
     def get_is_legacy(self, experiment: ExperimentBasic) -> bool:
         return experiment.is_legacy
 
-    @staticmethod
-    def _project_rule_config(data: dict[str, Any], experiment: Experiment) -> None:
-        """The `parameters` projection of a rule-linked experiment, in the same keys as
-        `_project_feature_flag_config`, so a client reads the variants and the rollout of the rule the
-        way it reads them from a flag.
 
-        A rule that cannot be read, such as one a draft's flag no longer has, projects no variants:
-        the read must still return the experiment.
-        """
-        stored = data.get("parameters")
-        parameters = dict(stored) if isinstance(stored, dict) else {}
-        for key in ("aggregation_group_type_index", "rollout_percentage", "feature_flag_payloads"):
-            parameters.pop(key, None)
-        try:
-            rule = get_experiment_rule(experiment)
-        except (ExperimentRuleError, ConfigFormatError):
-            parameters["feature_flag_variants"] = []
-        else:
-            parameters["feature_flag_variants"] = _with_split_percent(rule.variants)
-            if rule.assign_variant_by is not None:
-                parameters["aggregation_group_type_index"] = rule.assign_variant_by
-            if rule.rollout_percentage is not None:
-                parameters["rollout_percentage"] = rule.rollout_percentage
-        flag = experiment.feature_flag
-        if flag.ensure_experience_continuity is not None:
-            parameters["ensure_experience_continuity"] = flag.ensure_experience_continuity
-        else:
-            parameters.pop("ensure_experience_continuity", None)
-        data["parameters"] = parameters
-
-    @staticmethod
-    def _project_feature_flag_config(data: dict[str, Any], flag: FeatureFlag | None) -> None:
-        """Source feature-flag config in the deprecated `parameters` projection from the linked flag.
-
-        The flag is the source of truth for every key in ``FEATURE_FLAG_CONFIG_KEYS`` — `parameters`
-        is a deprecated compatibility surface (see the experiment model's `parameters` comment).
-        Reading these keys from the flag instead of the stored column lets us stop persisting the
-        `parameters` mirror without changing the API response. It also keeps read-modify-write
-        echoes safe: legacy rows still carry stale copies in the column until the backfill strips
-        them, and a client that spreads a GET response into a save must echo the flag's live
-        config, not stale values the update path would then sync onto the flag. The linked flag is
-        already serialized into `data["feature_flag"]`, so this adds no queries.
-        """
-        if flag is None:
-            return
-        stored = data.get("parameters")
-        # The JSON column can legally hold a non-dict on legacy rows (see migration 0026); the flag
-        # is the source of truth for the keys below, so a malformed blob is simply dropped.
-        parameters = dict(stored) if isinstance(stored, dict) else {}
-
-        parameters["feature_flag_variants"] = _with_split_percent(flag.variants)
-
-        filters = flag.get_filters()
-        if flag.aggregation_group_type_index is not None:
-            parameters["aggregation_group_type_index"] = flag.aggregation_group_type_index
-        else:
-            parameters.pop("aggregation_group_type_index", None)
-
-        groups = filters.get("groups") or []
-        if groups and groups[0].get("rollout_percentage") is not None:
-            parameters["rollout_percentage"] = groups[0]["rollout_percentage"]
-        else:
-            parameters.pop("rollout_percentage", None)
-
-        payloads = filters.get("payloads")
-        if payloads:
-            parameters["feature_flag_payloads"] = payloads
-        else:
-            parameters.pop("feature_flag_payloads", None)
-
-        if flag.ensure_experience_continuity is not None:
-            parameters["ensure_experience_continuity"] = flag.ensure_experience_continuity
-        else:
-            parameters.pop("ensure_experience_continuity", None)
-
-        data["parameters"] = parameters
+# The validated data names these fields by the sources of the serializer fields, or by the key that `validate()` sets.
+_UPDATE_FIELD_NAMES = {
+    "get_feature_flag_key": "feature_flag_key",
+    "_create_in_folder": "create_in_folder",
+    "feature_flag": "feature_flag_config",
+}
 
 
 def _dedupe_metric_ordering(value: list[str] | None) -> list[str] | None:
@@ -1026,11 +947,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     )
     resolved_exposure_event = serializers.SerializerMethodField(
         help_text=(
-            "The event exposures are actually counted on when the experiment doesn't configure a "
-            "custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the "
-            "rollout and the experiment started at or after the cutoff. Resolved server-side so "
-            "clients display the same event the results queries read. For a draft, this is what the "
-            "experiment would resolve to if launched now."
+            "The event exposures are counted on when the experiment doesn't configure a custom one: "
+            "`$experiment_exposure` if the experiment started at or after the deployment's cutoff "
+            "(2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise "
+            "`$feature_flag_called`. Resolved server-side so clients display the same event the "
+            "results queries read. For a draft, this is what the experiment would resolve to if "
+            "launched now."
         ),
     )
     health = serializers.SerializerMethodField(
@@ -1166,7 +1088,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return None
 
     def validate_saved_metrics_ids(self, value):
-        ExperimentService.validate_saved_metrics_ids(value, self.context["team_id"])
+        experiment_validation.validate_saved_metrics_ids(value, team_id=self.context["team_id"])
         return value
 
     def validate_repository(self, value: str | None) -> str | None:
@@ -1178,9 +1100,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return value.lower()
 
     def validate(self, data):
-        ExperimentService.validate_experiment_date_range(data.get("start_date"), data.get("end_date"))
-        data = self._normalize_feature_flag_input(data)
-        return super().validate(data)
+        experiment_validation.validate_date_range(start_date=data.get("start_date"), end_date=data.get("end_date"))
+        # Not super().validate(): the access control mixin checks the field rules of the model class of
+        # `self.instance`, which is a contract here and has no model metadata. The experiment model has no field rules.
+        return self._normalize_feature_flag_input(data)
 
     def _normalize_feature_flag_input(self, data: dict) -> dict:
         """Validate the ``feature_flag`` config object and stash it under ``data["feature_flag"]`` for
@@ -1221,7 +1144,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                 )
         # On a running experiment the service only syncs flag config when the caller opts in;
         # without the opt-in the config would be applied nowhere and silently dropped.
-        if self.instance is not None and not self.instance.is_draft and not data.get("update_feature_flag_params"):
+        instance = cast(ExperimentUpdateTarget | None, self.instance)
+        if instance is not None and not instance.is_draft and not data.get("update_feature_flag_params"):
             raise serializers.ValidationError(
                 {
                     "feature_flag": "This experiment is running. To change its flag config, "
@@ -1241,10 +1165,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def validate_parameters(self, value):
         # Flag config is no longer a persisted `parameters` key; it is sourced from the linked flag
-        # (see ExperimentBaseSerializer._project_feature_flag_config). Strip any flag-config keys sent
+        # (see projected_parameters in logic/experiments.py). Strip any flag-config keys sent
         # through `parameters` so they never reach the stored column; a legacy caller sending them is
         # copied into the `feature_flag` path in _normalize_feature_flag_input instead of rejected.
-        return ExperimentService._strip_feature_flag_config(value)
+        return experiment_validation.strip_feature_flag_config(value)
 
     @staticmethod
     def _assert_flag_variants_valid(config: dict) -> None:
@@ -1281,20 +1205,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         raw_parameters = (getattr(self, "initial_data", None) or {}).get("parameters")
         if not isinstance(raw_parameters, dict):
             return None
-        present = [key for key in ExperimentService.FEATURE_FLAG_CONFIG_KEYS if key in raw_parameters]
+        present = [key for key in FEATURE_FLAG_CONFIG_KEYS if key in raw_parameters]
         if not present:
             return None
 
-        instance = self.instance
-        flag = instance.feature_flag if instance is not None else None
-        projected: dict[str, Any] = {}
-        if instance is not None and flag is not None:
-            projection: dict[str, Any] = {}
-            if instance.is_rule_linked:
-                self._project_rule_config(projection, instance)
-            else:
-                self._project_feature_flag_config(projection, flag)
-            projected = projection.get("parameters") or {}
+        instance = cast(ExperimentUpdateTarget | None, self.instance)
+        projected = instance.parameters if instance is not None else {}
 
         changed = {
             key: raw_parameters[key]
@@ -1306,7 +1222,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # Assemble the flag's native write shape from the changed deprecated keys. The service owns
         # this translation (it is the reverse of the read projection) so both the HTTP path and direct
         # service callers build the config identically.
-        config = ExperimentService._feature_flag_config_from_parameters(changed)
+        config = experiment_validation.feature_flag_config_from_parameters(changed)
         # Surface to update_experiment that a real flag-config write (not a faithful echo) came from
         # the deprecated `parameters` surface, for the "experiment updated" deprecation-bake telemetry.
         self._deprecated_flag_config_changed = config is not None
@@ -1321,11 +1237,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return sent == projected
 
     def validate_running_time_calculation(self, value):
-        ExperimentService.validate_running_time_calculation(value)
+        experiment_validation.validate_running_time_calculation(value)
         return value
 
     def validate_excluded_variants(self, value):
-        ExperimentService.validate_excluded_variants(value)
+        experiment_validation.validate_excluded_variants(value)
         return value
 
     def validate_primary_metrics_ordered_uuids(self, value: list[str] | None) -> list[str] | None:
@@ -1335,11 +1251,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return _dedupe_metric_ordering(value)
 
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
-        ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
+        experiment_validation.validate_exposure_criteria(exposure_criteria)
         return exposure_criteria
 
     def _validate_metrics_list(self, metrics: list | None) -> list | None:
-        ExperimentService.validate_experiment_metrics(metrics)
+        experiment_validation.validate_metrics(metrics)
         return metrics
 
     def validate_metrics(self, value):
@@ -1348,8 +1264,46 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     def validate_metrics_secondary(self, value):
         return self._validate_metrics_list(value)
 
-    def to_facade_dto(self) -> CreateExperimentInput:
-        """Convert validated request data to facade DTO."""
+    def to_create(self) -> CreateExperimentInput:
+        """The validated request data of a create, as the facade takes it. The tags are not part of it."""
+        # Update-only fields. A create ignores them, so clients can share payload builders.
+        ignored_fields = {"update_feature_flag_params", "tags", "version", "original_experiment"}
+        expected_fields = {
+            "name",
+            "get_feature_flag_key",
+            "description",
+            "type",
+            "parameters",
+            "feature_flag",
+            "running_time_calculation",
+            "excluded_variants",
+            "metrics",
+            "metrics_secondary",
+            "secondary_metrics",
+            "primary_metrics_ordered_uuids",
+            "secondary_metrics_ordered_uuids",
+            "saved_metrics_ids",
+            "stats_config",
+            "exposure_criteria",
+            "only_count_matured_users",
+            "start_date",
+            "end_date",
+            "archived",
+            "deleted",
+            "conclusion",
+            "conclusion_comment",
+            "repository",
+            "holdout_id",
+            "filters",
+            "scheduling_config",
+            "_create_in_folder",
+            "allow_unknown_events",
+            "feature_flag_rule_id",
+        }
+        unexpected = set(self.validated_data) - ignored_fields - expected_fields
+        if unexpected:
+            raise ValidationError(f"Can't create keys: {', '.join(sorted(unexpected))} on Experiment")
+
         # Convert ordering lists to tuples (DTO uses tuples for immutability)
         primary_ordering = self.validated_data.get("primary_metrics_ordered_uuids")
         secondary_ordering = self.validated_data.get("secondary_metrics_ordered_uuids")
@@ -1388,97 +1342,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             feature_flag_rule_id=self.validated_data.get("feature_flag_rule_id"),
         )
 
-    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        """Create experiment via facade layer."""
-        from products.experiments.backend.facade import create_experiment
-
-        # Pop fields not needed for DTO but needed for validation
-        validated_data.pop("update_feature_flag_params", None)
-        # Tags live in the shared TaggedItem table, not on the experiment row; pop them so the
-        # expected_fields check below doesn't reject them as an unknown key.
-        tags = validated_data.pop("tags", None)
-        # Concurrency keys are update-only; ignore them on create so clients can share payload builders
-        validated_data.pop("version", None)
-        validated_data.pop("original_experiment", None)
-
-        # Check for unexpected fields
-        expected_fields = {
-            "name",
-            "get_feature_flag_key",
-            "description",
-            "type",
-            "parameters",
-            "feature_flag",
-            "running_time_calculation",
-            "excluded_variants",
-            "metrics",
-            "metrics_secondary",
-            "secondary_metrics",
-            "primary_metrics_ordered_uuids",
-            "secondary_metrics_ordered_uuids",
-            "saved_metrics_ids",
-            "stats_config",
-            "exposure_criteria",
-            "only_count_matured_users",
-            "start_date",
-            "end_date",
-            "archived",
-            "deleted",
-            "conclusion",
-            "conclusion_comment",
-            "repository",
-            "holdout_id",
-            "filters",
-            "scheduling_config",
-            "_create_in_folder",
-            "allow_unknown_events",
-            "feature_flag_rule_id",
-        }
-        unexpected = set(validated_data.keys()) - expected_fields
-        if unexpected:
-            raise ValidationError(f"Can't create keys: {', '.join(sorted(unexpected))} on Experiment")
-
-        # Convert to facade DTO
-        input_dto = self.to_facade_dto()
-
-        # Route through facade
-        team = Team.objects.get(id=self.context["team_id"])
-        try:
-            experiment_dto = create_experiment(
-                team=team,
-                user=self.context["request"].user,
-                input_dto=input_dto,
-            )
-        except ExperimentValidationError as error:
-            raise ValidationError(str(error)) from error
-
-        # Load instance for return (DRF expects model instance)
-        instance = Experiment.objects.get(id=experiment_dto.id)
-        if tags is not None:
-            replace_tags_on_object(tags, instance)
-        return instance
-
-    def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
-        allow_unknown_events = validated_data.pop("allow_unknown_events", False)
-        feature_flag_config = validated_data.pop("feature_flag", None)
-        tags = validated_data.pop("tags", None)
-        # The rule is chosen on create. A client that sends back what it read changes nothing.
-        if "feature_flag_rule_id" in validated_data:
-            if validated_data.pop("feature_flag_rule_id") != instance.feature_flag_rule_id:
-                raise ValidationError("feature_flag_rule_id cannot change after the experiment is created.")
-        team = Team.objects.get(id=self.context["team_id"])
-        service = ExperimentService(team=team, user=self.context["request"].user)
-        updated_instance = service.update_experiment(
-            instance,
-            validated_data,
-            feature_flag_config=feature_flag_config,
-            serializer_context=self.context,
-            allow_unknown_events=allow_unknown_events,
+    def to_update(self) -> ExperimentUpdate:
+        """The validated request data of an update, as the facade takes it."""
+        values = {_UPDATE_FIELD_NAMES.get(key, key): value for key, value in self.validated_data.items()}
+        return ExperimentUpdate(
+            fields_set=frozenset(values),
+            **values,
             deprecated_flag_config_changed=getattr(self, "_deprecated_flag_config_changed", False),
         )
-        if tags is not None:
-            replace_tags_on_object(tags, updated_instance)
-        return updated_instance
 
 
 class _StrictFieldsMixin:
@@ -2203,7 +2074,7 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
     """Inputs for estimating the recommended sample size and running time of an experiment."""
 
     metric_type = serializers.ChoiceField(
-        choices=METRIC_TYPE_CHOICES,
+        choices=RUNNING_TIME_METRIC_TYPES,
         help_text=(
             "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, "
             "'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics "

@@ -5,6 +5,7 @@ from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.error_tracking.backend.temporal.lifecycle.change_log import LifecycleChangeInputs, record_lifecycle_change
 from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import (
     IssueReopenedSnapshot,
     IssueReopenedWorkflowInputs,
@@ -60,6 +61,24 @@ async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -
         if workflow.patched(SUMMARY_ON_REOPEN_PATCH)
         else None
     )
+    change_log = (
+        asyncio.create_task(
+            record_lifecycle_change(
+                LifecycleChangeInputs(
+                    notification_id=inputs.notification_id,
+                    team_id=inputs.team_id,
+                    issue_id=inputs.issue_id,
+                    kind="status_changed",
+                    event_uuid=inputs.event_uuid,
+                    event_timestamp=inputs.event_timestamp,
+                    previous_status=inputs.previous_status,
+                )
+            )
+        )
+        # A row needs the status the issue came back from.
+        if inputs.previous_status is not None
+        else None
+    )
     try:
         await workflow.execute_activity(
             "emit_issue_reopened_internal_event_activity",
@@ -78,6 +97,8 @@ async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -
             await dispatch
         if summary is not None:
             await summary
+        if change_log is not None:
+            await change_log
 
 
 @workflow.defn(name=WORKFLOW_NAME)

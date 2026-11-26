@@ -815,6 +815,13 @@ export const getExperimentsHealthRetrieveUrl = (
  * for a cause that a setting fixes, because the calculation after the fix reads the events up
  * to the end. It is info otherwise.
  *
+ * `metric_uses_feature_flag_called` names each metric that reads `$feature_flag_called`
+ * events, in the `evidence` keys `metric_N` and `metric_N_role`. PostHog is reducing how long
+ * it keeps these events, so the fix is to read `$experiment_exposure` instead. It is a warning
+ * when a primary metric reads them and info otherwise. It runs only on PostHog Cloud, and not
+ * after the end or on an archived experiment. A metric that matches the event through an
+ * action step isn't found.
+ *
  * A launched experiment that has not ended gets the info `stale_experiment` more than 60 days
  * after its start date, when the daily calculation leaves it out, with `days_running` from the
  * start date in `evidence`.
@@ -872,6 +879,15 @@ export const getExperimentsHealthRetrieveUrl = (
  * sample is below the one the running time estimate plans for the minimum detectable
  * effect. It reads the metric's current stored result, the one the results page shows
  * after its last calculation, and the running time calculator's formula.
+ *
+ * A running experiment gets the info `result_ready` when its first primary metric has an
+ * answer, with `end_experiment`. Subcode `stayed_significant`: every stored result for 3 days
+ * or more shows a variant as significant, named in `evidence` with `significant_since` and
+ * `days_significant`. The results count from the earliest result in that unbroken run up to
+ * the current one, both daily points and recalculations, so an edit of the metric starts
+ * over. Subcode `target_reached_not_significant`: the current result counts at least the
+ * sample that the running time estimate plans for, and shows every variant as not
+ * significant. Neither fires while `early_significance` reports the experiment.
  *
  * A running experiment with `only_count_matured_users` on gets the info
  * `metrics_not_matured` while it is younger than the conversion or retention window of

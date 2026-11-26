@@ -122,6 +122,8 @@ class TestBatchAudienceSnapshot(TestCase):
         assert mock_query.call_args.kwargs["limit"] == 101
         # The whole audience runs under the long cap, not the interactive one.
         assert mock_query.call_args.kwargs["settings"].max_execution_time == 1200
+        # A query that runs out of time must raise. A cut-short result would store a partial audience as ready.
+        assert getattr(mock_query.call_args.kwargs["settings"], "timeout_overflow_mode", None) == "throw"
 
     @parameterized.expand(
         [
