@@ -27,7 +27,6 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseMemoryLimitExceededError,
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
-    get_client,
 )
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -43,6 +42,7 @@ from products.batch_exports.backend.service import (
     unpause_batch_export,
     update_batch_export_backfill,
 )
+from products.batch_exports.backend.temporal.clickhouse import get_batch_exports_client
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
@@ -286,7 +286,7 @@ async def _get_backfill_info_for_events(
         query_id=query_id,
         query_type="backfill_info:events",
     ):
-        async with get_client(team_id=team_id) as client:
+        async with get_batch_exports_client(team_id=team_id, reads_new_events_table=reads_native_events) as client:
             result = await client.read_query_as_jsonl(query, query_parameters=query_parameters, query_id=query_id)
 
     min_timestamp_str = result[0]["min_timestamp"]
@@ -370,7 +370,7 @@ async def _get_backfill_info_for_persons(
         query_id=min_timestamp_query_id,
         query_type="backfill_info:persons_min_timestamp",
     ):
-        async with get_client(team_id=team_id) as client:
+        async with get_batch_exports_client(team_id=team_id, reads_new_events_table=False) as client:
             min_timestamp_results = await client.read_query_as_jsonl(
                 min_timestamp_query, query_parameters=query_parameters, query_id=min_timestamp_query_id
             )
@@ -438,7 +438,7 @@ async def _get_backfill_info_for_persons(
         query_id=count_query_id,
         query_type="backfill_info:persons_count",
     ):
-        async with get_client(team_id=team_id) as client:
+        async with get_batch_exports_client(team_id=team_id, reads_new_events_table=False) as client:
             count_results = await client.read_query_as_jsonl(
                 count_query, query_parameters=query_parameters, query_id=count_query_id
             )

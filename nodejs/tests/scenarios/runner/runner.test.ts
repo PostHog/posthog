@@ -256,6 +256,36 @@ describe('runner', () => {
         ])
     })
 
+    it("resets a pair's control with the Cyclotron routing of its faulted run", async () => {
+        const routings: unknown[] = []
+        const pairing = createRunner(
+            {
+                ...environment,
+                reset: (_settings, _replicas, through) => {
+                    routings.push(through)
+                    return Promise.resolve()
+                },
+            },
+            { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL, ...api.credentials },
+            { topologyEveryMs: 10 }
+        )
+        const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+        const refusing = {
+            ...loaded,
+            card: {
+                ...loaded.card,
+                valves: [{ valve: 'pg.enqueue_refused', target: 'cyclotron', dose: { count: 1 }, at: '1s', for: '1s' }],
+            },
+        }
+        try {
+            await pairing.runPair(refusing, NEVER_ABORTED)
+        } finally {
+            await pairing.down()
+        }
+
+        expect(routings).toEqual([{ cyclotronThroughEdge: true }, { cyclotronThroughEdge: true }])
+    })
+
     it('runs one card under the run id of its run manifest', async () => {
         const runId = '6b0c8f4e-2d1a-4c55-9a7e-1f3b5d7e9a2c'
         const manifest = path.join(cacheHome, 'manifest.json')

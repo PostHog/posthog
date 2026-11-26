@@ -47,6 +47,16 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import (
+    DEFAULT_LIST_LIMIT,
+    FIRST_SESSION_HORIZON_HOURS,
+    MAX_BUCKET_SCAN_DAYS,
+    MAX_CARD_HIGHLIGHTS,
+    MAX_CARD_RECORDINGS,
+    MAX_DELTA_SCAN_DAYS,
+    MAX_LIST_LIMIT,
+    MAX_PROPERTY_FILTERS,
+    MAX_SESSION_BUCKET_LIMIT,
+    MAX_SESSION_CONTEXT_BATCH,
     CreateExperimentInput,
     ExperimentBasic,
     ExperimentDetail,
@@ -61,41 +71,27 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthStatsMethod,
     ExperimentHealthValueKey,
     ExperimentHoldoutView,
+    ExperimentSessionBucket,
     ExperimentValidationError,
+    ExperimentWatchCardKind,
+    ExperimentWatchCardStrength,
+    ExperimentWatchEmptyReason,
+    PreviousExperimentState,
     RunningTimeMode,
+    SdkLibCategory,
+    SetupContextSectionStatus,
 )
-from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
+from products.experiments.backend.facade.enums import (
+    RUNNING_TIME_METRIC_TYPES,
+    ExperimentResultConfigurationStatus,
+    MetricSourceRole,
+)
 from products.experiments.backend.facade.experiment_validation import holdout_exists
-from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.metric_events import MetricSourceRole
+from products.experiments.backend.facade.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricsRecalculation,
     get_experiment_rule,
-)
-from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
-from products.experiments.backend.session_buckets import (
-    MAX_BUCKET_SCAN_DAYS,
-    MAX_SESSION_BUCKET_LIMIT,
-    ExperimentSessionBucket,
-)
-from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
-from products.experiments.backend.session_event_deltas import (
-    FIRST_SESSION_HORIZON_HOURS,
-    MAX_CARD_HIGHLIGHTS,
-    MAX_CARD_RECORDINGS,
-    MAX_DELTA_SCAN_DAYS,
-    ExperimentWatchCardKind,
-    ExperimentWatchCardStrength,
-    ExperimentWatchEmptyReason,
-)
-from products.experiments.backend.setup_context import (
-    DEFAULT_LIST_LIMIT,
-    MAX_LIST_LIMIT,
-    MAX_PROPERTY_FILTERS,
-    PreviousExperimentState,
-    SdkLibCategory,
-    SetupContextSectionStatus,
 )
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.facade.config import ConfigFormatError
@@ -2204,7 +2200,7 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
     """Inputs for estimating the recommended sample size and running time of an experiment."""
 
     metric_type = serializers.ChoiceField(
-        choices=METRIC_TYPE_CHOICES,
+        choices=RUNNING_TIME_METRIC_TYPES,
         help_text=(
             "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, "
             "'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics "

@@ -1,4 +1,4 @@
-"""Fixtures for the dashboard-v2 scorecard in `products/dashboards/backend/benchmarks/`.
+"""Fixtures for the dashboard-v2 scorecard.
 
 The scorecard runs under pytest against the test database, so it builds its boards the way tests do.
 """

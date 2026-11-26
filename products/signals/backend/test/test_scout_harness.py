@@ -690,7 +690,9 @@ class TestMemoryUpkeepGate(BaseTest):
             )
             remember(team_id=self.team.id, key="learned:area:checkout", content="pattern", run_id=str(run.id))
 
-        assert _memory_upkeep_is_live(self.team) is expected
+        # The runner calls the check from a Temporal activity, which sets no team scope.
+        with unscoped():
+            assert _memory_upkeep_is_live(self.team) is expected
 
 
 class TestActivitySummarySearchAvailability(SimpleTestCase):
@@ -1862,6 +1864,12 @@ class TestPromptBuilder(BaseTest):
         # not at "whoever owns this scout" guesswork — dropping the reference re-opens the
         # last-editor-becomes-the-assignee failure mode.
         assert ("the skill authors named in *Your run identity*" in prompt) is expect_escalation
+        # A self-improvement report has no repository, so its apply-the-change prompt is the owner's
+        # only one-click path. Without the field in this list, scouts follow the shared guidance and skip it.
+        assert ("`suggested_prompts` = one action prompt" in prompt) is expect_escalation
+        assert ("send the apply-the-change prompt described below as `suggested_prompts`" in prompt) is (
+            _name == "custom_report_scout"
+        )
         if _name == "custom_report_scout_emit_only":
             # The emit-only variant must never name the edit tool it lacks (fails closed).
             assert "scout-edit-report" not in prompt

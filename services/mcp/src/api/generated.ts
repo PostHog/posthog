@@ -10829,7 +10829,23 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    export type ErrorTrackingIssueTagColor = typeof ErrorTrackingIssueTagColor[keyof typeof ErrorTrackingIssueTagColor];
+
+
+    export const ErrorTrackingIssueTagColor = {
+      Blue: 'blue',
+      Teal: 'teal',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+      Pink: 'pink',
+      Purple: 'purple',
+    } as const;
+
     export interface ErrorTrackingIssueTag {
+      /** Named color of the tag, or null for a color picked from the label. */
+      color?: ErrorTrackingIssueTagColor | null;
       /** What the tag means, for a tooltip. */
       description: string;
       /** Key of the tag definition. */
@@ -14627,6 +14643,14 @@ export namespace Schemas {
     }
 
     /**
+     * Returned when a Support AI run was started for a ticket.
+     */
+    export interface AiRerunResponse {
+      /** ID of the Support AI run that was started. */
+      workflow_id: string;
+    }
+
+    /**
      * * `persisted` - persisted
      * * `suggested` - suggested
      * * `escalated_with_findings` - escalated_with_findings
@@ -16455,6 +16479,26 @@ export namespace Schemas {
      */
     export type AnomalyBucketDetails = { [key: string]: unknown } | null;
 
+    /**
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change
+     */
+    export type AnomalyJudgeKindEnum = typeof AnomalyJudgeKindEnum[keyof typeof AnomalyJudgeKindEnum];
+
+
+    export const AnomalyJudgeKindEnum = {
+      Spike: 'spike',
+      Drop: 'drop',
+      Flatline: 'flatline',
+      TrendBreak: 'trend_break',
+      LevelShift: 'level_shift',
+      PatternChange: 'pattern_change',
+    } as const;
+
     export interface AnomalyBucket {
       /** The start of the bucket, in the project timezone. */
       bucket_start: string;
@@ -16485,6 +16529,20 @@ export namespace Schemas {
          * @nullable
          */
       details: AnomalyBucketDetails;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     export interface AnomalyDashboard {
@@ -16510,6 +16568,20 @@ export namespace Schemas {
          * @nullable
          */
       score: number | null;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     /**
@@ -16758,6 +16830,20 @@ export namespace Schemas {
       value: number | null;
       /** Whether the detector flagged the bucket. */
       flag: boolean;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     export interface AnomalySeriesPoints {
@@ -45798,6 +45884,30 @@ export namespace Schemas {
       includeBreakdown?: boolean;
     }
 
+    /**
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple
+     */
+    export type IssueTagColorEnum = typeof IssueTagColorEnum[keyof typeof IssueTagColorEnum];
+
+
+    export const IssueTagColorEnum = {
+      Blue: 'blue',
+      Teal: 'teal',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+      Pink: 'pink',
+      Purple: 'purple',
+    } as const;
+
     export interface ErrorTrackingIssueTagRead {
       /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
@@ -45805,6 +45915,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
       source: string;
     }
@@ -46006,6 +46127,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
       source: string;
       /** Whether the tag is applied to the issue after the change. */
@@ -46019,6 +46151,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
     }
 
     export interface ErrorTrackingIssueTagDefinitionsResponse {
@@ -46058,6 +46201,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means. Shown with the tag. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /** Starts at 1, and goes up by one each time the filters change. */
@@ -46086,6 +46240,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label. Defaults to null.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /**
@@ -46112,6 +46277,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
@@ -49950,6 +50126,11 @@ export namespace Schemas {
          * @nullable
          */
       aggregation_group_type_index?: number | null;
+      /**
+         * Display-only name for this release condition group. It does not affect evaluation.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     /**
@@ -50276,6 +50457,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -50310,6 +50492,7 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
       MetricAllZero: 'metric_all_zero',
@@ -50389,6 +50572,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -50421,6 +50605,7 @@ export namespace Schemas {
       NewFlagNoTraffic: 'new_flag_no_traffic',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
       MetricAllZero: 'metric_all_zero',
@@ -50455,6 +50640,7 @@ export namespace Schemas {
        * * `multiple_variants_share` - Multiple Variants Share
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -50519,6 +50705,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -50912,6 +51099,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -93099,6 +93287,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
@@ -99421,6 +99620,8 @@ export namespace Schemas {
       auto_model_choice?: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled?: boolean;
+      /** Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Applies to tasks started after the change. */
+      chatgpt_apps_enabled?: boolean;
     }
 
     export interface PatchedSlackAppWorkspaceSettingsUpdate {
@@ -122613,6 +122814,11 @@ export namespace Schemas {
       auto_model_choice: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled: boolean;
+      /**
+         * Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Null when this person has no ChatGPT plan that Slack tasks can use.
+         * @nullable
+         */
+      chatgpt_apps_enabled: boolean | null;
     }
 
     export interface SlackAppRepositoryOptions {

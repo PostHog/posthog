@@ -7595,7 +7595,17 @@ export namespace Schemas {
         | "resolved"
         | "pending_release"
         | "suppressed";
+    export type ErrorTrackingIssueTagColor =
+        | "blue"
+        | "teal"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red"
+        | "pink"
+        | "purple";
     export type ErrorTrackingIssueTag = {
+        color?: (ErrorTrackingIssueTagColor | null) | undefined;
         /**
          * What the tag means, for a tooltip.
          */
@@ -9492,6 +9502,25 @@ export namespace Schemas {
         | "medium"
         | "high"
         | "critical";
+    /**
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple
+     */
+    export type IssueTagColorEnum =
+        | "blue"
+        | "teal"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red"
+        | "pink"
+        | "purple";
     export type ErrorTrackingIssueTagRead = {
         /**
          * Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not.
@@ -9505,6 +9534,19 @@ export namespace Schemas {
          * What the tag means, for a tooltip.
          */
         description: string;
+        /**
+         * Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+         *
+         * * `blue` - Blue
+         * * `teal` - Teal
+         * * `green` - Green
+         * * `yellow` - Yellow
+         * * `orange` - Orange
+         * * `red` - Red
+         * * `pink` - Pink
+         * * `purple` - Purple
+         */
+        color: IssueTagColorEnum | NullEnum;
         /**
          * The tagger that applied the tag: `jev` for AI, `manual` for a person.
          */
@@ -10233,6 +10275,7 @@ export namespace Schemas {
         rollout_percentage: number;
         variant: string | null;
         aggregation_group_type_index: number | null;
+        description: string | null;
     }>;
     /**
      * A holdout group — a stable slice of users excluded from experiment exposure.
@@ -10474,6 +10517,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -10505,6 +10549,7 @@ export namespace Schemas {
         | "multiple_variants_share"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_uses_feature_flag_called"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "metric_all_zero"
@@ -10572,6 +10617,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -10601,6 +10647,7 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_uses_feature_flag_called"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "metric_all_zero"
@@ -10629,6 +10676,7 @@ export namespace Schemas {
          * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -10702,6 +10750,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -11074,6 +11123,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero

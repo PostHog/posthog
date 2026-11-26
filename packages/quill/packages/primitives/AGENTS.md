@@ -436,6 +436,26 @@ Attached panel outside the popup: pass `popupSibling` on `SelectContent` — ren
 
 A Combobox in a `DropdownMenuSubContent` takes `inline` and no `ComboboxContent`: the submenu is its popup, and its items keep the check mark's gutter. `ComboboxItem` takes `tooltip` and `disabledReason` like the menu items. Never hand-wrap a disabled `ComboboxItem` in a Tooltip. Pass `action` on a row that runs an action instead of picking a value, such as "New project": it is never selected, so it drops the check mark's gutter. The selection check in `Combobox` and `Select` takes lucide's stroke of 2. An app whose row icons draw thinner lines sets `--quill-indicator-stroke-width` to match them.
 
+A button that opens the popup, with `ComboboxInput` inside `ComboboxContent`: render the button through `ComboboxTrigger` and anchor the popup to it. Never open the popup from the button's `onClick`, because the Combobox then does not know the button is its trigger: the button gets no `aria-expanded` and does not stay pressed while the popup is open. `ComboboxTrigger` appends the chevron, so never add `SelectTriggerIcon` to the button. Pass `showChevron={false}` only for a button that shows no chevron, such as an "Add" button.
+
+```tsx
+<Combobox items={items} open={open} onOpenChange={setOpen}>
+  <ComboboxTrigger ref={triggerRef} render={<Button variant="outline" />}>
+    {value ?? 'Select framework'}
+  </ComboboxTrigger>
+  <ComboboxContent anchor={triggerRef}>
+    <ComboboxInput placeholder="Search..." showTrigger={false} />
+    <ComboboxList>
+      {(item: string) => (
+        <ComboboxItem key={item} value={item}>
+          {item}
+        </ComboboxItem>
+      )}
+    </ComboboxList>
+  </ComboboxContent>
+</Combobox>
+```
+
 Something attached to the popup's edge, such as a resize handle: pass `popupSibling` on `ComboboxContent`, as on `SelectContent`. It renders in the positioner beside the popup, outside the popup's overflow, so it can sit across the edge. Position it absolute so it never resizes the popup.
 
 A `ComboboxItem` takes `description` for a muted second line, laid out like a described `DropdownMenuItem`. A highlighted Combobox or Autocomplete item paints its content in the foreground color. Put `data-keep-color` on a child that must keep its own color, such as a colored product icon.
@@ -477,7 +497,7 @@ The typed text is the value; items are suggestions. Pass `items` to the root and
 </Autocomplete>
 ```
 
-Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGroup items={group.items}` > `AutocompleteLabel` + `AutocompleteCollection` inside `AutocompleteList`. To anchor the popup to an external trigger, pass `anchor={triggerRef}` to `AutocompleteContent`.
+Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGroup items={group.items}` > `AutocompleteLabel` + `AutocompleteCollection` inside `AutocompleteList`. To open the popup from a button, render the button through `AutocompleteTrigger` (`render={<Button />}`) and pass its ref as `anchor` to `AutocompleteContent`, as with Combobox.
 
 ### Dialog
 
