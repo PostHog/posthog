@@ -4,23 +4,7 @@
     "description": "One record per series the scout judged this run, reported or not, so precision can be measured as the share of filed reports a person keeps, and recall as the moves that went unreported. Subject is `metric:<name>:<measure column>:<period>`.",
     "type": "object",
     "additionalProperties": false,
-    "required": [
-        "bm_record_version",
-        "bm_metric",
-        "bm_measure",
-        "bm_grain",
-        "bm_period",
-        "bm_source_fresh",
-        "bm_value",
-        "bm_expected",
-        "bm_step_deviation_pct",
-        "bm_step_bar_pct",
-        "bm_drift_deviation_pct",
-        "bm_drift_bar_pct",
-        "bm_lens_verdict",
-        "bm_driver_verdict",
-        "bm_decision"
-    ],
+    "required": ["bm_record_version", "bm_metric", "bm_measure", "bm_grain", "bm_period", "bm_lens_verdict", "bm_driver_verdict", "bm_decision"],
     "properties": {
         "bm_record_version": {
             "const": "1",
@@ -45,41 +29,37 @@
             "maxLength": 10,
             "description": "Start of the judged period, ISO date."
         },
-        "bm_source_fresh": {
-            "type": "boolean",
-            "description": "Gate 1: the source table or view was fresh. False means the series was not scored."
+        "bm_lens_verdict": {
+            "enum": ["move", "within", "insufficient_history", "stale", "out_of_scope"],
+            "description": "Gate 2 outcome, or why the series was not scored: stale means gate 1 stopped it, out_of_scope means the scope rule did."
         },
         "bm_value": {
-            "type": "number",
-            "description": "The period's value as the lens read it."
+            "type": ["number", "null"],
+            "description": "The period's value as the lens read it; null when the series was not scored."
         },
         "bm_expected": {
-            "type": "number",
-            "description": "The lens expectation for the period, 0 when the lens did not run."
+            "type": ["number", "null"],
+            "description": "The step lens expectation for the period; null when the lens did not run."
         },
         "bm_step_deviation_pct": {
-            "type": "number",
-            "description": "Deviation of the value from the expectation, in percent."
+            "type": ["number", "null"],
+            "description": "Deviation of the value from the step expectation, in percent; null when the lens did not run."
         },
         "bm_step_bar_pct": {
-            "type": "number",
+            "type": ["number", "null"],
             "description": "The step bar the lens applied, in percent."
         },
         "bm_drift_deviation_pct": {
-            "type": "number",
-            "description": "Drift deviation in percent, 0 when the drift lens did not run."
+            "type": ["number", "null"],
+            "description": "Drift deviation in percent; null when the drift lens did not run."
         },
         "bm_drift_bar_pct": {
-            "type": "number",
+            "type": ["number", "null"],
             "description": "The drift bar the lens applied, in percent."
         },
-        "bm_lens_verdict": {
-            "enum": ["move", "within", "insufficient_history", "stale", "out_of_scope"],
-            "description": "Gate 2 outcome, or why the series was not scored."
-        },
         "bm_seasonal_match": {
-            "type": "boolean",
-            "description": "The same period a year earlier moved the same way."
+            "type": ["boolean", "null"],
+            "description": "The same period a year earlier moved the same way; null when the window could not tell."
         },
         "bm_driver_verdict": {
             "enum": ["driver", "broad", "offsetting", "none", "not_run"],
@@ -102,11 +82,11 @@
         "bm_story_id": {
             "type": "string",
             "maxLength": 64,
-            "description": "The story this finding was joined into, when the correlation step grouped it with others; the same id on every member."
+            "description": "The story this finding was joined into, when gate 4 grouped it with others; the same id on every member. Its presence is what says the finding was joined."
         },
         "bm_decision": {
-            "enum": ["authored", "edited", "joined_into_story", "remembered", "pending", "skipped"],
-            "description": "What the run did with the finding."
+            "enum": ["authored", "edited", "remembered", "pending", "skipped"],
+            "description": "What the run did with the finding; a member of a story carries the story's decision (authored or edited) plus bm_story_id."
         },
         "bm_report_id": {
             "type": "string",
@@ -116,8 +96,7 @@
         "bm_query_calls": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 40,
-            "description": "Query calls this series cost, out of the run budget."
+            "description": "Query calls this series cost."
         }
     }
 }

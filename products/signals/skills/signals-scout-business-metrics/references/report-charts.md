@@ -1,20 +1,12 @@
 # Supporting charts
 
 Every authored report carries three charts, so the reader sees the move and its driver next to the sentence that names them.
-The harness prompt's _Attaching charts_ section carries the field contract (`chart_id`, `title`, `query`, `caption`, placement with a `chart:` link, replacement on edit).
-This file gives the three node shapes for this scout and the matching notebook cells.
+The harness prompt's _Attaching charts_ section carries the chart contract (fields, the query-you-ran rule, pinned windows, named axes, placement, what an edit replaces); this file gives only the three node shapes for this scout and the matching notebook cells.
 
-Rules that apply to all three:
+Two things specific to this scout:
 
-- Build each chart from a query you ran this run.
-  A chart is stored without being run, so a query you did not run can fail when the reader opens the report, with nothing to tell you.
-  The incremental read covers 3 periods, so run the full-window series query once for chart 1 when you author; it is the first-fill SQL with the window pinned.
-- Pin the window to absolute dates in the SQL.
-- Name the axes in `chartSettings`: `display` without `chartSettings` draws an empty box.
-- Keep one row per x value, or name the second dimension in `seriesBreakdownColumn`.
-- Keep a warehouse `connectionId` on the `HogQLQuery` source when the table needs one; never send `sendRawQuery`.
-- Place each chart from the summary once: `[Net revenue per day](chart:series)`.
-  A reference inside a table cell or a heading has no room to draw.
+- The incremental read covers 3 periods, so when you author, run the full-window series query once for chart 1 (the first-fill SQL with the window pinned) and stamp it as this run's fill.
+- A SQL chart (`DataVisualizationNode`) draws in the inbox but not in a Slack delivery, so the summary's prose must carry the numbers on its own.
 
 The examples below are daily.
 For a weekly, monthly or quarterly measure, the series window is the 13 (or 9) closed periods the lens read, the x axis is the period start (`toStartOfMonth(...)`), and chart 2 compares the latest closed period with the average of the base periods.
@@ -112,6 +104,4 @@ Read `visualization_warnings` on each cell result and fix the axes before you li
 
 ## On an edit
 
-`charts` on an edit replaces the report's whole set.
-Read the current set with `inbox-reports-retrieve`, move every window forward to the new evidence date, and send all three again under the same `chart_id` values.
-A fresh summary beside a chart still pinned to the first dates reads as a stale report.
+Re-send all three under the same `chart_id` values with their windows moved to the new evidence date; a chart whose SQL differs from one you ran only in its date literals does not need a fresh run.
