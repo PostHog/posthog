@@ -4,7 +4,12 @@ from django.utils import timezone
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.mcp_analytics.backend.facade.contracts import WrappedSnapshot
 from products.mcp_analytics.backend.models import MCPAnalyticsWrapped
 
@@ -12,12 +17,36 @@ from products.mcp_analytics.backend.models import MCPAnalyticsWrapped
 # header button go away on their own until someone runs the job again.
 DISPLAY_WINDOW = timedelta(days=14)
 
+# The event properties the wrap's cards are computed from (see queries.py). The job runs without a user, so the
+# stored cards can't be redacted per member: a member who may not read any of these gets no wrap at all.
+WRAPPED_SOURCE_PROPERTIES = frozenset(
+    {
+        "$mcp_tool_name",
+        "$mcp_exec_target_tool",
+        "$mcp_exec_tool_call_name",
+        "$mcp_client_name",
+        "$mcp_client_user_agent",
+        "$mcp_vendor_client",
+        "mcp_vendor_client",
+        "$mcp_llm_model",
+        "$mcp_server_name",
+        "$mcp_is_error",
+        "$mcp_duration_ms",
+    }
+)
 
-def get_fresh_wrapped(team: Team) -> WrappedSnapshot | None:
+
+def get_fresh_wrapped(team: Team, user: User | None) -> WrappedSnapshot | None:
+    restricted = split_restricted_property_names(
+        get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    ).event
+    if WRAPPED_SOURCE_PROPERTIES & restricted:
+        return None
     with team_scope(team.id):
         snapshot = (
             MCPAnalyticsWrapped.objects.filter(
-                team=team,
+                # The job saves a project's wrap under its parent team, which a child environment reads too.
+                team_id=team.parent_team_id or team.pk,
                 status=MCPAnalyticsWrapped.Status.READY,
                 generated_at__gte=timezone.now() - DISPLAY_WINDOW,
             )

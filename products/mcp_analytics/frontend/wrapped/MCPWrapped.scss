@@ -51,7 +51,8 @@
 
 // Award tiles sit on a faint white, so the card's color still shows through them.
 .MCPWrapped__tile {
-    background: rgb(255 255 255 / 10%);
+    background: rgb(0 0 0 / 18%);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%);
 }
 
 .MCPWrapped__hoggie {
@@ -86,11 +87,14 @@
 }
 
 // A soft block behind the one figure a story line is about, the way posthog.com marks what matters.
+// Overlays darken the ground rather than lighten it, so white text on them stays at 4.5:1 or better. The thin
+// light ring keeps them visible on the darkest grounds.
 .MCPWrapped__mark {
     padding: 0.05em 0.25em;
     font-weight: 700;
-    background: rgb(255 255 255 / 22%);
+    background: rgb(0 0 0 / 25%);
     border-radius: 0.3em;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 25%);
     box-decoration-break: clone;
 }
 
@@ -191,6 +195,11 @@
 // Modals sit near the top of the window; the story reads better centered on it.
 .LemonModal__overlay.MCPWrapped__overlay {
     align-items: center;
+
+    // The story and its download button are taller than a short window, so the modal scrolls to reach them.
+    .LemonModal__layout {
+        overflow-y: auto;
+    }
 }
 
 .MCPWrapped__header-button {

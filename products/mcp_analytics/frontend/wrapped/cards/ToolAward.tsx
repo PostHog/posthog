@@ -42,10 +42,10 @@ export function ToolAward({ label, icon, tool, value, unit, detail, tone }: Tool
                 </span>
                 <span className="shrink-0 text-right leading-none">
                     <span className="block text-xl font-bold tabular-nums">{value}</span>
-                    <span className="text-xs opacity-75">{unit}</span>
+                    <span className="text-xs opacity-90">{unit}</span>
                 </span>
             </div>
-            <div className="text-xs opacity-75">{detail}</div>
+            <div className="text-xs opacity-90">{detail}</div>
         </div>
     )
 }

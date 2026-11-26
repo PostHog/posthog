@@ -110,6 +110,20 @@ def test_reliability_names_no_struggling_tool_when_every_rate_matches() -> None:
     assert (reliability.most_reliable_tool.tool, reliability.most_reliable_tool.calls) == ("get_forecast", 300)
 
 
+def test_reliability_never_rounds_a_rare_error_away() -> None:
+    tools = (
+        _row("get_forecast", 99_000, errors=1),
+        _row("list_alerts", 500, errors=50),
+        _row("create_alert", 500, errors=10),
+    )
+
+    reliability = _build(_aggregates(months={"2026-07": 50_000, "2026-08": 50_000}, tools=tools, errors=1)).reliability
+
+    assert reliability.success_rate < 1
+    assert reliability.most_reliable_tool is not None
+    assert reliability.most_reliable_tool.error_rate > 0
+
+
 @parameterized.expand(
     [
         ("mostly_known_clients", {"Claude Code": 700, "Cursor": 200, "Other": 100}, ["Claude Code", "Cursor", "Other"]),

@@ -1,15 +1,4 @@
-import {
-    MakeLogicType,
-    actions,
-    afterMount,
-    beforeUnmount,
-    connect,
-    kea,
-    listeners,
-    path,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -35,6 +24,7 @@ export interface mcpWrappedLogicValues {
     cardKeys: WrappedCardKey[]
     currentCardKey: WrappedCardKey | null
     hasUnseenWrap: boolean
+    pageHidden: boolean
     paused: boolean
     seenWrapKeys: string[]
     view: WrappedView
@@ -74,6 +64,9 @@ export interface mcpWrappedLogicActions {
     }
     previousCard: () => {
         value: true
+    }
+    setPageHidden: (hidden: boolean) => {
+        hidden: boolean
     }
     setPaused: (paused: boolean) => {
         paused: boolean
@@ -121,6 +114,7 @@ export const mcpWrappedLogic = kea<mcpWrappedLogicType>([
         nextCard: true,
         previousCard: true,
         setPaused: (paused: boolean) => ({ paused }),
+        setPageHidden: (hidden: boolean) => ({ hidden }),
         shareCaptured: (method: 'share' | 'copy' | 'download') => ({ method }),
     }),
     loaders(({ values }) => ({
@@ -157,6 +151,12 @@ export const mcpWrappedLogic = kea<mcpWrappedLogicType>([
                 setPaused: (_, { paused }) => paused,
             },
         ],
+        pageHidden: [
+            false,
+            {
+                setPageHidden: (_, { hidden }) => hidden,
+            },
+        ],
         seenWrapKeys: [
             [] as string[],
             { persist: true },
@@ -186,18 +186,31 @@ export const mcpWrappedLogic = kea<mcpWrappedLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => {
-        const clearTimer = (): void => {
-            if (cache.cardTimer) {
-                clearTimeout(cache.cardTimer)
-                cache.cardTimer = null
-            }
-        }
-        const scheduleNext = (): void => {
-            clearTimer()
+        // The card timer keeps the time left on the current card, so a pause or a hidden tab resumes where the
+        // progress bar stopped. setPageHidden stops it while the tab is hidden, so the disposable doesn't pause too.
+        const stopTimer = (): void => cache.disposables.dispose('cardTimer')
+        const startTimer = (): void => {
             const isLast = values.cardIndex >= values.cardKeys.length - 1
-            if (values.view === 'story' && !values.paused && !isLast) {
-                cache.cardTimer = setTimeout(() => actions.nextCard(), CARD_DURATION_MS)
+            if (values.view !== 'story' || values.paused || values.pageHidden || isLast) {
+                return
             }
+            cache.disposables.add(
+                () => {
+                    const startedAt = Date.now()
+                    const timer = setTimeout(() => actions.nextCard(), cache.remainingMs)
+                    return () => {
+                        clearTimeout(timer)
+                        cache.remainingMs = Math.max(0, cache.remainingMs - (Date.now() - startedAt))
+                    }
+                },
+                'cardTimer',
+                { pauseOnPageHidden: false }
+            )
+        }
+        const restartCard = (): void => {
+            stopTimer()
+            cache.remainingMs = CARD_DURATION_MS
+            startTimer()
         }
         const trackCard = (): void => {
             // pinned: analytics event and property names, renaming breaks dashboards
@@ -220,11 +233,11 @@ export const mcpWrappedLogic = kea<mcpWrappedLogicType>([
             openStory: ({ source }) => {
                 posthog.capture('mcp wrapped opened', { source, year: values.wrapped?.year })
                 trackCard()
-                scheduleNext()
+                restartCard()
             },
             showCard: () => {
                 trackCard()
-                scheduleNext()
+                restartCard()
             },
             nextCard: () => {
                 if (values.cardIndex < values.cardKeys.length - 1) {
@@ -236,9 +249,10 @@ export const mcpWrappedLogic = kea<mcpWrappedLogicType>([
                     actions.showCard(values.cardIndex - 1)
                 }
             },
-            setPaused: () => scheduleNext(),
+            setPaused: ({ paused }) => (paused ? stopTimer() : startTimer()),
+            setPageHidden: ({ hidden }) => (hidden ? stopTimer() : startTimer()),
             closeWrapped: () => {
-                clearTimer()
+                stopTimer()
                 if (values.wrapKey) {
                     actions.markSeen(values.wrapKey)
                 }
@@ -249,14 +263,19 @@ export const mcpWrappedLogic = kea<mcpWrappedLogicType>([
             },
         }
     }),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, cache }) => {
         if (values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_WRAPPED]) {
             actions.loadWrapped()
         }
-    }),
-    beforeUnmount(({ cache }) => {
-        if (cache.cardTimer) {
-            clearTimeout(cache.cardTimer)
-        }
+        // The progress bar pauses with the timer while the tab is hidden, so neither runs ahead unseen.
+        cache.disposables.add(
+            () => {
+                const onVisibilityChange = (): void => actions.setPageHidden(document.hidden)
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+            },
+            'visibility',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

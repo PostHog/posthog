@@ -28,9 +28,7 @@ export const WrappedCard = forwardRef<HTMLDivElement, WrappedCardProps>(function
             style={{ background: theme.background }}
             data-attr={`mcp-wrapped-card-${cardKey}`}
         >
-            <span className="MCPWrapped__rise font-mono text-xs font-semibold uppercase tracking-wider opacity-80">
-                {kicker}
-            </span>
+            <span className="MCPWrapped__rise font-mono text-xs font-semibold uppercase tracking-wider">{kicker}</span>
             {children}
             {!hideHoggie && (
                 <Hoggie

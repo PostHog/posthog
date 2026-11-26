@@ -227,6 +227,16 @@ def _ratio(value: float) -> float:
     return round(value, 4)
 
 
+# The story says "not a single tool call hit an error" only at exactly zero errors, so a rare error must not
+# round to a clean record.
+SMALLEST_ERROR_SHARE = 0.0001
+
+
+def _error_share(errors: int, calls: int) -> float:
+    share = _ratio(errors / calls) if calls else 0.0
+    return max(share, SMALLEST_ERROR_SHARE) if errors else share
+
+
 def _tool_calls_card(months: Sequence[MonthCalls], total_calls: int) -> ToolCallsCard:
     growth: float | None = None
     # The first tracked month usually starts mid-month at install, so growth counts from the month after it.
@@ -321,7 +331,7 @@ def _rush_hour_card(week_hours: Sequence[DimensionRow], total_calls: int, timezo
 
 def _reliability_card(aggregates: WrappedAggregates) -> ReliabilityCard:
     total = aggregates.total
-    success_rate = 1 - total.errors / total.calls if total.calls else 1.0
+    success_rate = 1 - _error_share(total.errors, total.calls)
     candidates = [row for row in _chosen_tools(aggregates.tools) if row.calls >= MIN_TOOL_CALLS]
     if len(candidates) < MIN_TOOLS_FOR_WORST:
         return ReliabilityCard(success_rate=_ratio(success_rate), most_reliable_tool=None, struggling_tool=None)
@@ -337,7 +347,7 @@ def _reliability_card(aggregates: WrappedAggregates) -> ReliabilityCard:
 
 
 def _tool_error_rate(row: DimensionRow) -> ToolErrorRate:
-    return ToolErrorRate(tool=row.key, error_rate=_ratio(row.errors / row.calls), calls=row.calls)
+    return ToolErrorRate(tool=row.key, error_rate=_error_share(row.errors, row.calls), calls=row.calls)
 
 
 def _speed_card(aggregates: WrappedAggregates) -> SpeedCard | None:
@@ -394,5 +404,7 @@ def _archetype(
         return ArchetypeCard(archetype=Archetype.ROCKET, evidence=tool_calls.growth_multiple)
     success_rate = 1 - aggregates.total.errors / total_calls
     if speed is not None and success_rate >= SUPERHERO_SUCCESS_RATE and speed.p95_duration_ms < SUPERHERO_P95_MS:
-        return ArchetypeCard(archetype=Archetype.SUPERHERO, evidence=_ratio(success_rate))
+        return ArchetypeCard(
+            archetype=Archetype.SUPERHERO, evidence=_ratio(1 - _error_share(aggregates.total.errors, total_calls))
+        )
     return ArchetypeCard(archetype=Archetype.ALL_ROUNDER, evidence=None)

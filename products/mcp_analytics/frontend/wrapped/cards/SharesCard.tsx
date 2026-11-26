@@ -17,6 +17,8 @@ export interface SharesCardProps {
     kicker: string
     headline: (leader: string, share: string) => string
     otherLabel: string
+    /** What the shares are out of, when it isn't every call. */
+    footnote?: string
 }
 
 function Logo({ cardKey, name, className }: { cardKey: SharesCardKey; name: string; className: string }): JSX.Element {
@@ -28,7 +30,7 @@ function Logo({ cardKey, name, className }: { cardKey: SharesCardKey; name: stri
 }
 
 /** The apps, AI labs or model families behind the calls, ranked, with each one's logo. */
-export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: SharesCardProps): JSX.Element {
+export function SharesCard({ cardKey, card, kicker, headline, otherLabel, footnote }: SharesCardProps): JSX.Element {
     const named = card.shares.filter((share) => share.name !== OTHER)
     const other = card.shares.find((share) => share.name === OTHER)
     const [leader] = named
@@ -64,7 +66,7 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: Shar
                             </>
                         }
                         value={formatPercent(row.share)}
-                        // Every bar is out of all calls, so the leftover share reads at its true size.
+                        // Every bar is out of the same total, so the leftover share reads at its true size.
                         fraction={row.share}
                         emphasized={index === 0}
                         muted={row.isOther}
@@ -72,6 +74,7 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: Shar
                     />
                 ))}
             </ol>
+            {footnote && <p className="MCPWrapped__rise m-0 text-sm">{footnote}</p>}
         </WrappedCard>
     )
 }

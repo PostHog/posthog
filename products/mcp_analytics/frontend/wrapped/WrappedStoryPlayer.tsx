@@ -18,6 +18,9 @@ import { CARD_DURATION_MS, mcpWrappedLogic } from './mcpWrappedLogic'
 import { ShareActions } from './ShareActions'
 import { WrappedCardKey } from './storyCards'
 
+// Labs and models count only the calls that reported a model, which can be a minority of all calls.
+const MODEL_FOOTNOTE = 'Out of the tool calls that reported a model.'
+
 const CONTROL_CLASS =
     'flex size-7 items-center justify-center rounded-full bg-black/20 text-current hover:bg-black/30 outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-white'
 
@@ -58,8 +61,9 @@ function CurrentCard({
                     cardKey="labs"
                     card={cards.labs}
                     kicker="The AI labs behind the agents"
-                    headline={(leader, share) => `${leader} models made ${share} of calls`}
+                    headline={(leader, share) => `${leader} led with ${share}`}
                     otherLabel="Other labs"
+                    footnote={MODEL_FOOTNOTE}
                 />
             ) : null
         case 'models':
@@ -70,6 +74,7 @@ function CurrentCard({
                     kicker="The models doing the calling"
                     headline={(leader, share) => `${leader} led with ${share}`}
                     otherLabel="Other models"
+                    footnote={MODEL_FOOTNOTE}
                 />
             ) : null
         case 'rush_hour':
@@ -86,7 +91,7 @@ function CurrentCard({
 }
 
 export function WrappedStoryPlayer(): JSX.Element | null {
-    const { cardKeys, cardIndex, currentCardKey, paused } = useValues(mcpWrappedLogic)
+    const { cardKeys, cardIndex, currentCardKey, paused, pageHidden } = useValues(mcpWrappedLogic)
     const { nextCard, previousCard, setPaused, closeWrapped } = useActions(mcpWrappedLogic)
     const shareRef = useRef<HTMLDivElement>(null)
 
@@ -97,6 +102,10 @@ export function WrappedStoryPlayer(): JSX.Element | null {
             } else if (event.key === 'ArrowLeft') {
                 previousCard()
             } else if (event.key === ' ') {
+                // Space on a focused button or link presses it, as it does everywhere else.
+                if (event.target instanceof Element && event.target.closest('button, a, input, textarea, select')) {
+                    return
+                }
                 event.preventDefault()
                 setPaused(!paused)
             } else if (event.key === 'Escape') {
@@ -130,7 +139,7 @@ export function WrappedStoryPlayer(): JSX.Element | null {
                                                 width: '100%',
                                                 transformOrigin: 'left',
                                                 animation: `MCPWrapped__progress ${CARD_DURATION_MS}ms linear both`,
-                                                animationPlayState: paused ? 'paused' : 'running',
+                                                animationPlayState: paused || pageHidden ? 'paused' : 'running',
                                             }
                                           : { width: 0 }
                                 }

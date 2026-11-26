@@ -484,5 +484,5 @@ class MCPWrappedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], url_path="current")
     def current(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = self.get_serializer({"wrapped": api.get_fresh_wrapped(self.team)})
+        serializer = self.get_serializer({"wrapped": api.get_fresh_wrapped(self.team, cast(User, request.user))})
         return Response(serializer.data)

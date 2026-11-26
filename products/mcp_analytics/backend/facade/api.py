@@ -326,6 +326,7 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
         raise
 
 
-def get_fresh_wrapped(team: Team) -> contracts.WrappedSnapshot | None:
-    """The project's latest ready MCP Wrapped, or None once it is older than the display window."""
-    return wrapped_read.get_fresh_wrapped(team)
+def get_fresh_wrapped(team: Team, user: User | None) -> contracts.WrappedSnapshot | None:
+    """The project's latest ready MCP Wrapped, or None once it is older than the display window or the user may
+    not read the event properties it is computed from."""
+    return wrapped_read.get_fresh_wrapped(team, user)

@@ -39,7 +39,7 @@ export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX
             >
                 {DAY_LABELS.map((label, dayIndex) => (
                     <div key={label} className="contents">
-                        <span className="self-center opacity-75">{label}</span>
+                        <span className="self-center">{label}</span>
                         {card.heat.slice(dayIndex * 24, dayIndex * 24 + 24).map((level, hour) => {
                             const isPeak = dayIndex === card.weekday - 1 && hour === card.hour
                             return (
@@ -59,12 +59,12 @@ export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX
                 ))}
                 <span />
                 {HOUR_LABELS.map((label) => (
-                    <span key={label} className="col-span-6 pt-1 opacity-75">
+                    <span key={label} className="col-span-6 pt-1">
                         {label}
                     </span>
                 ))}
             </div>
-            <p className="MCPWrapped__rise m-0 text-xs opacity-75">* Times in {formatTimezone(card.timezone)}</p>
+            <p className="MCPWrapped__rise m-0 text-xs">* Times in {formatTimezone(card.timezone)}</p>
         </WrappedCard>
     )
 }

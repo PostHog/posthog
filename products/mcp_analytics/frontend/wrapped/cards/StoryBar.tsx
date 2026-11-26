@@ -29,7 +29,8 @@ export function StoryBar({
     title?: string
 }): JSX.Element {
     const delay = `${index * 80}ms`
-    const filled = Math.max(2, fraction * 100)
+    // A sliver keeps a small share visible, but a month with no calls stays empty.
+    const filled = fraction > 0 ? Math.max(2, fraction * 100) : 0
     const content = (
         <>
             <span className="flex min-w-0 flex-1 items-center gap-2">{label}</span>
@@ -39,9 +40,9 @@ export function StoryBar({
     return (
         <li
             className={cn(
-                'MCPWrapped__rise relative overflow-hidden rounded-lg bg-white/15 text-sm font-semibold tabular-nums',
+                'MCPWrapped__rise relative overflow-hidden rounded-lg bg-black/25 text-sm font-semibold tabular-nums',
                 HEIGHTS[size],
-                muted && 'opacity-75'
+                muted && 'opacity-90'
             )}
             style={{ animationDelay: delay }}
             title={title}
@@ -49,7 +50,7 @@ export function StoryBar({
             <span
                 className={cn(
                     'MCPWrapped__grow-x absolute inset-y-0 left-0 rounded-lg',
-                    emphasized ? 'bg-white' : 'bg-white/30'
+                    emphasized ? 'bg-white' : 'bg-white/12'
                 )}
                 style={{ width: `${filled}%`, animationDelay: delay }}
             />

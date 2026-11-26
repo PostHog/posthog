@@ -8,8 +8,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_WRAPPED_FEATURE_FLAG
 from products.mcp_analytics.backend.models import MCPAnalyticsWrapped
 
@@ -49,8 +54,20 @@ class TestWrappedAPI(APIBaseTest):
                 generated_at=timezone.now() - timedelta(days=days_ago),
             )
 
-    def _get(self) -> Any:
-        return self.client.get(f"/api/projects/{self.team.id}/mcp_analytics/wrapped/current/")
+    def _get(self, team_id: int | None = None) -> Any:
+        return self.client.get(f"/api/projects/{team_id or self.team.id}/mcp_analytics/wrapped/current/")
+
+    def _restrict(self, property_name: str) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name=property_name, property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+        )
 
     def test_a_fresh_wrap_is_returned_with_its_cards(self) -> None:
         self._store(MCPAnalyticsWrapped.Status.READY, days_ago=3)
@@ -76,6 +93,32 @@ class TestWrappedAPI(APIBaseTest):
 
         assert response.status_code == 200
         assert response.json() == {"wrapped": None}
+
+    @parameterized.expand(
+        [
+            ("tool_names_hidden", "$mcp_tool_name", False),
+            ("models_hidden", "$mcp_llm_model", False),
+            ("unrelated_property_hidden", "$mcp_intent", True),
+        ]
+    )
+    def test_property_restrictions_hide_the_wrap(self, _name: str, restricted: str, wrap_shown: bool) -> None:
+        self._store(MCPAnalyticsWrapped.Status.READY, days_ago=1)
+        self._restrict(restricted)
+
+        wrapped = self._get().json()["wrapped"]
+
+        assert (wrapped is not None) is wrap_shown
+
+    def test_a_child_environment_reads_its_parents_wrap(self) -> None:
+        self._store(MCPAnalyticsWrapped.Status.READY, days_ago=1)
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+
+        response = self._get(child.id)
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["wrapped"]["cards"] == CARDS
 
     def test_the_flag_gates_the_endpoint(self) -> None:
         self._store(MCPAnalyticsWrapped.Status.READY, days_ago=1)
