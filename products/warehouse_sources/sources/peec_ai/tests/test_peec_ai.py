@@ -94,6 +94,94 @@ def test_actions_paginate_through_post_body(driver: SourceDriver) -> None:
         }
 
 
+REPORT_BODY = {"dimensions": ["date", "model_channel_id"], "order_by": [{"field": "date", "direction": "asc"}]}
+
+
+@pytest.mark.parametrize(
+    "endpoint,path,body,incremental,watermark,expected_start,sort_mode",
+    [
+        ("brand_report", "reports/brands", REPORT_BODY, False, "2025-06-10", "2025-01-01", "asc"),
+        ("brand_report", "reports/brands", REPORT_BODY, True, "2025-06-10", "2025-06-10", "asc"),
+        ("domain_report", "reports/domains", REPORT_BODY, True, None, "2025-01-01", "asc"),
+        ("url_report", "reports/urls", REPORT_BODY, True, date(2025, 6, 10), "2025-06-10", "asc"),
+        ("search_fanout_queries", "queries/search", {"view": "rows"}, True, "2025-06-10", "2025-06-10", None),
+        ("search_fanout_queries", "queries/search", {"view": "rows"}, True, "2024-06-10", "2025-01-01", None),
+        ("products", "products/list", {"order_by": "name", "direction": "asc"}, True, "2025-06-10", "2025-01-01", None),
+    ],
+)
+def test_date_ranged_post_endpoints_send_window_in_body(
+    driver: SourceDriver,
+    endpoint: str,
+    path: str,
+    body: dict,
+    incremental: bool,
+    watermark: str | date | None,
+    expected_start: str,
+    sort_mode: str | None,
+) -> None:
+    result = driver.run(
+        endpoint,
+        [ScriptedResponse(json={"data": [], "total_count": 0})],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
+    )
+
+    assert result.raised is None
+    assert len(result.requests) == 1
+    request = result.requests[0]
+    assert request.method == "POST"
+    assert request.url == f"https://api.peec.ai/customer/v1/{path}"
+    assert request.json() == {
+        **body,
+        "project_id": "or_example",
+        "start_date": expected_start,
+        "end_date": datetime.now(UTC).date().isoformat(),
+        "limit": 1000,
+        "offset": 0,
+    }
+    assert result.response is not None
+    assert result.response.sort_mode == sort_mode
+
+
+def test_report_without_total_count_stops_on_short_page_and_lifts_keys(driver: SourceDriver) -> None:
+    first_page = [
+        {"brand": {"id": f"kw_{index}", "name": "Example"}, "model_channel": {"id": "openai-0"}, "date": "2025-01-01"}
+        for index in range(1000)
+    ]
+    last_row = {"brand": {"id": "kw_last", "name": "Example"}, "model_channel": None, "date": "2025-01-02"}
+    result = driver.run(
+        "brand_report",
+        [
+            ScriptedResponse(json={"data": first_page}),
+            ScriptedResponse(json={"data": [last_row]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert [request.json()["offset"] for request in result.requests] == [0, 1000]
+    assert len(result.rows) == 1001
+    assert result.rows[0] == {**first_page[0], "brand_id": "kw_0", "model_channel_id": "openai-0"}
+    assert result.rows[-1] == {**last_row, "brand_id": "kw_last", "model_channel_id": None}
+    assert result.response is not None
+    assert result.response.primary_keys == ["brand_id", "date", "model_channel_id"]
+
+
+def test_search_fanout_rows_get_chat_and_query_keys(driver: SourceDriver) -> None:
+    row = {
+        "prompt": {"id": "pr_example"},
+        "chat": {"id": "ch_example"},
+        "model_channel": {"id": "openai-0"},
+        "date": "2025-01-01",
+        "query": {"index": 0, "text": "example query"},
+    }
+    result = driver.run("search_fanout_queries", [ScriptedResponse(json={"data": [row], "total_count": 1})])
+
+    assert result.raised is None
+    assert result.rows == [{**row, "chat_id": "ch_example", "query_index": 0}]
+    assert result.response is not None
+    assert result.response.primary_keys == ["chat_id", "query_index"]
+
+
 def test_tag_groups_fetch_one_unpaginated_page(driver: SourceDriver) -> None:
     rows = [{"group": "persona", "color": "blue", "tag_count": 3}, {"group": "region", "color": None, "tag_count": 1}]
     result = driver.run("tag_groups", [ScriptedResponse(json={"data": rows})])

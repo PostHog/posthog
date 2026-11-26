@@ -48,7 +48,8 @@ class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
             caption=(
                 "Create a key in [Peec AI API keys](https://app.peec.ai/api-keys). "
                 "Use a project key, or enter a project ID with a company key. "
-                "Your Peec AI plan must include API access. The start date applies to chats."
+                "Your Peec AI plan must include API access. "
+                "The start date applies to chats, reports, products, and search queries."
             ),
             fields=cast(
                 list[FieldType],
@@ -92,7 +93,7 @@ class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"chats"})
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=INCREMENTAL_FIELDS.keys())
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS

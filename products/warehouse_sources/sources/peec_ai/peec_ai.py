@@ -1,8 +1,15 @@
 from datetime import UTC, date, datetime
+from functools import partial
 from typing import Any
 
 from products.warehouse_sources.sources.peec_ai._config import PeecAISourceConfig
-from products.warehouse_sources.sources.peec_ai.settings import AUTH_ERRORS, BASE_URL, ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.peec_ai.settings import (
+    AUTH_ERRORS,
+    BASE_URL,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    PAGE_SIZE,
+)
 from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
     Endpoint,
@@ -23,6 +30,14 @@ class PeecAIResumeConfig:
     offset: int
     start_date: str | None = None
     end_date: str | None = None
+
+
+def _lift_ids(row: dict[str, Any], lifted_ids: dict[str, tuple[str, str]]) -> dict[str, Any]:
+    lifted = dict(row)
+    for column, (parent, key) in lifted_ids.items():
+        nested = row.get(parent)
+        lifted[column] = nested.get(key) if isinstance(nested, dict) else None
+    return lifted
 
 
 def validate_credentials(config: PeecAISourceConfig, api_version: str) -> tuple[bool, str | None]:
@@ -70,9 +85,13 @@ def peec_ai_source(
 
     start_date: str | None = None
     end_date: str | None = None
-    if endpoint == "chats":
+    if definition.get("date_range", False):
         start_date = config.start_date
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
+        if (
+            endpoint in INCREMENTAL_FIELDS
+            and should_use_incremental_field
+            and db_incremental_field_last_value is not None
+        ):
             watermark = db_incremental_field_last_value
             if isinstance(watermark, datetime):
                 watermark = watermark.date()
@@ -101,6 +120,9 @@ def peec_ai_source(
         }
 
     resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
+    lifted_ids = definition.get("lifted_ids")
+    if lifted_ids:
+        resource_config["data_map"] = partial(_lift_ids, lifted_ids=lifted_ids)
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"{BASE_URL}/{api_version}/",
@@ -129,6 +151,6 @@ def peec_ai_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=definition.get("primary_keys", ["id"]),
-        sort_mode="asc" if endpoint == "chats" else None,
+        sort_mode=definition.get("sort_mode"),
         on_complete=resumable_source_manager.clear_state,
     )
