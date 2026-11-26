@@ -129,6 +129,10 @@ class _ConditionReads(TraversingVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.has_subquery = True
 
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+        # A query tag holds its SQL in a string attribute and only becomes a subquery when it is resolved.
+        self.has_subquery = True
+
     def visit_call(self, node: ast.Call) -> None:
         self.calls.add(node.name.lower())
         super().visit_call(node)
