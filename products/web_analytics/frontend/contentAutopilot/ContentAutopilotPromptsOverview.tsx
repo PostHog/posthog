@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, Heading, Spinner, Text, cn } from '@posthog/quill'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, cn } from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
 
@@ -26,7 +26,7 @@ import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { POSITION_DESCRIPTION } from './promptReport'
 import { engineTopicGrid, overviewTiles } from './promptsOverview'
-import { brandedAnswersNote, filtersHeading, segmentPrompts, sortEngines, windowRange } from './utils'
+import { brandedAnswersNote, segmentPrompts, sortEngines, windowRange } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const {
@@ -65,35 +65,10 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     if (!setupContext || !overview || !visibilityChart || !visibilityQuery || !sourcesQuery) {
         return <ContentAutopilotPromptsOverviewSkeleton />
     }
-    const header = (
-        <div className="flex flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0 flex-1 basis-80">
-                <Heading size="sm" render={<h3 className="m-0 flex items-center gap-2" />}>
-                    {filtersHeading(overview)}
-                    {overviewLoading ? <Spinner data-attr="content-autopilot-prompts-overview-loading" /> : null}
-                </Heading>
-                <Text
-                    size="xs"
-                    variant="muted"
-                    render={<p className="m-0" />}
-                    data-attr="content-autopilot-prompts-overview-answers"
-                >
-                    {brandedAnswersNote(overview.branded, overview.current.checks - overview.current.failed)}{' '}
-                    {overview.current.failed
-                        ? `${pluralize(overview.current.failed, 'check')} failed and ${overview.current.failed === 1 ? 'is' : 'are'} left out. `
-                        : ''}
-                    {overview.previous.checks > 0
-                        ? `Each number is compared with the ${overview.days} days before.`
-                        : ''}
-                </Text>
-            </div>
-        </div>
-    )
     const narrowed = overview.engine !== null || overview.topic !== null
     if (!hasChecks && (narrowed || overview.branded_answers + overview.non_branded_answers > 0)) {
         return (
             <section className="flex flex-col gap-4" data-attr="content-autopilot-prompts-overview">
-                {header}
                 <Empty data-attr="content-autopilot-prompts-overview-segment-empty">
                     <EmptyHeader>
                         <EmptyTitle>
@@ -116,6 +91,15 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     }
 
     const tiles = overviewTiles(overview)
+    // The tiles show only their value, so the answers they come from are in each rate's tooltip.
+    const base = [
+        brandedAnswersNote(overview.branded, overview.current.checks - overview.current.failed),
+        overview.current.failed
+            ? `${pluralize(overview.current.failed, 'check')} failed and ${overview.current.failed === 1 ? 'is' : 'are'} left out.`
+            : '',
+    ]
+        .filter(Boolean)
+        .join(' ')
 
     // The chart's legend order, so an engine sits in the same place in the chart and the table.
     const engineOrder = sortEngines(overview.engines.map(({ engine }) => engine))
@@ -133,7 +117,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             aria-busy={overviewLoading}
             data-attr="content-autopilot-prompts-overview"
         >
-            {header}
             <ContentAutopilotStatStrip
                 className="grid-cols-2 @3xl/prompts-overview:grid-cols-4"
                 data-attr="content-autopilot-prompts-overview-kpis"
@@ -147,21 +130,21 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 />
                 <ContentAutopilotKpiStat
                     label="Visibility"
-                    description="Share of answers that name your brand or link to your site."
+                    description={`Share of answers that name your brand or link to your site. ${base}`}
                     value={tiles.visibility}
                     onClick={() => setChartMetric('mentioned')}
                     data-attr="content-autopilot-prompts-overview-kpi-mentioned"
                 />
                 <ContentAutopilotKpiStat
                     label="Cited as a source"
-                    description="Share of answers that link to a page on your site."
+                    description={`Share of answers that link to a page on your site. ${base}`}
                     value={tiles.cited}
                     onClick={() => setChartMetric('cited')}
                     data-attr="content-autopilot-prompts-overview-kpi-cited"
                 />
                 <ContentAutopilotKpiStat
                     label="Average position"
-                    description={POSITION_DESCRIPTION}
+                    description={`${POSITION_DESCRIPTION} ${base}`}
                     value={tiles.position}
                     onClick={() => setChartMetric('position')}
                     data-attr="content-autopilot-prompts-overview-kpi-position"
