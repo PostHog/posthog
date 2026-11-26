@@ -3,7 +3,6 @@ from uuid import UUID
 
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
-from django.template.response import TemplateResponse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
@@ -58,6 +57,8 @@ class AppEmbedRequestSerializer(serializers.Serializer):
 @csrf_exempt
 @xframe_options_exempt
 def notebook_app_embed(request: HttpRequest, team_id: int, embed_id: UUID) -> HttpResponse:
+    from django.template.response import TemplateResponse
+
     team = get_object_or_404(Team.objects.select_related("organization"), pk=team_id)
     audience = read_embed_audience(team_id, embed_id)
     if audience is None:
