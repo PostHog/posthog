@@ -13,6 +13,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import get_instance_region
@@ -54,7 +55,10 @@ def capture_first_real_sends(now: datetime) -> int:
     first_sends = _first_billable_emails(now - FIRST_REAL_SEND_LOOKBACK)
     captured = 0
     for batch in batched(first_sends.items(), CANDIDATE_BATCH_SIZE, strict=False):
-        captured += _record_batch(dict(batch))
+        try:
+            captured += _record_batch(dict(batch))
+        except Exception as error:
+            capture_exception(error)
     logger.info("workflows_first_real_sends_captured", captured=captured)
     return captured
 

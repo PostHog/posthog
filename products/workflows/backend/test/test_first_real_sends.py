@@ -125,3 +125,22 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
         flow.refresh_from_db()
         assert flow.first_real_send_at is None
         assert captured_events(scoped_capture) == []
+
+    @patch(f"{SERVICE}.CANDIDATE_BATCH_SIZE", 1)
+    @patch(f"{SERVICE}.capture_exception")
+    @patch(f"{SERVICE}.ph_scoped_capture")
+    def test_a_failed_flush_keeps_its_stamp_and_later_batches_still_capture(
+        self, scoped_capture: MagicMock, reported: MagicMock
+    ) -> None:
+        flows = [self._flow(), self._flow()]
+        for flow in flows:
+            self._metric(flow, NOW - timedelta(hours=2))
+        scoped_capture.return_value.__exit__.side_effect = [ConnectionError("capture is down"), None]
+
+        capture_workflow_first_real_sends()
+
+        for flow in flows:
+            flow.refresh_from_db()
+            assert flow.first_real_send_at is not None
+        assert reported.call_count == 1
+        assert len(captured_events(scoped_capture)) == 2
