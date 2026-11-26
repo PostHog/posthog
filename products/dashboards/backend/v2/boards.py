@@ -111,7 +111,7 @@ def get_board(team_id: int, uid: str) -> BoardDetail:
     return _detail(board)
 
 
-def _record_version(board: DashboardV2Board, user_id: int, message: str) -> None:
+def _record_version(board: DashboardV2Board, user_id: int | None, message: str) -> None:
     DashboardV2BoardVersion.objects.for_team(board.team_id).create(
         team_id=board.team_id,
         board=board,
