@@ -218,8 +218,6 @@ _MISCONFIGURED_ERRORS: Final = {
     ),
 }
 
-# Slack's codes for a failure on its side, which a later attempt can get past. Any other code it
-# answers is a refusal that needs a look from PostHog.
 _TRANSIENT_ERRORS: Final[dict[str, FailureReason]] = {
     "ratelimited": "rate_limited",
     "internal_error": "provider_error",

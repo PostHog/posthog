@@ -258,9 +258,7 @@ def _send(
 
 
 def count_failed_send(source: str, provider: str, error: Exception, count: int = 1) -> None:
-    """Counts a failed send by why it failed, who acts on it, and whether a retry follows.
-
-    `final` is false while the activity has attempts left for this error. A retry after a held
+    """`final` is false while the activity has attempts left for this error. A retry after a held
     thread runs the delivery again with fresh attempts, so `final` is per activity run.
     """
     outcome: DeliveryOutcomeLabel

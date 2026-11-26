@@ -28,7 +28,6 @@ class MessageHandle:
     root_content: dict[str, Any] | None = None
 
 
-# Why a send failed, as a metric label. Each reason has one owner, the party that acts when it lasts.
 FailureReason = Literal[
     "unreachable",
     "answer_lost",

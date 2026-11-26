@@ -336,9 +336,6 @@ def increment_deliveries(
     only reading that says alerts reach people. `misconfigured` is a refusal only the destination's
     owner can fix, so it stays out of `failed`, which measures the platform. `ambiguous` is a send
     whose answer was lost after the request went out, recorded as delivered rather than retried.
-
-    A failed send also carries `reason`, `owner` and `final`, so a rising `failed` says why, who
-    acts on it, and whether a retry still follows.
     """
     labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome}
     if final is not None:

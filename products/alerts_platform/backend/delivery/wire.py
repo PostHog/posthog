@@ -127,7 +127,6 @@ def _unrefused_status_reason(status: int) -> FailureReason:
         return "provider_error"
     if status in _RETRYABLE_CLIENT_ERRORS:
         return "rate_limited"
-    # A 4xx the owner cannot fix rejects the body PostHog built.
     return "rejected_body"
 
 

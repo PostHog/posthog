@@ -341,7 +341,6 @@ class TestDeliveryDispatch(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # attempt None sends inline, outside any worker, where nothing retries.
             (
                 "outage inline",
                 ConnectionError("slack unreachable"),
