@@ -8,7 +8,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Team
+from posthog.api.tagged_item import set_tags_on_object
+from posthog.models import Organization, Team, User
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
 from products.messaging.backend.models.message_category import MessageCategory
@@ -83,21 +84,50 @@ class TestMessageTemplatesAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("all", "", {"Test Template", "Password reset", "Receipt"}),
-            ("transactional", "?transactional=true", {"Password reset", "Receipt"}),
-            ("not transactional", "?transactional=false", {"Test Template"}),
+            ("transactional", "transactional=true", {"Password reset", "Receipt"}),
+            ("not transactional", "transactional=false", {"Test Template"}),
+            ("search by name", "search=RESET", {"Password reset"}),
+            ("search by description", "search=confirmation", {"Receipt"}),
+            ("search by tag", "search=bill", {"Receipt"}),
+            ("creator", "created_by={me}", {"Password reset"}),
+            ("creator and transactional", "created_by={other}&transactional=true", {"Receipt"}),
+            ("one tag", "tags=auth", {"Password reset"}),
+            ("tag in another case", "tags=Auth", {"Password reset"}),
+            ("any of several tags", "tags=auth&tags=billing", {"Password reset", "Receipt"}),
+            ("tag and search", "tags=auth&tags=billing&search=receipt", {"Receipt"}),
         ]
     )
-    def test_list_filters_templates_by_transactional(self, _name: str, query: str, expected: set[str]) -> None:
-        for name in ("Password reset", "Receipt"):
-            MessageTemplate.objects.create(
-                team=self.team, name=name, type="email", transactional_hog_flow_id=UUID(int=len(name))
+    def test_list_filters_templates(self, _name: str, query: str, expected: set[str]) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        for name, description, creator, tags in (
+            ("Password reset", "", self.user, ["auth", "transactional"]),
+            ("Receipt", "Order confirmation", other_user, ["billing", "transactional"]),
+        ):
+            template = MessageTemplate.objects.create(
+                team=self.team,
+                name=name,
+                description=description,
+                type="email",
+                transactional_hog_flow_id=UUID(int=len(name)),
+                created_by=creator,
             )
-        MessageTemplate.objects.filter(id=self.other_team_template.id).update(transactional_hog_flow_id=UUID(int=1))
+            set_tags_on_object(tags, template)
+        MessageTemplate.objects.filter(id=self.other_team_template.id).update(
+            transactional_hog_flow_id=UUID(int=1), created_by=self.user
+        )
+        set_tags_on_object(["auth", "billing"], self.other_team_template)
         MessageTemplate.objects.create(
-            team=self.team, name="Deleted", type="email", transactional_hog_flow_id=UUID(int=2), deleted=True
+            team=self.team,
+            name="Deleted reset",
+            type="email",
+            transactional_hog_flow_id=UUID(int=2),
+            deleted=True,
+            created_by=self.user,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{query}")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/messaging_templates/?{query.format(me=self.user.id, other=other_user.id)}"
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["count"] == len(expected)
@@ -157,6 +187,113 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         response = self.client.patch(url, {"tags": []}, format="json")
         assert response.json()["tags"] == []
+
+    def test_click_tracking_enabled_round_trips_and_appears_in_basic_list(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {
+                "name": "Password reset",
+                "content": {"email": {"subject": "Reset", "text": "Body"}},
+                "type": "email",
+                "sensitive": True,
+                "click_tracking_enabled": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        template_id = response.json()["id"]
+        assert response.json()["click_tracking_enabled"] is True
+
+        url = f"/api/projects/{self.team.id}/messaging_templates/{template_id}/"
+        renamed = self.client.patch(url, {"name": "Renamed"}, format="json")
+        assert renamed.status_code == status.HTTP_200_OK, renamed.json()
+        assert renamed.json()["click_tracking_enabled"] is True
+
+        disabled = self.client.patch(url, {"click_tracking_enabled": False}, format="json")
+        assert disabled.status_code == status.HTTP_200_OK, disabled.json()
+        assert disabled.json()["click_tracking_enabled"] is False
+
+        basic_rows = {
+            row["id"]: row
+            for row in self.client.get(f"/api/projects/{self.team.id}/messaging_templates/?basic=true").json()[
+                "results"
+            ]
+        }
+        assert basic_rows[template_id]["click_tracking_enabled"] is False
+
+        cleared = self.client.patch(url, {"click_tracking_enabled": None}, format="json")
+        assert cleared.status_code == status.HTTP_200_OK, cleared.json()
+        assert cleared.json()["click_tracking_enabled"] is None
+
+    @parameterized.expand(
+        [
+            ("same_sensitivity_keeps_override", True, True, {"sensitive": True}, True),
+            ("flipping_off_resets_override", True, True, {"sensitive": False}, None),
+            ("flipping_on_resets_override", False, False, {"sensitive": True}, None),
+            (
+                "flip_with_explicit_value_keeps_sent_value",
+                False,
+                None,
+                {"sensitive": True, "click_tracking_enabled": True},
+                True,
+            ),
+        ]
+    )
+    def test_click_tracking_enabled_resets_when_sensitivity_changes_unless_sent(
+        self,
+        _name: str,
+        initial_sensitive: bool,
+        initial_clicks: bool | None,
+        patch_body: dict[str, Any],
+        expected: bool | None,
+    ):
+        template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Password reset",
+            content={"email": {"subject": "Reset", "text": "Body"}},
+            type="email",
+            sensitive=initial_sensitive,
+            click_tracking_enabled=initial_clicks,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/", patch_body, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["click_tracking_enabled"] is expected
+
+    @parameterized.expand(
+        [
+            ("non_sensitive_opt_out", False, False),
+            ("sensitive_opt_out", True, False),
+            ("sensitive_opt_in", True, True),
+        ]
+    )
+    def test_form_put_omitting_click_tracking_enabled_preserves_existing_setting(
+        self, _name: str, initial_sensitive: bool, initial_clicks: bool
+    ):
+        template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Receipt",
+            content={"email": {"subject": "Receipt", "text": "Body"}},
+            type="email",
+            sensitive=initial_sensitive,
+            click_tracking_enabled=initial_clicks,
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/",
+            {"name": "Renamed receipt"},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["sensitive"] is initial_sensitive
+        assert response.json()["click_tracking_enabled"] is initial_clicks
+        template.refresh_from_db()
+        assert template.sensitive is initial_sensitive
+        assert template.click_tracking_enabled is initial_clicks
 
     def test_rejects_a_tag_that_grows_past_the_column_limit_when_lowercased(self):
         # "\u0130" lowercases to two code points, so 128 of them fit the field but not Tag.name.

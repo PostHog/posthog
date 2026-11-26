@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+import requests
+
 from products.exports.backend.tasks import exporter_utils
 
 TEST_PREFIX = "Test-Exports"
@@ -14,7 +16,13 @@ class TestSiteURLReachability(SimpleTestCase):
     @patch("products.exports.backend.tasks.exporter_utils.logger")
     def test_url_not_reachable_exception(self, logger_mock: Any) -> None:
         test_url = "http://some-bad-url.test"
-        with self.settings(SITE_URL=test_url):
+        with (
+            self.settings(SITE_URL=test_url),
+            patch(
+                "products.exports.backend.tasks.exporter_utils.requests.get",
+                side_effect=requests.exceptions.ConnectionError("Name or service not known"),
+            ),
+        ):
             try:
                 exporter_utils.log_error_if_site_url_not_reachable()
             except Exception as e:

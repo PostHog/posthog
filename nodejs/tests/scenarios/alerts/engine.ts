@@ -70,6 +70,9 @@ function scrapeConfigOf(targets: ScrapeTarget[], labelsFile: string, intervalMs:
                             role,
                             replica: `${replica}`,
                             __metrics_path__: url.pathname,
+                            ...Object.fromEntries(
+                                [...url.searchParams].map(([name, value]) => [`__param_${name}`, value])
+                            ),
                         },
                     }
                 }),
@@ -129,6 +132,7 @@ export async function startEngine(
             `-httpListenAddr=127.0.0.1:${metricsPort}`,
             '-promscrape.config=/alerts/scrape.yaml',
             '-search.latencyOffset=0s',
+            '-inmemoryDataFlushInterval=1s',
         ])
         await until(async () => {
             const { data } = Scraped.parse(

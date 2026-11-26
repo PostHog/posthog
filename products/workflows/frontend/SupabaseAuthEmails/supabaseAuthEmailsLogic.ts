@@ -213,7 +213,9 @@ export const supabaseAuthEmailsLogic = kea<supabaseAuthEmailsLogicType>([
             {
                 // Every page, so a mapped template past the first page still shows by name in the picker.
                 loadTemplates: async () =>
-                    await listAllPages((params) => messagingTemplatesList(String(values.currentTeamIdStrict), params)),
+                    await listAllPages((params) =>
+                        messagingTemplatesList(String(values.currentTeamIdStrict), { ...params, type: 'email' })
+                    ),
             },
         ],
     })),

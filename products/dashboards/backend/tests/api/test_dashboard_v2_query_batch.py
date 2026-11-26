@@ -5,7 +5,7 @@ import datetime as dt
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import aclosing, contextmanager
 from datetime import UTC, datetime, timedelta
-from threading import Event, Semaphore
+from threading import BoundedSemaphore, Event, Semaphore
 from typing import Any, cast
 from urllib.parse import parse_qsl
 from uuid import uuid4
@@ -900,6 +900,20 @@ class TestQueryShares(SimpleTestCase):
             ]
 
         self.assertEqual(granted, [2, 0, 1, 1])
+
+    def test_a_member_runs_a_boards_parallel_batches_and_leaves_one_for_a_colleague(self) -> None:
+        org = uuid4()
+        member, colleague = (query_batch_module._share_keys(org, user) for user in (1, 2))
+        with (
+            patch.object(query_batch_module, "_org_batches", {}),
+            patch.object(
+                query_batch_module, "_batch_slots", BoundedSemaphore(query_batch_module.MAX_CONCURRENT_BATCHES)
+            ),
+        ):
+            admitted = [query_batch_module._admit_batch(member) for _ in range(4)]
+            admitted += [query_batch_module._admit_batch(colleague) for _ in range(2)]
+
+        self.assertEqual(admitted, [True, True, True, False, True, False])
 
 
 _NOW = dt.datetime(2026, 9, 19, 12, 0, 37, tzinfo=dt.UTC)

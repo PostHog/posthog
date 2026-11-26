@@ -1,7 +1,12 @@
-"""``request_recalculation`` — idempotent create: returns the active run if one exists, else creates a pending job."""
+"""``request_recalculation`` — idempotent create: returns the active run if one exists, else creates a pending job.
+
+``start_metrics_recalculation`` requests a run, then starts the workflow of a new pending run.
+"""
 
 import asyncio
 from datetime import datetime, timedelta
+from enum import StrEnum
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
@@ -12,6 +17,7 @@ import posthoganalytics
 from prometheus_client import Counter
 from rest_framework.exceptions import Throttled, ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import team_scope
@@ -27,7 +33,10 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.organization_flags import organization_flag_enabled
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
-from products.experiments.backend.temporal.recalculation.dispatch import cancel_superseded_workflows
+from products.experiments.backend.temporal.recalculation.dispatch import (
+    cancel_superseded_workflows,
+    start_metrics_recalculation_workflow,
+)
 from products.experiments.backend.temporal.timeseries.models import ExperimentTimeseriesRecalculationWorkflowInputs
 
 from . import payloads, runs
@@ -68,6 +77,35 @@ class RecalculationRateLimited(Throttled):
     default_code = "recalculation_rate_limited"
     # DRF appends "Expected available in N seconds." to this, so the wait is not repeated here.
     default_detail = "Metrics were recalculated less than 5 minutes ago."
+
+
+class MetricsRecalculationStartOutcome(StrEnum):
+    STARTED = "started"
+    # An active run, or a terminal run that is still fresh for a stale refresh. No workflow starts.
+    REUSED = "reused"
+    # A new run that the age limit already marked failed. No workflow starts.
+    REJECTED = "rejected"
+
+
+@frozen
+class MetricsRecalculationStart:
+    outcome: MetricsRecalculationStartOutcome
+    # The `build_job_payload` output of the run, built before the workflow started.
+    job: dict[str, Any]
+
+    @property
+    def recalculation_id(self) -> str:
+        return str(self.job["id"])
+
+
+class RecalculationWorkflowNotStarted(Exception):
+    """The run exists, but its workflow did not start. The dispatch already marked the run failed when that was
+    safe. The message is the dispatch error's message."""
+
+    def __init__(self, recalculation_id: str, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.recalculation_id = recalculation_id
+        self.cause = cause
 
 
 # Mirrors STALE_RESULTS_THRESHOLD_HOURS in experimentMetricsLogic.ts. The frontend judges staleness with the
@@ -227,6 +265,39 @@ def request_recalculation_without_age_limit(experiment: Experiment, user: User |
     """``request_recalculation`` without the experiment age limit, so staff can still recalculate an old
     experiment from the admin panel."""
     return _request_recalculation(experiment, user, trigger, max_age=None)
+
+
+def start_metrics_recalculation(experiment: Experiment, user: User | None, trigger: str) -> MetricsRecalculationStart:
+    """``request_recalculation``, then start the workflow when the run is new and pending.
+
+    Raises what ``request_recalculation`` raises, and ``RecalculationWorkflowNotStarted`` when the workflow did not
+    start.
+    """
+    return _start(experiment, request_recalculation(experiment, user, trigger))
+
+
+def start_metrics_recalculation_without_age_limit(
+    experiment: Experiment, user: User | None, trigger: str
+) -> MetricsRecalculationStart:
+    """``start_metrics_recalculation`` without the experiment age limit, so it never returns a rejected run."""
+    return _start(experiment, request_recalculation_without_age_limit(experiment, user, trigger))
+
+
+def _start(experiment: Experiment, job: dict[str, Any]) -> MetricsRecalculationStart:
+    if job["is_existing"]:
+        return MetricsRecalculationStart(outcome=MetricsRecalculationStartOutcome.REUSED, job=job)
+    if job["status"] != ExperimentMetricsRecalculation.Status.PENDING:
+        return MetricsRecalculationStart(outcome=MetricsRecalculationStartOutcome.REJECTED, job=job)
+    recalculation_id = str(job["id"])
+    try:
+        start_metrics_recalculation_workflow(
+            recalculation_id,
+            team_id=experiment.team_id,
+            organization_id=str(experiment.team.organization_id),
+        )
+    except Exception as error:
+        raise RecalculationWorkflowNotStarted(recalculation_id, error) from error
+    return MetricsRecalculationStart(outcome=MetricsRecalculationStartOutcome.STARTED, job=job)
 
 
 def _request_recalculation(
