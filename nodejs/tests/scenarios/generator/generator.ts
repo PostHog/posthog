@@ -59,6 +59,29 @@ async function untilAborted(work: Promise<unknown>, signal: AbortSignal): Promis
 
 const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+type InFlight = { add(work: Promise<unknown>): void; drained(): Promise<void> }
+
+function inFlight(): InFlight {
+    let pending = 0
+    let idle = Promise.withResolvers<void>()
+    const settle = (): void => {
+        pending -= 1
+        if (pending === 0) {
+            idle.resolve()
+        }
+    }
+    return {
+        add(work) {
+            if (pending === 0) {
+                idle = Promise.withResolvers<void>()
+            }
+            pending += 1
+            work.then(settle, settle)
+        },
+        drained: () => (pending === 0 ? Promise.resolve() : idle.promise),
+    }
+}
+
 export async function seed(
     { card, profile }: LoadedCard,
     postgres: PostgresRouter,
@@ -129,8 +152,8 @@ export async function drive(
     const counted: { step: DrivenStep; answeredAt: number }[] = []
     const answeredAts = new Map<DrivenStep, number[]>()
     const steps: DrivenStep[] = []
-    const offers: Promise<void>[] = []
-    const followUps: Promise<unknown>[] = []
+    const offers = inFlight()
+    const followUps = inFlight()
     const failed = new AbortController()
     const stop = AbortSignal.any([signal, failed.signal])
     const halted = context.halt ? AbortSignal.any([stop, context.halt]) : stop
@@ -164,7 +187,7 @@ export async function drive(
             let followUp: FollowUpAnswer | undefined
             if (kind.followUp && followUpFlowId !== undefined && answer.accepted) {
                 const offered = kind.followUp.offer({ unitId, teamId, flowId: followUpFlowId }, context, stop)
-                followUps.push(offered)
+                followUps.add(offered)
                 followUp = await offered
             }
             if (stop.aborted) {
@@ -190,7 +213,7 @@ export async function drive(
                 failed.abort(error)
             }
         })
-        offers.push(offer)
+        offers.add(offer)
     }
 
     const offerSlots = async (
@@ -291,9 +314,9 @@ export async function drive(
     const stoppedEarly = halted.aborted && !stop.aborted
     const end = steps.at(-1)?.endedAt ?? -Infinity
     try {
-        await untilAborted(Promise.all(offers), stop)
+        await untilAborted(offers.drained(), stop)
     } finally {
-        await Promise.allSettled(followUps)
+        await followUps.drained()
     }
     if (failed.signal.aborted) {
         throw failed.signal.reason
