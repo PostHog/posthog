@@ -88,6 +88,8 @@ export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 78
 
 export const messagingSendEmailCreateBodyAttachmentsMax = 10
 
+export const messagingSendEmailCreateBodyCategoryMax = 64
+
 export const messagingSendEmailCreateBodyFromMax = 1024
 
 export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
@@ -225,6 +227,13 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, turn click tracking off by default (unless the matched sensitive template opted in or `tracking` enables clicks), record only the site address of a clicked link when click tracking is on, and keep the content out of logs. Pass `tracking: { clicks: false }` to keep links direct even on a sensitive template that opted in. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
+        ),
+    category: zod
+        .string()
+        .max(messagingSendEmailCreateBodyCategoryMax)
+        .optional()
+        .describe(
+            "Key of one of the project's message categories, such as `newsletter`, for the email your code rendered. A marketing category skips recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. A marketing email can't have `cc` or `bcc`. A send with `template_id` ignores this field and uses the template's own category. Categories on emails your code rendered are on only in some projects so far, and a project without them refuses this field with a 400."
         ),
     from: zod
         .string()

@@ -120100,6 +120100,11 @@ export namespace Schemas {
       /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, turn click tracking off by default (unless the matched sensitive template opted in or `tracking` enables clicks), record only the site address of a clicked link when click tracking is on, and keep the content out of logs. Pass `tracking: { clicks: false }` to keep links direct even on a sensitive template that opted in. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
       sensitive?: boolean;
       /**
+         * Key of one of the project's message categories, such as `newsletter`, for the email your code rendered. A marketing category skips recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. A marketing email can't have `cc` or `bcc`. A send with `template_id` ignores this field and uses the template's own category. Categories on emails your code rendered are on only in some projects so far, and a project without them refuses this field with a 400.
+         * @maxLength 64
+         */
+      category?: string;
+      /**
          * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
          * @maxLength 1024
          */
