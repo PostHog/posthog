@@ -6973,6 +6973,23 @@ export interface ExperimentQueryResponse {
 
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+
+    /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+    rows_left_out?: ExperimentWarehouseNativeRowsLeftOut
+}
+
+/**
+ * Rows of a warehouse-native query that a run left out, counted by reason. The exposure counts cover the rows
+ * in the experiment's window. A warehouse-native run fills the fields its statements can count; every other run
+ * leaves the object out.
+ */
+export interface ExperimentWarehouseNativeRowsLeftOut {
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+    unknown_variants?: Record<string, integer>
+    /** Exposure rows with an empty entity_id. */
+    empty_id?: integer
+    /** Exposed entities with no row of the metric query that counted, by variant. */
+    exposed_without_rows?: Record<string, integer>
 }
 
 export interface ExperimentActorsQuery extends InsightActorsQueryBase {
@@ -7219,6 +7236,8 @@ export interface ExperimentExposureQueryResponse {
     exposed_by_library?: Record<string, integer>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    /** Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only. */
+    rows_left_out?: ExperimentWarehouseNativeRowsLeftOut
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>

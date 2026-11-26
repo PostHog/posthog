@@ -328,8 +328,8 @@ def get_exposure_event_and_property(
     ActionsNode config, because an action can match several events.
 
     `default_exposure_event` is what the experiment's default exposure resolves to
-    (`resolve_default_exposure_event`). It is required so that every consumer makes the rollout
-    decision explicitly: resolve it for the experiment being served, or pass
+    (`resolve_default_exposure_event`). It is required so that every consumer chooses the event
+    explicitly: resolve it for the experiment being served, or pass
     DEFAULT_EXPOSURE_EVENT where staying on the legacy event is the deliberate choice.
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)
@@ -375,7 +375,8 @@ def _get_event_name_from_config(
 
     event = exposure_config.event
     # An explicit $feature_flag_called config is the stored default, so it resolves like an
-    # absent config instead of pinning the pre-rollout event.
+    # absent config instead of pinning $feature_flag_called on an experiment that the cutoff moves
+    # to $experiment_exposure.
     if not event or event == DEFAULT_EXPOSURE_EVENT:
         return default_exposure_event
     return str(event)
@@ -448,7 +449,7 @@ def build_exposure_event_conditions(
     analysis, such as the freeze-exposure snapshot scan.
 
     `default_exposure_event` follows the same contract as in `get_exposure_event_and_property`:
-    resolve it per experiment to honor the $experiment_exposure rollout, or pass
+    resolve it per experiment to honor the exposure event cutoff, or pass
     DEFAULT_EXPOSURE_EVENT where staying on the legacy event is the deliberate choice.
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)

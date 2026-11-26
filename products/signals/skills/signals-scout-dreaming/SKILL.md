@@ -110,7 +110,7 @@ When there is no new feedback, backfill one subject that has no candidate and no
 Choose it where feedback clusters: the scout, product area or person with the most separately dismissed or acted-on reports in the window.
 Revisit a candidate only when new feedback touches its subject.
 
-1. Read the last 90 days of outcomes for it. Notes derived from report feedback expire 30 days after they are written, and `scout-notes-list` hides expired notes, so pass `include_expired=true`, with `text` or a wider `date_from`, and `content_max_chars` set. Report outcomes do not expire: use `inbox-reports-list` with `scout`, `status`, `created_after` and `include_all_statuses=true`, and `inbox-reports-retrieve` for the reports worth reading.
+1. Read the last 90 days of outcomes for it. Notes derived from report feedback expire 30 days after they are written, and `scout-notes-list` hides expired notes, so pass `include_expired=true`, with `text` or a wider `date_from`, and `content_max_chars` set. Report outcomes do not expire: use `inbox-reports-list` with `scout`, `status`, `created_after`, `include_all_statuses=true` and `limit=100`, and `inbox-reports-retrieve` for the reports worth reading.
 2. Compare what was dismissed, and why, with what was resolved or acted on.
 3. Place the findings through the candidate steps, counted as in _New feedback_.
 

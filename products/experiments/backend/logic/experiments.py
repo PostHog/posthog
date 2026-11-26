@@ -111,7 +111,7 @@ def list_page(
 
 
 def resolved_exposure_event(experiment: Experiment) -> str:
-    # A rule-linked experiment counts the $experiment_exposure events of its rule, whatever the rollout says.
+    # A rule-linked experiment counts the $experiment_exposure events of its rule, whatever the cutoff says.
     if experiment.is_rule_linked:
         return EXPERIMENT_EXPOSURE_EVENT
     # A draft has no start_date, so the setup UI shows the event that the draft would count if it launched now.

@@ -88,6 +88,7 @@ function fakeEnvironment({ resetFails = true } = {}): Environment {
         role: (name) => ({ name, replica: 0, url: '', metricsUrl: '' }),
         roles: () => [],
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
+        runConfig: () => Promise.resolve({ configHash: null, services: null }),
         actuate: () => Promise.reject(new Error('the main test schedules no valves')),
         writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
         wiring: () => Promise.reject(new Error('the reset fails before the wiring is read')),

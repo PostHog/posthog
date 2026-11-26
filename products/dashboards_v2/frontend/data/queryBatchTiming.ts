@@ -15,7 +15,7 @@ function randomHex(bytes: number): string {
     return Array.from(values, (value) => value.toString(16).padStart(2, '0')).join('')
 }
 
-/** A W3C `traceparent` with the sampled flag set, so the server's spans join this trace instead of starting their own. */
+/** A W3C `traceparent` with the sampled flag set. A proxy that keeps it lets the server's spans join this trace. */
 export function newTraceContext(): TraceContext {
     let traceId = randomHex(16)
     // An all-zero id is invalid, and the server would then start a trace of its own.
@@ -28,6 +28,9 @@ export function newTraceContext(): TraceContext {
     }
     return { traceId, traceparent: `00-${traceId}-${spanId}-01` }
 }
+
+// https://www.w3.org/TR/trace-context-2/#traceresponse-header, in the traceparent format.
+const TRACERESPONSE = /^00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$/
 
 function percentile(sorted: number[], p: number): number | null {
     if (sorted.length === 0) {
@@ -67,6 +70,7 @@ export class QueryBatchTimer {
     private throttleRetries = 0
     private headersAt: number | null = null
     private status: number | null = null
+    private serverTraceId: string | null = null
     private bytes = 0
     private arrivals: number[] = []
     private errorLines = 0
@@ -98,9 +102,10 @@ export class QueryBatchTimer {
         this.status = null
     }
 
-    response(status: number): void {
+    response(status: number, traceresponse: string | null): void {
         this.headersAt = performance.now()
         this.status = status
+        this.serverTraceId = traceresponse?.match(TRACERESPONSE)?.[1] ?? null
     }
 
     chunk(byteLength: number): void {
@@ -144,7 +149,8 @@ export class QueryBatchTimer {
         const batchIndex = this.board.batches++
         posthog.capture(QUERY_BATCH_TIMING_EVENT, {
             ...context,
-            trace_id: this.trace.traceId,
+            // The ingress drops the outbound traceparent, so only the server's own trace id finds its spans.
+            trace_id: this.serverTraceId,
             batch_index: batchIndex,
             query_count: this.queryCount,
             query_languages: this.languages,

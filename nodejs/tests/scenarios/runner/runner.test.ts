@@ -81,6 +81,7 @@ jest.mock('~/common/utils/request', () => {
 
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
 const SMOKE = load(SMOKE_CARD)
+const RUN_CONFIG = { config_hash: 'c0ffee', service_versions: ['db postgres:15.12-alpine sha256:feed'] }
 const RAMP_INVARIANTS = SMOKE.card.invariants.filter(({ name }) => name !== 'no_loss')
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
 const PROFILE_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:1/scenario'
@@ -156,6 +157,7 @@ describe('runner', () => {
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
         writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
+        runConfig: () => Promise.resolve({ configHash: null, services: null }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
         wiring: () =>
@@ -1117,6 +1119,7 @@ describe('runner through seed, drive and judge', () => {
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
         },
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
+        runConfig: () => Promise.resolve({ configHash: RUN_CONFIG.config_hash, services: RUN_CONFIG.service_versions }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
         wiring: (signal) => {
@@ -1545,7 +1548,7 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
-    it('records the warm-up its drive ran before the first offer, and the baseline it admitted after it', async () => {
+    it('records the warm-up, the baseline after it, and a first step scheduled at the drive start', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'transactional_email', { driveFor: '3s', warmUp: '1s' }),
             NEVER_ABORTED
@@ -1554,17 +1557,20 @@ describe('runner through seed, drive and judge', () => {
 
         const journal = evidenceOf(result, 'journal.json') as JournalEntry[]
         const { drive } = evidenceOf(result, 'probes.json') as { drive: DriveWindow }
-        const saved = evidenceOf(result, 'scorecard.json') as { warmUp: RunWindow; baseline: RunWindow }
+        const saved = evidenceOf(result, 'scorecard.json') as {
+            warmUp: RunWindow
+            baseline: RunWindow
+            units: { steps: { startedAt: number }[] }
+        }
         const [warmUpFrom, warmUpTo] = [Date.parse(saved.warmUp.from), Date.parse(saved.warmUp.to)]
-        const firstOfferedAt = Math.min(...journal.map(({ offeredAt }) => offeredAt))
         expect({
             warmUp: [warmUpFrom - drive.startedAt, warmUpTo - drive.startedAt],
-            firstOfferInWarmUp: firstOfferedAt >= warmUpFrom && firstOfferedAt < warmUpTo,
+            trafficFrom: saved.units.steps[0].startedAt - drive.startedAt,
             offeredAfter: journal.some(({ offeredAt }) => offeredAt >= warmUpTo),
             baseline: saved.baseline,
         }).toEqual({
             warmUp: [0, 1000],
-            firstOfferInWarmUp: true,
+            trafficFrom: 0,
             offeredAfter: true,
             baseline: { from: saved.warmUp.to, to: new Date(drive.endedAt).toISOString() },
         })
@@ -1803,6 +1809,22 @@ describe('runner through seed, drive and judge', () => {
                 ],
             })
             expect(api.captured[0]?.properties.valve_timeline).toEqual(result.timeline)
+            expect(evidenceOf(result, 'faults.json')).toEqual({
+                seed: SMOKE.card.seed,
+                faults: [
+                    {
+                        valve: 'role.kill',
+                        target: 'cdp-cyclotron-worker-email',
+                        dose: {},
+                        requestedAt: expect.any(String),
+                        intentAt: expect.any(String),
+                        appliedAt: expect.any(String),
+                        observedAt: expect.any(String),
+                        releasedAt: expect.any(String),
+                    },
+                ],
+            })
+            expect(api.captured[0]?.properties).toMatchObject(RUN_CONFIG)
             expect(api.captured[0]?.properties.admissions).toEqual(result.admissions)
             expect(evidenceOf(result, 'probes.json')).toEqual({
                 drive: { startedAt: expect.any(Number), endedAt: expect.any(Number) },

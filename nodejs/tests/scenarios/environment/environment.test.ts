@@ -39,6 +39,7 @@ import {
     MODES_WITHOUT_A_ROLE,
     ROLE_PORTS,
     Role,
+    configHashOf,
     consumerGroupsOf,
     fetchRetriesOf,
     intakeTopicsOf,
@@ -642,6 +643,131 @@ describe('scenario environment', () => {
                 ENCRYPTION_SALT_KEYS: 'run-key',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt',
             })
+        })
+
+        const MACHINE = { PATH: '/usr/bin', HOME: '/home/a' }
+        const hashOf = (machine: Record<string, string>, stateDir: string, settings = {}): string =>
+            configHashOf(roleSpecs(machine, EDGE, secretsOf({}), stateDir, settings))
+        const withSetting = (settings: Record<string, string>): string => hashOf(MACHINE, STATE_DIR, settings)
+
+        it('hashes the server config the roles start with, apart from the machine around them', () => {
+            const here = hashOf(MACHINE, STATE_DIR)
+            const database = withSetting({ DATABASE_URL: 'postgres://posthog:one@cluster-a:5432/posthog' })
+
+            expect({
+                elsewhere: hashOf({ PATH: '/opt/bin', HOME: '/home/b' }, '/other-state'),
+                settings: withSetting({ CDP_WATCHER_HOG_COST_TIMING: '7' }),
+                inherited: hashOf({ ...MACHINE, CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '9' }, STATE_DIR),
+                processEnv: hashOf({ ...MACHINE, HOG_BYTECODE_CACHE_REWRITE: '1' }, STATE_DIR),
+                databaseEmptied: withSetting({ DATABASE_URL: '' }),
+                certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'bm90LWEta2V5' }),
+                sealingOff: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
+                sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: ',,' }, STATE_DIR),
+                commaPassword: withSetting({ POSTHOG_DB_PASSWORD: ',' }),
+                certificateCheckOff: withSetting({
+                    KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'false',
+                }),
+                otherHost: withSetting({ CDP_REDIS_HOST: 'redis-b' }),
+                otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/b' }, STATE_DIR),
+            }).toEqual({
+                elsewhere: here,
+                settings: expect.not.stringMatching(here),
+                inherited: expect.not.stringMatching(here),
+                processEnv: expect.not.stringMatching(here),
+                databaseEmptied: expect.not.stringMatching(database),
+                certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'YW5vdGhlci1rZXk=' }),
+                sealingOff: expect.not.stringMatching(here),
+                sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
+                commaPassword: expect.not.stringMatching(withSetting({ POSTHOG_DB_PASSWORD: '' })),
+                certificateCheckOff: expect.not.stringMatching(
+                    withSetting({ KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'true' })
+                ),
+                otherHost: withSetting({ CDP_REDIS_HOST: 'redis-a' }),
+                otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/a' }, STATE_DIR),
+            })
+            expect(here).toMatch(/^[0-9a-f]{64}$/)
+        })
+
+        it.each<[string, string, string, string]>([
+            [
+                'URL whose userinfo holds a slash',
+                'DATABASE_URL',
+                'postgres://posthog:o/ne@cluster-b:5432/posthog',
+                'postgres://reader:t/wo@cluster-c:6432/other',
+            ],
+            [
+                'URL whose userinfo holds a comma',
+                'DATABASE_URL',
+                'postgres://posthog:o,ne@cluster-b:5432/posthog',
+                'postgres://reader:t,wo@cluster-c:6432/other',
+            ],
+            [
+                'URL whose userinfo holds an at sign',
+                'DATABASE_URL',
+                'postgres://posthog:o@ne@cluster-b/posthog',
+                'postgres://reader:t@wo@cluster-c/other',
+            ],
+            [
+                'URL whose userinfo is percent-encoded',
+                'DATABASE_URL',
+                'postgres://posthog:o%2Fn%40e@cluster-b/posthog',
+                'postgres://reader:t%2Cwo@cluster-c/other',
+            ],
+            [
+                'value holding several URLs',
+                'DATABASE_URL',
+                'postgres://a:one@h1/db,postgres://b:two@h2/db',
+                'redis://c:three@h3/0,redis://d:four@h4/1',
+            ],
+            [
+                'URL with a password in its query',
+                'DATABASE_URL',
+                'postgres://cluster-a/posthog?password=one&sslrootcert=/srv/a/ca.pem',
+                'postgres://cluster-b/other?password=two',
+            ],
+            ['bare password setting', 'POSTHOG_DB_PASSWORD', 'one', 'two'],
+            [
+                'keyword-form connection string',
+                'DATABASE_URL',
+                'host=cluster-a user=posthog password=one dbname=posthog',
+                'host=cluster-b user=reader password=two dbname=other',
+            ],
+            [
+                'keyword-form password under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'host=cluster-a password=one',
+                'host=cluster-b PASSWORD = two',
+            ],
+            ['URL setting without a scheme', 'POSTHOG_HOST_URL', 'cluster-a:8000/one', 'cluster-b:9000/two'],
+            ['broker list', 'KAFKA_HOSTS', 'kafka-a:9092,kafka-b:9092', 'kafka-c:9093'],
+            [
+                'broker list named as a list',
+                'KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST',
+                'kafka-a:9092',
+                'kafka-b:9093',
+            ],
+            [
+                'URL under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'https://user:one@host-a/x',
+                'https://other:two@host-b/y',
+            ],
+            [
+                'credentials without a scheme under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'user:one@host-a',
+                'other:two@host-b',
+            ],
+            ['SASL user name', 'KAFKA_WAREHOUSE_PRODUCER_SASL_USERNAME', 'reader-a', 'reader-b'],
+            ['bare address', 'PERSONHOG_LEADER_ADDR', 'router-a:50051', 'router-b:50052'],
+            [
+                'host and port under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'router-a:50051',
+                'router-b:50052',
+            ],
+        ])('keeps every part of a %s out of the config hash', (_class, key, value, other) => {
+            expect(withSetting({ [key]: value })).toEqual(withSetting({ [key]: other }))
         })
     })
 
