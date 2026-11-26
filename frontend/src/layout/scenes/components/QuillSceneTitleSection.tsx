@@ -62,6 +62,7 @@ export function QuillSceneTitleSection({
         [releaseStageSceneId, name]
     )
     const staticName = name !== null && !titleInPhoneHeader && !(onNameChange && canEdit) && !forceEdit && !isLoading
+    const nameField = name !== null && !titleInPhoneHeader && !staticName
     const descriptionForceEdit = forceEdit && !descriptionIgnoresForceEdit
     const hasDescription = description != null && (description || canEdit)
     const descriptionShown =
@@ -106,6 +107,8 @@ export function QuillSceneTitleSection({
                     'px-4',
                     !noPadding && '-mt-4'
                 )}
+                // Without a name field the title row holds only buttons, tags and the menu bar, which cannot shrink.
+                rigidTitle={!nameField}
                 back={
                     <QuillSceneTrail
                         lead={sidebarBreadcrumbShown && <TodaySidebarBreadcrumb />}
@@ -129,7 +132,7 @@ export function QuillSceneTitleSection({
                                 {nameSuffixes}
                             </>
                         )}
-                        {name !== null && !titleInPhoneHeader && !staticName && (
+                        {nameField && (
                             <QuillSceneName
                                 name={name}
                                 isLoading={isLoading}
