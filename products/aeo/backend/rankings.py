@@ -227,7 +227,8 @@ def get_rankings(
                 share_of_answers=count / answers if answers else 0.0,
                 urls=domain_urls.get(domain, 0),
                 is_target=domain in targets,
-                is_competitor=domain in competitors,
+                # Only a competitor in the catalog is labeled one. Brands the fallback ranks are only mentioned.
+                is_competitor=domain in named,
             )
             for domain, count in top_domains
         ),

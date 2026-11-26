@@ -1205,8 +1205,8 @@ class TestAEOPromptAPI(APIBaseTest):
             for row in rankings["top_domains"]
         ] == [
             ("example.com", 2, 2, True, False),
-            ("rival.io", 2, 2, False, True),
-            ("acme.co.uk", 1, 1, False, True),
+            ("rival.io", 2, 2, False, False),
+            ("acme.co.uk", 1, 1, False, False),
             ("example.de", 1, 1, False, False),
             ("reddit.com", 1, 1, False, False),
         ]
@@ -1219,6 +1219,19 @@ class TestAEOPromptAPI(APIBaseTest):
             "https://www.example.com/pricing": True,
             "https://www.reddit.com/r/a": False,
         }
+
+        rival = AEOBrand.objects.for_team(self.team.id).get(domain="rival.io")
+        with self.captureOnCommitCallbacks(execute=True):
+            labeled = self.client.patch(
+                f"/api/projects/{self.team.id}/aeo_brands/{rival.id}/", {"kind": "competitor"}, format="json"
+            )
+        assert labeled.status_code == status.HTTP_200_OK, labeled.json()
+        rankings = self.client.get(f"{self.url}rankings/").json()
+        assert [(row["domain"], row["is_competitor"]) for row in rankings["top_domains"][:3]] == [
+            ("example.com", False),
+            ("rival.io", True),
+            ("acme.co.uk", False),
+        ]
 
     @parameterized.expand(
         [

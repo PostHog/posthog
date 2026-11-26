@@ -756,7 +756,9 @@ class AEORankedDomainSerializer(DataclassSerializer):
             "share_of_answers": {"help_text": "Share (0-1) of answered checks in the window that cited the domain."},
             "urls": {"help_text": "Distinct URLs on this domain cited in the window."},
             "is_target": {"help_text": "Whether the domain is the project's own site."},
-            "is_competitor": {"help_text": "Whether the domain is one of the competitors in 'brands'."},
+            "is_competitor": {
+                "help_text": "Whether the domain is a competitor in the brand catalog, confirmed or suggested by setup. Brands ranked only because answers cite them are not."
+            },
         }
 
 
