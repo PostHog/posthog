@@ -346,7 +346,9 @@ def _copy(
     # Anyone with media access can upload under the copy's name, so a copy is reused only when it holds these bytes.
     digest = hashlib.sha256(fetched.content).digest()
     for media in candidates:
-        stored = object_storage.read_bytes(media.media_location or "", missing_ok=True)
+        if media.pending or media.created_by_id is not None or not media.media_location:
+            continue
+        stored = object_storage.read_bytes(media.media_location, missing_ok=True)
         if stored is not None and hashlib.sha256(stored).digest() == digest:
             outcome.status = "reused"
             outcome.media_id = str(media.pk)
@@ -425,19 +427,15 @@ def _shared_template_ids(team: Team, row_ids: list[Any]) -> set[Any]:
 
 
 def _existing_copies(team: Team, keys: set[str]) -> dict[str, list[UploadedMedia]]:
+    """Earlier copies by file name, including taken-down ones whose file staff already deleted."""
     names = {_file_name(key) for key in keys}
     copies: dict[str, list[UploadedMedia]] = {}
     if not names:
         return copies
-    for media in (
-        # `team_id` resolves an environment to its project, which is where `save_content` keeps the copy.
-        UploadedMedia.objects.filter(
-            team_id=team.pk, created_by__isnull=True, purpose=MEDIA_PURPOSE_EMAIL, file_name__in=names, pending=False
-        )
-        .exclude(media_location__isnull=True)
-        .exclude(media_location="")
-        .order_by("created_at")
-    ):
+    # `team_id` resolves an environment to its project, which is where `save_content` keeps the copy.
+    for media in UploadedMedia.objects.filter(
+        team_id=team.pk, purpose=MEDIA_PURPOSE_EMAIL, file_name__in=names
+    ).order_by("created_at"):
         copies.setdefault(media.file_name or "", []).append(media)
     return copies
 

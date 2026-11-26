@@ -276,10 +276,13 @@ class TestCopyUnlayerEmailImages(BaseTest):
         html = later.actions[0]["config"]["inputs"]["email"]["value"]["html"]
         assert (earlier.get_absolute_url() in html) is not replace_bytes
 
-    def test_leaves_an_image_whose_copy_was_taken_down_on_unlayer(self) -> None:
+    @parameterized.expand([("taken down", False), ("taken down and its file deleted", True)])
+    def test_leaves_an_image_whose_copy_was_taken_down_on_unlayer(self, _name: str, delete_file: bool) -> None:
         self._flow(self.team, _unlayer_html(BANNER), {"src": {"url": BANNER}})
         self._run()
         UploadedMedia.objects.filter(team_id=self.team.id).update(serving_disabled_at=timezone.now())
+        if delete_file:
+            UploadedMedia.delete_stored_files(list(UploadedMedia.objects.filter(team_id=self.team.id)))
         later = self._flow(self.team, _unlayer_html(BANNER), {"src": {"url": BANNER}})
         requested_before = len(self.requested)
 
