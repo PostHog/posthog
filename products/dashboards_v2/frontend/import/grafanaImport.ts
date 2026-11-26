@@ -240,12 +240,21 @@ function unrunnableQuery(
     return { language: /sql/i.test(language) ? 'sql' : '', text: `-- ${refId} · ${language}\n${text}` }
 }
 
-function uniqueRefId(refId: string, used: Set<string>): string {
+interface RefIds {
+    used: Set<string>
+    // The next suffix to try for each refId, so many targets sharing one don't rescan from 2.
+    next: Map<string, number>
+}
+
+function uniqueRefId(refId: string, refIds: RefIds): string {
     let id = refId.slice(0, MAX_REF_ID)
-    for (let n = 2; used.has(id); n++) {
+    let n = refIds.next.get(refId) ?? 2
+    while (refIds.used.has(id)) {
         id = `${refId.slice(0, MAX_REF_ID - String(n).length - 1)}-${n}`
+        n++
     }
-    used.add(id)
+    refIds.next.set(refId, n)
+    refIds.used.add(id)
     return id
 }
 
@@ -258,12 +267,12 @@ function convertTargets(
     const targets: ImportedTarget[] = []
     const skipped: OriginalQuery[] = []
     const panelType = converter.datasourceType(panel.datasource)
-    const usedRefIds = new Set<string>()
+    const refIds: RefIds = { used: new Set(), next: new Map() }
     for (const [index, target] of (Array.isArray(panel.targets) ? panel.targets : []).entries()) {
         if (!target || typeof target !== 'object' || target.hide) {
             continue
         }
-        const refId = uniqueRefId(String(target.refId ?? String.fromCharCode(65 + index)), usedRefIds)
+        const refId = uniqueRefId(String(target.refId ?? String.fromCharCode(65 + index)), refIds)
         const expr = typeof target.expr === 'string' ? target.expr : undefined
         if (expr !== undefined && !expr.trim()) {
             continue
