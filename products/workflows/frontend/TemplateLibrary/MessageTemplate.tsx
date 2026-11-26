@@ -246,6 +246,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                               content: (
                                   <WorkflowMetrics
                                       id={transactionalHogFlowId}
+                                      transactional
                                       onEmailMetricClick={sendLinks ? openEmailMetricSends : undefined}
                                   />
                               ),
