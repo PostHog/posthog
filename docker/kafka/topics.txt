@@ -41,6 +41,10 @@ clickhouse_property_values
 clickhouse_session_replay_events
 clickhouse_tophog
 clickhouse_traces
+cdp_events_dlq
+cdp_intake_dlq
+cdp_intake_transactional_email
+cdp_intake_workflow_webhook
 cohort_membership_changed
 distinct_id_usage_events_json
 document_embedding_results

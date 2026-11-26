@@ -30,6 +30,7 @@ const PERSONAL = {
     thread_join_mode: 'allow',
     auto_model_choice: false,
     feature_tips_enabled: true,
+    chatgpt_apps_enabled: null,
 }
 
 function settingsDecorator(personal: Record<string, unknown>): ReturnType<typeof mswDecorator> {
@@ -63,4 +64,8 @@ export const Linked: Story = {
 
 export const NotLinked: Story = {
     decorators: [settingsDecorator({ ...PERSONAL, slack_user_id: null })],
+}
+
+export const ChatGPTPlanConnected: Story = {
+    decorators: [settingsDecorator({ ...PERSONAL, chatgpt_apps_enabled: false })],
 }

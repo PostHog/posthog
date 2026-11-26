@@ -562,7 +562,7 @@ def _validate_behavioral_cohort_for_feature_flag(
             )
         if not cohort.realtime_enabled:
             raise serializers.ValidationError(
-                detail=f"Realtime is off for cohort '{cohort.name}'. Turn it on from the cohort's page, and feature flags can target the cohort once it's ready.",
+                detail=f"Realtime is off for cohort '{cohort.name}', so feature flags can't target it. Open the cohort's page to turn realtime on, or to see why it can't be turned on.",
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise serializers.ValidationError(

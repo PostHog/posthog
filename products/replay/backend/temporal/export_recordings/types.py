@@ -69,6 +69,12 @@ class ExportShardInput:
 
 
 @frozen
+class ExportPoolInput:
+    run_id: str
+    shards: int
+
+
+@frozen
 class DayViewportsInput:
     team_id: int
     run_id: str

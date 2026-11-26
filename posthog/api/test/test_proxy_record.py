@@ -7,12 +7,18 @@ from django.db import DatabaseError
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 from rest_framework import status
+from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.proxy_record import ProxyRecordUpdateSerializer
+from posthog.managed_proxy import cloudflare_proxy_lock
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.proxy_record import CloudflareActivationState
+from posthog.tasks.proxy import reconcile_proxy
 from posthog.temporal.proxy_service.cloudflare import (
     CustomHostname,
     CustomHostnameSSL,
@@ -62,6 +68,55 @@ class TestProxyRecordAPI(APIBaseTest):
         super().setUp()
         self.organization_membership.refresh_from_db()
         self.organization.refresh_from_db()
+
+    @parameterized.expand(
+        [
+            ("retrieve", "get", ""),
+            ("partial_update", "patch", ""),
+            ("destroy", "delete", ""),
+            ("diagnose", "post", "diagnose/"),
+            ("retry", "post", "retry/"),
+        ]
+    )
+    def test_malformed_proxy_id_returns_validation_error(self, _action: str, method: str, suffix: str) -> None:
+        response = getattr(self.client, method)(
+            f"/api/organizations/{self.organization.id}/proxy_records/not-a-uuid/{suffix}",
+            data={},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_input")
+
+    @parameterized.expand(
+        [(method, same_organization) for method in ("patch", "delete") for same_organization in (True, False)]
+    )
+    def test_proxy_write_can_be_retried_when_record_is_locked(self, method: str, same_organization: bool) -> None:
+        organization = (
+            self.organization if same_organization else Organization.objects.create(name="Other organization")
+        )
+        record = ProxyRecord.objects.create(
+            organization=organization,
+            domain="locked.example.com",
+            target_cname="locked.proxy.example.com",
+            status=ProxyRecord.Status.WAITING,
+        )
+        url = f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/"
+
+        lock = (
+            cloudflare_proxy_lock(record.id)
+            if same_organization
+            else patch("posthog.api.proxy_record.cloudflare_proxy_lock", side_effect=RedisError("Redis unavailable"))
+        )
+        with lock:
+            response = getattr(self.client, method)(url, data={})
+
+        if same_organization:
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(response.headers["Retry-After"], "5")
+        else:
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        record.refresh_from_db()
+        self.assertEqual(record.status, ProxyRecord.Status.WAITING)
+        self.assertIsNone(record.root_redirect_url)
 
     def test_list_returns_max_proxy_records_from_feature(self):
         response = self.client.get(f"/api/organizations/{self.organization.id}/proxy_records/")
@@ -196,6 +251,15 @@ class TestProxyRecordAPI(APIBaseTest):
             ssl=CustomHostnameSSL(status=CustomHostnameSSLStatus.ACTIVE, validation_errors=[]),
         )
         get_hostname.return_value = hostname
+
+        def write_redirect(domain, url):
+            competing_lock = cloudflare_proxy_lock(record.id)
+            acquired = competing_lock.acquire(blocking=False)
+            if acquired:
+                competing_lock.release()
+            assert not acquired
+
+        update_redirect.side_effect = write_redirect
 
         with self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-prod-us-proxy.proxyhog.com"):
             response = self.client.patch(
@@ -429,7 +493,7 @@ class TestProxyRecordAPI(APIBaseTest):
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
     def test_allowlisted_org_can_retry_reserved_posthog_domain(self, mock_capture, mock_sync_connect):
-        mock_temporal = AsyncMock()
+        mock_temporal = AsyncMock(spec=Client)
         mock_sync_connect.return_value = mock_temporal
         record = ProxyRecord.objects.create(
             organization=self.organization,
@@ -527,37 +591,55 @@ class TestProxyRecordAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("erroring", ProxyRecord.Status.ERRORING, "Cloudflare API error"),
-            ("timed_out", ProxyRecord.Status.TIMED_OUT, None),
+            ("erroring_retry_first", ProxyRecord.Status.ERRORING, "Cloudflare API error", False),
+            ("timed_out_retry_first", ProxyRecord.Status.TIMED_OUT, None, False),
+            ("erroring_sweep_first", ProxyRecord.Status.ERRORING, "Cloudflare API error", True),
         ]
     )
-    @patch("posthog.api.proxy_record.sync_connect")
-    @patch("posthoganalytics.capture")
-    def test_retry_proxy_record(self, _name, initial_status, initial_message, mock_capture, mock_sync_connect):
-        mock_temporal = AsyncMock()
-        mock_sync_connect.return_value = mock_temporal
-
+    @override_settings(CLOUDFLARE_PROXY_BASE_CNAME="proxy.example.com")
+    def test_retry_and_reconciliation_share_a_workflow(
+        self, _name: str, initial_status: str, initial_message: str | None, sweep_first: bool
+    ) -> None:
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,
             domain="retry.example.com",
-            target_cname="abc123.proxy.posthog.com",
+            target_cname="abc123.proxy.example.com",
             status=initial_status,
             message=initial_message,
+            cloudflare_activation_state=CloudflareActivationState.SUSPENDED
+            if sweep_first
+            else CloudflareActivationState.IDLE,
         )
+        running: set[str] = set()
 
-        response = self.client.post(
-            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
-        )
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["status"] == "waiting"
-        assert data["message"] is None
+        async def start_workflow(
+            workflow: str, inputs: object, *, id: str, task_queue: str, id_conflict_policy: WorkflowIDConflictPolicy
+        ) -> None:
+            if id in running and id_conflict_policy != WorkflowIDConflictPolicy.USE_EXISTING:
+                raise WorkflowAlreadyStartedError(id, workflow)
+            running.add(id)
 
-        record.refresh_from_db()
-        assert record.status == ProxyRecord.Status.WAITING
-        assert record.message is None
-        mock_temporal.start_workflow.assert_called_once()
+        temporal = AsyncMock(spec=Client)
+        temporal.start_workflow.side_effect = start_workflow
+        with (
+            patch("posthog.api.proxy_record.sync_connect", return_value=temporal),
+            patch("posthog.tasks.proxy.async_connect", return_value=temporal),
+        ):
+            if sweep_first:
+                reconcile_proxy.run(str(self.organization.id), str(record.id))
+
+            response = self.client.post(f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/")
+            assert response.status_code == status.HTTP_200_OK
+
+            record.refresh_from_db()
+            assert response.json()["status"] == record.status == (initial_status if sweep_first else "waiting")
+            assert response.json()["message"] == record.message == (initial_message if sweep_first else None)
+            if not sweep_first:
+                ProxyRecord.objects.filter(id=record.id).update(status=ProxyRecord.Status.ISSUING)
+                reconcile_proxy.run(str(self.organization.id), str(record.id))
+
+        assert running == {f"proxy-create-{record.id}"}
 
     @parameterized.expand(
         [
@@ -691,6 +773,14 @@ class TestProxyRecordAPI(APIBaseTest):
             status=ProxyRecord.Status.ERRORING,
         )
 
+        async def start_deletion(*args, **kwargs):
+            competing_lock = cloudflare_proxy_lock(record.id)
+            acquired = competing_lock.acquire(blocking=False)
+            if acquired:
+                competing_lock.release()
+            assert not acquired
+
+        mock_temporal.start_workflow.side_effect = start_deletion
         with self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-proxy.example.net"):
             response = self.client.delete(
                 f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",

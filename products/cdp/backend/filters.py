@@ -803,6 +803,10 @@ def build_behavioral_event_expr(behavioral_filter: dict, team: Team) -> ast.Expr
         # Unsupported behavioral types do not contribute to realtime bytecode
         return None
 
+    # The daily calculation matches an action whenever `event_type` says so, whatever type its id is stored as.
+    if behavioral_filter.get("event_type") == "actions":
+        return None
+
     event_name = behavioral_filter.get("key")
     if not isinstance(event_name, str) or not event_name:
         return None

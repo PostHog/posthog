@@ -64,6 +64,7 @@ SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 SLACK_APP_DAILY_SUMMARY_FLAG = "slack-app-daily-summary"
 SLACK_APP_FRUSTRATION_GIF_FLAG = "slack-app-frustration-gif"
 SLACK_APP_WEB_SETTINGS_FLAG = "slack-app-web-settings"
+SLACK_APP_CHATGPT_APPS_FLAG = "slack-app-chatgpt-apps"
 WEB_SETTINGS_FLAG_CACHE_SECONDS = 60
 
 
@@ -92,6 +93,7 @@ def _workspace_flag_enabled(
     *,
     failure_log_key: str,
     distinct_id: str | None = None,
+    on_error: bool = False,
 ) -> bool:
     """Evaluate one gate under the settings this module documents.
 
@@ -104,21 +106,23 @@ def _workspace_flag_enabled(
     a caller can pass what it already holds.
     Without one the gate falls back to the Slack workspace, which no person rule can
     match.
+
+    ``on_error`` is the answer when the flag cannot be evaluated. The SDK returns None for
+    that, or raises.
     """
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag,
-                distinct_id or f"slack_workspace:{integration.integration_id}",
-                groups={"organization": _organization_id(integration)},
-                person_properties=_region_properties(),
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
+        enabled = posthoganalytics.feature_enabled(
+            flag,
+            distinct_id or f"slack_workspace:{integration.integration_id}",
+            groups={"organization": _organization_id(integration)},
+            person_properties=_region_properties(),
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
         )
     except Exception:
         logger.exception(failure_log_key, integration_id=integration.id)
-        return False
+        return on_error
+    return on_error if enabled is None else bool(enabled)
 
 
 def is_slack_app_oauth_enabled(integration: IntegrationRecord) -> bool:
@@ -174,6 +178,23 @@ def is_slack_app_byos_enabled(
 
     return tasks_facade.own_subscription_cloud_enabled(
         adapter, distinct_id=distinct_id, organization_id=_organization_id(integration)
+    )
+
+
+def is_slack_app_chatgpt_apps_setting_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for the personal setting that keeps the apps on a ChatGPT plan out of Slack runs.
+
+    ``distinct_id`` is the PostHog user whose plan the run uses. Off, Slack runs keep the apps
+    the plan has, as they did before the setting existed.
+    A failed evaluation counts as on, so a flag outage cannot give thread participants the
+    apps of an owner who kept them off.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_CHATGPT_APPS_FLAG,
+        integration,
+        failure_log_key="slack_app_chatgpt_apps_feature_flag_check_failed",
+        distinct_id=distinct_id,
+        on_error=True,
     )
 
 

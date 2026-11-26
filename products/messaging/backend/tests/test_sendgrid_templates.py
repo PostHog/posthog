@@ -82,7 +82,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("format_date_without_a_format", "{{formatDate t}}", "{{formatDate t}}"),
             ("format_date_with_an_ordinal", '{{formatDate t "Do MMM"}}', '{{formatDate t "Do MMM"}}'),
             ("format_date_day_of_the_year", '{{formatDate t "DDD"}}', '{{formatDate t "DDD"}}'),
-            ("value_in_an_unquoted_attribute", "<a href={{token}}>x</a>", "{{token}}"),
+            ("value_in_an_unquoted_attribute", "<a href=/{{token}}>x</a>", "{{token}}"),
             ("value_in_an_event_handler", '<a onclick="{{token}}">x</a>', "{{token}}"),
             ("value_as_an_attribute_name", "<p {{token}}>x</p>", "{{token}}"),
             ("value_as_a_tag_name", "<{{token}}>x</p>", "{{token}}"),
@@ -144,7 +144,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 '<head><style>p{content:"</head>"}{{name}}</style></head>',
                 "{{name}}",
             ),
-            ("value_in_a_tag_that_never_closes", "<a href={{id}} <b>x", "{{id}}"),
+            ("value_in_a_tag_that_never_closes", "<a href=/{{id}} <b>x", "{{id}}"),
             ("value_after_a_double_escaped_script", "<script><!--<script></script>{{x}}</script>", "{{x}}"),
             (
                 "value_after_branches_that_end_in_different_places",
@@ -169,6 +169,9 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 "<!-- <%asm_group_unsubscribe_url%> --><p>x</p>",
                 "<%asm_group_unsubscribe_url%>",
             ),
+            ("unsubscribe_in_a_loop", "{{#each unsubscribe}}x{{/each}}", "{{#each unsubscribe}}"),
+            ("unsubscribe_in_a_with", "{{#with this.unsubscribe}}x{{/with}}", "{{#with this.unsubscribe}}"),
+            ("unsubscribe_in_a_condition", "{{#if unsubscribe}}x{{/if}}", "{{#if unsubscribe}}"),
         ]
     )
     def test_a_tag_without_a_faithful_liquid_form_stays_as_written(self, _name: str, html: str, kept: str) -> None:
@@ -235,6 +238,14 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         [
             ("value", "<p>Hi {{ name }}</p>", '{{ variables.name | join: "," }}'),
             ("unsubscribe_link", "<p>{{unsubscribe}}</p>", "{{ unsubscribe_url }}"),
+            ("unsubscribe_link_from_a_loop", "{{#each a}}<p>{{../unsubscribe}}</p>{{/each}}", "{{ unsubscribe_url }}"),
+            (
+                "unsubscribe_link_from_the_root",
+                "{{#each a}}<p>{{@root.unsubscribe}}</p>{{/each}}",
+                "{{ unsubscribe_url }}",
+            ),
+            ("unsubscribe_link_of_this", "<p>{{this.unsubscribe}}</p>", "{{ unsubscribe_url }}"),
+            ("unsubscribe_link_with_a_default", '<p>{{insert unsubscribe "default=x"}}</p>', "{{ unsubscribe_url }}"),
             ("unescaped_unsubscribe_link", '<a href="{{{unsubscribe}}}">Leave</a>', '<a href="{{ unsubscribe_url }}">'),
             (
                 "unsubscribe_link_tag",
@@ -357,7 +368,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     @parameterized.expand(
         [
             ("legacy", "legacy", "<a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>"),
-            ("dynamic", "dynamic", "<a href={{{unsubscribe}}}>Leave</a>"),
+            ("dynamic", "dynamic", "<a href={{{unsubscribe}}}#top>Leave</a>"),
             ("malformed", "dynamic", '{{#if a}}<a href="{{{unsubscribe}}}">Leave</a>'),
             (
                 "next_to_one_that_converts",

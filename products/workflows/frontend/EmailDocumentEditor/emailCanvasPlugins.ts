@@ -82,8 +82,10 @@ export const EmailVisibilityBadges = Extension.create({
     },
 })
 
-function isHtmlBlockSelected(selection: Selection): boolean {
-    return selection instanceof NodeSelection && selection.node.type.name === 'emailHtml'
+const KEPT_WHEN_TYPED_OVER = ['emailHtml', 'emailSection', 'emailColumns']
+
+function isBlockOfContentSelected(selection: Selection): boolean {
+    return selection instanceof NodeSelection && KEPT_WHEN_TYPED_OVER.includes(selection.node.type.name)
 }
 
 export const EmailBlockKeymap = Extension.create({
@@ -131,8 +133,8 @@ export const EmailBlockKeymap = Extension.create({
             new Plugin({
                 key: new PluginKey('emailClickOutOfNode'),
                 props: {
-                    // A key pressed on a selected HTML block would replace it, and an imported email is one whole block.
-                    handleTextInput: (view) => isHtmlBlockSelected(view.state.selection),
+                    // A key pressed on a selected block would replace it with all it holds. An imported email is one whole block.
+                    handleTextInput: (view) => isBlockOfContentSelected(view.state.selection),
                     // Chrome leaves the native selection on a selected block inside a column when the click lands
                     // elsewhere, so the block stayed selected and the next keystroke replaced it.
                     handleClick: (view, pos, event) => {

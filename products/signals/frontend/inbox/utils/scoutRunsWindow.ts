@@ -217,6 +217,32 @@ export function isRunStuck(run: SignalScoutRunSummary, now: Date): boolean {
     return duration !== null && duration >= STUCK_THRESHOLD_SECONDS
 }
 
+/** Mirrors `STALE_RUN_CUTOFF_S` in the scout harness: an unfinished run older than this blocks nothing. */
+const LIVE_RUN_CUTOFF_MS = 2 * (30 * 60 + 16 * 60) * 1000
+
+/**
+ * The run that holds the scout's lane, matched to the backend's `live_lane_runs`: queued or running,
+ * not a private trial, and inside the stale cutoff. This is the run the stop route cancels, and the
+ * run that makes the backend refuse Run now.
+ */
+export function liveLaneRun(runs: SignalScoutRunSummary[], now: Date): SignalScoutRunSummary | null {
+    const cutoff = now.getTime() - LIVE_RUN_CUTOFF_MS
+    let live: SignalScoutRunSummary | null = null
+    for (const run of runs) {
+        if (isSettledRun(run) || run.metadata?.scout_trial) {
+            continue
+        }
+        const createdAt = Math.min(new Date(run.created_at).getTime(), new Date(run.started_at).getTime())
+        if (!(createdAt >= cutoff)) {
+            continue
+        }
+        if (!live || run.created_at > live.created_at) {
+            live = run
+        }
+    }
+    return live
+}
+
 // ── Report channel (emit_report / edit_report) ───────────────────────────────
 // A second emit channel: instead of a weak `emit_signal` finding (which drives `emitted_count`), an
 // opted-in scout authors a full inbox report directly (`emitted_report_ids`) or edits an existing one

@@ -48,6 +48,7 @@ const CONCEPT_FEATURE = {
     payload: { survey_id: 'survey-1' },
 }
 const BETA_FEATURE = { ...CONCEPT_FEATURE, stage: 'beta' }
+const REALTIME_COHORTS_DOCS_URL = 'https://posthog.com/docs/data/realtime-cohorts'
 
 function setupMocks(
     earlyAccessFeatures: Array<{
@@ -159,6 +160,7 @@ describe('RealtimeCohortsWaitlistBanner', () => {
         expect(screen.getByText('Realtime cohorts are in beta')).toBeInTheDocument()
         expect(screen.getByText(/Joining turns on the beta for everyone in this project/)).toBeInTheDocument()
         expect(screen.getByTestId('viewed-realtime-cohorts-beta-opt-in-banner-shown')).toBeInTheDocument()
+        expect(screen.getByText('Learn more').closest('a')).toHaveAttribute('href', REALTIME_COHORTS_DOCS_URL)
 
         fireEvent.click(screen.getByText('Join the beta'))
 
@@ -168,6 +170,14 @@ describe('RealtimeCohortsWaitlistBanner', () => {
             'beta'
         )
         expect(lemonToast.success).toHaveBeenCalled()
+        const [, toastOptions] = (lemonToast.success as jest.Mock).mock.calls[0]
+        const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null)
+        try {
+            toastOptions.button.action()
+            expect(openSpy).toHaveBeenCalledWith(REALTIME_COHORTS_DOCS_URL, '_blank', 'noopener')
+        } finally {
+            openSpy.mockRestore()
+        }
     })
 
     it.each([

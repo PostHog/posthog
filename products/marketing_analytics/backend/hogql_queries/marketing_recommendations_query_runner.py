@@ -4,6 +4,8 @@ from datetime import datetime
 from functools import cached_property
 from typing import Any, Optional
 
+from pydantic import BaseModel, ValidationError
+
 from posthog.schema import (
     BaseMathType,
     CachedMarketingAnalyticsRecommendationsQueryResponse,
@@ -17,6 +19,8 @@ from posthog.schema import (
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationsConversionSource,
+    MarketingAnalyticsRecommendationsConversionSourceKind,
     MarketingAnalyticsRecommendationsDataGap,
     MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsQuery,
@@ -125,6 +129,7 @@ class PostHogConversions:
     gap_message: str | None = None
     unmatched_campaigns: tuple[str, ...] = ()
     skipped_goals: tuple[str, ...] = ()
+    counted_goals: tuple[str, ...] = ()
 
 
 class _RecommendationGoalsTableQueryRunner(MarketingAnalyticsTableQueryRunner):
@@ -320,6 +325,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             by_campaign=dict(by_campaign),
             unmatched_campaigns=_unmatched_campaigns(sum(by_campaign.values()), unmatched),
             skipped_goals=tuple(goal.message for goal in skipped),
+            counted_goals=tuple(names),
         )
 
     @cached_property
@@ -416,7 +422,10 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 )
             )
         return MarketingAnalyticsRecommendationsQueryResponse(
-            results=dedupe_account_agnostic_rules(results), disclaimer=DISCLAIMER, dataGaps=data_gaps
+            results=dedupe_account_agnostic_rules(results),
+            disclaimer=DISCLAIMER,
+            dataGaps=data_gaps,
+            conversionSource=_conversion_source(posthog) if ads else None,
         )
 
     def _project_sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
@@ -1065,6 +1074,16 @@ def _unmatched_campaigns(matched_conversions: float, unmatched: dict[str, float]
     return tuple(sorted(named, key=lambda campaign: -named[campaign]))
 
 
+def _conversion_source(posthog: PostHogConversions | None) -> MarketingAnalyticsRecommendationsConversionSource:
+    if posthog is None or posthog.by_campaign is None:
+        return MarketingAnalyticsRecommendationsConversionSource(
+            kind=MarketingAnalyticsRecommendationsConversionSourceKind.GOOGLE_ADS, goalNames=[]
+        )
+    return MarketingAnalyticsRecommendationsConversionSource(
+        kind=MarketingAnalyticsRecommendationsConversionSourceKind.POSTHOG, goalNames=list(posthog.counted_goals)
+    )
+
+
 def _posthog_gaps(posthog: PostHogConversions) -> list[MarketingAnalyticsRecommendationsDataGap]:
     gaps = []
     if posthog.gap and posthog.gap_message:
@@ -1119,39 +1138,54 @@ def _recommendation_source(source_type: str, tables: dict[str, str]) -> Marketin
     )
 
 
-def _json_messages(value: str | None) -> list[dict[str, Any]]:
-    # The sync stores a repeated message field as a JSON list of JSON messages.
+class _TextAsset(BaseModel):
+    text: str = ""
+
+
+class _TextList(BaseModel):
+    texts: list[str] = []
+
+
+class _PolicyEvidence(BaseModel):
+    textList: _TextList | None = None
+
+
+class _PolicyTopicEntry(BaseModel):
+    topic: str
+    type: str | None = None
+    evidences: list[_PolicyEvidence] = []
+
+
+def _json_messages[M: BaseModel](value: str | None, model: type[M]) -> list[M]:
+    # The sync stores a repeated message field as a JSON list of JSON messages. A message that doesn't validate is skipped.
     try:
         items = json.loads(value) if value else []
-        parsed = [json.loads(item) if isinstance(item, str) else item for item in items]
-    except (ValueError, TypeError):
+    except ValueError:
         return []
-    return [item for item in parsed if isinstance(item, dict)]
+    messages = []
+    for item in items if isinstance(items, list) else []:
+        try:
+            messages.append(model.model_validate_json(item) if isinstance(item, str) else model.model_validate(item))
+        except ValidationError:
+            continue
+    return messages
 
 
 def _asset_texts(value: str | None) -> tuple[str, ...]:
-    return tuple(text for asset in _json_messages(value) if isinstance(text := asset.get("text"), str) and text)
-
-
-def _items(value: object) -> list[object]:
-    return value if isinstance(value, list) else []
+    return tuple(asset.text for asset in _json_messages(value, _TextAsset) if asset.text)
 
 
 def _policy_topics(value: str | None) -> tuple[PolicyTopic, ...]:
     return tuple(
         PolicyTopic(
-            topic=entry["topic"],
-            type=str(entry.get("type") or ""),
+            topic=entry.topic,
+            type=entry.type or "",
             texts=tuple(
-                text
-                for evidence in _items(entry.get("evidences"))
-                if isinstance(evidence, dict) and isinstance(text_list := evidence.get("textList"), dict)
-                for text in _items(text_list.get("texts"))
-                if isinstance(text, str) and text
+                text for evidence in entry.evidences if evidence.textList for text in evidence.textList.texts if text
             ),
         )
-        for entry in _json_messages(value)
-        if isinstance(entry.get("topic"), str) and entry["topic"]
+        for entry in _json_messages(value, _PolicyTopicEntry)
+        if entry.topic
     )
 
 

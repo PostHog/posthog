@@ -96,6 +96,7 @@ The components hold no business logic and never import a kea logic, so any page 
 - The view owns only what the screen and a drag decide: the stacked layout on narrow screens, the drop target, and the undo shortcut.
 - The view passes the controller down through context. The drop target has a context of its own, so a drag re-renders only what reads it.
 - `dashboardV2Logic` is the host for the `/dashboard-v2` scene. Another product supplies its own host, and its own header through the `header` slot.
+- When a dashboard can't load, the host can render `DashboardV2Unavailable` (`frontend/dashboard/DashboardV2Unavailable.tsx`) in place of the view. Each problem has a default hedgehog, title and description, and the host can replace any of them or add `actions`, such as a link back to its own list.
 
 ## Narrow screens
 
@@ -160,12 +161,45 @@ The query is `{ language, query }` in one of three languages: `hogql` with a Hog
 The data and the way it is drawn are separate, so changing a chart from a line to a bar never runs its query again.
 
 - A kind of chart is a `VizSpec` (`frontend/widgets/chart/vizType.ts`): a label, a size, and a zod schema for its options. A `VizDefinition` adds the component that draws a query result.
-- `createChartWidget({ extraVizTypes, runQuery, states, menuActions })` builds the chart widget type. It draws every built-in kind of chart, so a dashboard saved by another host still renders. A host adds its own kinds with `extraVizTypes` and supplies `runQuery`, so the dashboard never fetches data itself. `runQuery` gets `{ query, time }` and returns `{ frames, fetchedAt?, stale? }`. A query's `language` is `hogql`, `metrics`, `traces`, or `insight` for any node `/query` runs. In the request, `time` is the chart's own `config.time`, or else the range from `TimeRangeContext`, which `DashboardV2View` fills from the dashboard's `time` (default `now-7d` to `now`).
+- `createChartWidget({ extraVizTypes, runQuery, states, menuActions })` builds the chart widget type. It draws every built-in kind of chart, so a dashboard saved by another host still renders. A host adds its own kinds with `extraVizTypes` and supplies `runQuery`, so the dashboard never fetches data itself. `runQuery` gets `{ query, time, filters? }` and returns `{ frames, fetchedAt?, stale? }`. A query's `language` is `hogql`, `metrics`, `traces`, or `insight` for any node `/query` runs. In the request, `time` is the chart's own `config.time`, or else the range from `TimeRangeContext`, which `DashboardV2View` fills from the dashboard's `time` (default `now-7d` to `now`). `filters` holds the dashboard's filters that have a value, and is left out when none do.
 - A query result is a list of `DataFrame`s. A kind of chart only draws rows. Loading, empty and error states come from the kind of chart if it sets them, then from the `states` the host passes to `createChartWidget`, then from built-in ones. The built-in kinds set a skeleton shaped like their chart, and a host's `states` replace the built-in kinds' states but not those of its own kinds. A kind of chart can also decide what counts as empty with `isEmpty`.
 - When a chart's time range or query changes, the tile keeps its last result on screen, faded, until the new one arrives.
 - The add menu has one "Chart" item, which starts as a line chart. The tile's "Chart type" menu switches its kind, and its "Chart options" menu sets the options that kind declares. A chart takes its size from its kind of chart.
 
 To add a kind of chart, write its spec and component in `frontend/widgets/chart/viz/<type>/`. Pass it as `extraVizTypes`, or add it to `DEFAULT_VIZ_TYPES` in `frontend/widgets/chart/createChartWidget.tsx` to ship it with dashboards v2.
+
+## Filters
+
+A filter narrows the data every widget shows, such as one browser or one service. Each piece is separate, so a page takes only the ones it wants.
+
+| Piece                                                     | What it does                                                                                                                                                                             |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FilterSpec`, `FilterDefinition` (`frontend/filters/`)    | A kind of filter. The spec is plain data: add menu items, a zod `configSchema`, and `fieldOf`. The definition adds the `Control` a person picks a value with. Wrap it in `defineFilter`. |
+| `createSelectFilter(fields)` (`frontend/filters/select/`) | A kind that picks one or more values of a field. It saves the field's `key` and `options` in the filter's config.                                                                        |
+| `FiltersContext`                                          | Gives widgets the filters that have a value, the way `TimeRangeContext` gives them the time range. A chart adds them to its request as `filters`, left out when none apply.              |
+| `FilterPill`                                              | One filter's control, with a remove button when the page passes `onRemove`.                                                                                                              |
+| `FitRow`                                                  | Keeps items on one line. Items that don't fit open from a "+N filters" button.                                                                                                           |
+| `AddFilterMenu`                                           | Lists the add menu items of the kinds it gets, and disables a field already added.                                                                                                       |
+| `FilterBar`                                               | The default arrangement: filters with a value first, in a `FitRow`, after `AddFilterMenu`.                                                                                               |
+
+A page without a dashboard can render `FilterPill`s, or a `FilterBar`, and wrap its own widgets in `FiltersContext`.
+
+### Filters on a dashboard
+
+- A host offers a time range picker by passing `timeRange: { value, onChange }` on the controller. `useTimeRangeController(ranges)` builds it, where `ranges` are the quick ranges the picker offers, such as `{ label: 'Last hour', from: 'now-1h' }` for APM. Left out, the picker offers `DEFAULT_QUICK_RANGES`, from the last 24 hours to the last 90 days. The viewer's range overrides the dashboard's saved `time` and is never saved. `TimeRangePicker` (`frontend/time/`) wraps quill's `DateTimePicker`, and saves a quick range as a range relative to now, such as `now-7d`.
+- A host offers filters by passing `filters: { types, values, onValueChange }` on the controller. `useFiltersController(types)` builds it with the values kept in component state; a host that keeps them elsewhere, such as the URL, builds it itself. Left out, the dashboard has no filters.
+- `useDashboardFilters({ types, Bar, time: { ranges } })` builds both parts in one call. Each option left out drops its part, so a host can offer only filters or only a time range. `filters.Bar` replaces `FilterBar`, such as with a bar that has no overflow.
+- A dashboard shows its filter bar only when an editor turns on "Allow filters" in the dashboard menu (`allowFilters`, the `allow-filters` action). It is off by default.
+- Editors add and remove filters. Which filters a dashboard has is saved, as `filters`, and is an undo step. A dashboard has one filter per field (`fieldOf`, such as a select filter's `key`).
+- The value each person picks is not saved and is not an edit. The host keeps it, such as in its logic or the URL, so viewers who cannot edit can still filter.
+- The host's `runQuery` applies the kinds of filter it knows to each query, so the dashboard never builds a query itself.
+- `validateDashboard(document, widgets, filters)` reports a filter of an unknown kind, an invalid config, or a second filter on the same field.
+
+### Analytics filters
+
+`createPropertyFilter({ featured, search })` (`frontend/filters/property/`) filters on any event or person property. A person picks one or more conditions, all of which must hold, such as "is not Chrome" and "contains Safari". Each condition has an operator that fits the property's type (`is`, `is not`, `contains`, `doesn't contain`, `matches`, `is set`, `is not set`, or `>` and `<` for numbers), then values suggested from the project's data or typed text. `featured` are the properties the add menu names, so a product can put the ones it cares about first. `search` adds a menu entry, such as "More properties", that opens `FieldSearch` over the properties its `load` returns, so a product can offer its own custom events. A kind of filter adds an entry like this with `pickerLabel` on its spec and `Picker` on its definition. A filter with no value yet has a dashed outline and reads "Pick a value", because it does not narrow the widgets.
+
+`ANALYTICS_FILTER_TYPES` (`frontend/filters/analytics/`) is a property filter featuring browser, OS, device type and country. `analyticsPropertyFilters(request.filters)` turns property and select filters into property filters a query's `properties` takes.
 
 ## Dashboards as code
 

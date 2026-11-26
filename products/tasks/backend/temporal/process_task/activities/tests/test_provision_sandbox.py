@@ -127,6 +127,27 @@ def test_environment_variables_name_the_git_provider(mocker, github_token, gitla
     assert {key: environment.get(key) for key in expected} == expected
 
 
+@pytest.mark.parametrize("source", ["context", "state"])
+def test_git_egress_never_resolves_or_injects_a_guest_github_token(mocker, source: str) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.agent_egress_git_reads = source == "context"
+    context.state = {"agent_egress_git_reads": source == "state", "github_read_access": True}
+    mocker.patch.object(provision_sandbox_module, "get_readonly_github_token", side_effect=AssertionError("guest mint"))
+    for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+        mocker.patch.object(provision_sandbox_module, name, return_value={})
+    mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
+    task = mocker.Mock(is_scout_experiment=False)
+    token = provision_sandbox_module._resolve_sandbox_github_token(
+        context, task=task, actor_user=None, repository=context.repository, has_repo=True
+    )
+    environment = provision_sandbox_module._build_environment_variables(
+        context, task, "synthetic-upstream", "fake-token"
+    )
+    assert token == ""
+    assert "GITHUB_TOKEN" not in environment
+    assert "GH_TOKEN" not in environment
+
+
 @pytest.mark.parametrize(
     "check, expected",
     [

@@ -2504,6 +2504,34 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert response.json()["reference_name"] == "missing"
         assert "broken" in response.json()["detail"]
 
+    def test_unlabeled_list_resolves_references_for_an_application_but_not_the_browser(self):
+        self._make_prompt("guardrails", prompt="G.", label="shared")
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "agent", "prompt": "Intro. @@@prompt:name=guardrails|label=shared@@@"},
+            format="json",
+        )
+
+        # The browser edits the raw text on the prompts page.
+        browser = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?content=full")
+        # An SDK's get_all() without a label gets the assembled text, like get_by_name.
+        api_key = self.create_personal_api_key_with_scopes(["llm_prompt:read"])
+        application = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/?content=full",
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        assert browser.status_code == status.HTTP_200_OK
+        browser_rows = {row["name"]: row for row in browser.json()["results"]}
+        assert browser_rows["agent"]["prompt"] == "Intro. @@@prompt:name=guardrails|label=shared@@@"
+        assert browser_rows["agent"]["resolved_references"] is None
+        assert application.status_code == status.HTTP_200_OK
+        application_rows = {row["name"]: row for row in application.json()["results"]}
+        assert application_rows["agent"]["prompt"] == "Intro. G."
+        assert application_rows["agent"]["resolved_references"] == [
+            {"name": "guardrails", "version": 1, "label": "shared"}
+        ]
+
     def test_labeled_list_with_resolve_false_returns_raw_tags(self):
         self._make_prompt("guardrails", prompt="G.", label="shared")
         self._make_prompt("agent", prompt="@@@prompt:name=guardrails|label=shared@@@", label="production")
