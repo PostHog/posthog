@@ -8,13 +8,15 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { StoredAutomateRecent } from '~/layout/today/todayAutomateRecents'
 import { newestByName } from '~/layout/today/todayNewestByName'
 import { TodayPaneProduct } from '~/layout/today/todayPaneProducts'
 import { matchesPaneQuery } from '~/layout/today/todayPaneSearch'
+import { todayRecentsLogic } from '~/layout/today/todayRecentsLogic'
 import { TODAY_USER_PERSIST_OPTIONS } from '~/layout/today/todayUserPersistOptions'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import { HOME_LIST_PAGE_SIZE, HomeObjectRow, homeObjectRows } from './todayHomeObjects'
+import { HOME_LIST_PAGE_SIZE, HomeObjectRow, homeObjectRows, homeRecentEntries } from './todayHomeObjects'
 import { homeItems, homeProductForPath } from './todayHomeRows'
 
 export function activeHomeRow(pathname: string): string | null {
@@ -51,6 +53,7 @@ export interface todayHomeLogicValues {
         search: string
         hash: string
     } // router
+    automateRecents: StoredAutomateRecent[] // todayRecentsLogic
     activePath: string
     activeRow: string | null
     collapsedSections: TodayHomeSection[]
@@ -122,6 +125,7 @@ export interface todayHomeLogicMeta {
         matchingPinnedRows: (pinnedRows: HomeObjectRow[], searchQuery: string) => HomeObjectRow[]
         matchingRecentRows: (
             recentsPage: HomeRecentsPage,
+            automateRecents: StoredAutomateRecent[],
             pinnedRows: HomeObjectRow[],
             searchQuery: string
         ) => HomeObjectRow[]
@@ -167,7 +171,16 @@ export type todayHomeLogicType = MakeLogicType<
 export const todayHomeLogic = kea<todayHomeLogicType>([
     path(['products', 'today', 'frontend', 'home', 'todayHomeLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], router, ['location'], projectTreeDataLogic, ['shortcutData']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            router,
+            ['location'],
+            projectTreeDataLogic,
+            ['shortcutData'],
+            todayRecentsLogic,
+            ['automateRecents'],
+        ],
         actions: [projectTreeDataLogic, ['loadShortcutsSuccess']],
     })),
     actions({
@@ -230,12 +243,17 @@ export const todayHomeLogic = kea<todayHomeLogicType>([
                 pinnedRows.filter((row) => matchesPaneQuery(row.name, searchQuery)),
         ],
         matchingRecentRows: [
-            (s) => [s.recentsPage, s.pinnedRows, s.searchQuery],
-            (recentsPage: HomeRecentsPage, pinnedRows: HomeObjectRow[], searchQuery: string): HomeObjectRow[] => {
+            (s) => [s.recentsPage, s.automateRecents, s.pinnedRows, s.searchQuery],
+            (
+                recentsPage: HomeRecentsPage,
+                automateRecents: StoredAutomateRecent[],
+                pinnedRows: HomeObjectRow[],
+                searchQuery: string
+            ): HomeObjectRow[] => {
                 const pinnedHrefs = new Set(pinnedRows.map((row) => row.href))
-                return homeObjectRows(recentsPage.entries).filter(
-                    (row) => !pinnedHrefs.has(row.href) && matchesPaneQuery(row.name, searchQuery)
-                )
+                return homeObjectRows(
+                    homeRecentEntries(recentsPage.entries, recentsPage.hasNext, automateRecents)
+                ).filter((row) => !pinnedHrefs.has(row.href) && matchesPaneQuery(row.name, searchQuery))
             },
         ],
         shownPinnedRows: [

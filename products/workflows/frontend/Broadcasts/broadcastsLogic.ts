@@ -103,6 +103,17 @@ export function isBroadcastShaped(actions: FlowStep[] | null | undefined): boole
     )
 }
 
+/**
+ * Whether a workflow opens on the broadcast page. Any workflow id resolves on that route. An unowned workflow shaped
+ * like a broadcast opens there like one, matching the list; a workflow another product owns, or any other shape, does not.
+ */
+export function opensAsBroadcast(broadcast: Pick<HogFlowApi, 'origin_product' | 'actions'>): boolean {
+    if (broadcast.origin_product === 'broadcasts') {
+        return true
+    }
+    return !broadcast.origin_product && isBroadcastShaped(broadcast.actions as FlowStep[])
+}
+
 type FlowEdge = { from?: string; to?: string }
 
 export type BroadcastChannel = 'email' | 'push'
