@@ -25,7 +25,7 @@ Stop and ask the person you work for before you:
   A request to "export recordings for X" means quote first.
 - **Name a price or share the quote with anyone.** The command prints our cost. Sales sets the price.
 - **Pass `--allow-cross-region`.** Cross-region transfer adds cost the customer must have agreed to.
-- **Raise `--max-parallel-shards` above the default** on a large export. More shards load recording-api harder.
+- **Raise `--max-parallel-shards` above the default** on a large export. More shards load the session replay workers and recording-api harder, and they only go faster while the workers have room. Read [Throughput](../../../products/replay/backend/temporal/export_recordings/README.md#throughput) before you suggest a value.
 
 ## Where to run
 
@@ -100,6 +100,7 @@ python manage.py export_recordings_to_s3 --status <workflow id>
 ```
 
 A large export runs for hours or days.
+When a run is far slower than the quote's estimate, check worker CPU as the README's Throughput section describes before you suggest more shards.
 A run checks the role and a test upload (one small part, then aborted, so nothing is left) before its first shard.
 A failure there names the missing permission in `--status`. Once the customer fixes the role, start the same quote again while it is valid.
 A credentials failure during a shard is permanent in the same way.

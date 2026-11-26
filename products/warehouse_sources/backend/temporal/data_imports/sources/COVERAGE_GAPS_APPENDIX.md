@@ -2410,10 +2410,10 @@ Diffed against: <https://www.braze.com/docs/sitemap.xml>
 - [x] `/segments/data_series` — segment size over time, the only way to trend audience growth (high)
 - [x] `/campaigns/details` — enriches the campaign list with message variants, channels, tags and conversion behaviors (high)
 - [x] `/canvas/details` — canvas step and variant structure needed to attribute canvas analytics (high)
-- [ ] `/sends/data_series` — per-send_id analytics for API-triggered campaign sends (medium)
-- [ ] `/purchases/revenue_series, /purchases/quantity_series, /purchases/product_list` — revenue and purchase counts, plus the product lookup that resolves product ids (medium)
-- [ ] `/sessions/data_series` — app session counts by app and date (medium)
-- [ ] `/email/unsubscribes and /email/hard_bounces` — deliverability events joinable to campaigns (medium)
+- [ ] `/sends/data_series` — per-send_id analytics for API-triggered campaign sends (medium) Skipped: needs a send_id, and Braze has no endpoint that lists send IDs, so a sync has nothing to enumerate.
+- [x] `/purchases/revenue_series, /purchases/quantity_series, /purchases/product_list` — revenue and purchase counts, plus the product lookup that resolves product ids (medium)
+- [x] `/sessions/data_series` — app session counts by app and date (medium)
+- [x] `/email/unsubscribes and /email/hard_bounces` — deliverability events joinable to campaigns (medium)
 - [ ] `/catalogs and /catalogs/{catalog_name}/items` — lookup tables resolving catalog item ids referenced in personalization and purchases (medium)
 
 Note: Braze has no OpenAPI/llms.txt (llms.txt 404s), so I enumerated every /docs/api/endpoints/\* page from the docs sitemap and then opened the individual pages to read the literal REST paths (confirmed /campaigns/data_series, /canvas/data_series, /segments/data_series, /events/data_series, /sends/data_series, /kpi/dau/data_series, /sessions/data_series, /purchases/revenue_series, /email/unsubscribes, /canvas/details, /catalogs, /custom_attributes). The connector now syncs the campaign, Canvas, custom event and workspace KPI `data\_series` endpoints alongside the six `list` endpoints, plus `/segments/data_series` and both `details` endpoints.
@@ -4047,10 +4047,10 @@ Today (7): `compute_pool_metrics`, `connector_metrics`, `kafka_metrics`, `ksqldb
 
 Diffed against: <https://api.telemetry.confluent.cloud/v2/metrics/cloud/descriptors/resources>
 
-- [ ] `GET /cmk/v2/clusters (Cloud API)` — Kafka cluster inventory (name, cloud, region, availability, CKU) - the lookup for kafka.id in kafka_metrics (high)
-- [ ] `GET /org/v2/environments (Cloud API)` — environment lookup; every cluster, pool and connector rolls up to one (high)
-- [ ] `GET /billing/v1/costs (Cloud API)` — daily cost line items per resource - the spend question metrics alone cannot answer (high)
-- [ ] `GET /kafka/v3/clusters/{cluster_id}/consumer-groups (+ /lag-summary, /lags)` — consumer group inventory and per-group lag, the core operational health metric (high)
+- [x] `GET /cmk/v2/clusters (Cloud API)` — Kafka cluster inventory (name, cloud, region, availability, CKU) - the lookup for kafka.id in kafka_metrics (high)
+- [x] `GET /org/v2/environments (Cloud API)` — environment lookup; every cluster, pool and connector rolls up to one (high)
+- [x] `GET /billing/v1/costs (Cloud API)` — daily cost line items per resource - the spend question metrics alone cannot answer (high)
+- [ ] `GET /kafka/v3/clusters/{cluster_id}/consumer-groups (+ /lag-summary, /lags)` — consumer group inventory and per-group lag, the core operational health metric (high) Skipped: served by each cluster's own Kafka REST endpoint with a cluster-scoped API key, not the Cloud API key this source uses.
 - [ ] `GET /connect/v1/environments/{env}/clusters/{cluster}/connectors (+ /status)` — connector inventory and running state - lookup for connector_metrics rows (medium)
 - [ ] `Telemetry resource type flink_statement (/v2/metrics/cloud/query grouped by flink_statement.uid)` — Flink statement metrics; a declared resource type the source does not expose (medium)
 - [ ] `Telemetry resource type flink_materialized_table` — Flink materialized table metrics; the other unexposed declared resource type (medium)
@@ -13358,7 +13358,7 @@ Diffed against: <https://learn.microsoft.com/en-us/graph/api/resources/driveitem
 - [x] `Activity statistics by interval (GET /v1.0/sites/{site-id}/getActivitiesByInterval(startDateTime={startDateTime},endDateTime={endDateTime},interval={interval}))` — measure site engagement and view activity over time, which metadata tables cannot provide (high)
 - [x] `Drive item versions (GET /v1.0/drives/{drive-id}/items/{item-id}/versions)` — track document revisions, editors, and historical file sizes (medium)
 - [x] `List item versions (GET /v1.0/sites/{site-id}/lists/{list-id}/items/{item-id}/versions)` — analyze changes to business records and the people who edited them (medium)
-- [ ] `Recent item activities (GET /v1.0/drives/{drive-id}/items/{item-id}/activities)` — analyze recent user actions on documents instead of only their latest modification timestamps (medium)
+- [ ] `Recent item activities (GET /v1.0/drives/{drive-id}/items/{item-id}/activities)` — analyze recent user actions on documents instead of only their latest modification timestamps (medium) Skipped: only in the Microsoft Graph beta API; the source supports v1.0 only.
 - [x] `Drive item permissions (GET /v1.0/drives/{drive-id}/items/{item-id}/permissions)` — analyze document sharing, granted access, and links across document libraries (medium)
 - [x] `Site pages (GET /v1.0/sites/{site-id}/pages/microsoft.graph.sitePage)` — analyze published pages, authorship, and publishing state separately from file metadata (medium)
 

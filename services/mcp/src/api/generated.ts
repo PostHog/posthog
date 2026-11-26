@@ -16455,6 +16455,26 @@ export namespace Schemas {
      */
     export type AnomalyBucketDetails = { [key: string]: unknown } | null;
 
+    /**
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change
+     */
+    export type AnomalyJudgeKindEnum = typeof AnomalyJudgeKindEnum[keyof typeof AnomalyJudgeKindEnum];
+
+
+    export const AnomalyJudgeKindEnum = {
+      Spike: 'spike',
+      Drop: 'drop',
+      Flatline: 'flatline',
+      TrendBreak: 'trend_break',
+      LevelShift: 'level_shift',
+      PatternChange: 'pattern_change',
+    } as const;
+
     export interface AnomalyBucket {
       /** The start of the bucket, in the project timezone. */
       bucket_start: string;
@@ -16485,6 +16505,20 @@ export namespace Schemas {
          * @nullable
          */
       details: AnomalyBucketDetails;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     export interface AnomalyDashboard {
@@ -16510,6 +16544,20 @@ export namespace Schemas {
          * @nullable
          */
       score: number | null;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     /**
@@ -16758,6 +16806,20 @@ export namespace Schemas {
       value: number | null;
       /** Whether the detector flagged the bucket. */
       flag: boolean;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     export interface AnomalySeriesPoints {
@@ -49950,6 +50012,11 @@ export namespace Schemas {
          * @nullable
          */
       aggregation_group_type_index?: number | null;
+      /**
+         * Display-only name for this release condition group. It does not affect evaluation.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     /**
@@ -50276,6 +50343,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -50310,6 +50378,7 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
       MetricAllZero: 'metric_all_zero',
@@ -50389,6 +50458,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -50421,6 +50491,7 @@ export namespace Schemas {
       NewFlagNoTraffic: 'new_flag_no_traffic',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
       MetricAllZero: 'metric_all_zero',
@@ -50455,6 +50526,7 @@ export namespace Schemas {
        * * `multiple_variants_share` - Multiple Variants Share
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -50519,6 +50591,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -50912,6 +50985,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -99421,6 +99495,8 @@ export namespace Schemas {
       auto_model_choice?: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled?: boolean;
+      /** Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Applies to tasks started after the change. */
+      chatgpt_apps_enabled?: boolean;
     }
 
     export interface PatchedSlackAppWorkspaceSettingsUpdate {
@@ -122613,6 +122689,11 @@ export namespace Schemas {
       auto_model_choice: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled: boolean;
+      /**
+         * Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Null when this person has no ChatGPT plan that Slack tasks can use.
+         * @nullable
+         */
+      chatgpt_apps_enabled: boolean | null;
     }
 
     export interface SlackAppRepositoryOptions {
