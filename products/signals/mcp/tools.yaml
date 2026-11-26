@@ -648,7 +648,8 @@ tools:
 
             Without `view`, the list holds reports from the whole project, not only the user's. Unless you are a scout
             run, pass `view=for_you` for the user's own inbox, and leave `view` out only when the user asks for the
-            whole project. For the next fixable work across the project, pass `view=actionable` with
+            whole project. To catch the user up, add `created_after` for only the new reports, or `count_only=true` for
+            only the total. For the next fixable work across the project, pass `view=actionable` with
             `use_priority_preference=true` and `sort=priority`, and add `unclaimed=true` to leave out the reports that
             someone already works on. Each parameter's description says how it filters.
 
