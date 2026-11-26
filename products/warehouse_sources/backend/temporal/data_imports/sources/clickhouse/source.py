@@ -486,6 +486,15 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # CANNOT_WRITE_TO_FILE_DESCRIPTOR also covers unrelated write failures that should stay
             # retryable.
             "No space left on device": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't write a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
+            # QUOTA_EXCEEDED (code 201) — a quota configured on the source server for this user
+            # (for example a maximum execution_time per hour) was exceeded while running our
+            # extraction query. The quota stays exceeded until its own interval ends, and the
+            # error names that reset time rather than something we can act on mid-sync, so an
+            # immediate retry just replays the identical failure against the still-active quota.
+            # Same capacity-limit shape as Code: 241/243 above, just enforced per-user instead of
+            # per-server. We match the stable ClickHouse exception name rather than "Code: 201",
+            # since not every ClickHouse-compatible endpoint wraps a quota error the same way.
+            "QUOTA_EXCEEDED": "Your ClickHouse user has hit a server-side quota (for example a maximum execution time per hour) for the current interval. Wait for the quota interval to reset, raise or remove the quota for this user, or switch this table to an incremental sync so each run does less work, then resume.",
             # TOO_MANY_ROWS_OR_BYTES (code 396) — the source server's own `max_result_bytes`/
             # `max_result_rows` limit rejected our extraction query because the table
             # (or incremental window) is larger than that limit allows. Like Code: 241
