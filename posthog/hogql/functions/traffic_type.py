@@ -293,18 +293,18 @@ def _build_ip_definition_index_expr(ip_expr: ast.Expr) -> ast.Expr:
 
 
 def _ip_label_lookup(ip_expr: ast.Expr, attr: str, default: str) -> ast.Expr:
-    index_call = _build_ip_definition_index_expr(ip_expr)
-    labels_array = ast.Array(
-        exprs=[ast.Constant(value=getattr(ip_def, attr)) for ip_def in BOT_IP_DEFINITIONS.values()]
-    )
-    return ast.Call(
-        name="if",
-        args=[
-            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)),
+    labels_after_default = ast.Array(
+        exprs=[
             ast.Constant(value=default),
-            ast.ArrayAccess(array=labels_array, property=index_call, nullish=False),
-        ],
+            *(ast.Constant(value=getattr(ip_def, attr)) for ip_def in BOT_IP_DEFINITIONS.values()),
+        ]
     )
+    index_after_default = ast.ArithmeticOperation(
+        op=ast.ArithmeticOperationOp.Add,
+        left=_build_ip_definition_index_expr(ip_expr),
+        right=ast.Constant(value=1),
+    )
+    return ast.ArrayAccess(array=labels_after_default, property=index_after_default, nullish=False)
 
 
 def _build_bot_array_lookup(
@@ -343,17 +343,15 @@ def _build_bot_array_lookup(
         patterns_array = _string_array([*BOT_DEFINITIONS.keys(), "^$"])
         labels_array = _string_array([*builtin_labels, empty_ua_value])
         index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
-        lookup = ast.Call(
-            name="if",
-            args=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)),
-                fallback,
-                ast.ArrayAccess(array=labels_array, property=index_call, nullish=False),
-            ],
+        use_fallback: ast.Expr = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)
         )
-        if expected_missing is None:
-            return lookup
-        return ast.Call(name="if", args=[expected_missing, fallback, lookup])
+        if expected_missing is not None:
+            use_fallback = ast.Or(exprs=[expected_missing, use_fallback])
+        return ast.Call(
+            name="if",
+            args=[use_fallback, fallback, ast.ArrayAccess(array=labels_array, property=index_call, nullish=False)],
+        )
 
     # With project rules the checks become an ordered chain, in this order: the project's own
     # rules, then the expected missing-UA fallback, then the built-ins, then the empty user

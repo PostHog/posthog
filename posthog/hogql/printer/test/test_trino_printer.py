@@ -2992,6 +2992,7 @@ def test_prints_type_aware_and_search_rewrites(expression: str, expected: str) -
         ),
         ("percentile_cont(0.5) WITHIN GROUP (ORDER BY id)", "__hogql_percentile_values"),
         ("percentile_disc(0.5) WITHIN GROUP (ORDER BY id)", "greatest(CAST(ceil("),
+        ("isLikelyBot(properties.user_agent, properties.ip)", " IN (IPADDRESS '"),
     ],
 )
 def test_prints_live_parity_regressions(expression: str, expected: str) -> None:
