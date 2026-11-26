@@ -121,7 +121,7 @@ def quarantine_identifier(
     source: ActorType = ActorType.HUMAN,
     notify_owners: bool = False,
 ) -> QuarantinedIdentifier:
-    repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    repo = repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     now = timezone.now()
     if source == ActorType.AGENT:
         latest = now + timedelta(days=AGENT_QUARANTINE_MAX_DAYS)
@@ -160,18 +160,34 @@ def quarantine_identifier(
             created_by_id=user_id,
             source_run=source_run,
             source=source,
+            owner_notice_pending=notify_owners,
         )
     if notify_owners:
         from ..tasks.tasks import (  # noqa: PLC0415 — avoids the logic/tasks circular import
             QUARANTINE_NOTICE_EXPIRY_SECONDS,
+            QUARANTINE_NOTICE_QUIET_SECONDS,
             notify_quarantine_owners,
         )
 
         entry_id = str(entry.id)
         transaction.on_commit(
             lambda: notify_quarantine_owners.apply_async(
-                args=(team_id, entry_id), expires=QUARANTINE_NOTICE_EXPIRY_SECONDS
+                args=(team_id, entry_id),
+                countdown=QUARANTINE_NOTICE_QUIET_SECONDS,
+                expires=QUARANTINE_NOTICE_QUIET_SECONDS + QUARANTINE_NOTICE_EXPIRY_SECONDS,
             ),
+            using=WRITER_DB,
+            robust=True,
+        )
+    from . import commit_status  # noqa: PLC0415 — avoids the gating/quarantine/commit_status circular import
+
+    if commit_status.publishes_by_commit(repo):
+        from ..tasks.tasks import (
+            publish_visual_review_quarantine_statuses,  # noqa: PLC0415 — avoids the logic/tasks circular import
+        )
+
+        transaction.on_commit(
+            lambda: publish_visual_review_quarantine_statuses.delay(team_id, str(repo_id), run_type, identifier),
             using=WRITER_DB,
             robust=True,
         )

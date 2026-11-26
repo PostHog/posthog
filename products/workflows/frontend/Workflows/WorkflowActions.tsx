@@ -9,6 +9,7 @@ import { Button, Separator } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -156,7 +157,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                     workflowUserAccessLevel={workflowUserAccessLevel ?? undefined}
                     onDiscardChanges={() => discardChanges()}
                     onUpdateTemplate={showSaveAsTemplateModal}
-                    onSave={submitWorkflow}
+                    onSave={() => void saveWithLatestEmailEdit(submitWorkflow)}
                     onPublish={() => publishDraft()}
                     onDiscardDraft={() => discardDraft()}
                 />
@@ -200,7 +201,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                     size="small"
                                     htmlType="submit"
                                     form="workflow"
-                                    onClick={submitWorkflow}
+                                    onClick={() => void saveWithLatestEmailEdit(submitWorkflow)}
                                     loading={isWorkflowSubmitting}
                                     disabledReason={
                                         workflowHasErrors

@@ -79,7 +79,7 @@ import type { TraceSpansTreeQueryResponse } from '../../schema/schema-general'
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
-import { humanizeEventColumnValue } from './eventColumnLabels'
+import { chartAxisValues } from './eventColumnLabels'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
@@ -120,6 +120,7 @@ export interface AxisSeriesSettings {
 export interface AxisSeries<T> {
     column: Column
     data: T[]
+    rawData?: unknown[]
     settings?: AxisSeriesSettings
 }
 
@@ -1636,14 +1637,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return null
                 }
 
-                return {
-                    column,
-                    data: data.map((n: any) =>
-                        query.kind === NodeKind.BIVisualizationNode
-                            ? n[column.dataIndex]
-                            : humanizeEventColumnValue(column.name, n[column.dataIndex])
-                    ),
-                }
+                const values: string[] = data.map((row: any[]) => row[column.dataIndex])
+                return { column, ...chartAxisValues(column.name, values, query.kind === NodeKind.BIVisualizationNode) }
             },
         ],
         sourceTabularColumns: [

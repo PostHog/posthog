@@ -4,43 +4,11 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
 import { createRef, type ComponentRef } from 'react'
 
-import { preflightLogic } from 'lib/logic/preflightLogic'
-
-import { initKeaTests } from '~/test/init'
-import { Realm, type PreflightStatus } from '~/types'
-
 import {
     DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS,
     InlineMarkdownSlashMenu,
     type InlineMarkdownSlashCommandItem,
 } from './inlineMarkdownSlashCommands'
-
-const PREFLIGHT_WITH_OBJECT_STORAGE = {
-    django: true,
-    plugins: true,
-    redis: true,
-    db: true,
-    clickhouse: true,
-    kafka: true,
-    initiated: true,
-    can_create_org: true,
-    cloud: false,
-    demo: false,
-    celery: true,
-    realm: Realm.SelfHostedClickHouse,
-    region: null,
-    available_social_auth_providers: {},
-    email_service_available: false,
-    slack_service: { available: false },
-    data_warehouse_integrations: { hubspot: {}, salesforce: {} },
-    object_storage: true,
-    wizard_cloud_run_available: false,
-} satisfies PreflightStatus
-
-const PREFLIGHT_WITHOUT_OBJECT_STORAGE: PreflightStatus = {
-    ...PREFLIGHT_WITH_OBJECT_STORAGE,
-    object_storage: false,
-}
 
 function makeEditorWithChain(chainApi: {
     focus: () => typeof chainApi
@@ -52,11 +20,6 @@ function makeEditorWithChain(chainApi: {
 }
 
 describe('InlineMarkdownSlashMenu', () => {
-    beforeEach(() => {
-        initKeaTests()
-        preflightLogic.actions.loadPreflightSuccess(PREFLIGHT_WITH_OBJECT_STORAGE)
-    })
-
     afterEach(() => {
         cleanup()
     })
@@ -75,7 +38,9 @@ describe('InlineMarkdownSlashMenu', () => {
                 range={{ from: 0, to: 1 }}
                 query=""
                 commands={DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS}
-                slashImageHostRef={{ current: { pick: () => {}, showSlashImageUpload: true } }}
+                slashImageHostRef={{
+                    current: { pick: () => {}, showSlashImageUpload: true, objectStorageAvailable: true },
+                }}
             />
         )
 
@@ -97,7 +62,9 @@ describe('InlineMarkdownSlashMenu', () => {
                 range={{ from: 0, to: 1 }}
                 query="bold"
                 commands={DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS}
-                slashImageHostRef={{ current: { pick: () => {}, showSlashImageUpload: true } }}
+                slashImageHostRef={{
+                    current: { pick: () => {}, showSlashImageUpload: true, objectStorageAvailable: true },
+                }}
             />
         )
 
@@ -119,7 +86,9 @@ describe('InlineMarkdownSlashMenu', () => {
                 range={{ from: 0, to: 1 }}
                 query=""
                 commands={DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS}
-                slashImageHostRef={{ current: { pick: () => {}, showSlashImageUpload: false } }}
+                slashImageHostRef={{
+                    current: { pick: () => {}, showSlashImageUpload: false, objectStorageAvailable: true },
+                }}
             />
         )
 
@@ -127,8 +96,6 @@ describe('InlineMarkdownSlashMenu', () => {
     })
 
     it('disables Image when object storage is not available', () => {
-        preflightLogic.actions.loadPreflightSuccess(PREFLIGHT_WITHOUT_OBJECT_STORAGE)
-
         const editor = makeEditorWithChain({
             focus() {
                 return this
@@ -142,7 +109,9 @@ describe('InlineMarkdownSlashMenu', () => {
                 range={{ from: 0, to: 1 }}
                 query="image"
                 commands={DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS}
-                slashImageHostRef={{ current: { pick: () => {}, showSlashImageUpload: true } }}
+                slashImageHostRef={{
+                    current: { pick: () => {}, showSlashImageUpload: true, objectStorageAvailable: false },
+                }}
             />
         )
 
@@ -151,7 +120,9 @@ describe('InlineMarkdownSlashMenu', () => {
     })
 
     it('clamps keyboard selection when the Image row disappears without a query change', () => {
-        const slashImageHostRef = { current: { pick: jest.fn(), showSlashImageUpload: true } }
+        const slashImageHostRef = {
+            current: { pick: jest.fn(), showSlashImageUpload: true, objectStorageAvailable: true },
+        }
         const testCommands: InlineMarkdownSlashCommandItem[] = [
             {
                 title: 'Alpha',
@@ -251,7 +222,7 @@ describe('InlineMarkdownSlashMenu', () => {
                 query="image"
                 onClose={onClose}
                 commands={DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS}
-                slashImageHostRef={{ current: { pick, showSlashImageUpload: true } }}
+                slashImageHostRef={{ current: { pick, showSlashImageUpload: true, objectStorageAvailable: true } }}
             />
         )
 

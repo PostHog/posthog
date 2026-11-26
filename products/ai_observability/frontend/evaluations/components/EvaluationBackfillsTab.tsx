@@ -412,7 +412,7 @@ export function EvaluationBackfillsTab({
                                 LemonDialog.open({
                                     title: 'Retry remaining evaluations?',
                                     description:
-                                        'This starts a new backfill with the same filters and date range, trimmed to the last 30 days, using the current evaluation settings. Existing results are kept. New evaluations are billed as usual.',
+                                        'This starts a new backfill with the same filters and date range, trimmed to your AI events retention period, using the current evaluation settings. Existing results are kept. New evaluations are billed as usual.',
                                     primaryButton: {
                                         children: 'Retry remaining',
                                         onClick: () => retryBackfill(backfill.id),

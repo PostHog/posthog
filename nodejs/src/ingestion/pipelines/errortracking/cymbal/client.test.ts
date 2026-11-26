@@ -1,6 +1,6 @@
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { CymbalClient, DnsResolveFunction, FetchFunction } from './client'
+import { CymbalClient, CymbalResult, DnsResolveFunction, FetchFunction } from './client'
 import { CymbalRequest, CymbalResponse } from './types'
 
 // Suppress logger output during tests
@@ -12,6 +12,8 @@ jest.mock('~/common/utils/logger', () => ({
         error: jest.fn(),
     },
 }))
+
+const ITEM_RESULTS_HEADERS = { 'x-posthog-ingestion-response': '1' }
 
 /** Wrap requests into items with a default size estimate (small enough that batches never split). */
 const toItems = (requests: CymbalRequest[], size = 100) => requests.map((request) => ({ request, estimatedSize: size }))
@@ -40,6 +42,11 @@ describe('CymbalClient', () => {
         },
         ...overrides,
     })
+
+    const toOutcomes = (responses: (CymbalResponse | null)[]): CymbalResult[] =>
+        responses.map((response) =>
+            response ? { result: 'ok', value: response } : { result: 'drop', reason: 'suppressed' }
+        )
 
     /** Create a client with a single-IP DNS response (no sticky routing). */
     const createClient = (fetchMock: jest.Mock = mockFetch) => {
@@ -92,96 +99,68 @@ describe('CymbalClient', () => {
 
             mockFetch.mockResolvedValueOnce({
                 status: 200,
-                json: () => Promise.resolve(responses),
+                headers: ITEM_RESULTS_HEADERS,
+                json: () => Promise.resolve({ results: toOutcomes(responses) }),
             })
 
             const results = await client.processExceptions(toItems(requests))
 
-            expect(results).toEqual(responses)
+            expect(results).toEqual(toOutcomes(responses))
             expect(mockFetch).toHaveBeenCalledTimes(1)
             expect(mockFetch).toHaveBeenCalledWith(
                 'http://1.2.3.4:8080/process',
                 expect.objectContaining({
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'x-posthog-ingestion-response': '1' },
                     body: JSON.stringify(requests),
                     timeoutMs: 5000,
                 })
             )
         })
 
-        it('handles null responses (suppressed events)', async () => {
+        it('returns drop and fail results without throwing', async () => {
             const client = createClient()
-            const requests = [createRequest()]
-            const responses = [null]
+            const results: CymbalResult[] = [
+                { result: 'drop', reason: 'rate_limited_project' },
+                { result: 'fail', error: { code: 'invalid_input', message: 'boom' } },
+            ]
 
             mockFetch.mockResolvedValueOnce({
                 status: 200,
-                json: () => Promise.resolve(responses),
+                headers: ITEM_RESULTS_HEADERS,
+                json: () => Promise.resolve({ results }),
             })
 
-            const results = await client.processExceptions(toItems(requests))
-
-            expect(results).toEqual([null])
+            await expect(client.processExceptions(toItems([createRequest(), createRequest()]))).resolves.toEqual(
+                results
+            )
         })
 
-        it('throws retriable error on 5xx errors', async () => {
+        it.each([
+            [500, true],
+            [429, true],
+            [400, false],
+            [413, false],
+        ])('throws on a %i response with isRetriable=%s', async (status, isRetriable) => {
             const client = createClient()
-            mockFetch.mockResolvedValueOnce({
-                status: 500,
-                text: () => Promise.resolve('Internal Server Error'),
+            mockFetch.mockResolvedValueOnce({ status, text: () => Promise.resolve('error body') })
+
+            await expect(client.processExceptions(toItems([createRequest()]))).rejects.toMatchObject({
+                message: `Cymbal returned ${status}`,
+                isRetriable,
             })
-
-            try {
-                await client.processExceptions(toItems([createRequest()]))
-                fail('Expected error to be thrown')
-            } catch (error: any) {
-                expect(error.message).toContain('Cymbal returned 500')
-                expect(error.isRetriable).toBe(true)
-            }
-        })
-
-        it('throws retriable error on 429 rate limit errors', async () => {
-            const client = createClient()
-            mockFetch.mockResolvedValueOnce({
-                status: 429,
-                text: () => Promise.resolve('Too Many Requests'),
-            })
-
-            try {
-                await client.processExceptions(toItems([createRequest()]))
-                fail('Expected error to be thrown')
-            } catch (error: any) {
-                expect(error.message).toContain('Cymbal returned 429')
-                expect(error.isRetriable).toBe(true)
-            }
-        })
-
-        it('throws non-retriable error on 4xx errors (except 429)', async () => {
-            const client = createClient()
-            mockFetch.mockResolvedValueOnce({
-                status: 400,
-                text: () => Promise.resolve('Bad Request'),
-            })
-
-            try {
-                await client.processExceptions(toItems([createRequest()]))
-                fail('Expected error to be thrown')
-            } catch (error: any) {
-                expect(error.message).toContain('Cymbal returned 400')
-                expect(error.isRetriable).toBe(false)
-            }
         })
 
         it('throws on response length mismatch', async () => {
             const client = createClient()
             mockFetch.mockResolvedValueOnce({
                 status: 200,
-                json: () => Promise.resolve([createResponse()]),
+                headers: ITEM_RESULTS_HEADERS,
+                json: () => Promise.resolve({ results: toOutcomes([createResponse()]) }),
             })
 
             await expect(client.processExceptions(toItems([createRequest(), createRequest()]))).rejects.toThrow(
-                'Cymbal response length mismatch: got 1, expected 2'
+                'Item results length mismatch: got 1, expected 2'
             )
         })
 
@@ -189,24 +168,22 @@ describe('CymbalClient', () => {
             const client = createClient()
             mockFetch.mockResolvedValueOnce({
                 status: 200,
+                headers: ITEM_RESULTS_HEADERS,
                 json: () => Promise.resolve({ error: 'unexpected error format' }),
             })
 
-            await expect(client.processExceptions(toItems([createRequest()]))).rejects.toThrow(
-                'Invalid Cymbal response'
-            )
+            await expect(client.processExceptions(toItems([createRequest()]))).rejects.toThrow('Invalid item results')
         })
 
         it('throws when response element has invalid structure', async () => {
             const client = createClient()
             mockFetch.mockResolvedValueOnce({
                 status: 200,
-                json: () => Promise.resolve([{ invalid: 'no uuid field' }]),
+                headers: ITEM_RESULTS_HEADERS,
+                json: () => Promise.resolve({ results: [{ result: 'ok', value: { invalid: 'no uuid field' } }] }),
             })
 
-            await expect(client.processExceptions(toItems([createRequest()]))).rejects.toThrow(
-                'Invalid Cymbal response'
-            )
+            await expect(client.processExceptions(toItems([createRequest()]))).rejects.toThrow('Invalid item results')
         })
 
         it('accepts null elements in response array', async () => {
@@ -216,12 +193,42 @@ describe('CymbalClient', () => {
 
             mockFetch.mockResolvedValueOnce({
                 status: 200,
-                json: () => Promise.resolve(responses),
+                headers: ITEM_RESULTS_HEADERS,
+                json: () => Promise.resolve({ results: toOutcomes(responses) }),
             })
 
             const results = await client.processExceptions(toItems(requests))
-            expect(results).toEqual(responses)
-            expect(results[1]).toBeNull()
+            expect(results).toEqual(toOutcomes(responses))
+        })
+
+        it('reads the array that a pod without item results answers', async () => {
+            const client = createClient()
+            const failed = createResponse({ uuid: 'uuid-1', properties: { $cymbal_errors: ['No sourcemap found'] } })
+            const processed = createResponse({ uuid: 'uuid-3' })
+
+            mockFetch.mockResolvedValueOnce({
+                status: 200,
+                headers: {},
+                json: () => Promise.resolve([failed, null, processed]),
+            })
+
+            const results = await client.processExceptions(toItems([createRequest(), createRequest(), createRequest()]))
+
+            expect(results).toEqual([
+                {
+                    result: 'ok',
+                    value: failed,
+                    warnings: [
+                        {
+                            type: 'error_tracking_exception_processing_errors',
+                            details: { eventUuid: 'uuid-1', errors: ['No sourcemap found'] },
+                            key: 'uuid-1',
+                        },
+                    ],
+                },
+                { result: 'drop', reason: 'suppressed' },
+                { result: 'ok', value: processed },
+            ])
         })
 
         it('throws retriable error on network errors', async () => {
@@ -274,11 +281,12 @@ describe('CymbalClient', () => {
 
             mockFetch.mockResolvedValueOnce({
                 status: 200,
-                json: () => Promise.resolve(responses),
+                headers: ITEM_RESULTS_HEADERS,
+                json: () => Promise.resolve({ results: toOutcomes(responses) }),
             })
 
             const results = await client.processExceptions(toItems(requests))
-            expect(results).toEqual(responses)
+            expect(results).toEqual(toOutcomes(responses))
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
 
@@ -302,13 +310,18 @@ describe('CymbalClient', () => {
                 const responses = parsed.map((req: CymbalRequest) => createResponse({ uuid: req.uuid }))
                 return Promise.resolve({
                     status: 200,
-                    json: () => Promise.resolve(responses),
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () => Promise.resolve({ results: toOutcomes(responses) }),
                 })
             })
 
             const results = await smallClient.processExceptions(toItems(requests, 100))
             expect(results).toHaveLength(3)
-            expect(results.map((r) => r!.uuid)).toEqual(['uuid-1', 'uuid-2', 'uuid-3'])
+            expect(results.map((r) => (r.result === 'ok' ? r.value.uuid : undefined))).toEqual([
+                'uuid-1',
+                'uuid-2',
+                'uuid-3',
+            ])
             expect(mockFetch).toHaveBeenCalledTimes(3)
         })
 
@@ -327,12 +340,19 @@ describe('CymbalClient', () => {
                 const responses = parsed.map((req: CymbalRequest) => createResponse({ uuid: req.uuid }))
                 return Promise.resolve({
                     status: 200,
-                    json: () => Promise.resolve(responses),
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () => Promise.resolve({ results: toOutcomes(responses) }),
                 })
             })
 
             const results = await smallClient.processExceptions(toItems(requests, 200))
-            expect(results.map((r) => r!.uuid)).toEqual(['uuid-0', 'uuid-1', 'uuid-2', 'uuid-3', 'uuid-4'])
+            expect(results.map((r) => (r.result === 'ok' ? r.value.uuid : undefined))).toEqual([
+                'uuid-0',
+                'uuid-1',
+                'uuid-2',
+                'uuid-3',
+                'uuid-4',
+            ])
             expect(mockFetch).toHaveBeenCalledTimes(3)
         })
 
@@ -350,7 +370,8 @@ describe('CymbalClient', () => {
                 const responses = parsed.map((req: CymbalRequest) => createResponse({ uuid: req.uuid }))
                 return Promise.resolve({
                     status: 200,
-                    json: () => Promise.resolve(responses),
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () => Promise.resolve({ results: toOutcomes(responses) }),
                 })
             })
 
@@ -377,7 +398,11 @@ describe('CymbalClient', () => {
                     const parsed = parseJSON(options.body)
                     return Promise.resolve({
                         status: 200,
-                        json: () => Promise.resolve(parsed.map((r: CymbalRequest) => createResponse({ uuid: r.uuid }))),
+                        headers: ITEM_RESULTS_HEADERS,
+                        json: () =>
+                            Promise.resolve({
+                                results: toOutcomes(parsed.map((r: CymbalRequest) => createResponse({ uuid: r.uuid }))),
+                            }),
                     })
                 }
                 return Promise.resolve({ status: 500, text: () => Promise.resolve('Internal Server Error') })
@@ -407,7 +432,11 @@ describe('CymbalClient', () => {
                 const responses = parsed.map((req: CymbalRequest) =>
                     createResponse({ uuid: req.uuid, team_id: req.team_id })
                 )
-                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
+                return Promise.resolve({
+                    status: 200,
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () => Promise.resolve({ results: toOutcomes(responses) }),
+                })
             })
 
             await client.processExceptions(toItems(requests))
@@ -433,7 +462,11 @@ describe('CymbalClient', () => {
                 const responses = parsed.map((req: CymbalRequest) =>
                     createResponse({ uuid: req.uuid, team_id: req.team_id })
                 )
-                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
+                return Promise.resolve({
+                    status: 200,
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () => Promise.resolve({ results: toOutcomes(responses) }),
+                })
             })
 
             const results = await client.processExceptions(toItems(requests))
@@ -448,7 +481,11 @@ describe('CymbalClient', () => {
             expect(twoEventCall!.map((r: CymbalRequest) => r.team_id)).toEqual([1, 3])
 
             // Results still maintain 1:1 position correspondence
-            expect(results.map((r) => r!.uuid)).toEqual(['uuid-a', 'uuid-b', 'uuid-c'])
+            expect(results.map((r) => (r.result === 'ok' ? r.value.uuid : undefined))).toEqual([
+                'uuid-a',
+                'uuid-b',
+                'uuid-c',
+            ])
         })
 
         it('routes events from different teams to potentially different pods in parallel', async () => {
@@ -465,7 +502,11 @@ describe('CymbalClient', () => {
                 const responses = parsed.map((req: CymbalRequest) =>
                     createResponse({ uuid: req.uuid, team_id: req.team_id })
                 )
-                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
+                return Promise.resolve({
+                    status: 200,
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () => Promise.resolve({ results: toOutcomes(responses) }),
+                })
             })
 
             await client.processExceptions(toItems(requests))
@@ -491,13 +532,23 @@ describe('CymbalClient', () => {
                 const responses = parsed.map((req: CymbalRequest) =>
                     createResponse({ uuid: req.uuid, team_id: req.team_id })
                 )
-                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
+                return Promise.resolve({
+                    status: 200,
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () => Promise.resolve({ results: toOutcomes(responses) }),
+                })
             })
 
             const results = await client.processExceptions(toItems(requests))
 
-            expect(results.map((r) => r!.uuid)).toEqual(['uuid-a', 'uuid-b', 'uuid-c', 'uuid-d', 'uuid-e'])
-            expect(results.map((r) => r!.team_id)).toEqual([1, 2, 1, 3, 2])
+            expect(results.map((r) => (r.result === 'ok' ? r.value.uuid : undefined))).toEqual([
+                'uuid-a',
+                'uuid-b',
+                'uuid-c',
+                'uuid-d',
+                'uuid-e',
+            ])
+            expect(results.map((r) => (r.result === 'ok' ? r.value.team_id : undefined))).toEqual([1, 2, 1, 3, 2])
         })
 
         it('routes consistently for the same team_id', async () => {
@@ -507,7 +558,11 @@ describe('CymbalClient', () => {
                 const parsed = parseJSON(options.body)
                 return Promise.resolve({
                     status: 200,
-                    json: () => Promise.resolve(parsed.map((req: CymbalRequest) => createResponse({ uuid: req.uuid }))),
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () =>
+                        Promise.resolve({
+                            results: toOutcomes(parsed.map((req: CymbalRequest) => createResponse({ uuid: req.uuid }))),
+                        }),
                 })
             })
 
@@ -530,7 +585,11 @@ describe('CymbalClient', () => {
             mockFetch.mockImplementation((_url: string, options: { body: string }) => {
                 const parsed = parseJSON(options.body)
                 const responses = parsed.map((req: CymbalRequest) => createResponse({ uuid: req.uuid }))
-                return Promise.resolve({ status: 200, json: () => Promise.resolve(responses) })
+                return Promise.resolve({
+                    status: 200,
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () => Promise.resolve({ results: toOutcomes(responses) }),
+                })
             })
 
             await client.processExceptions(toItems(requests))
@@ -576,7 +635,7 @@ describe('CymbalClient', () => {
             return error
         }
 
-        it('fans out to individual events on timeout and drops the poison pill', async () => {
+        it('fans out to individual events on timeout and fails the poison pill', async () => {
             const client = createClient()
             const requests = [
                 createRequest({ uuid: 'good-1' }),
@@ -593,17 +652,21 @@ describe('CymbalClient', () => {
                 }
                 return Promise.resolve({
                     status: 200,
-                    json: () => Promise.resolve(parsed.map((r: CymbalRequest) => createResponse({ uuid: r.uuid }))),
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () =>
+                        Promise.resolve({
+                            results: toOutcomes(parsed.map((r: CymbalRequest) => createResponse({ uuid: r.uuid }))),
+                        }),
                 })
             })
 
             const results = await client.processExceptions(toItems(requests))
 
             expect(results).toHaveLength(4)
-            expect(results[0]).toMatchObject({ uuid: 'good-1' })
-            expect(results[1]).toMatchObject({ uuid: 'good-2' })
-            expect(results[2]).toBeNull() // poison pill dropped
-            expect(results[3]).toMatchObject({ uuid: 'good-3' })
+            expect(results[0]).toMatchObject({ value: { uuid: 'good-1' } })
+            expect(results[1]).toMatchObject({ value: { uuid: 'good-2' } })
+            expect(results[2]).toMatchObject({ result: 'retry', error: { code: 'deadline_exceeded' } })
+            expect(results[3]).toMatchObject({ value: { uuid: 'good-3' } })
         })
 
         it('throws 5xx errors during fan-out to let retry wrapper handle them', async () => {
@@ -636,7 +699,11 @@ describe('CymbalClient', () => {
                 }
                 return Promise.resolve({
                     status: 200,
-                    json: () => Promise.resolve(parsed.map((r: CymbalRequest) => createResponse({ uuid: r.uuid }))),
+                    headers: ITEM_RESULTS_HEADERS,
+                    json: () =>
+                        Promise.resolve({
+                            results: toOutcomes(parsed.map((r: CymbalRequest) => createResponse({ uuid: r.uuid }))),
+                        }),
                 })
             })
 
@@ -645,9 +712,9 @@ describe('CymbalClient', () => {
             expect(results).toHaveLength(5)
             for (let i = 0; i < inputs.length; i++) {
                 if (inputs[i] === 'POISON') {
-                    expect(results[i]).toBeNull()
+                    expect(results[i]).toMatchObject({ result: 'retry', error: { code: 'deadline_exceeded' } })
                 } else {
-                    expect(results[i]).toMatchObject({ uuid: inputs[i] })
+                    expect(results[i]).toMatchObject({ value: { uuid: inputs[i] } })
                 }
             }
         })

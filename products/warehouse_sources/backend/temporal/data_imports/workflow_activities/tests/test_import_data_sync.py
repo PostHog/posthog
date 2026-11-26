@@ -30,12 +30,18 @@ from posthog.credentials_service.errors import (
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
+from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
+from products.warehouse_sources.backend.models.external_data_destination_delivery import ExternalDataDestinationDelivery
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataSchema,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR,
+    SSHGatewayClosedBeforeBannerError,
+)
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
@@ -422,7 +428,7 @@ class TestJobToContinue(BaseTest):
 
         assert [continued.id for continued in jobs_to_continue] == [newer.id, older.id]
 
-    def test_the_continuing_job_counts_the_rows_of_the_job_it_continues_once(self) -> None:
+    def test_the_continuing_job_bills_the_usage_of_the_job_it_continues_once(self) -> None:
         source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
         )
@@ -433,12 +439,26 @@ class TestJobToContinue(BaseTest):
         job = ExternalDataJob.objects.create(
             team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
         )
+        destination = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, type=ExternalDataDestination.Type.SNOWFLAKE, name="snowflake"
+        )
+        ExternalDataDestinationDelivery.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            job=stopped,
+            destination=destination,
+            run_uuid="run-a1",
+            batch_index=0,
+            rows_written=500,
+            bytes_exported=2048,
+        )
 
-        cast(Any, module._carry_rows_synced).func(job, stopped)
-        cast(Any, module._carry_rows_synced).func(job, stopped)
+        cast(Any, module._carry_billable_usage).func(job, stopped)
+        cast(Any, module._carry_billable_usage).func(job, stopped)
 
         job.refresh_from_db()
         assert job.rows_synced == 500
+        billed_jobs = ExternalDataDestinationDelivery.objects.for_team(self.team.pk).values_list("job_id", flat=True)
+        assert list(billed_jobs) == [job.id]
 
 
 @pytest.mark.asyncio
@@ -721,13 +741,21 @@ async def test_unknown_resource_error_reraised_as_non_reportable():
 
 
 @pytest.mark.asyncio
-async def test_temporary_host_resolution_error_reraised_as_non_reportable():
-    # The host policy's own lookup answered "try again" rather than a verdict on the host, so the
-    # source is fine and a fresh attempt recovers. The message carries the host, so no source could
-    # list it in get_retryable_errors, and the activity interceptor captures whatever escapes unless
-    # it is a NonReportableError — without this branch a resolver outage mints one captured
-    # exception per attempt, across every direct SQL source at once.
-    error = TemporaryHostResolutionError("db.example.com")
+@pytest.mark.parametrize(
+    ("error", "expected_fragment"),
+    [
+        # The host policy's own lookup answered "try again" rather than a verdict on the host, so the
+        # source is fine and a fresh attempt recovers. The message carries the host, so no source could
+        # list it in get_retryable_errors, and the activity interceptor captures whatever escapes unless
+        # it is a NonReportableError — without this branch a resolver outage mints one captured
+        # exception per attempt, across every direct SQL source at once.
+        (TemporaryHostResolutionError("db.example.com"), "db.example.com"),
+        # An SSH server at its limit of new connections closes the excess ones, while it serves the
+        # other schemas of the same source. A later attempt gets through, so it must not report.
+        (SSHGatewayClosedBeforeBannerError(), SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR),
+    ],
+)
+async def test_transient_connect_error_reraised_as_non_reportable(error: Exception, expected_fragment: str):
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -742,7 +770,7 @@ async def test_temporary_host_resolution_error_reraised_as_non_reportable():
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
     assert exc_info.value.__cause__ is error
-    assert "db.example.com" in str(exc_info.value)
+    assert expected_fragment in str(exc_info.value)
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 
@@ -1356,7 +1384,7 @@ async def test_a_resumable_run_continues_the_cursor_of_the_interrupted_job_unles
     with (
         _patched_activity_reaching_run(source, schema) as run_mock,
         mock.patch.object(module, "_jobs_to_continue", new=mock.AsyncMock(return_value=[interrupted, earlier])),
-        mock.patch.object(module, "_carry_rows_synced", new=mock.AsyncMock()) as carry,
+        mock.patch.object(module, "_carry_billable_usage", new=mock.AsyncMock()) as carry,
     ):
         await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), reset_pipeline=reset_pipeline))
 
@@ -1391,7 +1419,7 @@ async def test_a_full_refresh_to_an_external_destination_reads_the_source_from_t
         _patched_activity_reaching_run(source, schema) as run_mock,
         mock.patch.object(module, "external_destination_ids_for", return_value=external_destination_ids),
         mock.patch.object(module, "_jobs_to_continue", new=mock.AsyncMock(return_value=[interrupted])),
-        mock.patch.object(module, "_carry_rows_synced", new=mock.AsyncMock()),
+        mock.patch.object(module, "_carry_billable_usage", new=mock.AsyncMock()),
     ):
         await import_data_activity_sync(_inputs_no_reset())
 
@@ -1680,7 +1708,8 @@ async def test_fast_return_completes_without_source_setup():
     update = schema_model.objects.filter.return_value.update
     update.assert_called_once()
     assert update.call_args.kwargs["last_synced_at"] is model.created_at
-    assert set(update.call_args.kwargs) == {"last_synced_at", "updated_at"}
+    assert update.call_args.kwargs["last_checked_at"] is model.created_at
+    assert set(update.call_args.kwargs) == {"last_synced_at", "last_checked_at", "updated_at"}
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "active_on_org": "Whether or not this repository runs builds on travis-ci.org (may also be null).",
         },
     },
+    "organizations": {
+        "description": "A GitHub organization (or other source control organization) that the token's user is a member of on Travis CI.",
+        "docs_url": "https://developer.travis-ci.com/resource/organizations",
+        "columns": {
+            "id": "Value uniquely identifying the organization.",
+            "login": "Login set on GitHub.",
+            "name": "Name set on GitHub.",
+            "github_id": "Id set on GitHub.",
+            "avatar_url": "Avatar_url set on GitHub.",
+            "education": "Whether or not the organization has an education account.",
+        },
+    },
     "builds": {
         "description": "A single build run for a repository, triggered by a push, pull request, cron, or API request.",
         "docs_url": "https://developer.travis-ci.com/resource/builds",
@@ -104,6 +116,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "repository_id": "Id of the repository the request belongs to (added by PostHog for joins).",
         },
     },
+    "messages": {
+        "description": "A message that travis-yml created while it parsed and validated the build configuration of a request, such as a warning about an unknown key.",
+        "docs_url": "https://developer.travis-ci.com/resource/messages",
+        "columns": {
+            "id": "The message's id.",
+            "level": "The message's level (e.g. info, warn, error, alert).",
+            "key": "The message's key.",
+            "code": "The message's code.",
+            "args": "The message's args.",
+            "src": "The config source the message refers to.",
+            "line": "The line in the config source the message refers to.",
+            "request_id": "Id of the request the message belongs to (added by PostHog; the incremental cursor).",
+            "repository_id": "Id of the repository the message belongs to (added by PostHog for joins).",
+        },
+    },
     "crons": {
         "description": "A cron job that triggers builds of a repository branch on a schedule.",
         "docs_url": "https://developer.travis-ci.com/resource/crons",
@@ -130,6 +157,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_build": "Last build on the branch.",
             "repository": "GitHub user or organization the branch belongs to.",
             "repository_id": "Id of the repository the branch belongs to (added by PostHog; part of the primary key).",
+        },
+    },
+    "caches": {
+        "description": "A build cache archive that Travis CI stores for a repository branch.",
+        "docs_url": "https://developer.travis-ci.com/resource/caches",
+        "columns": {
+            "repository_id": "Id of the repository the cache belongs to (part of the primary key).",
+            "branch": "The branch the cache belongs to (part of the primary key).",
+            "name": "The cache's name (part of the primary key).",
+            "size": "Size of the cache archive in bytes.",
+            "last_modified": "When the cache was last updated.",
         },
     },
 }

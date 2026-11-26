@@ -33,7 +33,9 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
+from products.aeo.backend import prompt_limit
 from products.aeo.backend.catalog import own_domains
+from products.aeo.backend.check_brands import BrandMatcher, catalog_identities, write_check_brands
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import CitationEngine, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
@@ -83,9 +85,10 @@ def run_citation_checks(
         ), []
 
     checked_before = run_day_start(timezone.now())
-    prompts = select_prompts(
-        team, settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit, checked_before=checked_before
+    run_limit = min(
+        settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit, prompt_limit.max_active_prompts(team.id)
     )
+    prompts = select_prompts(team, run_limit, checked_before=checked_before)
     if not prompts:
         if not _active_prompts(team).exists():
             logger.warning("aeo_citation_run_no_prompts", team_id=team.id)
@@ -385,6 +388,13 @@ def _record_prompt_checks(
                 [AEOCitationCheck(team_id=canonical_team_id, **fields) for fields in fields_per_engine]
             )
             write_facts(written)
+            try:
+                # A savepoint, so a parser bug costs the brand rows, not the checks. The resolve after
+                # the run writes what this left out.
+                with transaction.atomic():
+                    write_check_brands(written, BrandMatcher(catalog_identities(canonical_team_id)))
+            except Exception as e:
+                logger.exception("aeo_check_brands_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
             bump_data_version_on_commit(canonical_team_id)
     except Exception as e:
         logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])

@@ -46,8 +46,11 @@ Ground it in the target project first — a scout is only as good as its fit to 
 2. **See what already runs.** `posthog:scout-config-list` lists every existing scout on the project with its schedule, `enabled`, and `emit` posture, plus each scout's `description` (pulled from the skill's frontmatter) so you can tell what a scout watches without loading its body.
    Don't duplicate a surface a canonical scout already covers — adapt that one instead.
 3. **Read the closest canonical scout.** It's your template and your reference shape.
-   Pull it with `posthog:skill-get {"skill_name": "signals-scout-<x>"}` (per-team rows) or read it from the repo at `products/signals/skills/signals-scout-*/`.
-   The generalist (`signals-scout-general`) is the broad template; if your scope is domain-tight, pick the specialist closest to your surface — list the live roster with `posthog:skill-list {"search": "signals-scout"}` (specialists exist for most product surfaces: error tracking, logs, AI observability, experiments, feature flags, session replay, web analytics, surveys, and more).
+   Try `posthog:skill-get {"skill_name": "signals-scout-<x>"}` first: it returns the copy this project runs, which may be edited.
+   If the scout isn't in the project's store, or you want the unedited upstream template, fetch the file this step names from GitHub (one named file, not a search of PostHog source): `https://raw.githubusercontent.com/PostHog/posthog/master/products/signals/skills/signals-scout-<x>/SKILL.md`, with any bundled references in its folder at `https://github.com/PostHog/posthog/tree/master/products/signals/skills/signals-scout-<x>`.
+   The `master` copy is the upstream template and can be ahead of what a self-hosted instance runs; the store copy is what runs.
+   The generalist (`signals-scout-general`) is the broad template; if your scope is domain-tight, pick the specialist closest to your surface — list the project's roster with `posthog:skill-list {"search": "signals-scout"}`, or the full canonical roster at `https://github.com/PostHog/posthog/tree/master/products/signals/skills` when the project has few or none seeded (specialists exist for most product surfaces: error tracking, logs, AI observability, experiments, feature flags, session replay, web analytics, surveys, and more).
+   With no web access, start from the specialist and generalist skeletons in [`references/scout-anatomy.md`](references/scout-anatomy.md) instead.
 4. **Skim the inbox.** `posthog:inbox-reports-list` shows what reports are actually landing — calibrate so your scout adds signal, not noise.
 
 ## Choose the path

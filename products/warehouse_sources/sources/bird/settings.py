@@ -34,9 +34,10 @@ class BirdEndpointConfig:
     incremental_param: Optional[str] = None
 
 
-# Every Bird listing returns the newest rows first and takes no sort parameter. Message, broadcast and
-# conversation rows change after creation (delivery status, counts), and their listings filter only on
-# creation time, so they are full refresh only. Inbound email never changes after it arrives.
+# Every Bird listing returns the newest rows first and takes no sort parameter. Message, broadcast,
+# conversation and call leg rows change after creation (delivery status, counts, cost), and their listings
+# filter only on creation or start time, so they are full refresh only. Inbound email never changes after
+# it arrives.
 BIRD_ENDPOINTS: dict[str, BirdEndpointConfig] = {
     config.name: config
     for config in (
@@ -75,6 +76,8 @@ BIRD_ENDPOINTS: dict[str, BirdEndpointConfig] = {
         # Bird keeps SMS messages for 30 days.
         BirdEndpointConfig(name="sms_messages", path="/v1/sms/messages", partition_key="created_at"),
         BirdEndpointConfig(name="sms_templates", path="/v1/sms/templates"),
+        # Ended suppressions drop out of the SMS and WhatsApp listings, like email suppressions.
+        BirdEndpointConfig(name="sms_suppressions", path="/v1/sms/suppressions", partition_key="created_at"),
         BirdEndpointConfig(
             name="sms_daily_stats",
             path="/v1/sms/stats/daily",
@@ -87,6 +90,7 @@ BIRD_ENDPOINTS: dict[str, BirdEndpointConfig] = {
             name="whatsapp_conversations", path="/v1/whatsapp/conversations", partition_key="created_at"
         ),
         BirdEndpointConfig(name="whatsapp_templates", path="/v1/whatsapp/templates"),
+        BirdEndpointConfig(name="whatsapp_suppressions", path="/v1/whatsapp/suppressions", partition_key="created_at"),
         BirdEndpointConfig(
             name="whatsapp_daily_stats",
             path="/v1/whatsapp/stats/daily",
@@ -94,6 +98,12 @@ BIRD_ENDPOINTS: dict[str, BirdEndpointConfig] = {
             daily_stats=True,
             primary_keys=["bucket"],
         ),
+        BirdEndpointConfig(name="amb_messages", path="/v1/amb/messages", partition_key="created_at"),
+        BirdEndpointConfig(name="amb_conversations", path="/v1/amb/conversations", partition_key="created_at"),
+        # Only legs that have ended are listed, so a long call shows up after legs that started later.
+        BirdEndpointConfig(name="voice_legs", path="/v1/voice/legs", partition_key="started_at"),
+        # A deleted preference disappears from the listing, so the table must be replaced on each sync.
+        BirdEndpointConfig(name="preferences", path="/v1/preferences", partition_key="created_at"),
         BirdEndpointConfig(name="numbers", path="/v1/numbers"),
     )
 }

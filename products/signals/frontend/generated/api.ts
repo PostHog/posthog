@@ -37,7 +37,10 @@ import type {
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
+    MonitorPRRequestApi,
+    MonitorPRResponseApi,
     MonthlyUsageApi,
+    PRBrowserPageApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportCheckListApi,
@@ -126,6 +129,8 @@ import type {
     SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
     SignalReportMetricRefreshResponseApi,
+    SignalReportPlanStepAddRequestApi,
+    SignalReportPlanStepDependenciesRequestApi,
     SignalReportPriorityUpdateApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
@@ -176,6 +181,7 @@ import type {
     SignalsReportsAvailableReviewersRetrieveParams,
     SignalsReportsForMeRetrieveParams,
     SignalsReportsListParams,
+    SignalsReportsPlanStepsDestroyParams,
     SignalsReportsPrCiStatusesParams,
     SignalsReportsSearchParams,
     SignalsReportsSectionCountsRetrieveParams,
@@ -199,9 +205,14 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SlackChannelScoutCreateApi,
+    SlackChannelScoutCreateResponseApi,
+    SlackScoutChannelSourcesApi,
     SourceFilterCatalogListApi,
+    SourceFilterExpressionRequestApi,
     SourceFilterPreviewRequestApi,
     SourceFilterPreviewResponseApi,
+    SourceFilterValidateResponseApi,
     SourceSpendApi,
     SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
@@ -459,6 +470,26 @@ export const signalsInboxSummaryList = async (projectId: string, options?: Reque
     })
 }
 
+export const getSignalsMonitorPrCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/monitor_pr/`
+}
+
+/**
+ * @summary Monitor a pull request
+ */
+export const signalsMonitorPrCreate = async (
+    projectId: string,
+    monitorPRRequestApi: MonitorPRRequestApi,
+    options?: RequestInit
+): Promise<MonitorPRResponseApi> => {
+    return apiMutator<MonitorPRResponseApi>(getSignalsMonitorPrCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(monitorPRRequestApi),
+    })
+}
+
 export const getSignalsOnboardingListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/onboarding/`
 }
@@ -588,6 +619,20 @@ export const signalsProcessingPauseDestroy = async (
     return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsPullRequestsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/pull_requests/`
+}
+
+/**
+ * @summary List recent authored pull requests
+ */
+export const signalsPullRequestsList = async (projectId: string, options?: RequestInit): Promise<PRBrowserPageApi> => {
+    return apiMutator<PRBrowserPageApi>(getSignalsPullRequestsListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -836,6 +881,89 @@ export const signalsReportsMergeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportMergeRequestApi),
+    })
+}
+
+export const getSignalsReportsPlanStepsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/plan_steps/`
+}
+
+/**
+ * Link an existing report to this report as a plan step, with `part_of`. A report becomes a plan when it gets its first step. The step goes last in plan order. When the step is already resolved or archived and every other step is too, the plan closes the same way a plan closes when its last step does.
+ * @summary Add a step to this plan
+ */
+export const signalsReportsPlanStepsCreate = async (
+    projectId: string,
+    id: string,
+    signalReportPlanStepAddRequestApi: SignalReportPlanStepAddRequestApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPlanStepsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportPlanStepAddRequestApi),
+    })
+}
+
+export const getSignalsReportsPlanStepsDestroyUrl = (
+    projectId: string,
+    id: string,
+    stepId: string,
+    params?: SignalsReportsPlanStepsDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/plan_steps/${stepId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/plan_steps/${stepId}/`
+}
+
+/**
+ * Remove the step's `part_of` link to this plan, and every `depends_on` link between the step and the plan's other steps. The step report keeps its status, pull requests and claim. A note on the step and on the plan records the removal. When every step left is resolved or archived, the plan closes.
+ * @summary Remove a step from this plan
+ */
+export const signalsReportsPlanStepsDestroy = async (
+    projectId: string,
+    id: string,
+    stepId: string,
+    params?: SignalsReportsPlanStepsDestroyParams,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPlanStepsDestroyUrl(projectId, id, stepId, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSignalsReportsPlanStepsDependsOnUpdateUrl = (projectId: string, id: string, stepId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/plan_steps/${stepId}/depends_on/`
+}
+
+/**
+ * Replace the step's `depends_on` links to the other steps of this plan with the given set. The step's links to reports outside the plan are unchanged. A note on the step records removed links.
+ * @summary Replace what a plan step builds on
+ */
+export const signalsReportsPlanStepsDependsOnUpdate = async (
+    projectId: string,
+    id: string,
+    stepId: string,
+    signalReportPlanStepDependenciesRequestApi: SignalReportPlanStepDependenciesRequestApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPlanStepsDependsOnUpdateUrl(projectId, id, stepId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportPlanStepDependenciesRequestApi),
     })
 }
 
@@ -1376,7 +1504,7 @@ export const getSignalsReportArtefactsListUrl = (
 }
 
 /**
- * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). Pass `type` to keep only some artefact types. `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
  * @summary List a report's artefacts
  */
 export const signalsReportArtefactsList = async (
@@ -2107,7 +2235,7 @@ export const getSignalsScoutConfigListUrl = (projectId: string, params?: Signals
 }
 
 /**
- * List the per-(team, skill) scout configs for this project. Each row includes its `display_name` (the label people read), its `skill_name` (the permanent identifier), its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given labels, and `search` to narrow it to the scouts matching a substring of either name.
+ * List the per-(team, skill) scout configs for this project. Each row includes its `display_name` (the label people read), its `skill_name` (the permanent identifier), its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given labels, `search` to narrow it to the scouts matching a substring of either name, and `source_product` to narrow it to the scouts another product stood up, such as Slack channel scouts.
  * @summary List scout configs
  */
 export const signalsScoutConfigList = async (
@@ -2224,6 +2352,25 @@ export const signalsScoutConfigRun = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalScoutManualRunRequestApi),
+    })
+}
+
+export const getSignalsScoutConfigStopUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/stop/`
+}
+
+/**
+ * Stop the run of this scout that is in progress now. The run is cancelled the same way as a task run cancel: the agent is interrupted, the sandbox is torn down, and the run is marked cancelled, so the scout can run again. Idempotent: a run that already finished is returned unchanged. Returns 404 when the scout has no run in progress.
+ * @summary Stop a scout's run
+ */
+export const signalsScoutConfigStop = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalScoutRunDetailApi> => {
+    return apiMutator<SignalScoutRunDetailApi>(getSignalsScoutConfigStopUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -2974,7 +3121,7 @@ export const getSignalsScoutEmitReportUrl = (projectId: string, runId: string) =
 }
 
 /**
- * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate. A report for a GitHub issue that an open report already names is refused with `source_issue_already_reported` and that report's id, unless a `follow_up_of`, `part_of`, `depends_on` or `recurrence_of` link names it.
  * @summary Author a full report for a run
  */
 export const signalsScoutEmitReport = async (
@@ -3483,6 +3630,45 @@ export const signalsScoutSuggestionsRefresh = async (
     })
 }
 
+export const getSignalsSlackChannelScoutsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/slack_channel_scouts/`
+}
+
+/**
+ * Create a scout that reads the messages of the given Slack channels from the data warehouse and files inbox reports about the problems and requests people raise there. A scheduled run is skipped when none of the channels has a new message.
+ * @summary Create a Slack channel scout
+ */
+export const signalsSlackChannelScoutsCreate = async (
+    projectId: string,
+    slackChannelScoutCreateApi: SlackChannelScoutCreateApi,
+    options?: RequestInit
+): Promise<SlackChannelScoutCreateResponseApi> => {
+    return apiMutator<SlackChannelScoutCreateResponseApi>(getSignalsSlackChannelScoutsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(slackChannelScoutCreateApi),
+    })
+}
+
+export const getSignalsSlackChannelScoutsChannelsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/slack_channel_scouts/channels/`
+}
+
+/**
+ * The Slack data warehouse sources of this project and the channels each one syncs.
+ * @summary List Slack channels for scouts
+ */
+export const signalsSlackChannelScoutsChannelsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SlackScoutChannelSourcesApi> => {
+    return apiMutator<SlackScoutChannelSourcesApi>(getSignalsSlackChannelScoutsChannelsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsSourceConfigsListUrl = (projectId: string, params?: SignalsSourceConfigsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -3637,7 +3823,7 @@ export const getSignalsSourceConfigsFilterPreviewCreateUrl = (projectId: string)
 }
 
 /**
- * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist or the unsaved one in `scope_ids`, and runs with your own warehouse access. Leaves out records that never become signals, such as Linear issues without a description. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
  * @summary Preview a source filter
  */
 export const signalsSourceConfigsFilterPreviewCreate = async (
@@ -3650,6 +3836,27 @@ export const signalsSourceConfigsFilterPreviewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sourceFilterPreviewRequestApi),
+    })
+}
+
+export const getSignalsSourceConfigsFilterValidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/filter_validate/`
+}
+
+/**
+ * Check whether a filter expression can be saved as the source's filter, and where it is invalid when it cannot. Checks the expression against the source's active catalog only: reads no warehouse records and works before the source is connected or synced. An empty expression is valid. Saves nothing.
+ * @summary Validate a source filter
+ */
+export const signalsSourceConfigsFilterValidateCreate = async (
+    projectId: string,
+    sourceFilterExpressionRequestApi: SourceFilterExpressionRequestApi,
+    options?: RequestInit
+): Promise<SourceFilterValidateResponseApi> => {
+    return apiMutator<SourceFilterValidateResponseApi>(getSignalsSourceConfigsFilterValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourceFilterExpressionRequestApi),
     })
 }
 

@@ -35,6 +35,18 @@ describe('definitionLogic', () => {
             })
         })
 
+        it('reports the loaded event as a Data recent, which stays an event after the page changes', async () => {
+            const { id, name } = mockEventDefinitions[0]
+            const eventRecent = { type: 'event_definition', name, href: urls.eventDefinition(id) }
+            router.actions.push(urls.eventDefinition(id))
+            logic = definitionLogic({ id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ todayRecent: eventRecent })
+
+            router.actions.push(urls.propertyDefinition(id))
+            expect(logic.values.todayRecent).toEqual(eventRecent)
+        })
+
         it('load new definition on mount', async () => {
             router.actions.push(urls.eventDefinition('new'))
             logic = definitionLogic({ id: 'new' })

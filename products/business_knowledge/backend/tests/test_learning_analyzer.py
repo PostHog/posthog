@@ -372,7 +372,7 @@ class TestLearningAnalyzer:
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client) as builder,
+            patch(f"{_MODULE}.build_anthropic_client", return_value=client) as builder,
             patch(f"{_MODULE}.generate_embedding") as embed,
             patch(f"{_MODULE}.logic.search_knowledge") as search,
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
@@ -563,7 +563,7 @@ class TestLearningAnalyzer:
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client) as builder,
+            patch(f"{_MODULE}.build_anthropic_client", return_value=client) as builder,
             capture_logs() as logs,
             pytest.raises(LearningAnalysisError, match="extraction_model_failed") as raised,
         ):
@@ -613,7 +613,7 @@ class TestLearningAnalyzer:
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client),
+            patch(f"{_MODULE}.build_anthropic_client", return_value=client),
         ):
             result = analyze_learning_evidence(input)
 
@@ -652,7 +652,7 @@ class TestLearningAnalyzer:
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client),
+            patch(f"{_MODULE}.build_anthropic_client", return_value=client),
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
         ):
             result = analyze_learning_evidence(input)
@@ -673,7 +673,7 @@ class TestLearningAnalyzer:
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
             patch(
-                f"{_MODULE}.build_ai_gateway_anthropic_client",
+                f"{_MODULE}.build_anthropic_client",
                 side_effect=ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"),
             ),
             pytest.raises(LearningAnalysisError, match="ai_gateway_not_configured") as raised,

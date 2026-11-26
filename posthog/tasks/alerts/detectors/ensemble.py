@@ -14,6 +14,7 @@ class EnsembleDetector(BaseDetector):
     Config:
         operator: 'and' | 'or' - How to combine results
         detectors: list[dict] - Sub-detector configurations (minimum 2)
+        normalizer: str - Internal. When set, every sub-detector uses this method.
     """
 
     def __init__(self, config: dict[str, Any]):
@@ -25,6 +26,10 @@ class EnsembleDetector(BaseDetector):
         detector_configs = config.get("detectors", [])
         if len(detector_configs) < 2:
             raise ValueError("Ensemble detector requires at least 2 sub-detectors.")
+        normalizer = config.get("normalizer")
+        if normalizer:
+            # All sub-detectors use one method, so their scores are comparable under AND and OR.
+            detector_configs = [{**detector_config, "normalizer": normalizer} for detector_config in detector_configs]
 
         self.operator = operator
         self.sub_detectors = [get_detector(cfg) for cfg in detector_configs]

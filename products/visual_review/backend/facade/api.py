@@ -39,10 +39,12 @@ from ..logic import (
     baseline_overview,
     baseline_record,
     baselines,
+    commit_status,
     errors,
     flakiness,
     gating,
     history,
+    ledger_adopt,
     ledger_push,
     ledger_repair,
     owners,
@@ -56,7 +58,7 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import ActorType, QuarantineLiftState, RunPurpose, RunReviewFilter, ShiftBandKind
+from .enums import ActorType, QuarantineLiftState, RunGate, RunPurpose, RunReviewFilter, ShiftBandKind
 
 User = get_user_model()
 
@@ -108,7 +110,9 @@ PRSHAMismatchError = errors.PRSHAMismatchError
 StaleRunError = errors.StaleRunError
 RunNotFullyResolvedError = errors.RunNotFullyResolvedError
 BaselineFilePathNotConfiguredError = errors.BaselineFilePathNotConfiguredError
+CommitStatusNotPostedError = errors.CommitStatusNotPostedError
 BaselineRepairError = errors.BaselineRepairError
+BaselineAdoptionError = errors.BaselineAdoptionError
 
 
 # --- Converters (model -> DTO) ---
@@ -236,7 +240,10 @@ def _compute_unresolved(run) -> int:
 
 
 def _to_run(
-    run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None, unresolved: int | None = None
+    run,
+    user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None,
+    unresolved: int | None = None,
+    stale_approval_count: int = 0,
 ) -> contracts.Run:
     approved_by = (user_basic_infos or {}).get(run.approved_by_id) if run.approved_by_id else None
     return contracts.Run(
@@ -268,6 +275,8 @@ def _to_run(
         metadata=run.metadata or {},
         # Present only when the queryset came from a trigram search (annotation absent otherwise).
         search_match_type=search_match_type_from_instance(run),
+        gate=RunGate(run.gate),
+        stale_approval_count=stale_approval_count,
     )
 
 
@@ -309,6 +318,25 @@ def repair_baseline_ledger(
     if apply:
         return ledger_repair.apply_repair(repo, run_type, on_progress)
     return ledger_repair.plan_repair(repo, run_type, on_progress)
+
+
+def plan_ledger_adoption(
+    repo_id: UUID, team_id: int, run_type: str, run_id: UUID, identifiers: list[str]
+) -> contracts.BaselineLedgerAdoption:
+    """The entries that would set the ledger to what a full default-branch run rendered, without writing them.
+
+    Ledger mode only. Covers only the named identifiers.
+    """
+    repo = repos.get_repo(repo_id, team_id)
+    return ledger_adopt.plan_adoption(repo, run_type, run_id, identifiers)
+
+
+def adopt_ledger_renders(
+    repo_id: UUID, team_id: int, run_type: str, run_id: UUID, identifiers: list[str]
+) -> contracts.BaselineLedgerAdoption:
+    """Write the entries that set the ledger to what a full default-branch run rendered. Ledger mode only."""
+    repo = repos.get_repo(repo_id, team_id)
+    return ledger_adopt.adopt_renders(repo, run_type, run_id, identifiers)
 
 
 def list_repos(team_id: int, page: PageRequest) -> Page[contracts.Repo]:
@@ -591,6 +619,15 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
     return contracts.CreateRunResult(run_id=run.id, uploads=upload_targets)
 
 
+def report_no_run_needed(input: contracts.NoRunNeededInput, team_id: int) -> contracts.NoRunNeededResult:
+    """Post a passing commit status for a commit that needs no visual run, unless a run owns the status."""
+    repo = repos.get_repo(input.repo_id, team_id)
+    outcome = commit_status.report_no_run_needed(repo, input)
+    return contracts.NoRunNeededResult(
+        outcome=outcome, detail=commit_status.no_run_needed_detail(outcome, input.run_type)
+    )
+
+
 def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int) -> contracts.AddSnapshotsResult:
     """Add a batch of snapshots to an existing run (shard-based flow)."""
     snapshots = [
@@ -630,7 +667,12 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     run = run_queries.get_run(run_id, team_id=team_id)
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return _to_run(run, user_basic_infos, unresolved=gating.count_unresolved(run))
+    return _to_run(
+        run,
+        user_basic_infos,
+        unresolved=gating.count_unresolved(run),
+        stale_approval_count=commit_status.stale_approval_count(run),
+    )
 
 
 def get_run_scope(run_id: UUID, team_id: int) -> contracts.RunScope:

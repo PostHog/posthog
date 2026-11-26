@@ -3,26 +3,28 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { getCurrentCloudRegion } from 'lib/utils/userAdmin'
 import { userLogic } from 'scenes/userLogic'
 
 import { Region, UserType } from '~/types'
 
 import { AccountOrganizationMember, EU_MEMBERS_LIMIT, fetchEuMembers } from './accountRelatedUsersLogic'
 
-const US_MEMBERS_PAGE_SIZE = 1000
+const LOCAL_MEMBERS_PAGE_SIZE = 1000
 
 export interface AccountMemberAdminLinksLogicProps {
     externalId: string
 }
 
-async function listUsMembers(externalId: string): Promise<AccountOrganizationMember[]> {
+async function listLocalMembers(externalId: string): Promise<AccountOrganizationMember[]> {
     const members: AccountOrganizationMember[] = []
+    const region = getCurrentCloudRegion() ?? Region.US
     while (members.length < EU_MEMBERS_LIMIT) {
         const response = await api.organizationMembers.listForOrg(externalId, {
-            limit: US_MEMBERS_PAGE_SIZE,
+            limit: LOCAL_MEMBERS_PAGE_SIZE,
             offset: members.length,
         })
-        members.push(...response.results.map((member) => ({ ...member, region: Region.US as const })))
+        members.push(...response.results.map((member) => ({ ...member, region, source: 'api' as const })))
         if (!response.results.length || members.length >= response.count) {
             break
         }
@@ -86,8 +88,8 @@ export const accountMemberAdminLinksLogic = kea<accountMemberAdminLinksLogicType
             {
                 loadMembers: async () => {
                     try {
-                        const usMembers = await listUsMembers(props.externalId)
-                        return usMembers.length ? usMembers : ((await fetchEuMembers(props.externalId)) ?? [])
+                        const localMembers = await listLocalMembers(props.externalId)
+                        return localMembers.length ? localMembers : ((await fetchEuMembers(props.externalId)) ?? [])
                     } catch (error) {
                         posthog.captureException(error as Error, { scope: 'accountMemberAdminLinksLogic.loadMembers' })
                         throw error

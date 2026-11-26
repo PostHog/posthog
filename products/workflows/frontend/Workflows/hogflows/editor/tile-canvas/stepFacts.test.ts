@@ -116,8 +116,8 @@ describe('stepFacts', () => {
         ['an AI task', aiTask, 'Answer the question', 'Answer with links to the docs.'],
         [
             'a scout',
-            fn('investigate', 'template-posthog-run-scout', { skill_name: 'incident-investigator' }),
-            'Run the incident investigator scout',
+            fn('investigate', 'template-posthog-run-scout', { skill_name: 'signals-scout-apm' }),
+            'Run the APM scout',
             undefined,
         ],
         [

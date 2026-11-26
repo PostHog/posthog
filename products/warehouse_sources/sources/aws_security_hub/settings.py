@@ -17,6 +17,10 @@ class SecurityHubEndpoint:
     params: tuple[tuple[str, Any], ...] = ()
     # Endpoint whose rows supply this endpoint's required path parameter, with that row field.
     parent: tuple[str, str] | None = None
+    # Trend operations need a StartTime and EndTime. AWS keeps trend data for one year and picks the granularity.
+    trend_window_days: int | None = None
+    # AWS rejects a NextToken one hour after it issues it, so a resume from an old checkpoint can fail.
+    token_expires: bool = False
 
 
 ENDPOINTS: dict[str, SecurityHubEndpoint] = {
@@ -87,12 +91,37 @@ ENDPOINTS: dict[str, SecurityHubEndpoint] = {
         result_key="Resources",
         primary_keys=("account_id", "region", "resource_type", "resource_id"),
     ),
+    # V2 products have no ARN, so the company and product names identify each one.
+    "products_v2": SecurityHubEndpoint(
+        operation="DescribeProductsV2", result_key="ProductsV2", primary_keys=("company_name", "product_v2_name")
+    ),
+    "software_v2": SecurityHubEndpoint(
+        operation="GetSoftwareV2",
+        result_key="Software",
+        primary_keys=("package_type", "package_name", "package_version"),
+        token_expires=True,
+    ),
+    "findings_trends_v2": SecurityHubEndpoint(
+        operation="GetFindingsTrendsV2",
+        result_key="TrendsMetrics",
+        primary_keys=("granularity", "timestamp"),
+        trend_window_days=90,
+    ),
+    "resources_trends_v2": SecurityHubEndpoint(
+        operation="GetResourcesTrendsV2",
+        result_key="TrendsMetrics",
+        primary_keys=("granularity", "timestamp"),
+        trend_window_days=90,
+    ),
 }
 
 # The pinned botocore model predates these operations. Each one is a POST with only JSON body members.
 UNMODELED_OPERATION_PATHS = {
     "GetRemediationsV2": "/GetRemediationsV2",
     "ListExposuresByRemediationV2": "/ListExposuresByRemediationV2",
+    "GetSoftwareV2": "/softwarev2",
+    "GetFindingsTrendsV2": "/findingsTrendsv2",
+    "GetResourcesTrendsV2": "/resourcesTrendsv2",
 }
 
 INCREMENTAL_FIELDS = {
@@ -115,13 +144,20 @@ ENDPOINT_DESCRIPTIONS = {
     "finding_history": "Changes to each finding over time, with the fields that changed and who changed them.",
     "findings_v2": "Security Hub findings in the Open Cybersecurity Schema Framework (OCSF) format.",
     "resources_v2": "Resources that Security Hub tracks, with their configuration, tags, and finding summaries.",
+    "products_v2": "Product integrations for Security Hub, with company names, categories, and integration types.",
+    "software_v2": "Software packages installed on your resources, with the number of resources that have each package.",
+    "findings_trends_v2": "Daily, weekly, or monthly finding counts by severity for the last 90 days.",
+    "resources_trends_v2": "Daily, weekly, or monthly resource counts for the last 90 days.",
 }
 
 ACCESS_DENIED_CODES = frozenset({"AccessDenied", "AccessDeniedException", "InvalidAccessException"})
 CREDENTIAL_ERROR_CODES = frozenset(
     {"UnrecognizedClientException", "InvalidClientTokenId", "InvalidSignatureException", "SignatureDoesNotMatch"}
 )
-SUBSCRIPTION_MESSAGE = "Enable AWS Security Hub CSPM in the configured region, then try again."
+SUBSCRIPTION_MESSAGE = (
+    "Enable AWS Security Hub CSPM in the configured region, then try again. "
+    "The software, trend, and V2 product tables need AWS Security Hub in that region too."
+)
 ERROR_MESSAGES = {
     **dict.fromkeys(
         CREDENTIAL_ERROR_CODES, "AWS rejected the credentials. Check the access key and secret access key."

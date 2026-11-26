@@ -1,4 +1,4 @@
-import { CardFault, ProviderEdge, TruthHead, TruthPage, startProviderEdge } from '.'
+import { CardFault, FaultHold, ProviderEdge, TruthHead, TruthPage, holdOf, startProviderEdge } from '.'
 import { Destination, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { createHash } from 'crypto'
 import http from 'http'
@@ -6,8 +6,10 @@ import http from 'http'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
-import { ruleOf } from './faults'
+import { FaultRule, heldAnswerRule, ruleOf } from './faults'
+import { Truth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const ALICE = 'run-1-1@www.example.com'
@@ -16,9 +18,11 @@ const BOB = 'run-1-2@www.example.com'
 describe('provider edge', () => {
     let edge: ProviderEdge
     let ses: SESv2Client
+    let edgeTruth: Truth
 
     beforeEach(async () => {
-        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS })
+        edgeTruth = new Truth()
+        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS, truth: edgeTruth })
         ses = new SESv2Client({
             endpoint: edge.url,
             region: 'us-east-1',
@@ -82,7 +86,7 @@ describe('provider edge', () => {
         return json.id
     }
 
-    it('records a send with the unit id from the recipient and the action id from the signed tracking code', async () => {
+    it('records a send with the unit id from the recipient and the action and invocation ids from the signed tracking code', async () => {
         const trackingCode = new EmailTrackingCodeSigner(TRACKING_KEYS, 'https://track.example.com').generate({
             functionId: 'flow-1',
             id: 'invocation-1',
@@ -99,6 +103,7 @@ describe('provider edge', () => {
                 status: 200,
                 unitId: 'run-1-1',
                 actionId: 'email-step',
+                invocationId: 'invocation-1',
             }),
         ])
     })
@@ -245,6 +250,39 @@ describe('provider edge', () => {
         )
     })
 
+    it('holds the next send for an armed accept boundary before a seeded share sees it', async () => {
+        const hold = edge.hold(heldAnswerRule())
+        edge.addFault({
+            ...ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 1 } }),
+            pick: '1:0',
+        })
+
+        let answered = false
+        const answer = send(ALICE).finally(() => (answered = true))
+        const accepted = await hold.accepted!(AbortSignal.timeout(2000))
+        const pending = !answered
+        await hold.release()
+
+        expect({ accepted, pending, answer: await answer }).toEqual({ accepted: true, pending: true, answer: 'sent' })
+    })
+
+    it('gives a unit its own first draw when an earlier run sent the same ordinal first', async () => {
+        const seeded = {
+            ...ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 0.5 } }),
+            pick: '6:0',
+        }
+        const alone = edge.addFault(seeded)
+        const firstDraw = await send('run-2-7@www.example.com')
+        edge.removeFault(alone)
+        edge.addFault(seeded)
+        await send('run-1-7@www.example.com')
+
+        expect({ firstDraw, afterEarlierRun: await send('run-2-7@www.example.com') }).toEqual({
+            firstDraw: 'MessageRejected',
+            afterEarlierRun: 'MessageRejected',
+        })
+    })
+
     it('stops applying a fault once its time window passes', async () => {
         const start = Date.now()
         const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
@@ -294,6 +332,24 @@ describe('provider edge', () => {
             ['MessageRejected', 'sent', 'TooManyRequestsException'],
         ],
         [
+            'counts an accepted ambiguous send against the throttle rate, because SES took it',
+            [
+                { name: 'ses.throttle', params: { rate: 1 } },
+                { name: 'ses.ambiguous', params: { accepted: true }, dose: { count: 1 } },
+            ],
+            [ALICE, ALICE],
+            ['Error', 'TooManyRequestsException'],
+        ],
+        [
+            'does not count a refused ambiguous send against the throttle rate',
+            [
+                { name: 'ses.throttle', params: { rate: 1 } },
+                { name: 'ses.ambiguous', params: { accepted: false }, dose: { count: 1 } },
+            ],
+            [ALICE, ALICE],
+            ['Error', 'sent'],
+        ],
+        [
             'answers a send over the throttle rate with the throttle, though a rejection added before it matches',
             [
                 { name: 'ses.reject', params: { type: 'rejected' }, match: { recipient: BOB }, dose: { share: 1 } },
@@ -333,6 +389,69 @@ describe('provider edge', () => {
         expect((await call('DELETE', pathOf(forAlice))).status).toBe(204)
 
         expect(await sendEach([ALICE, BOB])).toEqual(outcomes)
+    })
+
+    it.each<[string, (rule: FaultRule) => () => Promise<unknown>]>([
+        [
+            'its valve releases',
+            (rule) => {
+                const hold = edge.hold(rule)
+                return () => hold.release()
+            },
+        ],
+        [
+            'the edge clears its faults',
+            (rule) => {
+                edge.addFault(rule)
+                return () => Promise.resolve(edge.clearFaults())
+            },
+        ],
+        [
+            'the control API removes it by id',
+            (rule) => {
+                const id = edge.addFault(rule)
+                return () => call('DELETE', `/_faults/${id}`)
+            },
+        ],
+        [
+            'the control API clears every fault',
+            (rule) => {
+                edge.addFault(rule)
+                return () => call('DELETE', '/_faults')
+            },
+        ],
+    ])('answers a send it holds once %s', async (_path, park) => {
+        const remove = park(heldAnswerRule())
+        const answer = send(ALICE)
+        await waitForExpect(() => expect(edge.sent).toHaveLength(1), 2000, 5)
+
+        await remove()
+
+        expect(await answer).toBe('sent')
+    })
+
+    it.each<[string, boolean]>([
+        ['reports a send it took when the drive ends while it waits', true],
+        ['reports no send when the drive ends before it took one', false],
+    ])('%s', async (_story, sends) => {
+        const hold = edge.hold(heldAnswerRule())
+        const drive = new AbortController()
+        const waiting = hold.accepted!(drive.signal)
+        const append = edgeTruth.append.bind(edgeTruth)
+        edgeTruth.append = (record) => {
+            const appended = append(record)
+            drive.abort()
+            return appended
+        }
+        const answer = sends ? send(ALICE) : Promise.resolve(undefined)
+        if (!sends) {
+            drive.abort()
+        }
+
+        const accepted = await waiting
+        await hold.release()
+
+        expect({ accepted, answer: await answer }).toEqual({ accepted: sends, answer: sends ? 'sent' : undefined })
     })
 
     it.each<[string, Destination]>([
@@ -383,6 +502,129 @@ describe('provider edge', () => {
         } finally {
             clock.mockRestore()
         }
+    })
+
+    it('does not observe a fault the edge first applied after the drive released its hold', async () => {
+        const start = Date.now()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+        try {
+            const faultId = edge.addFault(
+                ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } })
+            )
+            let readArrives = (): void => undefined
+            const answered = new Promise<void>((resolve) => (readArrives = resolve))
+            const held = holdOf({
+                firstAppliedAt: () => answered.then(() => edge.firstAppliedAt(faultId)),
+                remove: () => Promise.resolve(edge.removeFault(faultId)),
+            })
+            const released = new AbortController()
+            const observed = held.observed(released.signal)
+            clock.mockReturnValue(start + 5)
+            released.abort()
+            clock.mockReturnValue(start + 6)
+            const answer = await send(ALICE)
+            readArrives()
+
+            expect({ answer, observed: await observed }).toEqual({ answer: 'MessageRejected', observed: false })
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
+    it.each<[string, (hold: FaultHold) => Promise<boolean>]>([
+        ['observed', (hold) => hold.observed()],
+        ['accepted', (hold) => hold.accepted!(new AbortController().signal)],
+    ])(
+        'keeps a fault %s once it read it applied, when the faults are cleared before another read',
+        async (_, waitOn) => {
+            const faultId = edge.addFault(
+                ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } })
+            )
+            const answer = await send(ALICE)
+            const held = holdOf({
+                firstAppliedAt: () => {
+                    const appliedAt = edge.firstAppliedAt(faultId)
+                    edge.clearFaults()
+                    return Promise.resolve(appliedAt)
+                },
+                remove: () => Promise.resolve(edge.removeFault(faultId)),
+            })
+
+            expect({ answer, held: await waitOn(held) }).toEqual({ answer: 'MessageRejected', held: true })
+        }
+    )
+
+    const observedUntil = (hold: FaultHold, holdEnds: AbortSignal): Promise<boolean> => hold.observed(holdEnds)
+    const acceptedUntil = (hold: FaultHold, holdEnds: AbortSignal): Promise<boolean> => hold.accepted!(holdEnds)
+
+    it.each<[string, string, string, (hold: FaultHold, holdEnds: AbortSignal) => Promise<boolean>, number, boolean]>([
+        ['keeps', 'observed', 'before', observedUntil, 0, true],
+        ['keeps', 'accepted', 'before', acceptedUntil, 0, true],
+        ['does not count', 'observed', 'after', observedUntil, 1_000, false],
+        ['does not count', 'accepted', 'after', acceptedUntil, 1_000, false],
+    ])(
+        '%s a fault %s that applied %s the hold ended, while a read was on its way back',
+        async (_, __, ___, waitOn, appliedFromEndMs, expected) => {
+            let answerFirstRead: (() => void) | undefined
+            const appliedAt = Date.now() + appliedFromEndMs
+            const held = holdOf({
+                firstAppliedAt: () =>
+                    answerFirstRead === undefined
+                        ? new Promise((resolve) => (answerFirstRead = () => resolve(undefined)))
+                        : Promise.resolve(appliedAt),
+                remove: () => Promise.resolve(),
+            })
+            const holdEnds = new AbortController()
+            const waiting = waitOn(held, holdEnds.signal)
+            holdEnds.abort()
+            answerFirstRead!()
+
+            expect(await waiting).toBe(expected)
+        }
+    )
+
+    it.each<[string, (hold: FaultHold, holdEnds: AbortSignal) => Promise<boolean>]>([
+        ['observed', observedUntil],
+        ['accepted', acceptedUntil],
+    ])(
+        'stops reading a fault %s after one more read once the hold ended, even within the same millisecond',
+        async (_, waitOn) => {
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
+            try {
+                let answerFirstRead: (() => void) | undefined
+                let readsAfterTheEnd = 0
+                const held = holdOf({
+                    firstAppliedAt: () => {
+                        if (answerFirstRead === undefined) {
+                            return new Promise((resolve) => (answerFirstRead = () => resolve(undefined)))
+                        }
+                        readsAfterTheEnd += 1
+                        return readsAfterTheEnd > 5
+                            ? Promise.reject(new Error('still reading after the hold ended'))
+                            : Promise.resolve(undefined)
+                    },
+                    remove: () => Promise.resolve(),
+                })
+                const holdEnds = new AbortController()
+                const waiting = waitOn(held, holdEnds.signal)
+                holdEnds.abort()
+                answerFirstRead!()
+
+                expect({ applied: await waiting, readsAfterTheEnd }).toEqual({ applied: false, readsAfterTheEnd: 1 })
+            } finally {
+                clock.mockRestore()
+            }
+        }
+    )
+
+    it('does not observe a fault for a drive that ended before its observation began', async () => {
+        const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))
+        const answer = await send(ALICE)
+
+        expect({ answer, observed: await held.observed(AbortSignal.abort()) }).toEqual({
+            answer: 'MessageRejected',
+            observed: false,
+        })
     })
 
     it.each<[string, string, TruthPage | TruthHead]>([

@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { memo, useEffect, useRef, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
@@ -10,9 +11,10 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
+import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { LinkedSignalReport, SignalScoutEmission, SignalScoutRunSummary } from '../../../types'
 import { useInboxReportDetailUrl } from '../../../utils/inboxReportUrls'
-import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
+import { scoutNameForSkill } from '../../../utils/scoutRunsWindow'
 import { SignalReportPriorityBadge } from '../../badges/SignalReportPriorityBadge'
 import { ScoutTimestamp } from './ScoutTimestamp'
 
@@ -57,6 +59,8 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
     showScout?: boolean
 }): JSX.Element {
     const [expanded, setExpanded] = useState(isDeepLinked)
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
+    const scoutName = scoutNameForSkill(scoutNamesBySkill, skillName)
     const cardRef = useRef<HTMLDivElement>(null)
     const reportUrl = useInboxReportDetailUrl()
 
@@ -112,11 +116,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
                         className={`size-4 shrink-0 text-muted transition-transform ${expanded ? '' : '-rotate-90'}`}
                     />
                     <SignalReportPriorityBadge priority={emission.severity} />
-                    {showScout && (
-                        <span className="truncate text-xs font-medium text-default">
-                            {prettifyScoutSkillName(skillName)}
-                        </span>
-                    )}
+                    {showScout && <span className="truncate text-xs font-medium text-default">{scoutName}</span>}
                     <span className="flex-1" />
                     <ScoutTimestamp time={emission.emitted_at} />
                 </button>
@@ -174,7 +174,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
                                 to={urls.inboxScout(skillName)}
                                 className="flex items-center gap-1 font-medium shrink-0"
                             >
-                                View {prettifyScoutSkillName(skillName)} <IconArrowRight className="size-3" />
+                                View {scoutName} <IconArrowRight className="size-3" />
                             </Link>
                         )}
                         {run.task_url && (

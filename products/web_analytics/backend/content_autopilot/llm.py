@@ -9,7 +9,7 @@ import structlog
 from anthropic import Anthropic, AnthropicError, APIConnectionError, InternalServerError, RateLimitError
 from anthropic.types import OutputConfigParam
 
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
+from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
 
 logger = structlog.get_logger(__name__)
 
@@ -28,7 +28,7 @@ class ContentAutopilotLLMError(Exception):
 
 def build_client(*, team_id: int, properties: dict[str, str]) -> Anthropic:
     try:
-        return build_ai_gateway_anthropic_client(
+        return build_anthropic_client(
             ai_product=CONTENT_AUTOPILOT_AI_PRODUCT,
             properties={**properties, "source_product": "content_autopilot"},
             distinct_id=team_distinct_id(team_id),

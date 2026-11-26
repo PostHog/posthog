@@ -13,9 +13,11 @@ from products.warehouse_sources.sources.adjust.adjust import (
     MAX_HISTORY_DAYS,
     MAX_PAGES_PER_WINDOW,
     AdjustCredentialsError,
+    AdjustPageCapError,
     AdjustResumeConfig,
     AdjustRetryableError,
     build_report_params,
+    campaign_api_next_url,
     date_windows,
     extract_rows,
     get_rows,
@@ -24,7 +26,7 @@ from products.warehouse_sources.sources.adjust.adjust import (
     resolve_start_date,
     validate_credentials,
 )
-from products.warehouse_sources.sources.adjust.settings import ADJUST_REPORTS
+from products.warehouse_sources.sources.adjust.settings import ADJUST_REPORTS, FILTER_TYPES
 from products.warehouse_sources.sources.adjust.source import AdjustSource
 from products.warehouse_sources.sources.sdk import ResumableSourceManager
 from products.warehouse_sources.sources.sdk.internals import validate_incremental_sync
@@ -33,6 +35,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 
@@ -88,6 +91,11 @@ class _FakeResumeManager(ResumableSourceManager[AdjustResumeConfig]):
 def _scripted_page(rows: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
     pagination = {"next": next_url} if next_url else None
     return ScriptedResponse(json={"rows": rows, "totals": {}, "pagination": pagination})
+
+
+def _campaign_page(items: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+    paging = {"next": next_url, "cursor": "next-cursor"} if next_url else {}
+    return ScriptedResponse(json={"data": {"paging": paging, "items": items}})
 
 
 def _driver(app_tokens: str | None = None) -> SourceDriver:
@@ -550,3 +558,188 @@ class TestAdjustSource:
 
         assert result.raised is None
         assert result.items == [[{"day": "2024-06-30", "installs": "3"}]]
+
+
+class TestFiltersData:
+    def test_each_filter_type_is_requested_and_rows_keep_their_response_key(self) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            filter_type = request.param("required_filters")
+            if filter_type == "apps":
+                return ScriptedResponse(json={"apps": [{"id": "abc123def456", "name": "App"}, {"name": "No id"}]})
+            if filter_type == "store_type":
+                # Adjust's own example answers with a key that differs from the requested value.
+                return ScriptedResponse(json={"store_types": [{"id": "itunes", "name": "App Store"}]})
+            if filter_type == "networks":
+                return ScriptedResponse(status=400, json={"error": "Unknown filter"})
+            return ScriptedResponse(status=204)
+
+        result = _driver().run("filters_data", answer)
+
+        assert result.raised is None
+        assert result.params("required_filters") == list(FILTER_TYPES)
+        assert result.rows == [
+            {"id": "abc123def456", "name": "App", "filter_type": "apps"},
+            {"id": "itunes", "name": "App Store", "filter_type": "store_types"},
+        ]
+
+    def test_app_lookup_stays_inside_the_app_token_filter(self) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("required_filters") == "apps":
+                return ScriptedResponse(json={"apps": [{"id": "abc123def456"}, {"id": "zzz999yyy888"}]})
+            if request.param("required_filters") == "countries":
+                return ScriptedResponse(json={"countries": [{"id": "de"}]})
+            return ScriptedResponse(status=204)
+
+        result = _driver(app_tokens="abc123def456").run("filters_data", answer)
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "abc123def456", "filter_type": "apps"},
+            {"id": "de", "filter_type": "countries"},
+        ]
+
+    @parameterized.expand([(401,), (404,)])
+    def test_errors_other_than_a_rejected_filter_fail_the_table(self, status: int) -> None:
+        result = _driver().run("filters_data", always(ScriptedResponse(status=status)))
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
+
+
+class TestCampaignApi:
+    def test_partners_follow_the_cursor_to_the_last_page(self) -> None:
+        next_url = "https://api.adjust.com/public/v2/partners?cursor=abc&limit=50"
+        result = _driver().run(
+            "partners",
+            [
+                _campaign_page([{"id": 174, "display_name": "Adcolony"}], next_url=next_url),
+                _campaign_page([{"id": 3, "display_name": "Adroll"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/public/v2/partners", "/public/v2/partners"]
+        assert result.params("cursor") == [None, "abc"]
+        assert result.requests[0].headers["authorization"] == "Bearer token"
+        assert result.rows == [{"id": 174, "display_name": "Adcolony"}, {"id": 3, "display_name": "Adroll"}]
+
+    @parameterized.expand(
+        [
+            ("campaign_api_next", {"paging": {"next": "https://api.adjust.com/public/v2/partners?cursor=a"}}, True),
+            ("missing_paging", {}, False),
+            ("empty_next", {"paging": {"next": ""}}, False),
+            # The credentialed session follows this link, so it must stay on the Campaign API host.
+            ("report_service_host", {"paging": {"next": "https://automate.adjust.com/x?cursor=a"}}, False),
+            ("off_host_next", {"paging": {"next": "https://evil.example.com/x?cursor=a"}}, False),
+            ("http_scheme_next", {"paging": {"next": "http://api.adjust.com/public/v2/partners?cursor=a"}}, False),
+            # urlsplit and requests disagree on these, so the token could reach another host.
+            ("backslash_bypass", {"paging": {"next": "https://evil.example.com\\@api.adjust.com/x"}}, False),
+            ("userinfo", {"paging": {"next": "https://user@api.adjust.com/public/v2/partners"}}, False),
+            ("explicit_port", {"paging": {"next": "https://api.adjust.com:8443/public/v2/partners"}}, False),
+            ("whitespace", {"paging": {"next": "https://api.adjust.com/public/v2/partners?cursor=a b"}}, False),
+            ("invalid_port", {"paging": {"next": "https://api.adjust.com:abc/public/v2/partners"}}, False),
+        ]
+    )
+    def test_only_campaign_api_links_are_followed(self, _name: str, data: dict[str, Any], expected: bool) -> None:
+        assert (campaign_api_next_url(data) is not None) is expected
+
+    @parameterized.expand(
+        [
+            # Every app the token can read, minus an ID that isn't a valid app token.
+            (
+                "every_readable_app",
+                None,
+                ["/reports-service/filters_data", "/apps/aaa111bbb222/trackers", "/apps/ccc333ddd444/trackers"],
+            ),
+            ("configured_app_tokens", "ccc333ddd444", ["/apps/ccc333ddd444/trackers"]),
+        ]
+    )
+    def test_links_fan_out_over_apps(self, _name: str, app_tokens: str | None, expected_paths: list[str]) -> None:
+        apps = [{"id": "aaa111bbb222"}, {"id": "ccc333ddd444"}, {"id": "bad/../token"}]
+        result = _driver(app_tokens=app_tokens).run(
+            "links",
+            route(
+                {
+                    "/reports-service/filters_data": [ScriptedResponse(json={"apps": apps})],
+                    "/apps/aaa111bbb222/trackers": [_campaign_page([])],
+                    "/apps/ccc333ddd444/trackers": [_campaign_page([{"token": "abc123", "level": 1}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [path.removeprefix("/public/v2") for path in result.paths] == expected_paths
+        assert result.rows == [{"token": "abc123", "level": 1, "app_token": "ccc333ddd444"}]
+
+    def test_sublinks_walk_every_level_under_links_with_sublinks(self) -> None:
+        app_path = "/apps/aaa111bbb222/trackers"
+        result = _driver(app_tokens="aaa111bbb222").run(
+            "sublinks",
+            route(
+                {
+                    f"{app_path}/net1/children": [
+                        _campaign_page(
+                            [{"token": "cmp1", "level": 2, "has_subtrackers": True}],
+                            next_url=f"https://api.adjust.com/public/v2{app_path}/net1/children?cursor=p2",
+                        ),
+                        _campaign_page([{"token": "cmp2", "level": 2, "has_subtrackers": False}]),
+                    ],
+                    f"{app_path}/cmp1/children": [
+                        _campaign_page([{"token": "adg1", "level": 3, "has_subtrackers": False}])
+                    ],
+                    # Links without sublinks, or with a token that isn't safe in a URL path, get no request.
+                    app_path: [
+                        _campaign_page(
+                            [
+                                {"token": "net1", "level": 1, "has_subtrackers": True},
+                                {"token": "net2", "level": 1, "has_subtrackers": False},
+                                {"token": "bad/../x", "level": 1, "has_subtrackers": True},
+                            ]
+                        )
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["token"], row["parent_token"], row["app_token"]) for row in result.rows] == [
+            ("cmp1", "net1", "aaa111bbb222"),
+            ("cmp2", "net1", "aaa111bbb222"),
+            ("adg1", "cmp1", "aaa111bbb222"),
+        ]
+
+    def test_page_cap_fails_the_sync_instead_of_truncating(self) -> None:
+        looping = "https://api.adjust.com/public/v2/partners?cursor=again"
+        with mock.patch.object(adjust, "MAX_CAMPAIGN_API_PAGES", 3):
+            result = _driver().run("partners", always(_campaign_page([{"id": 1}], next_url=looping)))
+
+        assert isinstance(result.raised, AdjustPageCapError)
+        assert len(result.requests) == 3
+
+    def test_sublinks_walk_each_link_once_in_a_cyclic_tree(self) -> None:
+        app_path = "/apps/aaa111bbb222/trackers"
+        result = _driver(app_tokens="aaa111bbb222").run(
+            "sublinks",
+            route(
+                {
+                    f"{app_path}/net1/children": [
+                        _campaign_page([{"token": "cmp1", "has_subtrackers": True}]),
+                    ],
+                    # A malformed tree that points back to its own root.
+                    f"{app_path}/cmp1/children": [
+                        _campaign_page([{"token": "net1", "has_subtrackers": True}]),
+                    ],
+                    app_path: [_campaign_page([{"token": "net1", "has_subtrackers": True}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["token"], row["parent_token"]) for row in result.rows] == [("cmp1", "net1"), ("net1", "cmp1")]
+
+    @parameterized.expand([(401,), (403,), (404,)])
+    def test_rejections_match_a_non_retryable_error(self, status: int) -> None:
+        result = _driver().run("partners", always(ScriptedResponse(status=status, json={"error": "denied"})))
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert any(key in str(result.raised) for key in AdjustSource().get_non_retryable_errors())

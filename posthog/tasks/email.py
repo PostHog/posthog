@@ -891,12 +891,18 @@ def send_workflow_email_sending_paused(
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
 def send_workflow_email_sending_warning(
-    team_id: int, hog_flow_id: str, hog_flow_name: str, reason: str, pause_rate: str, warned_at: str
+    team_id: int,
+    hog_flow_id: str,
+    hog_flow_name: str,
+    reason: str,
+    pause_rate: str,
+    warned_at: str,
+    transactional: bool = False,
 ) -> None:
     """
     Warn a project's admins that one workflow's spam complaint or hard bounce rate is approaching
     the pause threshold, while there is still time to act. Not gated by notification settings:
-    ignoring it leads to the pause email above.
+    ignoring it leads to the pause email above, unless the workflow sends only transactional email.
     """
     if not is_email_available(with_absolute_urls=True):
         return
@@ -915,6 +921,7 @@ def send_workflow_email_sending_warning(
             "hog_flow_name": workflow_label,
             "reason": reason,
             "pause_rate": pause_rate,
+            "transactional": transactional,
             "workflow_path": f"/project/{team.id}/workflows/{hog_flow_id}/workflow",
         },
     )
@@ -2181,7 +2188,11 @@ def send_personal_api_keys_changed_by_org_admin(
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_feature_flags_secure_api_key_exposed(
-    team_id: int, mask_value: str, more_info: str, signing_secret_replaced: bool = False
+    team_id: int,
+    mask_value: str,
+    more_info: str,
+    signing_secret_replaced: bool = False,
+    grace_window_ended: bool = False,
 ) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
@@ -2204,6 +2215,7 @@ def send_feature_flags_secure_api_key_exposed(
             "url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-secret-api-keys",
             "conversations_settings_url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-conversations",
             "signing_secret_replaced": signing_secret_replaced,
+            "grace_window_ended": grace_window_ended,
             **get_email_team_and_org_context(team=team),
         },
     )

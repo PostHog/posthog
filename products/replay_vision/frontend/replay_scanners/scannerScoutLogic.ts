@@ -17,7 +17,7 @@ import type {
     SignalScoutOutputDestinationsApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { PatchedSignalScoutConfigUpdateApi } from 'products/signals/frontend/generated/api.schemas'
-import type { ScoutSurface } from 'products/signals/frontend/inbox/inboxAnalytics'
+import type { ScoutDeleteEntryPoint, ScoutSurface } from 'products/signals/frontend/inbox/inboxAnalytics'
 import type { ScoutReportAction } from 'products/signals/frontend/inbox/logics/scoutDetailLogic'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import type { SignalScoutConfig } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
@@ -158,9 +158,11 @@ export interface scannerScoutLogicValues {
 export interface scannerScoutLogicActions {
     deleteScout: (
         configId: string,
-        surface?: ScoutSurface | undefined
+        surface?: ScoutSurface | undefined,
+        entryPoint?: ScoutDeleteEntryPoint | null | undefined
     ) => {
         configId: string
+        entryPoint: ScoutDeleteEntryPoint | null
         surface: ScoutSurface
     } // scoutFleetLogic
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
@@ -744,7 +746,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
          * not read as the whole save failing. */
         const reconcileDelivery = async (
             config: Pick<SignalScoutConfigApi, 'id' | 'skill_name' | 'output_destinations'>,
-            form: Pick<ScannerScoutForm, 'webhookUrl' | 'outputDestinations'>
+            form: Pick<ScannerScoutForm, 'name' | 'webhookUrl' | 'outputDestinations'>
         ): Promise<boolean> => {
             const projectId = teamLogic.values.currentProjectId
             const teamId = teamLogic.values.currentTeamId
@@ -752,7 +754,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 return false
             }
             const skillName = config.skill_name
-            const label = prettifyScoutSkillName(skillName)
+            const label = form.name.trim() || prettifyScoutSkillName(skillName)
             const url = form.webhookUrl.trim()
             try {
                 const existing = await findScoutDelivery(

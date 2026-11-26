@@ -1,8 +1,11 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay } from 'lib/utils/async'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -123,7 +126,7 @@ describe('messageTemplateLogic', () => {
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.saveTemplate({ id: 'existing-id', name: 'Existing' })
+                logic.actions.saveTemplate({ ...logic.values.template, id: 'existing-id', name: 'Existing' })
             }).toDispatchActions(['saveTemplateFailure'])
 
             if (withButton) {
@@ -226,6 +229,48 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic).toMatchValues({ externallyEdited: false, deferredExternalEdit: null })
             expect(logic.values.template.name).toBe(name)
         })
+
+        it.each([
+            {
+                read: 'lands',
+                exportEdit: (callback: (data: any) => void) => callback({ html: '<p>Mine</p>', design: { mine: 1 } }),
+            },
+            {
+                read: 'fails',
+                exportEdit: () => {
+                    throw new Error('unreadable')
+                },
+            },
+        ])(
+            'shows the banner instead of reloading over an edit still in the canvas when its read $read',
+            async ({ exportEdit }) => {
+                const email = { subject: 'Hi', html: '<p>Old</p>', text: 'Old', design: null, from: '', to: '' }
+                const templater = emailTemplaterLogic({
+                    value: email,
+                    onChange: (value) => logic.actions.setTemplateValue('content.email', value),
+                    type: 'native_email_template',
+                    layout: 'inline',
+                })
+                const unmountTemplater = templater.mount()
+                templater.actions.setEmailEditorRef({
+                    editor: {
+                        loadDesign: jest.fn(),
+                        addEventListener: jest.fn(),
+                        exportHtml: exportEdit,
+                        exportPlainText: (callback: (data: any) => void) => callback({ text: 'Mine' }),
+                    },
+                } as any)
+                templater.actions.onEmailEditorReady()
+                templater.actions.designUpdated()
+
+                resourceEditedLogic.actions.resourceEdited(edited())
+
+                await waitFor(() => expect(logic.values.externallyEdited).toBe(true))
+                expect(logic.values.isSyncingExternalEdit).toBe(false)
+                expect(logic.values.template.name).toBe('Existing')
+                unmountTemplater()
+            }
+        )
 
         // A failed reload leaves the stale copy on the form, so the conflict must stay visible with its retry.
         it('shows the banner when the reload of a clean form fails', async () => {
@@ -389,6 +434,17 @@ describe('messageTemplateLogic', () => {
             expect(bodies).toEqual([{ draft_content: edited }])
         })
 
+        it('saves an emptied email to the draft without the null design the server refuses', async () => {
+            jest.useFakeTimers()
+            const emptied = { ...draft, email: { ...draft.email, html: '', design: null } } as any
+
+            logic.actions.setTemplateValue('content', emptied)
+            await jest.advanceTimersByTimeAsync(1500)
+            await expectLogic(logic).toDispatchActions(['saveDraftDone'])
+
+            expect(bodies).toEqual([{ draft_content: { ...draft, email: { subject: 'Draft subject', html: '' } } }])
+        })
+
         it('holds autosave while an edit from elsewhere is unresolved, then saves once the person keeps theirs', async () => {
             jest.useFakeTimers()
             const edited = { ...draft, email: { ...draft.email, subject: 'Edited subject' } }
@@ -402,6 +458,95 @@ describe('messageTemplateLogic', () => {
             await jest.advanceTimersByTimeAsync(1500)
             await expectLogic(logic).toDispatchActions(['saveDraftDone'])
             expect(bodies).toEqual([{ draft_content: edited }])
+        })
+
+        const changedElsewhere = { content: { ...live, email: { ...live.email, subject: 'Changed elsewhere' } } }
+        const useServerCopy = (server: Record<string, unknown>): void => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': {
+                        ...serverTemplate,
+                        ...server,
+                        updated_at: '2026-01-01T00:02:00Z',
+                    },
+                },
+            })
+        }
+        const reloadAfterEditElsewhere = async (): Promise<void> => {
+            await expectLogic(logic, () => logic.actions.syncExternalEdit()).toDispatchActions(['loadTemplateSuccess'])
+        }
+
+        it.each([
+            { case: 'removed it', server: { ...changedElsewhere, draft_content: null }, banner: true },
+            { case: 'published it', server: { content: draft, draft_content: null }, banner: false },
+        ])(
+            'a reload after an edit from elsewhere that $case keeps the typed draft: $banner',
+            async ({ server, banner }) => {
+                useServerCopy(server)
+                await reloadAfterEditElsewhere()
+
+                expect(logic.values.externallyEdited).toBe(banner)
+                expect(logic.values.template.content).toEqual(draft)
+            }
+        )
+
+        it('reloads to the other version on the first click when the banner asks about unsaved typing', async () => {
+            const typed = { ...draft, email: { ...draft.email, subject: 'Typed, not saved yet' } }
+            logic.actions.setExternallyEdited(true)
+            logic.actions.setTemplateValue('content', typed)
+            useServerCopy({ ...changedElsewhere, draft_content: null })
+
+            await reloadAfterEditElsewhere()
+
+            expect(logic.values.externallyEdited).toBe(false)
+            expect(logic.values.template.content).toEqual(changedElsewhere.content)
+        })
+
+        it('asks nothing when the saved draft differs from the server copy only in what the server drops', async () => {
+            logic.actions.saveDraftDone(
+                { ...draft, email: { ...draft.email, design: null } } as any,
+                '2026-01-01T00:01:00Z'
+            )
+            useServerCopy({ name: 'Renamed elsewhere' })
+
+            await reloadAfterEditElsewhere()
+
+            expect(logic.values.externallyEdited).toBe(false)
+        })
+
+        it('asks nothing when the server stored the draft trimmed and only metadata changed elsewhere', async () => {
+            jest.useFakeTimers()
+            const trimmed = { ...draft, email: { ...draft.email, subject: 'Typed subject' } }
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': () => [
+                        200,
+                        { ...serverTemplate, draft_content: trimmed, updated_at: '2026-01-01T00:01:00Z' },
+                    ],
+                },
+            })
+            logic.actions.setTemplateValue('content', {
+                ...draft,
+                email: { ...draft.email, subject: 'Typed subject ' },
+            })
+            await jest.advanceTimersByTimeAsync(1500)
+            await expectLogic(logic).toDispatchActions(['saveDraftDone'])
+            useServerCopy({ name: 'Renamed elsewhere', draft_content: trimmed })
+
+            await reloadAfterEditElsewhere()
+
+            expect(logic.values.externallyEdited).toBe(false)
+        })
+
+        it('saves the typed draft again when the person keeps theirs after it was removed elsewhere', async () => {
+            jest.useFakeTimers()
+            useServerCopy({ ...changedElsewhere, draft_content: null })
+            await reloadAfterEditElsewhere()
+
+            logic.actions.keepMyTemplateVersion()
+            await jest.advanceTimersByTimeAsync(1500)
+            await expectLogic(logic).toDispatchActions(['saveDraftDone'])
+            expect(bodies).toEqual([{ draft_content: draft }])
         })
 
         it('protecting sensitive data saves only the flag, so the draft stays unpublished', async () => {
@@ -426,6 +571,120 @@ describe('messageTemplateLogic', () => {
             expect(bodies[0].content).toEqual(draft)
             expect(bodies[0]).not.toHaveProperty('draft_content')
             expect(bodies[0]).not.toHaveProperty('sensitive')
+        })
+    })
+
+    describe('typing while a save runs', () => {
+        const email = { subject: 'Hi', html: '<p>Sent</p>', text: 'Sent', design: { body: { id: 'sent' } } }
+        const typedEmail = { ...email, html: '<p>Typed</p>', text: 'Typed', design: { body: { id: 'typed' } } }
+        let bodies: Record<string, any>[]
+        let releaseSave: () => void
+        let stored: Record<string, any>
+        let confirmLeave: jest.SpyInstance
+
+        afterEach(() => {
+            confirmLeave.mockRestore()
+            jest.useRealTimers()
+        })
+
+        beforeEach(() => {
+            confirmLeave = jest.spyOn(window, 'confirm').mockReturnValue(true)
+            bodies = []
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, any>
+                bodies.push(body)
+                if (bodies.length === 1) {
+                    await new Promise<void>((resolve) => (releaseSave = resolve))
+                }
+                stored = { ...stored, ...body, ...('content' in body ? { draft_content: null } : {}) }
+                return [200, stored]
+            }
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, stored] },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                },
+            })
+        })
+
+        const start = async (extra: Record<string, unknown> = {}): Promise<void> => {
+            stored = {
+                id: 'existing-id',
+                name: 'Existing',
+                description: '',
+                content: { templating: 'liquid', email },
+                ...extra,
+            }
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+            logic.actions.setTemplateValue('name', 'Sent name')
+            logic.actions.submitTemplate()
+            await waitFor(() => expect(bodies).toHaveLength(1))
+        }
+        const land = async (): Promise<void> => {
+            releaseSave()
+            await expectLogic(logic).toDispatchActions(['saveTemplateSuccess'])
+        }
+
+        it.each([
+            { field: 'the email', path: 'content.email', value: typedEmail, read: (body: any) => body.content.email },
+            { field: 'the name', path: 'name', value: 'Typed name', read: (body: any) => body.name },
+            { field: 'the description', path: 'description', value: 'Typed', read: (body: any) => body.description },
+        ])('keeps $field, leaves it unsaved, and the next save stores it', async ({ path, value, read }) => {
+            await start()
+
+            logic.actions.setTemplateValue(path, value)
+            await land()
+
+            expect(read(bodies[0])).not.toEqual(value)
+            expect(read(logic.values.template)).toEqual(value)
+            expect(logic.values.templateChanged).toBe(true)
+            expect(confirmLeave).not.toHaveBeenCalled()
+
+            logic.actions.submitTemplate()
+            await waitFor(() => expect(bodies).toHaveLength(2))
+            expect(read(bodies[1])).toEqual(value)
+        })
+
+        it('has nothing unsaved when nothing was typed', async () => {
+            await start()
+            await land()
+
+            expect(logic.values.templateChanged).toBe(false)
+            expect(logic.values.template).toMatchObject({ name: 'Sent name', content: { email } })
+        })
+
+        it('saves an edit typed during a publish as the next draft', async () => {
+            await start({ transactional_hog_flow_id: 'flow-id' })
+
+            logic.actions.setTemplateValue('content.email', typedEmail)
+            jest.useFakeTimers()
+            releaseSave()
+            await jest.advanceTimersByTimeAsync(2000)
+
+            expect(bodies[0].content.email).toEqual(email)
+            expect(bodies[1]).toEqual({ draft_content: { templating: 'liquid', email: typedEmail } })
+        })
+
+        it('discards the draft only after a publish lands, and keeps the published email', async () => {
+            await start({
+                transactional_hog_flow_id: 'flow-id',
+                draft_content: { templating: 'liquid', email: typedEmail },
+            })
+
+            logic.actions.confirmDiscardDraft()
+            await new Promise(process.nextTick)
+            expect(bodies).toHaveLength(1)
+            releaseSave()
+            await expectLogic(logic)
+                .toDispatchActions(['saveTemplateSuccess', 'discardDraftDone'])
+                .toFinishAllListeners()
+
+            expect(logic.values.template.content.email).toEqual(typedEmail)
+            expect(logic.values.draftOutOfDate).toBe(false)
+            expect(logic.values.hasDraft).toBe(false)
         })
     })
 
@@ -462,6 +721,115 @@ describe('messageTemplateLogic', () => {
             if (editWhileConverting) {
                 expect(logic.values.template.name).toEqual('Renamed while converting')
             }
+        })
+    })
+
+    describe('tags', () => {
+        let patches: unknown[]
+
+        const tagMocks = (status: number): Parameters<typeof useMocks>[0] => ({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': { id: 'existing-id', name: 'A', tags: ['old'] },
+            },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    patches.push(body)
+                    return [status, { id: 'existing-id', name: 'A', ...body }]
+                },
+            },
+        })
+
+        const mountLoaded = async (): Promise<void> => {
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        }
+
+        beforeEach(() => {
+            patches = []
+        })
+
+        it('keeps every tag added before the first save answers', async () => {
+            useMocks(tagMocks(200))
+            await mountLoaded()
+            // The menu bar has no state of its own, so it adds to whatever tags the template shows.
+            logic.actions.saveTags([...(logic.values.template.tags ?? []), 'a'])
+            logic.actions.saveTags([...(logic.values.template.tags ?? []), 'b'])
+            expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
+            expect(logic.values.templateChanged).toBe(false)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(patches).toEqual([{ tags: ['old', 'a', 'b'] }])
+            expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
+        })
+
+        it('sends the next tags after the save before them answers, also when the person leaves', async () => {
+            const mocks = tagMocks(200)
+            const answers: (() => void)[] = []
+            useMocks({
+                ...mocks,
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        patches.push(body)
+                        await new Promise<void>((resolve) => answers.push(resolve))
+                        return [200, { id: 'existing-id', name: 'A', ...body }]
+                    },
+                },
+            })
+            await mountLoaded()
+            logic.actions.saveTags(['old', 'a'])
+            await waitFor(() => expect(answers).toHaveLength(1))
+            logic.actions.saveTags(['old', 'a', 'b'])
+            logic.unmount()
+            await delay(100)
+            expect(patches).toEqual([{ tags: ['old', 'a'] }])
+
+            answers[0]()
+            // Coming back waits for both, so the page never shows tags from before them.
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await waitFor(() => expect(patches).toEqual([{ tags: ['old', 'a'] }, { tags: ['old', 'a', 'b'] }]))
+            expect(logic.values.originalTemplate.id).not.toBe('existing-id')
+            answers[1]()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        })
+
+        it('keeps a tag added while the template saves', async () => {
+            const mocks = tagMocks(200)
+            let answerSave: (() => void) | undefined
+            useMocks({
+                ...mocks,
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        patches.push(body)
+                        if (body.tags) {
+                            return [200, { id: 'existing-id', name: 'A', tags: body.tags }]
+                        }
+                        await new Promise<void>((resolve) => (answerSave = resolve))
+                        return [200, { id: 'existing-id', name: 'A', tags: ['old'] }]
+                    },
+                },
+            })
+            await mountLoaded()
+            logic.actions.saveTemplate(logic.values.template)
+            await waitFor(() => expect(answerSave).toBeTruthy())
+            logic.actions.saveTags(['old', 'a'])
+            await waitFor(() => expect(patches).toContainEqual({ tags: ['old', 'a'] }))
+            answerSave?.()
+            await expectLogic(logic).toDispatchActions(['saveTemplateSuccess']).toFinishAllListeners()
+            expect(logic.values.template.tags).toEqual(['old', 'a'])
+            expect(logic.values.templateChanged).toBe(false)
+        })
+
+        it('goes back to the saved tags when the save fails', async () => {
+            useMocks(tagMocks(500))
+            await mountLoaded()
+            logic.actions.saveTags(['old', 'a'])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.template.tags).toEqual(['old'])
         })
     })
 })

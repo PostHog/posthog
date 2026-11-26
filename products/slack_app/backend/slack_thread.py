@@ -19,7 +19,14 @@ from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_b
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
+from products.slack_app.backend.logic.fork.menu import fork_menu_actions_block, fork_menu_element
 from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
+from products.slack_app.backend.logic.message_sentiment import (
+    UNHAPPY_SENTIMENTS,
+    SentimentResponseRequest,
+    SentimentResult,
+    respond_to_sentiment,
+)
 from products.slack_app.backend.logic.reply_suggestions import (
     clear_open_suggestions,
     remember_open_suggestions,
@@ -32,8 +39,6 @@ from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
-    fork_menu_actions_block,
-    fork_menu_element,
     leading_mention_prefix,
     load_run_footer,
     normalize_labeled_mentions_to_bare,
@@ -279,6 +284,7 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        turn_person_message_ts: str | None = None,
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
@@ -288,6 +294,8 @@ class SlackThreadHandler:
         self.turn_trace_id = turn_trace_id
         # What the person said to start this turn, so reply suggestions know what they asked for.
         self.turn_person_message = turn_person_message
+        # The context's ts is the message that opened the run, so a later turn carries its own message's ts here.
+        self.turn_person_message_ts = turn_person_message_ts or context.user_message_ts
         # Who this reply is for, which can differ from the task creator because a thread
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
@@ -296,6 +304,7 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
+        self._shared_channel_off: bool | None = None
         self._last_answer: _PostedAnswer | None = None
         # Safe to keep for the handler's life: each activity call builds a fresh handler.
         self._muted_cache: dict[tuple[str | None, bool], bool] = {}
@@ -311,6 +320,7 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        turn_person_message_ts: str | None = None,
         include_thread_cost: bool = False,
     ) -> "SlackThreadHandler":
         """A handler whose footer describes ``run_id``.
@@ -324,6 +334,7 @@ class SlackThreadHandler:
             actor_slack_user_id=actor_slack_user_id,
             turn_trace_id=turn_trace_id,
             turn_person_message=turn_person_message,
+            turn_person_message_ts=turn_person_message_ts,
         )
 
         handler.task_run_id = str(run_id) if run_id is not None else None
@@ -454,7 +465,7 @@ class SlackThreadHandler:
         One append per block, and both after the answer's: a request Slack rejects must
         cost that control alone, never the reply and never its sibling.
         """
-        if self.stream_ended:
+        if self.stream_ended or self._shared_channel_turned_off():
             return
         for block, failure in (
             (self._fork_menu_actions_block(), "slack_app_fork_menu_append_failed"),
@@ -484,12 +495,36 @@ class SlackThreadHandler:
                 logger.warning("slack_auth_test_failed", error=str(e))
         return self._bot_user_id
 
+    def _shared_channel_turned_off(self) -> bool:
+        """Whether an admin turned off replies in this Slack Connect channel after the run started.
+
+        Safe to keep for the handler's life: each activity call builds a fresh handler, so the next one
+        sees a switch that changed mid-run.
+        """
+        if self._shared_channel_off is None:
+            from products.slack_app.backend.logic.shared_channels import (  # noqa: PLC0415 — models import this module's package
+                approved_shared_channel_turned_off,
+            )
+
+            try:
+                self._shared_channel_off = approved_shared_channel_turned_off(
+                    self._get_integration(), self.context.channel
+                )
+            except IntegrationNotFound:
+                self._shared_channel_off = False
+            if self._shared_channel_off:
+                logger.info("slack_app_thread_post_skipped_shared_channel_off", channel=self.context.channel)
+        return self._shared_channel_off
+
     def _post_in_thread(self, **kwargs: Any) -> Any:
         """Post in the run's thread, or nothing at all once the prompt it answers is gone.
 
         Every lifecycle card and relayed answer goes through here, so a user who deletes
-        the prompt mid-run simply stops hearing from us.
+        the prompt mid-run simply stops hearing from us. The same holds for a Slack Connect
+        channel an admin turned off mid-run.
         """
+        if self._shared_channel_turned_off():
+            return None
         return post_slack_thread_reply(
             self._get_client(),
             channel=self.context.channel,
@@ -527,7 +562,7 @@ class SlackThreadHandler:
     def update_reaction(self, emoji: str) -> None:
         """Swap the reaction on the user's mention message."""
         target_ts = self.context.user_message_ts
-        if not target_ts:
+        if not target_ts or self._shared_channel_turned_off():
             return
         try:
             client = self._get_client()
@@ -558,7 +593,7 @@ class SlackThreadHandler:
         if first_markdown_text:
             first_markdown_text = self._with_leading_mention(first_markdown_text)
         chunks = _status_chunks(task_updates, first_markdown_text)
-        if not chunks:
+        if not chunks or self._shared_channel_turned_off():
             return None
         if plan_title:
             chunks.insert(0, _plan_update_chunk(plan_title))
@@ -724,6 +759,8 @@ class SlackThreadHandler:
         """Attach uploaded files to a message whose stream has closed, keeping its blocks and text.
 
         A streaming message cannot hold a file, and chat.update is the only way to add one later."""
+        if self._shared_channel_turned_off():
+            return False
         try:
             self._get_client().chat_update(channel=self.context.channel, ts=ts, file_ids=file_ids)
         except Exception as e:
@@ -735,6 +772,10 @@ class SlackThreadHandler:
         if not chunks:
             return True
         if self.stream_ended:
+            return False
+        if self._shared_channel_turned_off():
+            # The answer then falls back to a thread reply, which refuses too.
+            self.stream_ended = True
             return False
         try:
             self._get_client().chat_appendStream(channel=self.context.channel, ts=ts, chunks=chunks)
@@ -766,6 +807,8 @@ class SlackThreadHandler:
         if footer:
             blocks.append(footer)
 
+        if self._shared_channel_turned_off():
+            return
         try:
             client = self._get_client()
             progress_ts = self._find_progress_message_ts()
@@ -1139,7 +1182,7 @@ class SlackThreadHandler:
         a plain-text answer with no blocks, or an answer composed with chart cards.
         """
         offered = self._suggestions_block(answer_markdown) if answer_markdown else None
-        if offered is None:
+        if offered is None or self._shared_channel_turned_off():
             return
         suggestions, block = offered
         answer = self._last_answer
@@ -1182,9 +1225,27 @@ class SlackThreadHandler:
         )
 
     def offer_feature_tip(self) -> None:
-        """Offer one private prompt under the answer: an interview invitation if the reader is frustrated, else a tip."""
-        if not self.actor_slack_user_id:
+        """React to how the reader feels, then offer one private prompt under the answer: an interview invitation
+        if the reader is unhappy, else a tip."""
+        if not self.actor_slack_user_id or self._shared_channel_turned_off():
             return
+        result: SentimentResult | None = None
+        try:
+            result = respond_to_sentiment(
+                SentimentResponseRequest(
+                    integration=self._get_integration(),
+                    slack_user_id=self.actor_slack_user_id,
+                    posthog_user=self._actor_posthog_user,
+                    channel=self.context.channel,
+                    thread_ts=self.context.thread_ts,
+                    person_message=self.turn_person_message,
+                    person_message_ts=self.turn_person_message_ts,
+                    run_id=self.task_run_id,
+                    trace_id=self.turn_trace_id,
+                )
+            )
+        except Exception:
+            logger.warning("slack_app_sentiment_response_failed", exc_info=True)
         try:
             if offer_frustration_invite(
                 FrustrationInviteRequest(
@@ -1196,6 +1257,7 @@ class SlackThreadHandler:
                     signal="message",
                     person_message=self.turn_person_message,
                     trace_id=self.turn_trace_id,
+                    unhappy=result.sentiment in UNHAPPY_SENTIMENTS if result is not None else None,
                 )
             ):
                 return
