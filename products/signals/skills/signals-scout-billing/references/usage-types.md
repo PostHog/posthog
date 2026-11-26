@@ -137,6 +137,10 @@ Exceeding a `custom_limits_usd` spending limit usually means PostHog stops inges
 The billing MCP tool **strips `never_drop_data` from the overview response**, so a scout cannot tell which case an organization is in.
 Write the consequence as a possibility — "may stop ingesting", "features may stop" — never as a certainty. Overstating it in a customer-facing report is worse than under-claiming.
 
+For period-based billing limits, lowering sampling, adding filters, or sending less data only reduces future usage.
+It does not clear usage already counted against the limit.
+If the limit has stopped ingestion or processing, ask someone with billing access to raise it or wait for the next billing period.
+
 ## Trials come in two shapes
 
 Both are supported and the older one is checked first elsewhere in the product:

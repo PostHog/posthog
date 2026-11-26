@@ -260,6 +260,10 @@ Structure the answer around the user's question:
 4. Whether it looks expected, noisy, concerning, or unresolved
 5. What to check or change next
 
+For period-based billing limits, lowering sampling, adding filters, or sending less data only reduces future usage.
+It does not clear usage already counted against the limit.
+If the limit has stopped ingestion or processing, ask someone with billing access to raise it or wait for the next billing period.
+
 Be honest about uncertainty. If the data only shows the usage concentration but not the
 root cause, say that. If an alert is mathematically valid but likely caused by a normal
 weekend pattern, holiday, campaign, batch job, or other expected cycle, say that. If the
