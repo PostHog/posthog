@@ -3156,7 +3156,7 @@ class Resolver(CloningVisitor):
             if holds is None:
                 continue
             for constant in _string_constants(literal_side):
-                if any(char.isdigit() for char in constant.value):
+                if any(char in "0123456789" for char in constant.value):
                     continue
                 field_name = _compared_field_name(date_side)
                 subject = f"'{field_name}'" if field_name else "this column"

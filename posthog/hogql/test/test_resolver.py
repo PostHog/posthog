@@ -2481,6 +2481,11 @@ class TestResolver(BaseTest):
                 "SELECT rate FROM exchange_rate WHERE date IN ('2026-01-31', 'none')",
                 "'date', which holds dates",
             ),
+            (
+                "non_ascii_digits",
+                "SELECT event FROM events WHERE timestamp != '٢٠٢٦'",
+                "'timestamp', which holds dates and times",
+            ),
         ]
     )
     def test_date_literal_without_digits_raises(self, _name, query, subject):
