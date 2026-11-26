@@ -268,6 +268,8 @@ class TestRenderSectionMrkdwn(SimpleTestCase):
             ("escaped_bracket", "\\[Sign in](https://evil.example/login)"),
             ("bracket_in_label", "[a]b](https://evil.example/login)"),
             ("bracket_ping", "[a]b](!channel)"),
+            ("fullwidth_ping", "\uff1c!channel\uff1e"),
+            ("small_form_ping", "\ufe64!here\ufe65"),
             ("image", "![a]b](https://evil.example/p.png)"),
         ]
     )
