@@ -216,7 +216,7 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
 
         assert set(self._lists(second)) == {"Customer.io people (EU workspace 1002)"}
 
-    def test_segments_fill_a_cohort_each_except_those_posthog_keeps_up_to_date(self) -> None:
+    def test_segments_fill_a_cohort_each_next_to_any_realtime_cohort(self) -> None:
         self.workspace.people = [person(1), person(2, unsubscribed=True), person(3, None), person(4)]
         self.workspace.segments = [
             {"id": 1, "name": "All Users", "type": "dynamic", "state": "finished"},
@@ -256,10 +256,22 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
                 "person-2@example.com": False,
                 "person-4@example.com": True,
             },
+            # The automation import's realtime cohort stays, and the static copy sits next to it.
+            "Rules (from Customer.io)": {
+                "person-1@example.com": True,
+                "person-2@example.com": False,
+                "person-4@example.com": True,
+            },
         }
         warnings = " ".join(first.progress["contacts"]["warnings"])
-        assert '"Building" wasn\'t imported' in warnings and '"Rules" wasn\'t imported' in warnings
-        assert [plan["send_events"] for plan in first.progress["contacts"]["people_imports"]] == [True, False, False]
+        assert '"Building" wasn\'t imported' in warnings and '"Rules"' not in warnings
+        assert [plan["send_events"] for plan in first.progress["contacts"]["people_imports"]] == [
+            True,
+            False,
+            False,
+            False,
+        ]
+        assert Cohort.objects.filter(team=self.team, name="Rules", cohort_type="realtime").exists()
 
         runs.finish_run(self.team.id, first.id)
         # A renamed segment keeps its cohort, and one that lost everyone empties it.

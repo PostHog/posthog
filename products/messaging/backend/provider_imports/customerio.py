@@ -57,7 +57,7 @@ from products.messaging.backend.services.customerio_import_service import (
     topic_category_key,
     topic_name_in_preferences,
 )
-from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH, has_customerio_segment_rules_cohort
+from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +309,7 @@ def _fetch_contacts(
     export Customer.io already started, so a retry reads that one rather than waiting for another."""
     assert service.client is not None
     client = service.client
-    segments = _read_segments(client, context.team_id)
+    segments = _read_segments(client)
     export_id = int(checkpoint["export"]) if checkpoint and checkpoint.get("export") else None
     if export_id is None:
         export_id = start_people_export(client, [segment.id for segment in segments if not segment.problem])
@@ -336,7 +336,7 @@ class _Segment:
     problem: str = ""
 
 
-def _read_segments(client: CustomerIOClient, team_id: int) -> list[_Segment]:
+def _read_segments(client: CustomerIOClient) -> list[_Segment]:
     """Manual segments first, because PostHog can rebuild the others from their rules."""
     segments: list[_Segment] = []
     for row in client.get("/segments").get("segments") or []:
@@ -346,8 +346,6 @@ def _read_segments(client: CustomerIOClient, team_id: int) -> list[_Segment]:
         problem = ""
         if row.get("state", "finished") != "finished":
             problem = "Customer.io is still building it."
-        elif not is_manual and has_customerio_segment_rules_cohort(team_id, str(row["id"])):
-            problem = "It already has a cohort from your automations import."
         segments.append(
             _Segment(
                 id=str(row["id"]),
