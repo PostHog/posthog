@@ -111,6 +111,8 @@ from products.signals.dags.inbox_ranking.training.families import (
     NN_WITH_PRIO_FAMILY,
     NN_WITH_PRIO_ML_FEATURES_BACKFILL_MODEL_NAME,
     NN_WITH_PRIO_ML_FEATURES_MODEL_NAME,
+    NN_WITH_PRIO_ML_FEATURES_PROJ8_EXPERIMENT_MODEL_NAME,
+    NN_WITH_PRIO_ML_FEATURES_PROJ8_FAMILY,
     NN_WITH_PRIO_ML_FEATURES_V2_FAMILY,
     NN_WITH_PRIO_MODEL_NAME,
     PAIR_GRAIN,
@@ -1189,16 +1191,7 @@ def test_a_backfill_family_trains_with_its_late_groups_and_records_readiness_per
     assert all(event.properties["content_fit_carried_share"] == 1.0 for event in events)
 
 
-def test_the_serving_ml_features_family_trains_without_its_batch_and_records_the_facts_mix(monkeypatch):
-    pytest.importorskip("torch")
-    monkeypatch.setattr(nn_dag, "capture_training_events", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        nn_dag, "NETWORK_CONFIG", NetworkConfig(projection_dim=8, trunk_dim=8, dropout=0.1, epochs=5, batch_size=64)
-    )
-    monkeypatch.setattr(nn_dag, "training_consent_team_ids", lambda: frozenset(TEAMS))
-    family = NN_WITH_PRIO_ML_FEATURES_V2_FAMILY
-    examples, objects, day = _report_facts_objects()
-    rows = examples.table.rows
+def _scored_facts_object(rows: pd.DataFrame) -> bytes:
     # The sweep recorded the facts of every other report, at noon of its birth day.
     scored = rows.iloc[::2]
     facts = pa.Table.from_pylist(
@@ -1214,7 +1207,21 @@ def test_the_serving_ml_features_family_trains_without_its_batch_and_records_the
         ],
         schema=SCORED_FACTS_SCHEMA,
     )
-    client = _S3({**objects, partition_object_key(PREFIX, SCORED_FACTS_TABLE, day): _parquet(facts)})
+    return _parquet(facts)
+
+
+def test_the_serving_ml_features_family_trains_without_its_batch_and_records_the_facts_mix(monkeypatch):
+    pytest.importorskip("torch")
+    monkeypatch.setattr(nn_dag, "capture_training_events", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        nn_dag, "NETWORK_CONFIG", NetworkConfig(projection_dim=8, trunk_dim=8, dropout=0.1, epochs=5, batch_size=64)
+    )
+    monkeypatch.setattr(nn_dag, "training_consent_team_ids", lambda: frozenset(TEAMS))
+    family = NN_WITH_PRIO_ML_FEATURES_V2_FAMILY
+    examples, objects, day = _report_facts_objects()
+    client = _S3(
+        {**objects, partition_object_key(PREFIX, SCORED_FACTS_TABLE, day): _scored_facts_object(examples.table.rows)}
+    )
 
     with dagster.build_asset_context(partition_key=day) as context:
         nn_dag.train_candidate(context, client, "bucket", day, family)
@@ -1229,6 +1236,47 @@ def test_the_serving_ml_features_family_trains_without_its_batch_and_records_the
             head = readiness["heads"][name][split]
             assert sum(head["facts_sources"].values()) == head["rows"]
             assert head["sources"]["content"].get("scored_facts", 0) == head["facts_sources"].get("scored_facts", 0)
+
+
+def test_the_narrow_projection_experiment_fits_its_baseline_arm_on_its_own_input_with_the_baseline_settings(
+    monkeypatch,
+):
+    pytest.importorskip("torch")
+    from products.signals.dags.inbox_ranking.nn import train as nn_train  # noqa: PLC0415 — torch is optional here
+
+    monkeypatch.setattr(nn_dag, "capture_training_events", lambda *args, **kwargs: None)
+    baseline_config = NetworkConfig(projection_dim=8, trunk_dim=8, dropout=0.1, epochs=5, batch_size=64)
+    monkeypatch.setattr(nn_dag, "NETWORK_CONFIG", baseline_config)
+    monkeypatch.setattr(nn_dag, "EXPERIMENT_SEEDS", (0, 1))
+    monkeypatch.setattr(nn_dag, "training_consent_team_ids", lambda: frozenset(TEAMS))
+    registered = next(
+        family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_ML_FEATURES_PROJ8_EXPERIMENT_MODEL_NAME
+    )
+    family = dataclasses.replace(registered, network_config=dataclasses.replace(baseline_config, projection_dim=2))
+    # The experiment arm's seed fits, then the baseline arm's.
+    fitted_projections: list[int] = []
+    seed_networks = nn_train.seed_networks
+
+    def record_seed_networks(table, inputs, heads, config, *args, **kwargs):
+        fitted_projections.append(config.projection_dim)
+        return seed_networks(table, inputs, heads, config, *args, **kwargs)
+
+    monkeypatch.setattr(nn_train, "seed_networks", record_seed_networks)
+    examples, objects, day = _report_facts_objects()
+    # No batch object: the baseline trains without it, so the experiment does too rather than skipping.
+    client = _S3(
+        {**objects, partition_object_key(PREFIX, SCORED_FACTS_TABLE, day): _scored_facts_object(examples.table.rows)}
+    )
+
+    with dagster.build_asset_context(partition_key=day) as context:
+        nn_dag.train_candidate(context, client, "bucket", day, family)
+
+    metadata = json.loads(client.objects[model_object_key(PREFIX, family.name, day, METADATA_FILE)])
+    assert metadata["network_config"]["projection_dim"] == 2
+    assert metadata["recipe"]["learner_params"]["projection_dim"] == 2
+    assert metadata["readiness"]["feature_backfill"]["days_read"] == 0
+    assert metadata["vs_baseline"]["baseline"] == NN_WITH_PRIO_ML_FEATURES_V2_FAMILY.name
+    assert fitted_projections == [2, 8]
 
 
 def test_a_report_family_recipe_has_no_pair_keys_so_its_hash_stays_as_it_was():
@@ -1260,6 +1308,21 @@ def test_a_report_family_recipe_has_no_pair_keys_so_its_hash_stays_as_it_was():
         for family in (NN_WITH_PRIO_ML_FEATURES_V2_FAMILY, backfill)
     )
     assert {key for key in served if served[key] != experiment[key]} == {"feature_set"}
+    for family in MODEL_FAMILIES:
+        if family.network_config is None:
+            assert nn_dag.family_network_config(family) == config
+    narrow, narrow_experiment = (
+        network_recipe(family, nn_dag.family_network_config(family), PROJECT_VECTOR_KINDS)
+        for family in (
+            NN_WITH_PRIO_ML_FEATURES_PROJ8_FAMILY,
+            next(f for f in MODEL_FAMILIES if f.name == NN_WITH_PRIO_ML_FEATURES_PROJ8_EXPERIMENT_MODEL_NAME),
+        )
+    )
+    assert narrow == narrow_experiment
+    assert {key for key in narrow if narrow[key] != served[key]} == {"learner_params"}
+    assert {
+        name: value for name, value in narrow["learner_params"].items() if served["learner_params"][name] != value
+    } == {"projection_dim": 8}
 
 
 def test_a_reference_score_is_broadcast_to_every_pair_of_its_report():
