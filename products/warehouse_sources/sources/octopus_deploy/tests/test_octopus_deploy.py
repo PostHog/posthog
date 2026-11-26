@@ -118,7 +118,10 @@ class TestOctopusDeploySourceResponse:
         [
             ("spaces", ["Id"], None),
             ("users", ["Id"], None),
+            ("teams", ["Id"], None),
             ("projects", ["SpaceId", "Id"], None),
+            ("runbooks", ["SpaceId", "Id"], None),
+            ("runbook_runs", ["SpaceId", "Id"], "Created"),
             ("releases", ["SpaceId", "Id"], "Assembled"),
             ("deployments", ["SpaceId", "Id"], "Created"),
             ("tasks", ["SpaceId", "Id"], "QueueTime"),
@@ -128,7 +131,7 @@ class TestOctopusDeploySourceResponse:
     )
     def test_response_shape(self, endpoint, primary_keys, partition_key):
         script = [_page([], has_next=False)]
-        if endpoint not in ("spaces", "users"):
+        if endpoint not in ("spaces", "users", "teams"):
             script = [_page([{"Id": "Spaces-1"}], has_next=False), *script]
         result = _driver().run(endpoint, script)
         assert result.raised is None
@@ -196,14 +199,28 @@ class TestGetRows:
         # Spaces-1 was already completed before the crash — not re-fetched.
         assert "/api/Spaces-1/projects" not in result.paths
 
-    @pytest.mark.parametrize("endpoint, path", [("spaces", "/api/spaces"), ("users", "/api/users")])
-    def test_instance_level_endpoint_skips_space_fan_out(self, endpoint, path):
-        responses = [_page([{"Id": "A-1"}, {"Id": "A-2"}], has_next=False)]
+    # Teams must ask for every space and for the built-in system teams (SpaceId null), on every page.
+    @pytest.mark.parametrize(
+        "endpoint, path, spaces, include_system",
+        [
+            ("spaces", "/api/spaces", None, None),
+            ("users", "/api/users", None, None),
+            ("teams", "/api/teams", "all", "true"),
+        ],
+    )
+    def test_instance_level_endpoint_skips_space_fan_out(self, endpoint, path, spaces, include_system):
+        responses = [
+            _page([{"Id": "A-1"}, {"Id": "A-2", "SpaceId": None}], has_next=True),
+            _page([{"Id": "A-3"}], has_next=False),
+        ]
         result = _driver().run(endpoint, responses)
 
         assert result.raised is None
-        assert result.paths == [path]
-        assert result.rows == [{"Id": "A-1"}, {"Id": "A-2"}]
+        assert result.paths == [path, path]
+        assert result.rows == [{"Id": "A-1"}, {"Id": "A-2", "SpaceId": None}, {"Id": "A-3"}]
+        assert result.params("spaces") == [spaces, spaces]
+        assert result.params("includeSystem") == [include_system, include_system]
+        assert result.params("skip") == ["0", "2"]
 
     def test_incremental_filter_applied_to_every_page(self):
         responses = [

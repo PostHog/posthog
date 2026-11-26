@@ -390,6 +390,18 @@ def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
     }
 
 
+def _sandbox_name(config: SandboxConfig) -> str:
+    """A name no earlier create in this provision used, so a retry cannot collide with the sandbox it replaces.
+
+    One provision makes several creates: every image candidate and every readiness recreate.
+    Modal rejects a create when the name is held by a sandbox the same provision just made.
+    Egress probes keep the fixed name because the probe runner looks them up by it.
+    """
+    if config.agent_egress_probe:
+        return config.name
+    return f"{config.name}-{uuid.uuid4().hex[:6]}"
+
+
 LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
@@ -1217,13 +1229,10 @@ class ModalSandbox(AgentServerLaunchMixin):
                 secret = modal.Secret.from_dict(env_dict)
                 secrets.append(secret)
 
-            sandbox_name = config.name if config.agent_egress_probe else f"{config.name}-{uuid.uuid4().hex[:6]}"
-
             region = _get_modal_region()
 
             create_kwargs: dict[str, object] = {
                 "app": app,
-                "name": sandbox_name,
                 "timeout": config.ttl_seconds,
                 **_resource_create_kwargs(config),
                 "region": region,
@@ -1399,7 +1408,12 @@ class ModalSandbox(AgentServerLaunchMixin):
         """
         for index, candidate in enumerate(candidates):
             config.dev_stack_present = candidate.has_dev_stack
-            attempt_kwargs = {**create_kwargs, "image": candidate.image, **_resource_create_kwargs(config)}
+            attempt_kwargs = {
+                **create_kwargs,
+                "name": _sandbox_name(config),
+                "image": candidate.image,
+                **_resource_create_kwargs(config),
+            }
             try:
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:

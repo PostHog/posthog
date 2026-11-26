@@ -1,6 +1,7 @@
 import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
+from decimal import Decimal
 from string import Formatter
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
@@ -40,6 +41,8 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_UNIQUE_ARRAY_AGGREGATES,
     TRINO_VECTOR_REWRITES,
     TRINO_WINDOW_ONLY_FUNCTIONS,
+    array_indexes,
+    bounded_sequence,
 )
 from posthog.hogql.printer.trino_json import keys_and_values, keys_and_values_path, parse_keys_and_values_type
 from posthog.hogql.printer.trino_lambda_aggregates import aggregates_to_hoist
@@ -59,6 +62,9 @@ if TYPE_CHECKING:
 # Trino refuses a sorted LIMIT whose LIMIT + OFFSET is above this. On the outermost query a LIMIT that large
 # cannot cut a result, so the printer drops it. In a nested query it can, so the printer refuses it.
 TRINO_MAX_LIMIT = 2**31 - 1
+TRINO_DECIMAL_MAX_PRECISION = 38
+CLICKHOUSE_DECIMAL_MAX_SCALE = {32: 9, 64: 18, 128: 38, 256: 76}
+CLICKHOUSE_DECIMAL_INT_BACKED_BITS = frozenset({32, 64})
 
 _TRINO_SIMPLE_TYPES = {
     "bigint": "BIGINT",
@@ -884,7 +890,7 @@ class TrinoPrinter(PostgresPrinter):
             return f"array_max({self._visit_mapped_array_arg(node)})"
         if name == "arrayenumerate":
             value = self._visit_unary_arg(node)
-            return f"IF(cardinality({value}) = 0, CAST(ARRAY[] AS ARRAY(BIGINT)), sequence(1, cardinality({value})))"
+            return f"IF(cardinality({value}) = 0, CAST(ARRAY[] AS ARRAY(BIGINT)), {array_indexes(value)})"
         if name in {"arrayexists", "arrayall"}:
             return self._visit_lambda_array_call(node, "any_match" if name == "arrayexists" else "all_match")
         if name == "intdiv":
@@ -2060,6 +2066,7 @@ class TrinoPrinter(PostgresPrinter):
             ast.ArithmeticOperationOp.Add,
             ast.ArithmeticOperationOp.Sub,
             ast.ArithmeticOperationOp.Mult,
+            ast.ArithmeticOperationOp.Mod,
         }:
             return self._is_integer_operand(node.left) and self._is_integer_operand(node.right)
         return False
@@ -2129,11 +2136,11 @@ class TrinoPrinter(PostgresPrinter):
             "uuid": "UUID",
         }
         trino_type = simple_types.get(type_name.lower())
-        decimal_match = re.fullmatch(r"decimal(?:32|64|128|256)\((\d+)\)", type_name, re.IGNORECASE)
+        decimal_match = re.fullmatch(r"decimal(32|64|128|256)\((\d+)\)", type_name, re.IGNORECASE)
         if decimal_match is not None:
-            scale = int(decimal_match.group(1))
-            if scale <= 38:
-                trino_type = f"DECIMAL(38, {scale})"
+            decimal_bits, scale = int(decimal_match.group(1)), int(decimal_match.group(2))
+            if scale <= min(CLICKHOUSE_DECIMAL_MAX_SCALE[decimal_bits], TRINO_DECIMAL_MAX_PRECISION):
+                trino_type = f"DECIMAL({TRINO_DECIMAL_MAX_PRECISION}, {scale})"
         if trino_type is None:
             self._unsupported(
                 "TRINO_CAST_TARGET_UNSUPPORTED",
@@ -2163,6 +2170,12 @@ class TrinoPrinter(PostgresPrinter):
             if isinstance(source_type, ast.StringType):
                 valid = f"{value} = trim({value}) AND {valid}"
             converted = f"CAST({decimal_value} AS {trino_type})"
+        elif decimal_match is not None and decimal_bits in CLICKHOUSE_DECIMAL_INT_BACKED_BITS:
+            converted = f"TRY_CAST({value} AS {trino_type})"
+            decimal_minimum, decimal_maximum = (
+                Decimal(bound).scaleb(-scale) for bound in integer_bounds[f"int{decimal_bits}"]
+            )
+            valid = f"{converted} BETWEEN DECIMAL '{decimal_minimum:f}' AND DECIMAL '{decimal_maximum:f}'"
         elif normalized_type in {"bool", "boolean"} and isinstance(
             source_type, (ast.IntegerType, ast.FloatType, ast.DecimalType)
         ):
@@ -3203,7 +3216,7 @@ class TrinoPrinter(PostgresPrinter):
             end = self.visit(node.args[1])
         else:
             self._invalid_function_arguments(node, "range expects one to three arguments in Trino mode.")
-        step = ""
+        step = 1
         if len(node.args) == 3:
             step_arg = node.args[2]
             # A constant positive step keeps the Trino sequence ascending, as the exclusive end filter assumes.
@@ -3218,14 +3231,15 @@ class TrinoPrinter(PostgresPrinter):
                     "range requires a constant positive integer step in Trino mode.",
                     node,
                 )
-            step = f", {step_arg.value}"
+            step = step_arg.value
         value = self._print_identifier("__hogql_range_value")
         if all(isinstance(arg, ast.Constant) for arg in node.args):
-            return f"filter(sequence({start}, greatest(({end}) - 1, {start}){step}), {value} -> ({value} < {end}))"
+            values = bounded_sequence(start, f"greatest(({end}) - 1, {start})", step)
+            return f"filter({values}, {value} -> ({value} < {end}))"
+        values = bounded_sequence("__hogql_range[1]", "greatest(__hogql_range[2] - 1, __hogql_range[1])", step)
         return (
             f"element_at(transform(ARRAY[ROW({start}, {end})], __hogql_range -> "
-            f"filter(sequence(__hogql_range[1], greatest(__hogql_range[2] - 1, __hogql_range[1]){step}), "
-            f"{value} -> ({value} < __hogql_range[2]))), 1)"
+            f"filter({values}, {value} -> ({value} < __hogql_range[2]))), 1)"
         )
 
     def _visit_map_from_arrays(self, node: ast.Call) -> str:
@@ -3458,11 +3472,12 @@ class TrinoPrinter(PostgresPrinter):
         if split:
             size = "cardinality(__hogql_scan_array)"
             condition_index = "__hogql_position - 1" if name == "arrayreversesplit" else "__hogql_position"
-            positions = f"filter(sequence(1, {size}), __hogql_position -> IF(__hogql_position > 1, CAST(element_at(__hogql_flags, {condition_index}) AS BOOLEAN), FALSE))"
+            positions = f"filter({array_indexes('__hogql_scan_array')}, __hogql_position -> IF(__hogql_position > 1, CAST(element_at(__hogql_flags, {condition_index}) AS BOOLEAN), FALSE))"
             boundaries = f"concat(ARRAY[1], {positions}, ARRAY[{size} + 1])"
+            segments = bounded_sequence("1", "cardinality(__hogql_boundaries) - 1")
             result = (
                 f"element_at(transform(ARRAY[{boundaries}], __hogql_boundaries -> "
-                "transform(sequence(1, cardinality(__hogql_boundaries) - 1), __hogql_segment -> "
+                f"transform({segments}, __hogql_segment -> "
                 "slice(__hogql_scan_array, __hogql_boundaries[__hogql_segment], "
                 "__hogql_boundaries[__hogql_segment + 1] - __hogql_boundaries[__hogql_segment]))), 1)"
             )
@@ -3728,13 +3743,16 @@ class TrinoPrinter(PostgresPrinter):
                 "toDecimal requires a constant integer scale in Trino mode.",
                 node,
             )
-        if scale.value < 0 or scale.value > 38:
+        if scale.value < 0 or scale.value > CLICKHOUSE_DECIMAL_MAX_SCALE[64]:
             self._unsupported(
                 "TRINO_DECIMAL_SCALE_OUT_OF_RANGE",
-                "toDecimal scale must be between 0 and 38 in Trino mode.",
+                f"toDecimal scale must be between 0 and {CLICKHOUSE_DECIMAL_MAX_SCALE[64]} in Trino mode.",
                 node,
             )
-        return f"CAST({self.visit(node.args[0])} AS DECIMAL(38, {scale.value}))"
+        return self._visit_accurate_cast(
+            ast.Call(name="accurateCastOrNull", args=[node.args[0], ast.Constant(value=f"Decimal64({scale.value})")]),
+            nullable=True,
+        )
 
     def _visit_to_nullable_string(self, node: ast.Call) -> str:
         if len(node.args) != 1:

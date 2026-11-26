@@ -366,6 +366,7 @@ export interface CohortHistoryBuildApi {
  * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
  * * `members_over_limit` - Members over limit
  * * `test_account_filter` - Test account filter
+ * * `unsupported_time_range` - Unsupported time range
  */
 export type CohortRealtimeUnavailableReasonEnumApi =
     (typeof CohortRealtimeUnavailableReasonEnumApi)[keyof typeof CohortRealtimeUnavailableReasonEnumApi]
@@ -378,10 +379,11 @@ export const CohortRealtimeUnavailableReasonEnumApi = {
     IncludesNonRealtimeCohort: 'includes_non_realtime_cohort',
     MembersOverLimit: 'members_over_limit',
     TestAccountFilter: 'test_account_filter',
+    UnsupportedTimeRange: 'unsupported_time_range',
 } as const
 
 export interface CohortRealtimeReadinessApi {
-    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
      *
      * * `static` - Static
      * * `person_properties` - Person properties
@@ -399,7 +401,7 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
-    /** Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
+    /** Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: `too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
      *
      * * `history_over_limit` - History over limit
      * * `too_large_to_build` - Too large to build
@@ -407,7 +409,8 @@ export interface CohortRealtimeReadinessApi {
      * * `action_criteria` - Action criteria
      * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
      * * `members_over_limit` - Members over limit
-     * * `test_account_filter` - Test account filter */
+     * * `test_account_filter` - Test account filter
+     * * `unsupported_time_range` - Unsupported time range */
     reason: CohortRealtimeUnavailableReasonEnumApi | null
     /**
      * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
@@ -659,31 +662,47 @@ export interface CohortUsedInWorkflowsBlockApi {
     has_more: boolean
 }
 
+export interface CohortCalculationQueryApi {
+    /** Text of the query. */
+    query?: string
+    /** ClickHouse query ID. */
+    query_id?: string
+    /** Query duration in milliseconds. */
+    query_ms?: number
+    /** Peak memory the query used, in megabytes. */
+    memory_mb?: number
+    /** Rows the query read. */
+    read_rows?: number
+    /** Rows the query wrote. */
+    written_rows?: number
+}
+
 export interface CohortCalculationHistoryApi {
     readonly id: string
     /** Cohort filters/properties at time of calculation */
-    filters: unknown
+    readonly filters: unknown
     /**
      * Number of people in cohort
-     * @minimum 0
-     * @maximum 2147483647
      * @nullable
      */
-    count?: number | null
+    readonly count: number | null
     /** When calculation started */
-    started_at?: string
+    readonly started_at: string
     /**
      * When calculation finished
      * @nullable
      */
-    finished_at?: string | null
-    /** Array of query information (query, query_id, query_ms, memory_mb, read_rows, written_rows) */
-    queries?: unknown
+    readonly finished_at: string | null
+    /**
+     * Queries the calculation ran, in order. Each entry only has the keys that were recorded.
+     * @nullable
+     */
+    readonly queries: readonly CohortCalculationQueryApi[] | null
     /**
      * Error message if calculation failed
      * @nullable
      */
-    error?: string | null
+    readonly error: string | null
     /**
      * Calculate duration in seconds if both start and end times are available
      * @nullable

@@ -66,6 +66,7 @@ import {
 } from "./agent-server";
 import { ContextSelection, type HumanMessage } from "./context-selection";
 import { CredentialRelayError } from "./credential-relay";
+import { AiGatewayNotConfiguredError } from "./gateway-env";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
 
@@ -466,9 +467,6 @@ it("links gateway requests to the run span exported after session shutdown", asy
     });
   const mswServer = setupServer(
     ...createPostHogHandlers({ baseUrl: "http://localhost:8000" }),
-    http.get("http://llm-gateway.internal:8080/*", () =>
-      HttpResponse.json({ data: [] }),
-    ),
   );
   const directory = await mkdtemp(join(tmpdir(), "agent-telemetry-"));
   const server = new AgentServer({
@@ -489,8 +487,10 @@ it("links gateway requests to the run span exported after session shutdown", asy
   mswServer.listen({ onUnhandledRequest: "error" });
   try {
     vi.stubEnv("OTEL_TRACES_SAMPLER", "always_on");
+    vi.stubEnv("AI_GATEWAY_URL", "http://localhost:8080");
+    vi.stubEnv("AI_GATEWAY_PRODUCTS", "posthog_code");
+    vi.stubEnv("AI_GATEWAY_TOKEN", "phe_test");
     for (const key of [
-      "AI_GATEWAY_URL",
       "POSTHOG_API_KEY",
       "POSTHOG_API_URL",
       "POSTHOG_API_HOST",
@@ -505,13 +505,13 @@ it("links gateway requests to the run span exported after session shutdown", asy
     const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
       options: { env: Record<string, string> };
     };
-    const headers = request.options.env.ANTHROPIC_CUSTOM_HEADERS;
-    const traceId = headers.match(
-      /^x-posthog-property-task_run_trace_id: ([0-9a-f]{32})$/m,
-    )?.[1];
-    const spanId = headers.match(
-      /^x-posthog-property-task_run_span_id: ([0-9a-f]{16})$/m,
-    )?.[1];
+    const properties = JSON.parse(
+      request.options.env.ANTHROPIC_CUSTOM_HEADERS.match(
+        /^X-PostHog-Properties: (.*)$/m,
+      )?.[1] ?? "{}",
+    ) as { task_run_trace_id?: string; task_run_span_id?: string };
+    const traceId = properties.task_run_trace_id;
+    const spanId = properties.task_run_span_id;
     expect(traceId).toBeDefined();
     expect(spanId).toBeDefined();
 
@@ -732,6 +732,13 @@ describe("AgentServer HTTP Mode", () => {
     updateTaskRunCalls = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
+    // The worker routes every gateway-billed run to Go with a minted token.
+    vi.stubEnv("AI_GATEWAY_URL", "http://localhost:8080");
+    vi.stubEnv(
+      "AI_GATEWAY_PRODUCTS",
+      "posthog_code,background_agents,workflows,signals",
+    );
+    vi.stubEnv("AI_GATEWAY_TOKEN", "phe_test");
   }, 30_000);
 
   afterEach(async () => {
@@ -1241,9 +1248,70 @@ describe("AgentServer HTTP Mode", () => {
       30000,
     );
 
+    // The worker mints no gateway env for subscription runs, so the exemption
+    // alone keeps them from the gateway refusal.
+    it.each([
+      {
+        run: "a Claude subscription run",
+        overrides: { claudeModelAccess: "own-subscription" },
+        refused: false,
+      },
+      {
+        run: "a Codex subscription run",
+        overrides: {
+          runtimeAdapter: "codex",
+          codexModelAccess: "own-subscription",
+        },
+        refused: false,
+      },
+      { run: "a gateway-billed Claude run", overrides: {}, refused: true },
+      {
+        run: "a gateway-billed Codex run",
+        overrides: { runtimeAdapter: "codex" },
+        refused: true,
+      },
+    ] as const)(
+      "with no AI_GATEWAY_* env, refuses $run: $refused",
+      async ({ overrides, refused }) => {
+        for (const key of [
+          "AI_GATEWAY_URL",
+          "AI_GATEWAY_PRODUCTS",
+          "AI_GATEWAY_TOKEN",
+          "AI_GATEWAY_PRODUCT",
+        ]) {
+          vi.stubEnv(key, undefined);
+        }
+        const testServer = createServer(overrides) as unknown as {
+          _doInitializeSession(payload: JwtPayload): Promise<void>;
+          openProductSession(): Promise<void>;
+        };
+        // Stops at the product session so the Codex case never spawns the CLI.
+        const pastGatewayEnv = new Error("reached the product session");
+        vi.spyOn(testServer, "openProductSession").mockRejectedValue(
+          pastGatewayEnv,
+        );
+
+        const initialization = testServer._doInitializeSession({
+          task_id: "test-task-id",
+          run_id: "test-run-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "test-distinct-id",
+          mode: "interactive",
+        });
+
+        if (refused) {
+          await expect(initialization).rejects.toBeInstanceOf(
+            AiGatewayNotConfiguredError,
+          );
+        } else {
+          await expect(initialization).rejects.toBe(pastGatewayEnv);
+        }
+      },
+    );
+
     it("routes the session to the gateway product the server names", async () => {
       await mkdir("/tmp/workspace", { recursive: true });
-      vi.stubEnv("LLM_GATEWAY_URL", "https://gateway.example.com");
       stubRunPolicy({ billing_product: "workflows" });
       mockedClaudeSdk.query.mockClear();
       await createServer({ runtimeAdapter: "claude" }).start();
@@ -1252,7 +1320,10 @@ describe("AgentServer HTTP Mode", () => {
         options: { env?: Record<string, string> };
       };
       expect(request?.options?.env?.ANTHROPIC_BASE_URL).toBe(
-        "https://gateway.example.com/workflows",
+        "http://localhost:8080",
+      );
+      expect(request?.options?.env?.ANTHROPIC_CUSTOM_HEADERS).toContain(
+        '"ai_product":"workflows"',
       );
     }, 30000);
 
@@ -1265,7 +1336,7 @@ describe("AgentServer HTTP Mode", () => {
         options: { env?: Record<string, string> };
       };
       expect(request?.options?.env?.ANTHROPIC_CUSTOM_HEADERS).toContain(
-        "x-posthog-property-task_run_policy_source: missing_server",
+        '"task_run_policy_source":"missing_server"',
       );
     }, 30000);
 
@@ -4443,7 +4514,6 @@ describe("AgentServer HTTP Mode", () => {
     it.each(["token", "no_token", "cancel", "reconnect"])(
       "handles %s during subscription initialization",
       async (outcome) => {
-        vi.stubEnv("LLM_GATEWAY_URL", undefined);
         const s = createServer({ claudeModelAccess: "own-subscription" });
         const { app } = s as unknown as {
           app: { fetch(request: Request): Promise<Response> | Response };

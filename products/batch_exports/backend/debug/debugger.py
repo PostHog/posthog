@@ -34,6 +34,7 @@ from products.batch_exports.backend.service import (
     get_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import with_inserted_at_field
+from products.batch_exports.backend.temporal.clickhouse import resolve_clickhouse_endpoint
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     bigquery_default_fields,
@@ -178,16 +179,6 @@ class BatchExportsDebugger:
             secret_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             region=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
             endpoint_override=endpoint_url,
-        )
-        self.clickhouse_client = ClickHouseClient(
-            url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-            max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
-            max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
-            cancel_http_readonly_queries_on_client_close=1,
-            output_format_arrow_string_as_string="true",
         )
 
     def switch_teams(self, team_id: int):
@@ -441,6 +432,8 @@ class BatchExportsDebugger:
             else None
         )
 
+        reads_new_events_table = False
+        reads_recent_events = False
         if batch_export_run.parent.model == BatchExport.Model.PERSONS:
             if is_backfill and full_range[0] is None:
                 query = SELECT_FROM_PERSONS_BACKFILL
@@ -458,16 +451,18 @@ class BatchExportsDebugger:
                 parameters["include_events"] = []
 
             fields = with_inserted_at_field(default_fields_for_destination(batch_export_run.parent.destination.type))
-            if batch_exports_read_new_events_table(team_id):
+            reads_new_events_table = batch_exports_read_new_events_table(team_id)
+            if reads_new_events_table:
                 filters_str = ""
                 if filters:
                     filters_str, extra_query_parameters = compose_filters_clause(
                         filters, team_id=team_id, values=extra_query_parameters, use_new_events_schema=True
                     )
 
-                if use_distributed_events_recent_table(
+                reads_recent_events = use_distributed_events_recent_table(
                     is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
-                ):
+                )
+                if reads_recent_events:
                     query = native_recent_events_export_query(
                         fields,
                         filters_str,
@@ -485,12 +480,14 @@ class BatchExportsDebugger:
                     and not is_backfill
                 ):
                     query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+                    reads_recent_events = True
                 # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
                 # which is a distributed table that sits in front of the `events_recent` table
                 elif use_distributed_events_recent_table(
                     is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
                 ):
                     query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
+                    reads_recent_events = True
                 elif is_backfill:
                     query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
                 else:
@@ -512,7 +509,22 @@ class BatchExportsDebugger:
 
         parameters = {**parameters, **extra_query_parameters}
 
-        yield from self.clickhouse_client.stream_query_as_arrow(query, query_parameters=parameters)
+        endpoint = resolve_clickhouse_endpoint(
+            reads_new_events_table=reads_new_events_table, reads_recent_events=reads_recent_events
+        )
+        clickhouse_client = ClickHouseClient(
+            url=endpoint.url,
+            cluster=endpoint.cluster,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            password_file=settings.CLICKHOUSE_PASSWORD_FILE,
+            database=settings.CLICKHOUSE_DATABASE,
+            max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
+            max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
+            cancel_http_readonly_queries_on_client_close=1,
+            output_format_arrow_string_as_string="true",
+        )
+        yield from clickhouse_client.stream_query_as_arrow(query, query_parameters=parameters)
 
     def load_run_clickhouse_data(
         self,

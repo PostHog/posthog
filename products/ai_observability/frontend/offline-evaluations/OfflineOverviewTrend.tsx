@@ -2,13 +2,16 @@ import { useActions, useValues, type BuiltLogic } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { ScorerBadges } from '../scoreDefinitions/ScorerBadges'
+import { experimentScoreLabel } from './ExperimentScoreResult'
+import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
 import { offlineOverviewTrendLogic, type OfflineOverviewTrendLogicProps } from './offlineOverviewTrendLogic'
-import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
+import { OfflineScoreCounts, OfflineSummaryMetrics } from './OfflineScoreSummaryDisplay'
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
 import { getOfflineHistoryCoverage } from './offlineScoreTrends'
 
@@ -26,6 +29,9 @@ export function OfflineOverviewTrend(
     const { loadOfflineOverviewTrend, selectVersion } = useActions(logic)
     const versionIndex = versionSummaries.findIndex((summary) => summary.scorer.id === periodSummary?.scorer.id)
     const hasPartialHistory = !!trend && trend.page.count > trend.page.results.length
+    const isExperimentScore = trend?.definition.scope === 'experiment'
+    const showChart = !isExperimentScore || trend?.definition.kind === 'numeric'
+    const latestScore = isExperimentScore && showChart ? points[0]?.experiment.experiment_score : null
     const scoredItemCount = periodSummary
         ? periodSummary.pass_count != null && periodSummary.fail_count != null
             ? periodSummary.pass_count + periodSummary.fail_count
@@ -58,16 +64,28 @@ export function OfflineOverviewTrend(
                                 {trend.definition.short_name || trend.definition.name}
                             </Link>
                         </h3>
-                        <LemonTag type="muted" weight="normal">
-                            {trend.definition.kind}
-                        </LemonTag>
-                        {trend.definition.calculation === 'composite' && (
-                            <LemonTag type="info" weight="normal">
-                                composite
-                            </LemonTag>
-                        )}
+                        <ScorerBadges
+                            scorer={{ ...(periodSummary?.scorer ?? trend.definition), scope: trend.definition.scope }}
+                        />
                         {periodSummary && (
-                            <div className="flex items-center gap-1 ml-auto">
+                            <div className="ml-auto min-w-0">
+                                <OfflineSummaryMetrics summary={periodSummary} compact />
+                            </div>
+                        )}
+                        {latestScore && (
+                            <div className="ml-auto inline-flex items-baseline gap-2">
+                                <strong className="tabular-nums">{experimentScoreLabel(latestScore)}</strong>
+                                <span className="text-xs text-muted">Latest run</span>
+                            </div>
+                        )}
+                    </div>
+                    {periodSummary && (
+                        <div className="grid min-h-6 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 text-muted text-xs">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                <OfflineScoreCounts summary={periodSummary} showPassRate={false} />
+                                <span>{`${periodSummary.experimentCount} ${periodSummary.experimentCount === 1 ? 'experiment' : 'experiments'} (${scoredItemCount} ${scoredItemCount === 1 ? 'item' : 'items'})`}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
                                 {versionSummaries.length > 1 && (
                                     <LemonButton
                                         size="xsmall"
@@ -105,12 +123,44 @@ export function OfflineOverviewTrend(
                                     />
                                 )}
                             </div>
-                        )}
-                    </div>
-                    {periodSummary && (
-                        <div className="flex flex-col gap-1">
-                            <OfflineScoreSummaryDisplay summary={periodSummary} />
-                            <div className="text-muted text-xs">{`${periodSummary.experimentCount} ${periodSummary.experimentCount === 1 ? 'experiment' : 'experiments'} (${scoredItemCount} ${scoredItemCount === 1 ? 'item' : 'items'})`}</div>
+                        </div>
+                    )}
+                    {isExperimentScore && points.length > 0 && (
+                        <div
+                            className={
+                                showChart
+                                    ? 'flex min-h-6 min-w-0 flex-wrap items-center gap-x-3 gap-y-1'
+                                    : 'min-w-0 space-y-1'
+                            }
+                        >
+                            {!showChart && <div className="text-xs text-muted">Recent runs</div>}
+                            {points.slice(0, showChart ? 1 : 3).map((point) => {
+                                const score = point.experiment.experiment_score
+                                return (
+                                    score && (
+                                        <div
+                                            key={point.experiment.id}
+                                            className="flex flex-wrap items-baseline gap-x-2 text-sm"
+                                        >
+                                            {!latestScore && (
+                                                <strong className="tabular-nums">
+                                                    {experimentScoreLabel(score, true)}
+                                                </strong>
+                                            )}
+                                            <Link
+                                                subtle
+                                                to={offlineExperimentUrl(point)}
+                                                data-attr="offline-experiment-trend-open-run"
+                                                className="min-w-0 break-words"
+                                            >
+                                                {point.experiment.name}
+                                            </Link>
+                                            <span className="text-muted text-xs">v{score.version}</span>
+                                        </div>
+                                    )
+                                )
+                            })}
+                            <div className="text-muted text-xs">{`${points.filter((point) => point.experiment.experiment_score?.status === 'ok').length} of ${points.length} ${points.length === 1 ? 'run' : 'runs'} scored`}</div>
                         </div>
                     )}
                     {hasPartialHistory && (
@@ -119,11 +169,12 @@ export function OfflineOverviewTrend(
                             <p className="mb-0">Earlier experiments and scorer versions may not be shown.</p>
                         </div>
                     )}
-                    {points.length ? (
+                    {points.length > 0 && showChart && (
                         <OfflineScoreTrendChart
                             heightClassName="h-36"
                             showHeading={false}
                             combineVersions
+                            passingRuleVersionId={periodSummary?.scorer.id}
                             hoverLogic={overviewLogic}
                             xDomain={props.xDomain}
                             colorOffset={props.colorOffset}
@@ -137,15 +188,10 @@ export function OfflineOverviewTrend(
                                     dateTo: props.dateTo,
                                 },
                             ]}
-                            onPointClick={(point) =>
-                                router.actions.push(
-                                    combineUrl(urls.aiObservabilityOfflineEvaluationExperiment(point.experiment.id), {
-                                        scorer_version_id: point.summary.scorer.id,
-                                    }).url
-                                )
-                            }
+                            onPointClick={(point) => router.actions.push(offlineExperimentUrl(point))}
                         />
-                    ) : (
+                    )}
+                    {!points.length && (
                         <p className="text-muted my-4">No experiments with this score match these filters.</p>
                     )}
                 </>

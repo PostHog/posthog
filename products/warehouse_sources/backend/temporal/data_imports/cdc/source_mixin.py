@@ -118,6 +118,7 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
         from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
             retire_orphaned_companions,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import buffer_generation
         from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import kept_history_naming
         from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import hand_reset_to_capture
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
@@ -204,6 +205,7 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
             inputs.logger,
             deletion_floor=deletion_floor,
             proof=proof,
+            generation_seen=buffer_generation(schema.sync_type_config),
         )
         return SourceResponse(
             name=lanes[0].name,

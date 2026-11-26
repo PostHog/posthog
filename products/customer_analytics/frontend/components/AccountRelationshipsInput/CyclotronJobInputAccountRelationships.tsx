@@ -1,12 +1,20 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
+import {
+    Combobox,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxList,
+    ComboboxTrigger,
+} from 'lib/ui/quill'
 import { fullName } from 'lib/utils/strings'
 
 import type { AccountRelationshipDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -93,34 +101,35 @@ function AddDefinitionDropdown({
     onSelect: (id: string) => void
     loading: boolean
 }): JSX.Element {
-    const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
 
     return (
         <Combobox
             items={available}
+            disabled={loading}
             itemToStringValue={(d: AccountRelationshipDefinitionApi) => d.name}
-            open={open}
-            onOpenChange={setOpen}
             value={null}
             onValueChange={(d: AccountRelationshipDefinitionApi | null) => {
                 if (d) {
                     onSelect(d.id)
                 }
-                setOpen(false)
             }}
         >
-            <LemonButton
+            <ComboboxTrigger
                 ref={triggerRef}
-                type="secondary"
-                size="small"
-                icon={<IconPlus />}
-                loading={loading}
-                disabledReason={loading ? 'Loading relationship definitions…' : undefined}
-                onClick={() => setOpen(true)}
+                showChevron={false}
+                render={
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlus />}
+                        loading={loading}
+                        disabledReason={loading ? 'Loading relationship definitions…' : undefined}
+                    />
+                }
             >
                 Add relationship
-            </LemonButton>
+            </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef}>
                 <ComboboxInput placeholder="Search relationships" showTrigger={false} />
                 <ComboboxEmpty>No relationships found</ComboboxEmpty>

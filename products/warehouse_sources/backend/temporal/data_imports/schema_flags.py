@@ -50,9 +50,14 @@ def is_team_flag_enabled(team_id: int, flag: str, *, raise_on_error: bool = Fals
 
 
 def is_source_flag_enabled(source: ExternalDataSource, flag: str) -> bool:
-    """Evaluate a rollout flag for a whole source, for a decision made before its schemas exist."""
+    """Evaluate a rollout flag for a whole source, for a decision made before its schemas exist.
+
+    `source_id` is passed as a person property, so a flag can be released to a single source.
+    """
     return _is_flag_enabled_for_team(
-        source.team_id, flag, lambda: {"team_id": str(source.team_id), "source_type": source.source_type}
+        source.team_id,
+        flag,
+        lambda: {"team_id": str(source.team_id), "source_type": source.source_type, "source_id": str(source.id)},
     )
 
 

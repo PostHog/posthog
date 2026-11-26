@@ -46,7 +46,7 @@ from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
 from ee.billing.access_token import mint_billing_access_token
-from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
+from ee.billing.billing_types import BillingLimits, BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
 from ee.billing.grants import EffectiveBillingGrants
 from ee.billing.quota_limiting import BILLING_STATUS_STAMP_KEYS, set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
@@ -276,6 +276,7 @@ def build_billing_token(
 
 
 DEACTIVATED_ORGANIZATIONS_SERVICE_ACTION = "deactivated_organizations"
+LIMITING_SERVICE_ACTION = "limiting"
 
 
 def build_billing_system_token(license: License, service_action: str) -> str:
@@ -1317,6 +1318,23 @@ class BillingManager:
         handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()["deactivated_organization_ids"]
+
+    def get_limiting(self, organization_ids: list[str]) -> BillingLimits:
+        """What billing's limiting holds, and when the usage behind it was reported.
+
+        `limits` has a row per finite limit, for every customer over one and for these organizations.
+        Only a 200 is an answer: the default valid_codes would pass the 404 of a billing without the endpoint.
+        """
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/internal/limiting",
+            headers=self._system_auth_headers(LIMITING_SERVICE_ACTION),
+            json={"organization_ids": organization_ids},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
+
+        return res.json()
 
     def activate_trial(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(
