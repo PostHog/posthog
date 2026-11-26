@@ -311,8 +311,10 @@ class TestCreateFromInsight(BaseTest):
         assert metric.source_insight_query_hash
         assert compute_drift([metric])[metric.id] is False
 
-    def test_insight_without_a_date_range_snapshots_all_time(self) -> None:
-        insight = self._insight({"kind": "HogQLQuery", "query": _FILTERS_SQL, "filters": {"filterTestAccounts": True}})
+    @parameterized.expand([("bare_hogql", False), ("sql_insight", True)])
+    def test_insight_without_a_date_range_snapshots_all_time(self, _name: str, wrapped: bool) -> None:
+        hogql = {"kind": "HogQLQuery", "query": _FILTERS_SQL, "filters": {"filterTestAccounts": True}}
+        insight = self._insight({"kind": "DataVisualizationNode", "source": hogql} if wrapped else hogql)
         expected_filters = {"filterTestAccounts": True, "dateRange": {"date_from": "all"}}
 
         metric = upsert_metric(
