@@ -109,6 +109,7 @@ class NotebookAppSchedule(TeamScopedRootMixin, UUIDModel):
     configured_at = models.DateTimeField(default=timezone.now)
     next_due_at = models.DateTimeField()
     last_success_at = models.DateTimeField(null=True)
+    checked_node_ids = models.JSONField(default=list, db_default=[])
     stale_at = models.DateTimeField(null=True, db_index=True)
     stale_notified = models.BooleanField(default=False)
     outputs = models.JSONField(default=dict)
@@ -135,6 +136,7 @@ class NotebookAppRefreshRun(TeamScopedRootMixin, UUIDModel):
     status = models.CharField(max_length=12, choices=Status, default=Status.QUEUED)
     detail = models.CharField(max_length=200, blank=True)
     output_count = models.PositiveIntegerField(default=0)
+    checked_count = models.PositiveIntegerField(default=0, db_default=0)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["schedule", "due_at"], name="notebook_app_refresh_slot")]

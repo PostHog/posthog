@@ -997,6 +997,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             data["interval_minutes"],
             data["freshness_minutes"],
             data["enabled"],
+            data.get("checked_node_ids"),
         )
         return Response(NotebookAppRefreshStatusSerializer(refresh_status(notebook.team_id, notebook.pk)).data)
 

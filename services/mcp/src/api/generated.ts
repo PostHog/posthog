@@ -78200,6 +78200,12 @@ export namespace Schemas {
       layout: NotebookAppLayout;
     }
 
+    export interface NotebookAppRefreshCheckTarget {
+      node_id: string;
+      title: string;
+      kind: string;
+    }
+
     export interface NotebookAppRefreshHistory {
       revision: number;
       due_at: string;
@@ -78208,6 +78214,9 @@ export namespace Schemas {
       status: string;
       detail: string;
       output_count: number;
+      checked_count: number;
+      /** @nullable */
+      duration_seconds: number | null;
     }
 
     export interface NotebookAppRefreshedOutput {
@@ -78228,6 +78237,8 @@ export namespace Schemas {
     }
 
     export interface NotebookAppRefreshStatus {
+      check_targets: NotebookAppRefreshCheckTarget[];
+      checked_node_ids: string[];
       published_revision: number;
       enabled: boolean;
       revision?: number;
@@ -78262,6 +78273,12 @@ export namespace Schemas {
     }
 
     export interface NotebookAppScheduleSettings {
+      /**
+         * Published Python or connected SQL cells to check privately with the schedule owner's current access.
+         * @maxItems 3
+         * @items.maxLength 128
+         */
+      checked_node_ids?: string[];
       /**
          * Published revision to refresh.
          * @minimum 0

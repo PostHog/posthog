@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { pluralize } from 'lib/utils/strings'
 
 import {
     notebooksAppRefreshOutputsRetrieve,
@@ -25,6 +26,45 @@ const intervals = [
 
 const localDate = (value: string): string => dayjs(value).format('MMM D, YYYY HH:mm')
 
+function PrivateCheckSettings({
+    targets,
+    selected,
+    onChange,
+}: {
+    targets: NotebookAppRefreshStatusApi['check_targets']
+    selected: string[]
+    onChange: (selected: string[]) => void
+}): JSX.Element | null {
+    if (!targets?.length) {
+        return null
+    }
+    return (
+        <fieldset className="border rounded p-3 flex flex-col gap-2 w-full">
+            <legend>Private runtime checks</legend>
+            <p className="m-0 text-secondary">
+                Choose up to three cells to run with your current access. History records the outcome and duration. Each
+                viewer runs a cell in the app to see its output with their own access.
+            </p>
+            {targets.map((target) => {
+                const checked = selected.includes(target.node_id)
+                return (
+                    <LemonCheckbox
+                        key={target.node_id}
+                        checked={checked}
+                        label={target.title + ' · ' + target.kind}
+                        disabledReason={!checked && selected.length >= 3 ? 'Choose up to three cells.' : undefined}
+                        onChange={(next) =>
+                            onChange(
+                                next ? [...selected, target.node_id] : selected.filter((id) => id !== target.node_id)
+                            )
+                        }
+                    />
+                )
+            })}
+        </fieldset>
+    )
+}
+
 function ScheduleSettings({
     status,
     onSave,
@@ -36,15 +76,20 @@ function ScheduleSettings({
 }): JSX.Element {
     const [interval, setIntervalMinutes] = useState(status.interval_minutes ?? 1440)
     const [freshness, setFreshness] = useState<number | undefined>(status.freshness_minutes ?? 2880)
+    const [selected, setSelected] = useState<string[]>(
+        status.revision === status.published_revision ? (status.checked_node_ids ?? []) : []
+    )
     const save = (enabled: boolean): void =>
         onSave({
             enabled,
+            checked_node_ids: selected,
             revision: status.published_revision,
             interval_minutes: interval,
             freshness_minutes: freshness ?? interval,
         })
     return (
         <div className="flex flex-wrap gap-3 items-end">
+            <PrivateCheckSettings targets={status.check_targets} selected={selected} onChange={setSelected} />
             <label className="flex flex-col gap-1">
                 Refresh interval
                 <LemonSelect
@@ -109,6 +154,7 @@ function RefreshHistory({ status }: { status: NotebookAppRefreshStatusApi }): JS
                         <th>Release</th>
                         <th>Result</th>
                         <th>Details</th>
+                        <th>Duration</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -120,9 +166,10 @@ function RefreshHistory({ status }: { status: NotebookAppRefreshStatusApi }): JS
                             <td>
                                 {run.detail ||
                                     (run.finished_at
-                                        ? `${run.output_count} outputs · ${localDate(run.finished_at)}`
+                                        ? `${pluralize(run.output_count, 'SQL output')} · ${pluralize(run.checked_count ?? 0, 'private check')}`
                                         : 'Waiting for refresh')}
                             </td>
+                            <td>{run.duration_seconds != null ? Math.round(run.duration_seconds) + 's' : '—'}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -144,14 +191,17 @@ export function RefreshDetails({
     onReload: () => void
     onSave?: (settings: NotebookAppScheduleSettingsApi) => void
 }): JSX.Element {
+    const hasChecks = !!status.checked_node_ids?.length
     const active = status.enabled && status.revision === status.published_revision
     const state = status.stale ? 'Stale' : status.last_success_at ? 'Fresh' : 'Waiting for first refresh'
     return (
         <details className="border rounded p-3 mb-3">
             <summary className="cursor-pointer">
-                <strong>Scheduled SQL refresh</strong>
+                <strong>{hasChecks ? 'Scheduled refresh and runtime checks' : 'Scheduled SQL refresh'}</strong>
                 <span className="ml-2">
-                    <LemonTag type={active && status.stale ? 'warning' : 'default'}>{active ? state : 'Off'}</LemonTag>
+                    <LemonTag type={active && status.stale ? 'warning' : 'default'}>
+                        {active ? (hasChecks && state === 'Fresh' ? 'On schedule' : state) : 'Off'}
+                    </LemonTag>
                 </span>
             </summary>
             <div className="flex flex-col gap-3 mt-3">
@@ -159,6 +209,13 @@ export function RefreshDetails({
                     Freshness applies to native SQL outputs that use the published inputs. Python, connected SQL,
                     widgets, and outputs that depend on them keep their published results.
                 </p>
+                {hasChecks && (
+                    <p className="m-0">
+                        {status.checked_node_ids.length} private runtime{' '}
+                        {status.checked_node_ids.length === 1 ? 'check' : 'checks'} scheduled. To see a result, open its
+                        cell in the published app and run it with your access.
+                    </p>
+                )}
                 {onSave && (
                     <>
                         <p className="m-0">

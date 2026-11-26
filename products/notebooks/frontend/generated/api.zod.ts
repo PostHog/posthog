@@ -1809,6 +1809,10 @@ export const NotebooksAppQueriesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksAppRefreshScheduleCreateBodyCheckedNodeIdsItemMax = 128
+
+export const notebooksAppRefreshScheduleCreateBodyCheckedNodeIdsMax = 3
+
 export const notebooksAppRefreshScheduleCreateBodyRevisionMin = 0
 
 export const notebooksAppRefreshScheduleCreateBodyIntervalMinutesDefault = 1440
@@ -1820,6 +1824,13 @@ export const notebooksAppRefreshScheduleCreateBodyFreshnessMinutesMin = 60
 export const notebooksAppRefreshScheduleCreateBodyFreshnessMinutesMax = 43200
 
 export const NotebooksAppRefreshScheduleCreateBody = /* @__PURE__ */ zod.object({
+    checked_node_ids: zod
+        .array(zod.string().max(notebooksAppRefreshScheduleCreateBodyCheckedNodeIdsItemMax))
+        .max(notebooksAppRefreshScheduleCreateBodyCheckedNodeIdsMax)
+        .optional()
+        .describe(
+            "Published Python or connected SQL cells to check privately with the schedule owner's current access."
+        ),
     revision: zod
         .number()
         .min(notebooksAppRefreshScheduleCreateBodyRevisionMin)
