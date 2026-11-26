@@ -109,6 +109,26 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return taggedItemActivityDescriber(logItem, asNotification)
     }
 
+    if (logItem.activity === 'merged') {
+        const source = nameOrId(logItem.detail?.context?.source_name, logItem.item_id)
+        const target = nameOrId(logItem.detail?.context?.target_name, logItem.detail?.context?.target_id)
+        return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Merged tag <strong>{source}</strong> into
+                </>,
+                target
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> merged tag <strong>{source}</strong> into{' '}
+                    <strong>{target}</strong>
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'created') {
         return {
             summary: activityLogSummary(logItem, 'Created the tag', nameOrId(logItem?.detail?.name, logItem?.item_id)),
