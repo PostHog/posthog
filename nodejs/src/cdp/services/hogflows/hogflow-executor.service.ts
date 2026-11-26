@@ -20,6 +20,7 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
     WarehouseWebhookPayload,
+    sendsEmail,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
@@ -742,10 +743,9 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
-            queueMetadata:
-                invocation.queue === 'email'
-                    ? withoutMetadata(invocation.queueMetadata, PER_SEND_METADATA_KEYS)
-                    : undefined,
+            queueMetadata: sendsEmail(invocation.queue)
+                ? withoutMetadata(invocation.queueMetadata, PER_SEND_METADATA_KEYS)
+                : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 

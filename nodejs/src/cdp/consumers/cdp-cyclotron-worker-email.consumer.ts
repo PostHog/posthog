@@ -19,7 +19,12 @@ import {
     firstDueAt,
     inFlightLimitsFor,
 } from '../services/messaging/in-flight-registry'
-import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    EmailQueueKind,
+} from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { settleAllThenThrowFirst } from '../utils/settle-all'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -246,3 +251,8 @@ function withoutDeferralCount(invocation: CyclotronJobInvocation): CyclotronJobI
     const { attachmentDeferrals: _, ...queueMetadata } = invocation.queueMetadata
     return { ...invocation, queueMetadata }
 }
+
+export const EMAIL_QUEUE_CONSUMERS = { email: CdpCyclotronWorkerEmail } satisfies Record<
+    EmailQueueKind,
+    typeof CdpCyclotronWorkerEmail
+>

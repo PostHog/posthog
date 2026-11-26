@@ -2,7 +2,12 @@ import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 
-import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, SandboxEmailOutcome } from '../../../types'
+import {
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    SandboxEmailOutcome,
+    sendsEmail,
+} from '../../../types'
 import { EmailStatusService, isTransactionalEmailRun, messageCreatedAtOf } from '../../messaging/email-status.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
@@ -176,6 +181,6 @@ function toStepResult({ outcome, reason, messageId }: SandboxEmailOutcome): Sand
 }
 
 function priorityOutsideEmailQueue(invocation: CyclotronJobInvocationHogFlow): number {
-    const originPriority = invocation.queue === 'email' ? invocation.queueMetadata?.originPriority : undefined
+    const originPriority = sendsEmail(invocation.queue) ? invocation.queueMetadata?.originPriority : undefined
     return typeof originPriority === 'number' ? originPriority : invocation.queuePriority
 }

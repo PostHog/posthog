@@ -12,6 +12,7 @@ import { sleep } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createPromise } from '~/tests/helpers/promises'
 
+import { CYCLOTRON_QUEUE_ROLES, EMAIL_QUEUES, FAIR_DEQUEUE_QUEUES } from '../../types'
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
     deserializeResolverState,
@@ -50,6 +51,7 @@ function createManager(overrides?: Record<string, unknown>): CyclotronV2Manager 
         pool: { dbUrl: DB_URL },
         depthLimit: 1_000_000,
         depthCheckIntervalMs: 0, // always re-check in tests
+        ...CYCLOTRON_QUEUE_ROLES,
         ...overrides,
     })
 }
@@ -58,6 +60,7 @@ function createWorker(queueName = QUEUE, overrides?: Record<string, unknown>): C
     return new CyclotronV2Worker({
         pool: { dbUrl: DB_URL },
         queueName,
+        fairDequeueQueues: FAIR_DEQUEUE_QUEUES,
         batchMaxSize: 100,
         pollDelayMs: 10,
         includeEmptyBatches: true,
@@ -1599,11 +1602,11 @@ describe('Cyclotron V2', () => {
             const IN_TWO_DAYS = new Date(Date.now() + 2 * 24 * 3600 * 1000)
             const storedState = { state: { scheduledAt: 'original', html: 'a\u0000b' }, queueParameters: { x: 1 } }
 
-            async function seedScheduledEmail(teamId = 1): Promise<string> {
+            async function seedScheduledEmail(teamId = 1, queueName: string = 'email'): Promise<string> {
                 const [id] = await manager.bulkCreateJobs([
                     {
                         teamId,
-                        queueName: 'email',
+                        queueName,
                         functionId: uuidv7(),
                         scheduled: IN_A_WEEK(),
                         state: Buffer.from(JSON.stringify(storedState)),
@@ -1624,43 +1627,49 @@ describe('Cyclotron V2', () => {
                 ],
             ] as const
 
-            it('cancels an unclaimed email job so no worker claims it, once', async () => {
-                const id = await seedScheduledEmail()
+            it.each(EMAIL_QUEUES)(
+                'cancels an unclaimed job on the %s queue so no worker claims it, once',
+                async (queueName) => {
+                    const id = await seedScheduledEmail(1, queueName)
 
-                const first = await manager.cancelUnclaimed(1, id)
-                const repeat = await manager.cancelUnclaimed(1, id)
+                    const first = await manager.cancelUnclaimed(1, id)
+                    const repeat = await manager.cancelUnclaimed(1, id)
 
-                expect(first).toMatchObject({
-                    outcome: 'canceled',
-                    job: { id, teamId: 1, queueName: 'email', state: Buffer.from(JSON.stringify(storedState)) },
-                })
-                expect(repeat).toEqual({
-                    outcome: 'already_canceled',
-                    job: first.outcome === 'canceled' ? first.job : null,
-                })
-                expect(await queryJob(id)).toMatchObject({ status: 'canceled', transition_count: 0, lock_id: null })
-            })
+                    expect(first).toMatchObject({
+                        outcome: 'canceled',
+                        job: { id, teamId: 1, queueName, state: Buffer.from(JSON.stringify(storedState)) },
+                    })
+                    expect(repeat).toEqual({
+                        outcome: 'already_canceled',
+                        job: first.outcome === 'canceled' ? first.job : null,
+                    })
+                    expect(await queryJob(id)).toMatchObject({ status: 'canceled', transition_count: 0, lock_id: null })
+                }
+            )
 
-            it('moves an unclaimed email job and its stored scheduledAt, keeping its place in the fair order', async () => {
-                const id = await seedScheduledEmail()
-                const before = await queryJob(id)
+            it.each(EMAIL_QUEUES)(
+                'moves an unclaimed job on the %s queue and its stored scheduledAt, keeping its place in the fair order',
+                async (queueName) => {
+                    const id = await seedScheduledEmail(1, queueName)
+                    const before = await queryJob(id)
 
-                const result = await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
+                    const result = await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
 
-                const row = await queryJob(id)
-                expect(result).toMatchObject({ outcome: 'rescheduled', job: { id, teamId: 1, state: row.state } })
-                expect(new Date(row.scheduled)).toEqual(IN_TWO_DAYS)
-                expect(parseJSON(row.state!.toString())).toEqual({
-                    ...storedState,
-                    state: {
-                        ...storedState.state,
-                        scheduledAt: IN_TWO_DAYS.toISOString(),
-                        statusAt: (result as { rescheduledAt: Date }).rescheduledAt.toISOString(),
-                    },
-                })
-                expect(row).toMatchObject({ status: 'available', transition_count: 0 })
-                expect(row.dequeue_seq).toEqual(before.dequeue_seq)
-            })
+                    const row = await queryJob(id)
+                    expect(result).toMatchObject({ outcome: 'rescheduled', job: { id, teamId: 1, state: row.state } })
+                    expect(new Date(row.scheduled)).toEqual(IN_TWO_DAYS)
+                    expect(parseJSON(row.state!.toString())).toEqual({
+                        ...storedState,
+                        state: {
+                            ...storedState.state,
+                            scheduledAt: IN_TWO_DAYS.toISOString(),
+                            statusAt: (result as { rescheduledAt: Date }).rescheduledAt.toISOString(),
+                        },
+                    })
+                    expect(row).toMatchObject({ status: 'available', transition_count: 0 })
+                    expect(row.dequeue_seq).toEqual(before.dequeue_seq)
+                }
+            )
 
             it('keeps a keyed job claimed for a day past the latest time it was rescheduled to', async () => {
                 const id = uuidv7()
@@ -2206,6 +2215,7 @@ describe('Cyclotron V2', () => {
                         {
                             pool: { dbUrl: DB_URL },
                             queueName: 'loop-errors-limited',
+                            fairDequeueQueues: FAIR_DEQUEUE_QUEUES,
                             batchMaxSize: 100,
                             pollDelayMs: 10,
                         },
@@ -2244,7 +2254,14 @@ describe('Cyclotron V2', () => {
             batchLimit: CyclotronV2BatchLimit | undefined = undefined
         ): CyclotronV2Worker =>
             new CyclotronV2RateLimitedWorker(
-                { pool: { dbUrl: DB_URL }, queueName: queue, batchMaxSize: 100, pollDelayMs: 10, ...overrides },
+                {
+                    pool: { dbUrl: DB_URL },
+                    queueName: queue,
+                    fairDequeueQueues: FAIR_DEQUEUE_QUEUES,
+                    batchMaxSize: 100,
+                    pollDelayMs: 10,
+                    ...overrides,
+                },
                 () => Promise.resolve(batchLimit)
             )
 
@@ -2692,6 +2709,7 @@ describe('Cyclotron V2', () => {
                     {
                         pool: { dbUrl: DB_URL },
                         queueName: QUEUE,
+                        fairDequeueQueues: FAIR_DEQUEUE_QUEUES,
                         batchMaxSize: 100,
                         pollDelayMs: 10,
                         includeEmptyBatches: true,
@@ -2814,6 +2832,7 @@ describe('Cyclotron V2', () => {
                     {
                         pool: { dbUrl: DB_URL },
                         queueName: QUEUE,
+                        fairDequeueQueues: FAIR_DEQUEUE_QUEUES,
                         batchMaxSize: 100,
                         pollDelayMs: 10,
                         includeEmptyBatches: true,
@@ -3456,7 +3475,13 @@ describe('Cyclotron V2', () => {
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
                     const worker = new CyclotronV2RateLimitedWorker(
-                        { pool: { dbUrl }, queueName: BACKLOG_QUEUE, pollDelayMs: 10, boundedPolls: true },
+                        {
+                            pool: { dbUrl },
+                            queueName: BACKLOG_QUEUE,
+                            fairDequeueQueues: FAIR_DEQUEUE_QUEUES,
+                            pollDelayMs: 10,
+                            boundedPolls: true,
+                        },
                         () => {
                             markPolled()
                             return Promise.resolve({ limit: 0 })
@@ -3579,8 +3604,15 @@ describe('Cyclotron V2', () => {
     // email from one team isn't blocked behind another team's 2M-row
     // campaign. Counter state lives in cyclotron_email_team_seq.
 
-    describe('Email fair dequeue', () => {
-        const EMAIL_QUEUE = 'email'
+    describe.each(FAIR_DEQUEUE_QUEUES)('Fair dequeue on the %s queue', (EMAIL_QUEUE) => {
+        it('has a partial index that orders its dequeue', async () => {
+            const { rows } = await assertPool.query<{ indexdef: string }>(
+                `SELECT indexdef FROM pg_indexes WHERE tablename = 'cyclotron_jobs' AND indexdef LIKE $1`,
+                [`%(priority, dequeue_seq NULLS FIRST, scheduled)%queue_name = '${EMAIL_QUEUE}'::text%`]
+            )
+
+            expect(rows).toHaveLength(1)
+        })
 
         const readDequeueSeq = async (id: string): Promise<bigint | null> => {
             const res = await assertPool.query<{ dequeue_seq: string | null }>(

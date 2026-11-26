@@ -350,6 +350,41 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
+type QueueTraits = { sendsEmail: boolean; fairDequeue: boolean }
+
+export const QUEUE_TRAITS = {
+    hog: { sendsEmail: false, fairDequeue: false },
+    hogoverflow: { sendsEmail: false, fairDequeue: false },
+    hogdlq: { sendsEmail: false, fairDequeue: false },
+    hogflow: { sendsEmail: false, fairDequeue: false },
+    email: { sendsEmail: true, fairDequeue: true },
+    emailsandbox: { sendsEmail: false, fairDequeue: false },
+} as const satisfies Record<CyclotronJobQueueKind, QueueTraits>
+
+export type EmailQueueKind = {
+    [Q in CyclotronJobQueueKind]: (typeof QUEUE_TRAITS)[Q]['sendsEmail'] extends true ? Q : never
+}[CyclotronJobQueueKind]
+
+const queuesWith = (trait: keyof QueueTraits): CyclotronJobQueueKind[] =>
+    CYCLOTRON_INVOCATION_JOB_QUEUES.filter((queue) => QUEUE_TRAITS[queue][trait])
+
+export const EMAIL_QUEUES = queuesWith('sendsEmail') as EmailQueueKind[]
+export const FAIR_DEQUEUE_QUEUES = queuesWith('fairDequeue')
+
+export const CYCLOTRON_QUEUE_ROLES = { emailQueues: EMAIL_QUEUES, fairDequeueQueues: FAIR_DEQUEUE_QUEUES }
+
+export function sendsEmail(queue: string): boolean {
+    return QUEUE_TRAITS[queue as CyclotronJobQueueKind]?.sendsEmail === true
+}
+
+export function emailQueueFor(_invocation: CyclotronJobInvocation): EmailQueueKind {
+    return 'email'
+}
+
+export function queueToStore(invocation: CyclotronJobInvocation): CyclotronJobQueueKind {
+    return sendsEmail(invocation.queue) ? emailQueueFor(invocation) : invocation.queue
+}
+
 export const DEAD_LETTER_QUEUE = 'hogdlq' satisfies CyclotronJobQueueKind
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
