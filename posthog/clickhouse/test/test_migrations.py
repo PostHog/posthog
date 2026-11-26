@@ -310,11 +310,11 @@ class TestWarpstreamIngestionConsumers(TestCase):
         [
             ("local_dev", "", True, 0, 6),
             ("hobby", "", False, 6, 0),
-            ("e2e", "E2E", True, 6, 0),
+            ("e2e", "E2E", True, 0, 6),
             ("cloud", "US", False, 6, 0),
         ]
     )
-    def test_second_consumer_is_dropped_only_on_local_dev_stacks(
+    def test_second_consumer_is_dropped_only_on_local_stacks(
         self, _name: str, deployment: str, debug: bool, created: int, dropped: int
     ) -> None:
         modules = [

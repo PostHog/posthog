@@ -14,6 +14,6 @@ operations = (
         run_sql_with_exceptions(DROP_TOPHOG_WS_MV_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
         run_sql_with_exceptions(DROP_KAFKA_TOPHOG_WS_TABLE_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
     ]
-    if run_mode() is RunMode.LOCAL
+    if run_mode() in (RunMode.LOCAL, RunMode.E2E)
     else []
 )

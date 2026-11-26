@@ -18,7 +18,7 @@ from posthog.run_mode import RunMode, run_mode
 
 operations = (
     []
-    if run_mode() is RunMode.LOCAL
+    if run_mode() in (RunMode.LOCAL, RunMode.E2E)
     else [
         # log_entries (INGESTION_SMALL, matching existing MSK table)
         run_sql_with_exceptions(
