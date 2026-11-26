@@ -2,14 +2,36 @@ import { assignKey, isRecord } from '@/lib/plain-object'
 
 export const REDACTED_VALUE = '[REDACTED]'
 const MAX_ENCODING_LAYERS = 8
-const CREDENTIAL_NAME_FRAGMENTS = ['apikey', 'token', 'secret', 'password', 'passwd', 'credential', 'signature']
-const CREDENTIAL_NAMES = new Set(['key', 'pwd', 'auth', 'authorization', 'sig', 'code', 'jwt', 'session', 'sessionid'])
+// A credential-named container that does not close within this many characters is masked to the end of the text,
+// which keeps the bracket scan linear on nested or unclosed input.
+const MAX_CONTAINER_LENGTH = 4096
+const CREDENTIAL_NAME_FRAGMENTS = [
+    'apikey',
+    'token',
+    'secret',
+    'password',
+    'passwd',
+    'passphrase',
+    'credential',
+    'signature',
+    'privatekey',
+    'accountkey',
+    'sharedaccesskey',
+]
+// Suffixes catch namespaced headers such as `http.request.header.authorization` and `set-cookie`.
+const CREDENTIAL_NAME_SUFFIXES = ['authorization', 'cookie', 'cookies']
+const CREDENTIAL_NAMES = new Set(['key', 'pwd', 'auth', 'sig', 'code', 'jwt', 'session', 'sessionid'])
 
 // Receives a name lowercased with every non-alphanumeric character removed, for example `accesstoken`.
 export type CredentialNameRule = (name: string) => boolean
 
 export const isLogCredentialName: CredentialNameRule = (name) =>
-    CREDENTIAL_NAMES.has(name) || CREDENTIAL_NAME_FRAGMENTS.some((part) => name.includes(part))
+    CREDENTIAL_NAMES.has(name) ||
+    CREDENTIAL_NAME_FRAGMENTS.some((part) => name.includes(part)) ||
+    CREDENTIAL_NAME_SUFFIXES.some((suffix) => name.endsWith(suffix))
+
+// Span attributes such as `session.id` carry PostHog session IDs, which link traces to replays and are not secret.
+export const isSpanCredentialName: CredentialNameRule = (name) => name !== 'sessionid' && isLogCredentialName(name)
 
 const ASSIGNMENT_PATTERN =
     /(?:^|(?<=[?&;\s{,("'\\]))(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([A-Za-z0-9_%.[\]-]+))\s*([=:])\s*/g
@@ -64,6 +86,19 @@ export function isCredentialName(name: string, rule: CredentialNameRule = isLogC
     return decoded === null || rule(decoded.toLowerCase().replace(/[^a-z0-9]/g, ''))
 }
 
+// Usage counts such as `gen_ai.usage.input_tokens` are named like credentials but hold integers.
+function isTokenCount(name: string, value: unknown): boolean {
+    return /tokens/i.test(name) && (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value)))
+}
+
+export function isCredentialField(
+    name: string,
+    value: unknown,
+    rule: CredentialNameRule = isLogCredentialName
+): boolean {
+    return isCredentialName(name, rule) && !isTokenCount(name, value)
+}
+
 interface RedactionRange {
     start: number
     end: number
@@ -79,6 +114,9 @@ function containerLength(text: string): number {
                 return match.index + 1
             }
         }
+        if (match.index > MAX_CONTAINER_LENGTH) {
+            break
+        }
     }
     return text.length
 }
@@ -86,23 +124,30 @@ function containerLength(text: string): number {
 function findCredentialRanges(text: string, rule: CredentialNameRule): RedactionRange[] {
     const ranges: RedactionRange[] = []
     for (const match of text.matchAll(ASSIGNMENT_PATTERN)) {
-        if (!isCredentialName(match[1] ?? match[2] ?? match[3]!, rule)) {
+        const name = match[1] ?? match[2] ?? match[3]!
+        if (!isCredentialName(name, rule)) {
             continue
         }
         const start = match.index + match[0].length
         const rest = text.slice(start)
         const quoted = rest.match(QUOTED_VALUE_PATTERN)
         if (quoted) {
-            ranges.push({ start: start + 1, end: start + quoted[0].length - 1 })
+            if (!isTokenCount(name, quoted[0].slice(1, -1))) {
+                ranges.push({ start: start + 1, end: start + quoted[0].length - 1 })
+            }
         } else if (/^[{[]/.test(rest)) {
             ranges.push({ start, end: start + containerLength(rest) })
         } else {
             const value = rest.startsWith(REDACTED_VALUE)
                 ? REDACTED_VALUE
                 : rest.match(match[4] === '=' ? /^(?:\\(?!["'])|[^&;\s"'\\#<>])+/ : /^[^\r\n,}\]]+/)?.[0].trimEnd()
-            if (value) {
+            if (value && !isTokenCount(name, value)) {
                 ranges.push({ start, end: start + value.length })
             }
+        }
+        // Every later assignment starts inside a range that runs to the end of the text, so it adds nothing.
+        if (ranges.at(-1)?.end === text.length) {
+            break
         }
     }
     for (const match of text.matchAll(URL_PASSWORD_PATTERN)) {
@@ -200,7 +245,7 @@ export function redactCredentials(value: unknown, rule: CredentialNameRule = isL
             assignKey(
                 redacted,
                 redactCredentialsInText(key, rule),
-                isCredentialName(key, rule) ? REDACTED_VALUE : redactCredentials(entry, rule)
+                isCredentialField(key, entry, rule) ? REDACTED_VALUE : redactCredentials(entry, rule)
             )
         }
         return redacted
@@ -219,6 +264,6 @@ export function redactKeyValuePair(pair: unknown, rule: CredentialNameRule = isL
     return {
         ...(redactCredentials(rest, rule) as Record<string, unknown>),
         key: redactCredentialsInText(key, rule),
-        value: isCredentialName(key, rule) ? REDACTED_VALUE : redactCredentials(value, rule),
+        value: isCredentialField(key, value, rule) ? REDACTED_VALUE : redactCredentials(value, rule),
     }
 }
