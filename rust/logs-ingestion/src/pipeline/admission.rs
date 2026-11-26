@@ -142,12 +142,10 @@ pub fn create_require_secret_key_step(context: Arc<LogsPipelineContext>) -> Admi
         move |values: Vec<LogsAdmissionInput>| {
             let context = context.clone();
             async move {
-                let Some(cache) = context.deps.sampling_rules.clone() else {
-                    return Ok(values.into_iter().map(ok).collect());
+                let cache = match context.deps.sampling_rules.clone() {
+                    Some(cache) if matches!(context.identity.app_source, AppSource::Logs) => cache,
+                    _ => return Ok(values.into_iter().map(ok).collect()),
                 };
-                if !matches!(context.identity.app_source, AppSource::Logs) {
-                    return Ok(values.into_iter().map(ok).collect());
-                }
                 let is_candidate = |m: &LogsIngestionMessage| {
                     sent_by_team_with_public_token(m)
                         && is_sampling_eval_enabled_for_team(&context, m.team_id)
@@ -188,7 +186,7 @@ pub fn create_require_secret_key_step(context: Arc<LogsPipelineContext>) -> Admi
                     .map(|v| {
                         let m = &v.message;
                         let rule_id = match rule_ids.iter().find(|(t, _)| *t == m.team_id) {
-                            Some((_, rule_id)) if is_candidate(m) => rule_id,
+                            Some((_, rule_id)) if sent_by_team_with_public_token(m) => rule_id,
                             _ => return ok(v),
                         };
                         counts.add(m.team_id);

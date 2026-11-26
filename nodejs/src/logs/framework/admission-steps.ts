@@ -133,9 +133,6 @@ export function createRequireSecretKeyStep<T extends LogsAdmissionInput>(
         const { dropped, byTeam } = await findRequireSecretKeyDrops(values, cache, (teamId) =>
             isSamplingEvalEnabledForTeam(context, teamId)
         )
-        for (const value of dropped) {
-            value.usage.recordDropped(value)
-        }
         for (const [teamId, totals] of byTeam) {
             logMessageDroppedCounter.inc({ reason: 'require_secret_key', team_id: teamId.toString() }, totals.messages)
             recordLogMessageDropped('require_secret_key', teamId.toString(), totals.messages)
@@ -146,7 +143,13 @@ export function createRequireSecretKeyStep<T extends LogsAdmissionInput>(
             )
             context.usageMetrics.queueByRule(teamId, 'bytes_dropped_by_rule', new Map([[totals.ruleId, totals.bytes]]))
         }
-        return values.map((value): PipelineResult<T> => (dropped.has(value) ? drop('require_secret_key') : ok(value)))
+        return values.map((value): PipelineResult<T> => {
+            if (!dropped.has(value)) {
+                return ok(value)
+            }
+            value.usage.recordDropped(value)
+            return drop('require_secret_key')
+        })
     }
 }
 
