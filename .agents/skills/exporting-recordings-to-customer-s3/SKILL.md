@@ -100,7 +100,7 @@ python manage.py export_recordings_to_s3 --status <workflow id>
 ```
 
 A large export runs for hours or days.
-The quote's duration assumes 5 MB a second per shard. When a run is far slower, check worker CPU as the README's Throughput section describes before you suggest more shards.
+When a run is far slower than the quote's estimate, check worker CPU as the README's Throughput section describes before you suggest more shards.
 A run checks the role and a test upload (one small part, then aborted, so nothing is left) before its first shard.
 A failure there names the missing permission in `--status`. Once the customer fixes the role, start the same quote again while it is valid.
 A credentials failure during a shard is permanent in the same way.

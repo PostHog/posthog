@@ -55,7 +55,7 @@ What each setting does:
 To get the most out of a large export:
 
 1. Quote with enough `--shards-per-day` that the run's last shards are short.
-2. Start with `--max-parallel-shards` up to 64, the export pool's maximum. Only 32 has been measured.
+2. Start with `--max-parallel-shards` up to the export pool's maximum. Only 32 has been measured.
 3. Watch worker CPU in the `temporal-worker-session-replay` namespace and the block fetch latency of the main recording-api. Workers near one core each mean they hold too many shards for their CPU.
 4. Going past 64 parallel shards needs a larger export pool `maxPods` in the charts first.
 
