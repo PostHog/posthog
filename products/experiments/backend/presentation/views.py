@@ -77,14 +77,12 @@ from products.experiments.backend.facade import (
     lifecycle,
 )
 from products.experiments.backend.facade.api import (
-    RECALCULATION_STATUS_PENDING,
     RECALCULATION_TRIGGER_AGENT_MCP,
     get_experiment_health,
     get_latest_recalculation,
     get_recalculation_run,
     get_running_time_target,
-    request_metrics_recalculation,
-    start_metrics_recalculation_workflow,
+    start_metrics_recalculation,
     start_timeseries_recalculation_workflow,
 )
 from products.experiments.backend.facade.contracts import (
@@ -1724,21 +1722,12 @@ class EnterpriseExperimentsViewSet(
         experiments_facade.assert_user_may_run_warehouse_native_sources(
             team=self.team, user=cast(User, request.user), experiment_id=experiment.id
         )
-        result = request_metrics_recalculation(
+        result = start_metrics_recalculation(
             team_id=experiment.team_id,
             experiment_id=experiment.id,
             user_id=cast(User, request.user).id,
             trigger=trigger,
         )
-
-        # A rejected run is new but already FAILED, so it gets a 201 and no workflow.
-        if not result.is_existing and result.status == RECALCULATION_STATUS_PENDING:
-            start_metrics_recalculation_workflow(
-                result.id,
-                team_id=experiment.team_id,
-                organization_id=str(self.team.organization_id),
-            )
-
         return Response(
             ExperimentMetricsRecalculationJobSerializer(result).data,
             status=200 if result.is_existing else 201,

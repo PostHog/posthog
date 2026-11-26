@@ -26,7 +26,7 @@ import {
     columnWidthPx,
     isSection,
     spanPx,
-    widgetSize,
+    panelSize,
 } from '../dashboard/document/dashboardTypes'
 import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './drag/dropTargets'
 import { useGridDrag } from './drag/gridDrag'
@@ -43,7 +43,7 @@ const NO_PADDING: [number, number] = [0, 0]
 // A press inside a section's own grid belongs to the tile there, so the section must not start moving too. Text marked
 // `TileGrid__text` selects instead, and the space around it still drags.
 const DRAG_CANCEL =
-    '.SectionTile__body, .dash-WidgetCard__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
+    '.SectionTile__body, .dash-PanelCard__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
 
 /**
  * A resize handle sits over the tile's edge, so a right-click there would miss the tile's menu. Sends the event on to
@@ -101,12 +101,12 @@ function toLayout(tiles: Tile[], sizeOf: SizeOf): Layout {
         // A closed section is one row, so it is resized in width only. An open one can be made taller than its tiles
         // need, but never shorter.
         if (isSection(tile)) {
-            if (tile.widget.collapsed) {
+            if (tile.panel.collapsed) {
                 return { ...item, minH: item.h, maxH: item.h, resizeHandles: ['w', 'e'] }
             }
-            return { ...item, minH: contentRows(tile.widget), maxH: undefined, resizeHandles: ALL_HANDLES }
+            return { ...item, minH: contentRows(tile.panel), maxH: undefined, resizeHandles: ALL_HANDLES }
         }
-        return { ...item, minH: widgetSize(tile.widget, sizeOf).minH, maxH: undefined, resizeHandles: ALL_HANDLES }
+        return { ...item, minH: panelSize(tile.panel, sizeOf).minH, maxH: undefined, resizeHandles: ALL_HANDLES }
     })
 }
 

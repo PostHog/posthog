@@ -12,6 +12,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { inStorybook } from 'lib/utils/dom'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemShortcutBulkUpdateCreate } from '~/generated/core/api'
@@ -38,6 +39,7 @@ export const SUGGESTED_GROUP_LABEL = 'Suggested'
 export interface navProductsTabLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    isAdminOrOwner: boolean | null // organizationLogic
     preflight: PreflightStatus | null // preflightLogic
     shortcutData: FileSystemEntry[] // projectTreeDataLogic
     shortcutDataHasLoaded: boolean // projectTreeDataLogic
@@ -226,7 +228,7 @@ export interface navProductsTabLogicMeta {
             appRecommendationQuery: string,
             appRecommendationsEnabled: boolean
         ) => AppMatchGroups | null
-        allItems: (featureFlags: FeatureFlagsSet) => FileSystemImport[]
+        allItems: (featureFlags: FeatureFlagsSet, isAdminOrOwner: boolean | null) => FileSystemImport[]
         pinnedItems: (allItems: FileSystemImport[], search: string) => FileSystemImport[]
         groupedItems: (allItems: FileSystemImport[], search: string) => ProductsItemGroup[]
         configurableProducts: (allItems: FileSystemImport[]) => FileSystemImport[]
@@ -275,6 +277,8 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             ['preflight'],
             featureFlagLogic,
             ['featureFlags'],
+            organizationLogic,
+            ['isAdminOrOwner'],
             aiConsentLogic,
             ['dataProcessingAccepted'],
             projectTreeDataLogic,
@@ -471,8 +475,9 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                     : null,
         ],
         allItems: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): FileSystemImport[] => getNavProductItems(featureFlags),
+            (s) => [s.featureFlags, s.isAdminOrOwner],
+            (featureFlags: FeatureFlagsSet, isAdminOrOwner: boolean | null): FileSystemImport[] =>
+                getNavProductItems(featureFlags, !!isAdminOrOwner),
         ],
         pinnedItems: [
             (s) => [s.allItems, s.search],

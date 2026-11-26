@@ -272,13 +272,8 @@ def change_tags(
     tag_action: str,
     tags: Sequence[str],
 ) -> list[dict[str, Any]]:
-    experiments = strict_fetch(
-        _live_among(team, experiment_ids)
-        .only("id", "team_id", "name")
-        .prefetch_related(
-            Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
-        )
-    )
+    # apply_bulk_tag_changes reads the current tags itself, inside its transaction, so no tag prefetch here.
+    experiments = strict_fetch(_live_among(team, experiment_ids).only("id", "team_id", "name"))
     by_id = {experiment.id: experiment for experiment in experiments}
     return apply_bulk_tag_changes(
         [by_id[experiment_id] for experiment_id in experiment_ids if experiment_id in by_id],

@@ -81,6 +81,7 @@ import type {
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
     PaginatedSCIMRequestLogApi,
+    PaginatedTagDefinitionListApi,
     PaginatedUploadedMediaListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
@@ -108,12 +109,19 @@ import type {
     PropertyDefinitionsListParams,
     PropertyUsageMetricsRequestApi,
     PropertyUsageMetricsResponseApi,
+    RenameTagRequestApi,
     ResolvedWorkloadSubjectApi,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SearchIntentRequestApi,
     SearchIntentResponseApi,
     SharingConfigurationApi,
+    TagDefinitionApi,
+    TagDefinitionsListParams,
+    TagDefinitionsMergePreviewRetrieveParams,
+    TagMergePreviewApi,
+    TagMergeRequestApi,
+    TagMergeResultApi,
     TerminalNetplayMailboxApi,
     TerminalNetplayMailboxRetrieveParams,
     TerminalNetplaySignalApi,
@@ -2832,6 +2840,130 @@ export const sessionRecordingsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getTagDefinitionsListUrl = (projectId: string, params?: TagDefinitionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tag_definitions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tag_definitions/`
+}
+
+/**
+ * List project tags for organization admins and owners. System tags are excluded.
+ */
+export const tagDefinitionsList = async (
+    projectId: string,
+    params?: TagDefinitionsListParams,
+    options?: RequestInit
+): Promise<PaginatedTagDefinitionListApi> => {
+    return apiMutator<PaginatedTagDefinitionListApi>(getTagDefinitionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTagDefinitionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tag_definitions/${id}/`
+}
+
+export const tagDefinitionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TagDefinitionApi> => {
+    return apiMutator<TagDefinitionApi>(getTagDefinitionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTagDefinitionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tag_definitions/${id}/`
+}
+
+export const tagDefinitionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    renameTagRequestApi: RenameTagRequestApi,
+    options?: RequestInit
+): Promise<TagDefinitionApi> => {
+    return apiMutator<TagDefinitionApi>(getTagDefinitionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(renameTagRequestApi),
+    })
+}
+
+export const getTagDefinitionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tag_definitions/${id}/`
+}
+
+export const tagDefinitionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTagDefinitionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTagDefinitionsMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tag_definitions/${id}/merge/`
+}
+
+export const tagDefinitionsMergeCreate = async (
+    projectId: string,
+    id: string,
+    tagMergeRequestApi: TagMergeRequestApi,
+    options?: RequestInit
+): Promise<TagMergeResultApi> => {
+    return apiMutator<TagMergeResultApi>(getTagDefinitionsMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tagMergeRequestApi),
+    })
+}
+
+export const getTagDefinitionsMergePreviewRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: TagDefinitionsMergePreviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tag_definitions/${id}/merge_preview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tag_definitions/${id}/merge_preview/`
+}
+
+export const tagDefinitionsMergePreviewRetrieve = async (
+    projectId: string,
+    id: string,
+    params: TagDefinitionsMergePreviewRetrieveParams,
+    options?: RequestInit
+): Promise<TagMergePreviewApi> => {
+    return apiMutator<TagMergePreviewApi>(getTagDefinitionsMergePreviewRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

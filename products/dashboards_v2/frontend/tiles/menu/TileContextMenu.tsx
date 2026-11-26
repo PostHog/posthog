@@ -19,13 +19,13 @@ import {
 
 import { downloadImageAction } from '../../dashboard/actions/dashboardImage'
 import { type DashboardState, useDashboard } from '../../dashboard/dashboardContext'
-import { type SavedWidget, type SectionWidget, gridTabs, widgetRef } from '../../dashboard/document/dashboardTypes'
+import { type SavedPanel, type SectionPanel, gridTabs, panelRef } from '../../dashboard/document/dashboardTypes'
 import { everyTile } from '../../dashboard/document/tileTree'
 import type { DashboardEdit } from '../../dashboard/edits/dashboardEdits'
 import type { MenuAction } from '../../menu/menuAction'
 import { MenuActionList, type MenuParts } from '../../menu/MenuActionList'
+import { findPanel } from '../../panels/core/panelSpec'
 import { backgroundColorAction, showAction } from '../../presentation/tileAppearance'
-import { findWidget } from '../../widgets/core/widgetSpec'
 
 const CONTEXT_MENU_PARTS: MenuParts = {
     Group: ContextMenuGroup,
@@ -51,21 +51,49 @@ export function hasTileMenu(actions: MenuAction[]): boolean {
     return actions.some(isUsable)
 }
 
-export function useContentTileActions(id: string, widget: SavedWidget): MenuAction[] {
-    const {
-        dashboard,
-        activeTab,
-        widgets,
-        disabledReasonFor,
-        onEdit,
-        tileActions,
-        downloadImage,
-        downloadingImage,
-        showSlideshow,
-    } = useDashboard()
-    const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
-    const definition = findWidget(widgets, widget.type)
+/**
+ * What a content tile does to itself: its image, parts, background and the panel type's own entries, such as a chart's
+ * options. It is the whole menu of a tile shown outside a dashboard.
+ */
+export function useContentTileActions(id: string, panel: SavedPanel): MenuAction[] {
+    const { panels, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboard()
+    const definition = findPanel(panels, panel.type)
+    const actions: MenuAction[] = [tileImageAction(id, downloadingImage, downloadImage)]
+    const show = showAction(TILE_SHOW, [{ id, panel }], panels, disabledReasonFor('setTilesAppearance'), onEdit)
+    if (show) {
+        actions.push(show)
+    }
+    const backgroundColor = backgroundColorAction(
+        TILE_BACKGROUND_COLOR,
+        [{ id, panel }],
+        panels,
+        disabledReasonFor('setTilesAppearance'),
+        onEdit
+    )
+    if (backgroundColor) {
+        actions.push(backgroundColor)
+    }
+    let withPanel = actions
+    // It runs while the tile renders, outside any error boundary, so a throw here would break the dashboard.
+    try {
+        withPanel =
+            definition?.menuActions?.(actions, {
+                panel,
+                setConfig: (config) => onEdit({ edit: 'setPanelConfig', id, config }),
+                disabledReason: disabledReasonFor('setPanelConfig'),
+            }) ?? actions
+    } catch (error) {
+        // pinned: error tracking tag, kept from when panels were called widgets.
+        posthog.captureException(error, { tag: 'dashboards-v2-widget' })
+    }
+    // The host runs last, so it has the final say on its page, such as hiding an entry a panel type added.
+    return tileActions ? tileActions(withPanel, { id, panel }) : withPanel
+}
 
+/** What a person can do to where a content tile sits on the dashboard: its slideshow, its tab, and removing it. */
+export function useContentTilePlacementActions(id: string, panel: SavedPanel): MenuAction[] {
+    const { dashboard, activeTab, disabledReasonFor, onEdit, tilePlacementActions, showSlideshow } = useDashboard()
+    const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
     const actions: MenuAction[] = [
         {
             key: 'slideshow',
@@ -98,10 +126,8 @@ export function useContentTileActions(id: string, widget: SavedWidget): MenuActi
             group: 'dashboard',
             disabledReason: disabledReasonFor('addToGrid'),
             submenu: otherTabs.map((tab) => {
-                // A tab already showing this widget is ticked, and picking it again takes the widget off that tab.
-                const shown = widget.ref
-                    ? everyTile(tab.tiles).find((tile) => widgetRef(tile) === widget.ref)
-                    : undefined
+                // A tab already showing this panel is ticked, and picking it again takes the panel off that tab.
+                const shown = panel.ref ? everyTile(tab.tiles).find((tile) => panelRef(tile) === panel.ref) : undefined
                 return {
                     key: tab.id,
                     label: tab.title,
@@ -114,21 +140,6 @@ export function useContentTileActions(id: string, widget: SavedWidget): MenuActi
             }),
         })
     }
-    actions.push(tileImageAction(id, downloadingImage, downloadImage))
-    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
-    if (show) {
-        actions.push(show)
-    }
-    const backgroundColor = backgroundColorAction(
-        TILE_BACKGROUND_COLOR,
-        [{ id, widget }],
-        widgets,
-        disabledReasonFor('setTilesAppearance'),
-        onEdit
-    )
-    if (backgroundColor) {
-        actions.push(backgroundColor)
-    }
     actions.push({
         key: 'remove',
         label: 'Remove tile',
@@ -137,20 +148,7 @@ export function useContentTileActions(id: string, widget: SavedWidget): MenuActi
         destructive: true,
         onSelect: () => onEdit({ edit: 'removeTile', id }),
     })
-    let withWidget = actions
-    // It runs while the tile renders, outside any error boundary, so a throw here would break the dashboard.
-    try {
-        withWidget =
-            definition?.menuActions?.(actions, {
-                widget,
-                setConfig: (config) => onEdit({ edit: 'setWidgetConfig', id, config }),
-                disabledReason: disabledReasonFor('setWidgetConfig'),
-            }) ?? actions
-    } catch (error) {
-        posthog.captureException(error, { tag: 'dashboards-v2-widget' })
-    }
-    // The host runs last, so it has the final say on its page, such as hiding an entry a widget type added.
-    return tileActions ? tileActions(withWidget, { id, widget }) : withWidget
+    return tilePlacementActions ? tilePlacementActions(actions, { id, panel }) : actions
 }
 
 // pinned: `dashboard-v2-tile-parts` data-attrs shipped before border joined this menu.
@@ -195,9 +193,9 @@ function autoLayoutAction(
     }
 }
 
-export function useSectionActions(id: string, widget: SectionWidget, onStartRename: () => void): MenuAction[] {
-    const { widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboard()
-    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
+export function useSectionActions(id: string, panel: SectionPanel, onStartRename: () => void): MenuAction[] {
+    const { panels, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboard()
+    const show = showAction(TILE_SHOW, [{ id, panel }], panels, disabledReasonFor('setTilesAppearance'), onEdit)
     const actions: MenuAction[] = [
         {
             key: 'rename',
@@ -209,6 +207,13 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
         tileImageAction(id, downloadingImage, downloadImage),
         autoLayoutAction(id, disabledReasonFor('autoLayout'), onEdit),
         ...(show ? [show] : []),
+    ]
+    return tileActions ? tileActions(actions, { id, panel }) : actions
+}
+
+export function useSectionPlacementActions(id: string, panel: SectionPanel): MenuAction[] {
+    const { disabledReasonFor, onEdit, tilePlacementActions } = useDashboard()
+    const actions: MenuAction[] = [
         {
             key: 'remove',
             label: 'Remove section and its tiles',
@@ -218,7 +223,7 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
             onSelect: () => onEdit({ edit: 'removeTile', id }),
         },
     ]
-    return tileActions ? tileActions(actions, { id, widget }) : actions
+    return tilePlacementActions ? tilePlacementActions(actions, { id, panel }) : actions
 }
 
 /**
