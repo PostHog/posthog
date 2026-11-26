@@ -17,3 +17,20 @@ FIRST_REPORT_SUITE = OfflineEvalSuite.from_scorers(
         "planted_issue_recall": OfflineScorer(kind="boolean", version=UUID("01a1634a-b1e9-7f04-9d7b-33e025fd9e69")),
     },
 )
+
+SELF_DRIVING_ACTIVATION_SUITE = OfflineEvalSuite.from_scorers(
+    key="signals/eval_self_driving_activation::eval_self_driving_activation",
+    project_id=2,
+    tags=("team:self-driving", "component:signals/self-driving-activation"),
+    scorers={
+        "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a218cf-403f-7630-85a0-9ca607e2aed1")),
+        "activation_notice_delivered": OfflineScorer(
+            kind="boolean", version=UUID("01a218cf-403f-7630-85a0-9ca776d6cba6")
+        ),
+        "self_driving_mentioned": OfflineScorer(kind="boolean", version=UUID("01a218cf-403f-7630-85a0-9ca864bcc84f")),
+        "self_driving_suggested": OfflineScorer(kind="boolean", version=UUID("01a218cf-403f-7630-85a0-9ca91b1e18d2")),
+        "activation_link_present": OfflineScorer(kind="boolean", version=UUID("01a218cf-403f-7630-85a0-9caabc0b0000")),
+        "answered_question_first": OfflineScorer(kind="boolean", version=UUID("01a218cf-403f-7630-85a0-9cabfcef2eba")),
+        "no_unprompted_suggestion": OfflineScorer(kind="boolean", version=UUID("01a218cf-403f-7630-85a0-9cac562b78fb")),
+    },
+)

@@ -13,6 +13,7 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN
 
+from .offline_config import SELF_DRIVING_ACTIVATION_SUITE
 from .self_driving_activation_scorers import (
     ActivationLinkPresent,
     ActivationNoticeDelivered,
@@ -70,5 +71,6 @@ async def eval_self_driving_activation(ctx: EvalContext) -> None:
             NoUnpromptedSuggestion(),
         ],
         ctx=ctx,
-        send_to_posthog=False,
+        offline_suite=SELF_DRIVING_ACTIVATION_SUITE,
+        send_to_posthog=True,
     )
