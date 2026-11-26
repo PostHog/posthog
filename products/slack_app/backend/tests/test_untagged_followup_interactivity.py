@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.core.cache import cache
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
@@ -31,7 +32,9 @@ from products.slack_app.backend.api import (
     _picker_context_cache_key,
     post_thread_join_prompt,
 )
+from products.slack_app.backend.logic.shared_channels import SHARED_CHANNELS_TURNED_OFF_MESSAGE
 from products.slack_app.backend.models import (
+    SlackChannel,
     SlackSettings,
     SlackThreadJoin,
     SlackThreadTaskMapping,
@@ -256,6 +259,51 @@ class TestUntaggedFollowupInteractivity(TestCase):
 
         assert response.status_code == 200
         mock_start.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("followup_switch_off", "followup", False, False),
+            ("followup_switch_on", "followup", True, True),
+            ("thread_join_switch_off", "thread_join", False, False),
+        ]
+    )
+    def test_confirming_after_shared_channels_were_turned_off_starts_nothing(
+        self, mock_slack_cls, mock_post, _name: str, prompt: str, switch_on: bool, starts: bool
+    ):
+        # A prompt stays open for minutes and its dispatch skips the webhook's gates, so the click checks the switch again.
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        SlackChannel.objects.create(
+            slack_workspace_id=self.slack_team_id, slack_channel_id=self.slack_channel_id, approved_at=timezone.now()
+        )
+        SlackSettings.objects.update_or_create(
+            slack_workspace_id=self.slack_team_id, slack_user_id=None, defaults={"external_channels_enabled": switch_on}
+        )
+        if prompt == "thread_join":
+            self._stash_thread_join_prompt()
+            action, clicker = THREAD_JOIN_ACTION_ALLOW, "U_ALICE"
+        else:
+            action, clicker = UNTAGGED_FOLLOWUP_ACTION_RUN, "U_BOB"
+        context = cache.get(_picker_context_cache_key(self.context_token))
+        context["is_ext_shared_channel"] = True
+        cache.set(_picker_context_cache_key(self.context_token), context, timeout=900)
+
+        with (
+            self._stub_slack_user_email(self.member_user.email),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+            patch(
+                "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enforced",
+                return_value=True,
+            ),
+        ):
+            response = self._click(action, clicker)
+
+        assert response.status_code == 200
+        assert mock_start.called is starts
+        if not starts:
+            assert mock_post.call_args.kwargs["json"] == {
+                "replace_original": True,
+                "text": SHARED_CHANNELS_TURNED_OFF_MESSAGE,
+            }
 
     def test_confirmation_from_a_member_without_project_access_dispatches_nothing(self, mock_slack_cls, mock_post):
         # Org membership is all `_is_org_member` proves. The routing path drops a reply

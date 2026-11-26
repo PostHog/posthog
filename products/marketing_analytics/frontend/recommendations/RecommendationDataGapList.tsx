@@ -6,24 +6,30 @@ import { urls } from 'scenes/urls'
 import { RecommendationsActionLocation } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { RecommendationDataGapDescription } from './RecommendationDataGapDescription'
-import { RecommendationDataGap } from './recommendations'
+import { RecommendationDataGap, ServerDataGap } from './recommendations'
+import { RecommendationServerDataGap } from './RecommendationServerDataGap'
 import { recommendationsLogic } from './recommendationsLogic'
 
 export function RecommendationDataGapList({
     gaps,
+    serverGaps,
     location,
 }: {
     gaps: RecommendationDataGap[]
+    serverGaps: ServerDataGap[]
     location: RecommendationsActionLocation
 }): JSX.Element {
     const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
     const sourceIds = [...new Set(gaps.map((gap) => gap.sourceId))]
     return (
         <div className="flex w-[28rem] max-w-[90vw] flex-col gap-2 p-1">
-            <div className="px-2 pt-1">
-                <strong>Improve recommendations</strong>
-                <p className="mb-0 text-secondary">Some rules need tables that these sources do not sync yet.</p>
-            </div>
+            <strong className="px-2 pt-1">Improve recommendations</strong>
+            {serverGaps.map((gap) => (
+                <RecommendationServerDataGap key={`${gap.kind}-${gap.sourceName}`} gap={gap} location={location} />
+            ))}
+            {gaps.length > 0 && (
+                <p className="mb-0 px-2 text-secondary">Some rules need tables that these sources do not sync yet.</p>
+            )}
             {sourceIds.map((sourceId) => {
                 const sourceGaps = gaps.filter((gap) => gap.sourceId === sourceId)
                 return (

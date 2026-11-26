@@ -33,6 +33,7 @@ from posthog.models.team.team import Team
 
 from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import ActionNotFound
+from products.experiments.backend.facade.enums import EXPERIMENT_EXPOSURE_EVENT
 from products.experiments.backend.warehouse_native_sources import warehouse_native_exposure_config
 
 logger = logging.getLogger(__name__)
@@ -43,10 +44,6 @@ logger = logging.getLogger(__name__)
 # variant-property pairing in `get_exposure_event_and_property` and the handling of configs that
 # explicitly name `$feature_flag_called` too.
 DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
-
-# The dedicated exposure event that replaces $feature_flag_called as the default for experiments
-# that start at or after settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF.
-EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
 
 # What an SDK puts on the $experiment_exposure event it sends when a feature flag rule assigns a variant.
 # A rule-linked experiment reads these and never $feature_flag_response: two variants can return one value.
@@ -328,8 +325,8 @@ def get_exposure_event_and_property(
     ActionsNode config, because an action can match several events.
 
     `default_exposure_event` is what the experiment's default exposure resolves to
-    (`resolve_default_exposure_event`). It is required so that every consumer makes the rollout
-    decision explicitly: resolve it for the experiment being served, or pass
+    (`resolve_default_exposure_event`). It is required so that every consumer chooses the event
+    explicitly: resolve it for the experiment being served, or pass
     DEFAULT_EXPOSURE_EVENT where staying on the legacy event is the deliberate choice.
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)
@@ -375,7 +372,8 @@ def _get_event_name_from_config(
 
     event = exposure_config.event
     # An explicit $feature_flag_called config is the stored default, so it resolves like an
-    # absent config instead of pinning the pre-rollout event.
+    # absent config instead of pinning $feature_flag_called on an experiment that the cutoff moves
+    # to $experiment_exposure.
     if not event or event == DEFAULT_EXPOSURE_EVENT:
         return default_exposure_event
     return str(event)
@@ -448,7 +446,7 @@ def build_exposure_event_conditions(
     analysis, such as the freeze-exposure snapshot scan.
 
     `default_exposure_event` follows the same contract as in `get_exposure_event_and_property`:
-    resolve it per experiment to honor the $experiment_exposure rollout, or pass
+    resolve it per experiment to honor the exposure event cutoff, or pass
     DEFAULT_EXPOSURE_EVENT where staying on the legacy event is the deliberate choice.
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)

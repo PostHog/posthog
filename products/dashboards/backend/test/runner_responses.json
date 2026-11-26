@@ -305,5 +305,76 @@
                 "read_from": "2026-09-11 00:00:00+00:00"
             }
         }
+    },
+    "web_stats_by_page": {
+        "query": {
+            "kind": "WebStatsTableQuery",
+            "properties": [],
+            "breakdownBy": "Page",
+            "dateRange": { "date_from": "-7d" }
+        },
+        "response": {
+            "columns": [
+                "context.columns.breakdown_value",
+                "context.columns.visitors",
+                "context.columns.views",
+                "context.columns.ui_fill_fraction",
+                "context.columns.cross_sell"
+            ],
+            "results": [["/x", [1, null], [4, null], 1.0, ""]],
+            "types": [
+                ["context.columns.breakdown_value", "Nullable(String)"],
+                ["context.columns.visitors", "Tuple(UInt64, Nullable(Nothing))"],
+                ["context.columns.views", "Tuple(UInt64, Nullable(Nothing))"],
+                ["context.columns.ui_fill_fraction", "Float64"]
+            ]
+        }
+    },
+    "web_overview": {
+        "query": { "kind": "WebOverviewQuery", "properties": [], "dateRange": { "date_from": "-7d" } },
+        "response": {
+            "results": [
+                {
+                    "changeFromPreviousPct": null,
+                    "isIncreaseBad": null,
+                    "key": "visitors",
+                    "kind": "unit",
+                    "previous": null,
+                    "value": 0.0
+                },
+                {
+                    "changeFromPreviousPct": null,
+                    "isIncreaseBad": null,
+                    "key": "views",
+                    "kind": "unit",
+                    "previous": null,
+                    "value": 0.0
+                },
+                {
+                    "changeFromPreviousPct": null,
+                    "isIncreaseBad": null,
+                    "key": "sessions",
+                    "kind": "unit",
+                    "previous": null,
+                    "value": 0.0
+                },
+                {
+                    "changeFromPreviousPct": null,
+                    "isIncreaseBad": null,
+                    "key": "session duration",
+                    "kind": "duration_s",
+                    "previous": null,
+                    "value": null
+                },
+                {
+                    "changeFromPreviousPct": null,
+                    "isIncreaseBad": true,
+                    "key": "bounce rate",
+                    "kind": "percentage",
+                    "previous": null,
+                    "value": null
+                }
+            ]
+        }
     }
 }

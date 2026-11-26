@@ -20,6 +20,9 @@ from posthog.exceptions import Conflict
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
 from products.messaging.backend.facade.provider_imports import (
     CONTACT_STEPS,
     IMPORT_PROVIDER_CHOICES,
@@ -36,6 +39,8 @@ from products.messaging.backend.facade.provider_imports import (
     template_image_access,
 )
 from products.workflows.backend.facade.email_images import can_upload_media
+
+CUSTOMERIO_PROVIDER = "customerio"
 
 
 class ImportStepOptionSerializer(serializers.Serializer):
@@ -274,6 +279,10 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
             if not self.user_access_control.check_access_level_for_resource("person", "editor"):
                 raise PermissionDenied("You need edit access to persons to import contacts.")
+            # The Customer.io key stays stored for the project, so anyone else could read every profile with it.
+            if data["provider"] == CUSTOMERIO_PROVIDER:
+                if not authorization.check(resource=Resource.project(self.team.id), action=Action.EDIT):
+                    raise PermissionDenied("Only project admins can import Customer.io contacts.")
         provider = next((provider for provider in self._providers() if provider.key == data["provider"]), None)
         if provider is None:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")

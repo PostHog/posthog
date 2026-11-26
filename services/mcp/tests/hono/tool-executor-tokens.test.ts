@@ -232,7 +232,7 @@ describe('ToolExecutor token estimates', () => {
         it.each([
             ['an exec inner call', true],
             ['a direct tool call', false],
-        ])('returns %s with truncate: false whole when the client sets no limit', async (_, useSingleExec) => {
+        ])('returns %s whole when the client sets no limit', async (_, useSingleExec) => {
             const tools = catalog
                 .getPreBuiltEntries()
                 .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
@@ -240,7 +240,7 @@ describe('ToolExecutor token estimates', () => {
             const table = Array.from({ length: 6_000 }, (_, i) => `${i},${'x'.repeat(80)}`).join('\n')
             target.handler = vi.fn(async () => table)
             vi.spyOn(catalog, 'getToolByName').mockReturnValue({ ...target, build: () => target } as any)
-            const args = { query: 'select 1', truncate: false }
+            const args = { query: 'select 1' }
 
             const response = (await executor.handleToolCall(
                 useSingleExec

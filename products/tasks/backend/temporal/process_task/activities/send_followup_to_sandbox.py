@@ -837,7 +837,11 @@ def _refresh_sandbox_github(
 
     # Read-only runs use a team installation grant, not the message actor's identity.
     # The periodic credential refresh rotates that grant without widening its permissions.
-    if (state or {}).get("github_read_access") is True or (state or {}).get("github_token_scope"):
+    if (
+        (state or {}).get("github_read_access") is True
+        or (state or {}).get("github_token_scope")
+        or (state or {}).get("agent_egress_git_reads") is True
+    ):
         return None
     # A run that started before its actor connected GitHub is bot-authored, and the agent may
     # have been the one that asked them to connect. Promote it so the turn that follows the

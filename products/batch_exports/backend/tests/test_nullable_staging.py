@@ -41,7 +41,7 @@ def staging_clients() -> Iterator[tuple[AsyncMock, AsyncMock]]:
     s3_cm = MagicMock()
     s3_cm.__aenter__.return_value = s3
     with (
-        patch.object(internal_stage, "get_client", return_value=clickhouse_cm),
+        patch("products.batch_exports.backend.temporal.clickhouse.get_client", return_value=clickhouse_cm),
         patch.object(internal_stage, "get_s3_client", return_value=s3_cm),
         patch("products.batch_exports.backend.temporal.utils.aupdate_batch_export_run", new_callable=AsyncMock),
         patch.object(
@@ -54,6 +54,7 @@ def staging_clients() -> Iterator[tuple[AsyncMock, AsyncMock]]:
                 restricted_properties=set(),
                 apply_events_retention_floor=False,
                 enable_select_queries=True,
+                use_new_events_schema=False,
                 values={"log_comment": "{}"},
             ),
         ),
