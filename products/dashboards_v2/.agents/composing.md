@@ -182,7 +182,7 @@ const panels = [createChartPanel({ runQuery }), createCustomPanel({ packages: [w
 - Documents save the full name, so renaming a namespace or a content breaks saved dashboards.
 - Two packages with one namespace throw when the panel type is made.
 - Load each `Component` with `React.lazy`, so code that only checks documents never loads it.
-- A content is locked by default: it has no menu entries and cannot be dragged, resized, moved or removed. Set `movable` or `menuActions` to opt in.
+- By default a content has no menu entries and cannot be dragged, resized, moved or removed. Set `movable` or `menuActions` to opt in. Neither is a permission: anyone who can edit the dashboard's JSON can still move or remove the tile.
 - Set `showOnInteractiveOnly` to leave the tile out of images and printed pages.
 - A component reads the dashboard's filters from `FiltersContext`, and changes them through the controllers in `FilterControlsContext`.
 

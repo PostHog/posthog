@@ -17,14 +17,14 @@ describe('customSpec', () => {
     )
 
     it.each([
-        { content: 'test/banner', size: wide, showOnInteractiveOnly: true, locked: false },
-        { content: 'test/plain', size: CUSTOM_PANEL_SIZE, showOnInteractiveOnly: false, locked: true },
-        { content: 'test/missing', size: CUSTOM_PANEL_SIZE, showOnInteractiveOnly: false, locked: false },
-    ])('reads the size and flags of $content content', ({ content, size, showOnInteractiveOnly, locked }) => {
+        { content: 'test/banner', size: wide, showOnInteractiveOnly: true, movable: true },
+        { content: 'test/plain', size: CUSTOM_PANEL_SIZE, showOnInteractiveOnly: false, movable: false },
+        { content: 'test/missing', size: CUSTOM_PANEL_SIZE, showOnInteractiveOnly: false, movable: true },
+    ])('reads the size and flags of $content content', ({ content, size, showOnInteractiveOnly, movable }) => {
         const panel = { type: 'custom', config: { content } }
         expect(spec.sizeOf(panel)).toEqual(size)
         expect(spec.showOnInteractiveOnly(panel)).toBe(showOnInteractiveOnly)
-        expect(spec.locked(panel)).toBe(locked)
+        expect(spec.movable(panel)).toBe(movable)
     })
 
     it.each(['test/missing', 'banner', 'toString', 'constructor'])(
