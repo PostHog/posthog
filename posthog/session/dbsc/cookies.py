@@ -4,8 +4,7 @@ from django.conf import settings
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.http import HttpResponse
 
-# Chrome refreshes the bound cookie before each request once it expires, so a short life only
-# costs one refresh round trip, and it is all the time a stolen copy of it stays usable.
+# A stolen copy stays usable this long, and each expiry costs Chrome one refresh round trip.
 COOKIE_MAX_AGE_SECONDS = 10 * 60
 # A request that left the browser just before expiry still carries the old value.
 COOKIE_GRACE_SECONDS = 60

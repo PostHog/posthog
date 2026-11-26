@@ -17,8 +17,7 @@ if TYPE_CHECKING:
 # and must not be reset to NULL by a routine session save.
 _SESSION_OWNED_FIELDS = ["session_data", "expire_date", "user_id"]
 
-# Session-data key that holds a device binding (posthog.session.dbsc) until the session's next save,
-# which moves it into the `dbsc_binding` column. It never reaches `session_data`.
+# Holds a carried device binding until the next save moves it into the `dbsc_binding` column.
 DBSC_CARRY_SESSION_KEY = "_dbsc_carry"
 
 
@@ -64,8 +63,7 @@ class SessionStore(DBStore):
         return obj
 
     def cycle_key(self) -> None:
-        # A login on the same browser rotates the key. The device key stays in that browser, so the
-        # new row keeps the binding.
+        """A login on the same browser rotates the key, and the device key stays in that browser."""
         binding = self._stored_dbsc_binding()
         if binding is not None:
             self[DBSC_CARRY_SESSION_KEY] = binding
@@ -142,8 +140,7 @@ class SessionStore(DBStore):
             obj.save(force_insert=True, using=using)
             return
         update_fields = list(_SESSION_OWNED_FIELDS)
-        # A login can insert the new row before the binding is carried over, so the carry also
-        # lands on the next update. Without a carry the column stays as registration wrote it.
+        # A login can insert the row before the binding is carried, so the carry also lands on an update.
         if obj.dbsc_binding is not None:
             update_fields.append("dbsc_binding")
         obj.save(force_update=True, using=using, update_fields=update_fields)

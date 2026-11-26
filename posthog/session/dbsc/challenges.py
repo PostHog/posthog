@@ -22,7 +22,7 @@ def refresh_subject(binding_id: str) -> str:
 
 
 def issue_challenge(subject: str) -> str:
-    # Keyed by an offer or binding id, because the response to a login has no session key yet.
+    """Keyed by an offer or binding id, because the response to a login has no session key yet."""
     key = _cache_key(subject)
     cache.add(key, secrets.token_urlsafe(32), CHALLENGE_TTL_SECONDS)
     challenge = cache.get(key)

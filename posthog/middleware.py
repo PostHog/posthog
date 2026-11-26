@@ -2020,8 +2020,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
     # while Django's URL config accepts both via opt_slash_path — match both forms.
     ("POST", re.compile(r"^/logout/?$")),
-    # The browser refreshes the staff member's bound session cookie here (posthog.session.dbsc). It
-    # writes no customer data, and blocking it would end every impersonation at the next refresh.
+    # Refreshes the staff member's bound cookie. Blocking it would end every impersonation.
     ("POST", "/dbsc/refresh"),
     # OAuth consent submission and token exchange. Both run as POST during the OAuth flow.
     # Scopes minted while read-only impersonation is active are filtered through

@@ -1,5 +1,5 @@
-# The browser posts here with no CSRF token. A cross-site page cannot set `Sec-Secure-Session-Id`
-# without a CORS preflight, which this server never grants.
+"""The browser posts here with no CSRF token. A cross-site page cannot set `Sec-Secure-Session-Id`
+without a CORS preflight, which this server never grants."""
 
 import hmac
 

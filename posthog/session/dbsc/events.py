@@ -24,8 +24,7 @@ REFRESHES_COUNTER = Counter(
     "DBSC bound-cookie refresh attempts, by outcome",
     labelnames=["outcome"],
 )
-# The rollout reads this in shadow mode: refusals with skipped="true" are browsers that could not
-# refresh, the rest are requests that carried the long-lived cookie alone.
+# skipped="true" marks browsers that could not refresh. The rest carried the session cookie alone.
 REFUSALS_COUNTER = Counter(
     "posthog_dbsc_refusals_total",
     "Bound sessions that arrived without a valid bound cookie, by mode and reason",

@@ -61,8 +61,7 @@ class DeviceBoundSessionMiddleware:
         offer_id = bindings.offer_id(request.session)
         if offer_id is None or bindings.is_bound_or_carried(request.session):
             return
-        # The login response itself carries the offer. After that, only page loads do, so a browser
-        # without DBSC support does not cost a cache round trip on every API call.
+        # After the login response, only page loads carry the offer, to spare API calls a cache round trip.
         is_login_response = request.session.modified
         is_page_load = request.headers.get("Sec-Fetch-Dest") == "document"
         if not (is_login_response or is_page_load):

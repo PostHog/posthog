@@ -11,14 +11,12 @@ from posthog.session.models import Session
 
 Algorithm = Literal["ES256", "RS256"]
 
-# Its value is the offer id, which keys the registration challenge.
 OFFER_SESSION_KEY = "_dbsc_offer"
 
 
 @frozen
 class Binding:
-    # The DBSC session identifier the browser sends back in `Sec-Secure-Session-Id`. Random, not
-    # derived from the session key, so it stays the same when the session key rotates.
+    # Random, so it stays the same when the session key rotates.
     id: str
     alg: Algorithm
     jwk: dict[str, Any]
@@ -50,7 +48,7 @@ def new_binding(*, alg: Algorithm, jwk: dict[str, Any]) -> Binding:
 
 
 def current_binding(session: SessionBase) -> Binding | None:
-    # Reuses the row the session store already loaded, because this runs on every request.
+    """Reuses the row the session store already loaded, because this runs on every request."""
     session_key = session.session_key
     if not session_key:
         return None
@@ -62,7 +60,7 @@ def current_binding(session: SessionBase) -> Binding | None:
 
 
 def save_binding(session_key: str, binding: Binding) -> bool:
-    # Only an unbound row takes a key, so a stolen session cookie cannot move the binding to another device.
+    """Only an unbound row takes a key, so a stolen session cookie cannot move the binding to another device."""
     updated = Session.objects.filter(session_key=session_key, dbsc_binding__isnull=True).update(
         dbsc_binding=binding.to_json()
     )
@@ -70,7 +68,7 @@ def save_binding(session_key: str, binding: Binding) -> bool:
 
 
 def carry_binding(session: SessionBase, binding: Binding) -> None:
-    # A login on the same browser replaces the session row, and the device key stays in that browser.
+    """A login on the same browser replaces the session row, and the device key stays in that browser."""
     session[DBSC_CARRY_SESSION_KEY] = binding.to_json()
     session.pop(OFFER_SESSION_KEY, None)
 

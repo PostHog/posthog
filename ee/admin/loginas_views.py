@@ -39,8 +39,7 @@ def start_impersonation(request, user_id, *, read_only: bool):
     )
 
     if login_succeeded:
-        # The staff member's browser keeps its device key, so the impersonation session stays bound
-        # to it. An unbound staff session is not offered binding while it impersonates.
+        # The staff member's browser keeps its device key, so the impersonation stays bound to it.
         if staff_binding is not None:
             carry_binding(request.session, staff_binding)
         else:

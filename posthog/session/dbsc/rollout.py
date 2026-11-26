@@ -23,7 +23,7 @@ def is_available() -> bool:
 
 
 def mode_for(user: User) -> Mode:
-    # An unloaded flag, an unknown variant or an error gives OFF, which refuses nobody.
+    """An unloaded flag, an unknown variant or an error gives OFF, which refuses nobody."""
     if not is_available():
         return Mode.OFF
     try:

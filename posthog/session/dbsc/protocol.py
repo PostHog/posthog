@@ -1,4 +1,4 @@
-# Follows the W3C Device Bound Session Credentials editor's draft: https://w3c.github.io/webappsec-dbsc/
+"""Follows the W3C Device Bound Session Credentials editor's draft: https://w3c.github.io/webappsec-dbsc/"""
 
 from typing import Any, cast
 
@@ -42,7 +42,7 @@ def challenge_header_value(challenge: str, binding_id: str) -> str:
 
 
 def parse_sf_string(value: str | None) -> str | None:
-    # Bare values are accepted too, because earlier drafts did not quote them.
+    """Bare values are accepted too, because earlier drafts did not quote them."""
     if value is None:
         return None
     value = value.strip()
@@ -102,8 +102,7 @@ def _verified_jti(token: str, key: jwt.PyJWK, alg: Algorithm) -> str:
             token,
             key=key,
             algorithms=[alg],
-            # The draft defines only `jti`. Its examples carry `iat` as a string, which the default
-            # time checks would reject.
+            # The draft defines only `jti`, and its examples send `iat` as a string.
             options={
                 "require": ["jti"],
                 "verify_exp": False,
@@ -124,7 +123,7 @@ def _verified_jti(token: str, key: jwt.PyJWK, alg: Algorithm) -> str:
 
 
 def verify_registration_proof(token: str) -> Proof:
-    # The caller still checks the challenge.
+    """The caller still checks the challenge."""
     alg, header = _proof_header(token)
     jwk = header.get("jwk")
     key = _public_key(alg, jwk)
@@ -140,7 +139,7 @@ def verify_refresh_proof(token: str, binding: Binding) -> Proof:
 
 
 def session_config(binding_id: str) -> dict[str, Any]:
-    # Without `scope.origin`, the session covers the origin that served the registration.
+    """Without `scope.origin`, the session covers the origin that served the registration."""
     return {
         "session_identifier": binding_id,
         "refresh_url": REFRESH_PATH,
