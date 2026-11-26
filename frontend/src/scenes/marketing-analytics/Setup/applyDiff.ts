@@ -38,6 +38,7 @@ function integrationLabel(integration: unknown): string {
 const GOAL_FIELD_LABELS: Record<string, string> = {
     counts_as_revenue: 'Each conversion is worth money',
     counts_as_customer: 'Counts as a new customer',
+    use_in_recommendations: 'Used for Google Ads recommendations',
     conversion_goal_name: 'Name',
     math: 'Aggregation',
     math_property: 'Amount property',

@@ -3,7 +3,7 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { type CloudRegion, isModalModelId } from "@posthog/agent-contracts";
 import { buildPosthogProjectHeaderRecord } from "@posthog/agent-contracts/posthog-property-headers";
-import { getLlmGatewayUrl } from "./gateway";
+import { getGatewayBaseUrl } from "./gateway";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
@@ -126,7 +126,7 @@ function supportsVision(
 export function gatewayBaseUrlForApi(
   api: string,
   region: CloudRegion,
-  baseUrl = getLlmGatewayUrl(region),
+  baseUrl = getGatewayBaseUrl(region),
 ): string {
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
   if (!api.startsWith("openai-") || normalizedBaseUrl.endsWith("/v1")) {
@@ -329,6 +329,7 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     context_window: 128000,
     supports_vision: false,
   },
+  // Retired, and kept so a saved session pinned to it still restores.
   {
     id: "moonshotai/kimi-k3",
     owned_by: "modal",
@@ -336,7 +337,19 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     supports_vision: false,
   },
   {
+    id: "moonshotai/kimi-k3.1-pro",
+    owned_by: "modal",
+    context_window: 1048576,
+    supports_vision: false,
+  },
+  {
     id: "deepseek-ai/deepseek-v4-flash-0731",
+    owned_by: "baseten",
+    context_window: 1048000,
+    supports_vision: false,
+  },
+  {
+    id: "deepseek-ai/deepseek-v4.1-flash-1017",
     owned_by: "baseten",
     context_window: 1048000,
     supports_vision: false,
@@ -416,7 +429,7 @@ export async function resolveModelConfigs(
   }
 
   const models = await fetchPosthogGatewayModels(
-    baseUrl ?? getLlmGatewayUrl(region),
+    baseUrl ?? getGatewayBaseUrl(region),
     apiKey,
     projectId,
   );

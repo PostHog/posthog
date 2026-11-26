@@ -10,7 +10,7 @@ import type { AccessControlManagementApi } from 'products/access_control/fronten
 
 import { TerraformLockLogicProps, terraformLockLogic } from './terraformLockLogic'
 
-function lockDescription(lock: AccessControlManagementApi): string {
+export function lockDescription(lock: AccessControlManagementApi): string {
     if (!lock.managed) {
         return 'Access rules in this project can be changed here. The next Terraform apply that changes a rule turns the lock back on.'
     }

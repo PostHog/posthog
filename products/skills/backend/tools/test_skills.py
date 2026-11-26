@@ -189,12 +189,14 @@ class TestCreateLLMSkillTool(BaseTest):
             files=[
                 {"path": "scripts/mandelbrot.py", "content": "print('m')", "content_type": "text/x-python"},
             ],
+            version_description="  Written from scratch.  ",
         )
 
         assert "make-fractals" in result
         assert "v1" in result
         skill = LLMSkill.objects.get(team=self.team, name="make-fractals", is_latest=True)
         assert skill.description == "Render fractals."
+        assert skill.version_description == "Written from scratch."
         assert skill.files.count() == 1
         first_file = skill.files.first()
         assert first_file is not None
@@ -337,3 +339,10 @@ class TestSkillToolDescriptionCap(TestCase):
         with self.assertRaises(ValidationError):
             build("x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1))
         build("x" * SPEC_DESCRIPTION_MAX_LENGTH)
+
+    def test_create_version_description_capped_at_column_limit(self) -> None:
+        # create_skill writes the note straight to a 400-char column, so an over-long note must
+        # fail here rather than as a database error mid-tool-call.
+        with self.assertRaises(ValidationError):
+            CreateSkillArgs(name="my-skill", description="d", body="# Body", version_description="x" * 401)
+        CreateSkillArgs(name="my-skill", description="d", body="# Body", version_description="x" * 400)

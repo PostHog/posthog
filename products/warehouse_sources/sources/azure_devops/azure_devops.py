@@ -14,8 +14,10 @@ from products.warehouse_sources.sources.sdk import (
     UNVERSIONED_API_VERSION,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
+    reach_safe_point,
     retry_with_deadline,
 )
 
@@ -89,16 +91,6 @@ def _validate_organization(organization: str) -> str:
     return org
 
 
-def _format_datetime(value: Any) -> str:
-    """Format an incremental cursor for Azure DevOps date-time filters (ISO 8601 UTC)."""
-    if isinstance(value, datetime):
-        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
-        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if isinstance(value, date):
-        return value.strftime("%Y-%m-%dT00:00:00Z")
-    return str(value)
-
-
 def _parse_datetime(value: Any) -> Optional[datetime]:
     """Read an incremental cursor back into a datetime, or None when it isn't one."""
     if isinstance(value, datetime):
@@ -126,7 +118,7 @@ def _last_updated_windows(since: datetime, until: datetime) -> Iterator[LastUpda
     start = since
     while start < until:
         end = min(start + TEST_RUN_WINDOW, until)
-        yield LastUpdatedWindow(min_last_updated=_format_datetime(start), max_last_updated=_format_datetime(end))
+        yield LastUpdatedWindow(min_last_updated=format_datetime(start), max_last_updated=format_datetime(end))
         start = end
 
 
@@ -158,6 +150,10 @@ def _with_pull_request_ref(item: dict[str, Any], ref: PullRequestRef) -> dict[st
         "repository_id": ref.repository_id,
         "pull_request_id": ref.pull_request_id,
     }
+
+
+def _with_pull_request_iteration_ref(item: dict[str, Any], ref: PullRequestRef, iteration_id: Any) -> dict[str, Any]:
+    return {**_with_pull_request_ref(item, ref), "iteration_id": iteration_id}
 
 
 def _flatten_thread_comments(thread: dict[str, Any], ref: PullRequestRef) -> list[dict[str, Any]]:
@@ -364,7 +360,7 @@ def get_rows(
         return response
 
     incremental_value = (
-        _format_datetime(db_incremental_field_last_value)
+        format_datetime(db_incremental_field_last_value)
         if should_use_incremental_field and db_incremental_field_last_value is not None
         else None
     )
@@ -619,6 +615,24 @@ def get_rows(
             items = fetch(pull_request_child_path(ref), {}).json().get("value", []) or []
             if items:
                 yield [_with_pull_request_ref(item, ref) for item in items]
+        return
+
+    if endpoint == "pull_request_iteration_statuses":
+        for ref in pull_request_refs():
+            path = pull_request_child_path(ref)
+            iterations = fetch(path.removesuffix("/{iterationId}/statuses"), {}).json().get("value", []) or []
+            iteration_ids = [iteration["id"] for iteration in iterations if iteration.get("id") is not None]
+            if not iteration_ids:
+                reach_safe_point()
+            for iteration_id in iteration_ids:
+                statuses = (
+                    fetch(path.replace("{iterationId}", quote(str(iteration_id))), {}).json().get("value", []) or []
+                )
+                if statuses:
+                    yield [_with_pull_request_iteration_ref(item, ref, iteration_id) for item in statuses]
+                else:
+                    # This table stages no resume state, so an empty response is a safe point.
+                    reach_safe_point()
         return
 
     if endpoint == "teams":

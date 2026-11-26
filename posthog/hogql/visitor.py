@@ -297,6 +297,7 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_field_alias_type(self, node: ast.FieldAliasType):
         self.visit(node.type)
+        self.visit(node.constant_type)
 
     def visit_array_join_alias_type(self, node: ast.ArrayJoinAliasType):
         self.visit_field_alias_type(node)
@@ -749,6 +750,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             keys=list(node.keys),
+            as_json=node.as_json,
         )
 
     def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess):
@@ -758,7 +760,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             keys=list(node.keys),
-            access_type=node.access_type,
+            map_subcolumn=node.map_subcolumn,
         )
 
     def visit_lambda(self, node: ast.Lambda):

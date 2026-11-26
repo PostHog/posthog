@@ -30,14 +30,48 @@ class AnswerSentiment:
     score: float
 
 
-def brand_sentences(answer_text: str | None, target_domains: list[str]) -> list[str]:
+@frozen
+class BrandSentence:
+    """One sentence of an answer that names the brand. `start` and `end` are offsets into the answer
+    text in Unicode code points, and cover the whole trimmed sentence even when `text` is cut short."""
+
+    start: int
+    end: int
+    text: str
+
+
+@frozen
+class SentenceSentiment:
+    start: int
+    end: int
+    label: str
+    score: float
+
+
+def brand_sentences(answer_text: str | None, target_domains: list[str]) -> list[BrandSentence]:
     """The sentences of an answer that name the brand, in order, trimmed and bounded."""
     pattern = brand_pattern(target_domains)
     if not answer_text or pattern is None:
         return []
-    sentences = (sentence.strip() for sentence in _SENTENCE_BREAK.split(answer_text))
-    matching = (sentence[:MAX_SENTENCE_CHARS] for sentence in sentences if sentence and pattern.search(sentence))
-    return [sentence for _, sentence in zip(range(MAX_BRAND_SENTENCES), matching)]
+    sentences: list[BrandSentence] = []
+    position = 0
+    breaks = [match.span() for match in _SENTENCE_BREAK.finditer(answer_text)]
+    for break_start, break_end in [*breaks, (len(answer_text), len(answer_text))]:
+        raw = answer_text[position:break_start]
+        text = raw.strip()
+        if text and pattern.search(text):
+            start = position + len(raw) - len(raw.lstrip())
+            sentences.append(BrandSentence(start=start, end=start + len(text), text=text[:MAX_SENTENCE_CHARS]))
+            if len(sentences) == MAX_BRAND_SENTENCES:
+                break
+        position = break_end
+    return sentences
+
+
+def sentence_sentiment(sentence: BrandSentence, scores: Mapping[str, float]) -> SentenceSentiment:
+    """The label of one sentence, picked with the same neutral margin as the answer's label."""
+    label = select_sentiment_label(dict(scores))
+    return SentenceSentiment(start=sentence.start, end=sentence.end, label=label, score=round(scores[label], 4))
 
 
 def aggregate_sentiment(sentence_scores: Sequence[Mapping[str, float]]) -> AnswerSentiment | None:

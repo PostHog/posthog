@@ -9,7 +9,6 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import (
     serializers,
@@ -23,7 +22,6 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
 
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, IntercomImportJob
 from products.conversations.backend.permissions import IsConversationsAdmin
@@ -47,7 +45,6 @@ WORKFLOW_STOPPED_MESSAGE = (
     "The import stopped before it finished. Start it again to import the remaining conversations."
 )
 ALREADY_RUNNING_MESSAGE = "An Intercom import is already running for this team"
-INTERCOM_IMPORT_FLAG = "product-support-intercom-import"
 # A started workflow moves its job to running within seconds, so a pending job with no workflow_id
 # this old is a candidate orphan; Temporal is still checked before releasing it.
 ORPHANED_PENDING_AFTER = timedelta(minutes=10)
@@ -146,28 +143,6 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def safely_get_queryset(self, queryset):
         return IntercomImportJob.objects.all().order_by("-created_at")
 
-    def _flag_enabled(self, request: Request) -> bool:
-        # The settings UI is flag-gated per user, so gate the endpoint the same way. A flag-service
-        # error counts as disabled.
-        user = request.user
-        if not isinstance(user, User):
-            return False
-        try:
-            org_id = str(self.team.organization_id)
-            return bool(
-                posthoganalytics.feature_enabled(
-                    INTERCOM_IMPORT_FLAG,
-                    str(user.distinct_id),
-                    groups={"organization": org_id, "project": str(self.team.id)},
-                    group_properties={"organization": {"id": org_id}, "project": {"id": str(self.team.id)}},
-                    only_evaluate_locally=False,
-                    send_feature_flag_events=False,
-                )
-            )
-        except Exception as e:
-            logger.warning("intercom_import_flag_eval_failed", team_id=self.team.id, error=str(e))
-            return False
-
     def _release_orphaned_reservations(self) -> None:
         now = timezone.now()
         stale = IntercomImportJob.objects.filter(
@@ -228,8 +203,6 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         team_id = self.team_id
-        if not self._flag_enabled(request):
-            return Response({"detail": "Intercom import is not available"}, status=drf_status.HTTP_403_FORBIDDEN)
         if not self.team.conversations_enabled:
             return Response({"detail": "Support is not enabled for this team"}, status=drf_status.HTTP_400_BAD_REQUEST)
 
@@ -334,8 +307,6 @@ class IntercomImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"])
     def status(self, request: Request, *args, **kwargs) -> Response:
-        if not self._flag_enabled(request):
-            return Response({"detail": "Intercom import is not available"}, status=drf_status.HTTP_403_FORBIDDEN)
         # The settings page disables Start while a job is active, so repair stuck jobs here too.
         self._reconcile_jobs_with_temporal()
         job = IntercomImportJob.objects.order_by("-created_at").first()

@@ -494,7 +494,7 @@ def check_web_dimensional_precompute_coverage_op(
         f"{TODAY_MAX_LAG_SECONDS // 60} minutes."
     ),
     tags={
-        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "owner": JobOwners.TEAM_ANALYTICS.value,
         "dagster/max_runtime": str(2 * 60 * 60),
     },
 )
@@ -511,7 +511,7 @@ def web_dimensional_precompute_job():
     cron_schedule="7,27,47 * * * *",
     job=web_dimensional_precompute_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 @skip_on_kill_switch
 def web_dimensional_precompute_schedule(

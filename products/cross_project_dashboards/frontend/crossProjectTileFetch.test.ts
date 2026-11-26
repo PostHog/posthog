@@ -1,17 +1,21 @@
-import { insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
+import { insightsCancelCreate, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 
 import { fetchCrossProjectTile } from './crossProjectTileFetch'
 
 jest.mock('products/product_analytics/frontend/generated/api', () => ({
     __esModule: true,
     insightsRetrieve: jest.fn(),
+    insightsCancelCreate: jest.fn(),
 }))
 
 const mockedRetrieve = insightsRetrieve as jest.Mock
+const mockedCancel = insightsCancelCreate as jest.Mock
 
 describe('fetchCrossProjectTile', () => {
     beforeEach(() => {
         mockedRetrieve.mockReset()
+        mockedCancel.mockReset()
+        mockedCancel.mockResolvedValue(undefined)
     })
 
     it('fetches from the tile own project, not the current one', async () => {
@@ -20,7 +24,7 @@ describe('fetchCrossProjectTile', () => {
         await fetchCrossProjectTile(42, 7)
 
         expect(mockedRetrieve).toHaveBeenCalledTimes(1)
-        expect(mockedRetrieve).toHaveBeenCalledWith('42', 7, expect.anything())
+        expect(mockedRetrieve).toHaveBeenCalledWith('42', 7, expect.anything(), expect.anything())
     })
 
     it('returns the insight when the project endpoint answers', async () => {
@@ -28,8 +32,8 @@ describe('fetchCrossProjectTile', () => {
 
         const result = await fetchCrossProjectTile(42, 7)
 
-        expect(result.unavailable).toBeNull()
-        expect(result.insight).toEqual({ id: 7, name: 'Signups' })
+        expect(result?.unavailable).toBeNull()
+        expect(result?.insight).toEqual({ id: 7, name: 'Signups' })
     })
 
     it('reports no access on 403 and carries no insight', async () => {
@@ -37,8 +41,8 @@ describe('fetchCrossProjectTile', () => {
 
         const result = await fetchCrossProjectTile(42, 7)
 
-        expect(result.unavailable).toBe('no-access')
-        expect(result.insight).toBeNull()
+        expect(result?.unavailable).toBe('no-access')
+        expect(result?.insight).toBeNull()
     })
 
     it('reports not found on 404', async () => {
@@ -46,8 +50,8 @@ describe('fetchCrossProjectTile', () => {
 
         const result = await fetchCrossProjectTile(42, 7)
 
-        expect(result.unavailable).toBe('not-found')
-        expect(result.insight).toBeNull()
+        expect(result?.unavailable).toBe('not-found')
+        expect(result?.insight).toBeNull()
     })
 
     it('reports a generic failure on any other error', async () => {
@@ -55,7 +59,7 @@ describe('fetchCrossProjectTile', () => {
 
         const result = await fetchCrossProjectTile(42, 7)
 
-        expect(result.unavailable).toBe('failed')
+        expect(result?.unavailable).toBe('failed')
     })
 
     it('passes dashboard filters through as filters_override', async () => {
@@ -64,6 +68,35 @@ describe('fetchCrossProjectTile', () => {
         await fetchCrossProjectTile(42, 7, { date_from: '-7d' })
 
         expect(JSON.parse(mockedRetrieve.mock.calls[0][2].filters_override)).toEqual({ date_from: '-7d' })
+    })
+
+    it.each([
+        ['reads the cache on an ordinary load', undefined, 'blocking'],
+        ['recalculates for a refresh', true, 'force_blocking'],
+    ])('%s', async (_name, refresh, expected) => {
+        mockedRetrieve.mockResolvedValue({ id: 7 })
+
+        await fetchCrossProjectTile(42, 7, undefined, { refresh })
+
+        expect(mockedRetrieve.mock.calls[0][2].refresh).toBe(expected)
+    })
+
+    it('resolves null when aborted and stops its query in that project', async () => {
+        mockedRetrieve.mockImplementation(
+            (_project, _id, _params, options) =>
+                new Promise((_resolve, reject) =>
+                    options.signal.addEventListener('abort', () => reject(new Error('aborted')))
+                )
+        )
+        const controller = new AbortController()
+
+        const pending = fetchCrossProjectTile(42, 7, undefined, { signal: controller.signal })
+        await Promise.resolve()
+        controller.abort()
+
+        expect(await pending).toBeNull()
+        const clientQueryId = mockedRetrieve.mock.calls[0][2].client_query_id
+        expect(mockedCancel).toHaveBeenCalledWith('42', { client_query_id: clientQueryId })
     })
 
     it('omits filters_override when there are no filters', async () => {

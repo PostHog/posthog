@@ -8,6 +8,7 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSendingStopped } from 'scenes/hog-functions/email-templater/emailSenderFields'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
@@ -42,6 +43,16 @@ function VerificationTag({ verified }: { verified: boolean }): JSX.Element {
     )
 }
 
+function SendingStoppedTag(): JSX.Element {
+    return (
+        <Tooltip title="The DNS records of this domain can no longer be verified, so every email from it fails. Fix the records with your DNS provider, then open Configure and verify the domain again.">
+            <LemonTag type="danger" className="cursor-help" tabIndex={0} data-attr="email-domain-sending-stopped-tag">
+                Sending stopped
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
 export function IntegrationEmailDomainView({
     integration,
 }: {
@@ -60,8 +71,6 @@ export function IntegrationEmailDomainView({
     const makeDefault = (integrationId: number): void => {
         updateCurrentTeam({
             workflows_config: {
-                capture_workflows_engagement_events:
-                    currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
                 default_email_integration_id: integrationId,
             },
         })
@@ -70,6 +79,7 @@ export function IntegrationEmailDomainView({
     }
     const { domain, integrations } = integration
     const verified = integrations.every(isVerified)
+    const sendingStopped = integrations.some(isSendingStopped)
     const verificationRequired = integrations.some(isVerificationRequired)
     const [isExpanded, setIsExpanded] = useState(false)
 
@@ -92,7 +102,11 @@ export function IntegrationEmailDomainView({
                             {integrations.some((sender) => sender.id === defaultSenderId) && (
                                 <LemonTag type="primary">Default sender</LemonTag>
                             )}
-                            {verificationRequired && <VerificationTag verified={verified} />}
+                            {sendingStopped ? (
+                                <SendingStoppedTag />
+                            ) : (
+                                verificationRequired && <VerificationTag verified={verified} />
+                            )}
                         </div>
                     </div>
                     <LemonButton

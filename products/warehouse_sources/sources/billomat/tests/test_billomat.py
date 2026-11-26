@@ -172,45 +172,98 @@ class TestBillomatSourceResumeBehavior:
         assert result.rows == expected_rows
 
 
-class TestBillomatClientContactsFanout:
+_FANOUTS = [
+    # (schema, parent path, parent wrapper, parent item, child path, child wrapper, child item, parent id field)
+    ("ClientContacts", "/api/clients", "clients", "client", "/api/contacts", "contacts", "contact", "client_id"),
+    (
+        "InvoiceComments",
+        "/api/invoices",
+        "invoices",
+        "invoice",
+        "/api/invoice-comments",
+        "invoice-comments",
+        "invoice-comment",
+        "invoice_id",
+    ),
+]
+
+
+class TestBillomatFanout:
     @staticmethod
     def _driver() -> SourceDriver:
         return SourceDriver(BillomatSource(), BillomatSourceConfig(billomat_id="acme", api_key="test-key"))
 
     @staticmethod
-    def _clients(*ids: str) -> ScriptedResponse:
-        return ScriptedResponse(json={"clients": {"client": [{"id": i} for i in ids], "total": str(len(ids))}})
+    def _parents(wrapper: str, item: str, *ids: str) -> ScriptedResponse:
+        return ScriptedResponse(json={wrapper: {item: [{"id": i} for i in ids], "total": str(len(ids))}})
 
     @staticmethod
-    def _contacts(client_id: str, *ids: str) -> ScriptedResponse:
-        rows = [{"id": i, "client_id": client_id} for i in ids]
-        return ScriptedResponse(json={"contacts": {"contact": rows, "total": str(len(ids))}})
+    def _children(wrapper: str, item: str, parent_field: str, parent_id: str, *ids: str) -> ScriptedResponse:
+        rows = [{"id": i, parent_field: parent_id} for i in ids]
+        return ScriptedResponse(json={wrapper: {item: rows, "total": str(len(ids))}})
 
-    def test_fetches_contacts_for_each_client(self) -> None:
+    @pytest.mark.parametrize(
+        ("schema", "parent_path", "parent_wrapper", "parent_item", "path", "wrapper", "item", "parent_field"),
+        _FANOUTS,
+    )
+    def test_fetches_children_for_each_parent(
+        self,
+        schema: str,
+        parent_path: str,
+        parent_wrapper: str,
+        parent_item: str,
+        path: str,
+        wrapper: str,
+        item: str,
+        parent_field: str,
+    ) -> None:
         result = self._driver().run(
-            "ClientContacts",
-            [self._clients("10", "20"), self._contacts("10", "1", "2"), self._contacts("20", "3")],
+            schema,
+            [
+                self._parents(parent_wrapper, parent_item, "10", "20", "30"),
+                self._children(wrapper, item, parent_field, "10", "1", "2"),
+                # A parent with no children answers with an empty wrapper and no item key.
+                ScriptedResponse(json={wrapper: {"total": "0"}}),
+                self._children(wrapper, item, parent_field, "30", "3"),
+            ],
         )
 
         assert result.raised is None
-        assert result.paths == ["/api/clients", "/api/contacts", "/api/contacts"]
-        assert result.params("client_id") == [None, "10", "20"]
+        assert result.paths == [parent_path, path, path, path]
+        assert result.params(parent_field) == [None, "10", "20", "30"]
         assert result.rows == [
-            {"id": "1", "client_id": "10"},
-            {"id": "2", "client_id": "10"},
-            {"id": "3", "client_id": "20"},
+            {"id": "1", parent_field: "10"},
+            {"id": "2", parent_field: "10"},
+            {"id": "3", parent_field: "30"},
         ]
 
-    def test_resume_skips_clients_already_synced(self) -> None:
+    @pytest.mark.parametrize(
+        ("schema", "parent_path", "parent_wrapper", "parent_item", "path", "wrapper", "item", "parent_field"),
+        _FANOUTS,
+    )
+    def test_resume_skips_parents_already_synced(
+        self,
+        schema: str,
+        parent_path: str,
+        parent_wrapper: str,
+        parent_item: str,
+        path: str,
+        wrapper: str,
+        item: str,
+        parent_field: str,
+    ) -> None:
         result = self._driver().run(
-            "ClientContacts",
-            [self._clients("10", "20"), self._contacts("20", "3")],
-            resume_state=BillomatResumeConfig(completed=["/contacts?client_id=10"]),
+            schema,
+            [
+                self._parents(parent_wrapper, parent_item, "10", "20"),
+                self._children(wrapper, item, parent_field, "20", "3"),
+            ],
+            resume_state=BillomatResumeConfig(completed=[f"{path.removeprefix('/api')}?{parent_field}=10"]),
         )
 
         assert result.raised is None
-        assert result.params("client_id") == [None, "20"]
-        assert result.rows == [{"id": "3", "client_id": "20"}]
+        assert result.params(parent_field) == [None, "20"]
+        assert result.rows == [{"id": "3", parent_field: "20"}]
 
 
 class TestValidateCredentials:

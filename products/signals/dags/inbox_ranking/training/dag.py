@@ -121,6 +121,7 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     capture_training_events,
     model_promoted_event,
     promotion_event,
+    run_times,
     serving_manifest_event,
     unseen_calibration_events,
     unseen_head_evaluated_events,
@@ -403,14 +404,24 @@ def load_snapshots(
     born: dict[datetime.date, pd.Index] = {}
     for date in sorted(dates):
         key = date.isoformat()
-        state = read_parquet_if_exists(client, bucket, partition_object_key(prefix, STATE_TABLE, key))
-        labels = read_parquet_if_exists(client, bucket, partition_object_key(prefix, LABELS_TABLE, key))
+        state = read_parquet_if_exists(
+            client,
+            bucket,
+            partition_object_key(prefix, STATE_TABLE, key),
+            columns=["report_id", *_STATE_READ_COLUMNS],
+            skip_absent_columns=True,
+        )
+        labels = read_parquet_if_exists(
+            client,
+            bucket,
+            partition_object_key(prefix, LABELS_TABLE, key),
+            columns=["report_id", *_LABEL_COLUMNS],
+            skip_absent_columns=True,
+        )
         if state is None or labels is None:
             continue
-        state_columns = [column for column in _STATE_READ_COLUMNS if column in state.column_names]
-        state_frame = state.select(["report_id", *state_columns]).to_pandas().set_index("report_id")
-        label_columns = [column for column in _LABEL_COLUMNS if column in labels.column_names]
-        labels_frame = labels.select(["report_id", *label_columns]).to_pandas().set_index("report_id")
+        state_frame = state.to_pandas().set_index("report_id")
+        labels_frame = labels.to_pandas().set_index("report_id")
         if birth_horizons is not None:
             born[date] = state_frame.index[birth_day_mask(state_frame, date).to_numpy()]
             keep = born[date].append(
@@ -596,6 +607,7 @@ def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> No
 def _publish_manifest(
     context: RunContext, partition_key: str, run_id: str, *, auto_promote: bool = False
 ) -> dict[str, dagster.MetadataValue]:
+    started_at = datetime.datetime.now(datetime.UTC)
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
     overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
     auto_metadata = (
@@ -673,6 +685,7 @@ def _publish_manifest(
                     served_family=served_family,
                     manifest=None,
                     reason=decision.reason,
+                    times=run_times(started_at),
                 )
             ],
         )
@@ -725,6 +738,7 @@ def _publish_manifest(
                         *(family.champion for family in families if family.champion),
                     )
                 },
+                times=run_times(started_at),
             )
         ],
     )

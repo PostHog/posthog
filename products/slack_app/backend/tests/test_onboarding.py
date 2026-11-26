@@ -189,6 +189,21 @@ class TestOnboarding:
         self.organization.refresh_from_db()
         assert self.organization.is_ai_data_processing_approved is True
 
+    @patch("products.slack_app.backend.onboarding._is_org_admin", return_value=True)
+    @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=7)
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_approve_ai_data_processing_rejected_when_locked(self, mock_webclient_class, _resolve, _admin):
+        self._client(mock_webclient_class)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.is_ai_data_processing_locked = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved", "is_ai_data_processing_locked"])
+
+        ok = onboarding.approve_ai_data_processing(self.integration, "U1")
+
+        assert ok is False
+        self.organization.refresh_from_db()
+        assert self.organization.is_ai_data_processing_approved is False
+
     @patch("products.slack_app.backend.onboarding._is_org_admin", return_value=False)
     @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=7)
     @patch("posthog.models.integration.slack.WebClient")

@@ -7,7 +7,10 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { InternalLogsProducer } from '~/logs/internal-logs-producer'
 
+import { createExampleInvocation } from '../../_tests/fixtures'
+import { HIDDEN_OUTPUT_MESSAGE } from '../../read-guarded-internal-events'
 import { LogEntry, MetricLogSource, MinimalAppMetric } from '../../types'
+import { createInvocationResult } from '../../utils/invocation-utils'
 import {
     HogFunctionMonitoringService,
     MonitoringOutput,
@@ -129,6 +132,33 @@ describe('HogFunctionMonitoringService', () => {
         ])
     })
 
+    it('counts an unverified sender under its own Prometheus label and keeps email_failed in app metrics', async () => {
+        const counted = async (metricName: string): Promise<number> =>
+            (await register.getSingleMetric('cdp_hog_function_metric')!.get()).values.find(
+                (v) => v.labels.metric_kind === 'email' && v.labels.metric_name === metricName
+            )?.value ?? 0
+        const failedBefore = await counted('email_failed')
+        const unverifiedBefore = await counted('email_sender_unverified')
+
+        service.queueAppMetric(
+            metric({
+                metric_kind: 'email',
+                metric_name: 'email_failed',
+                prometheus_metric_name: 'email_sender_unverified',
+            }),
+            'hog_flow'
+        )
+        service.queueAppMetric(metric({ metric_kind: 'email', metric_name: 'email_failed' }), 'hog_flow')
+
+        expect({
+            failed: (await counted('email_failed')) - failedBefore,
+            unverified: (await counted('email_sender_unverified')) - unverifiedBefore,
+        }).toEqual({ failed: 1, unverified: 1 })
+        const rows = await flushedRows()
+        expect(rows).toEqual([expect.objectContaining({ metric_kind: 'email', metric_name: 'email_failed', count: 2 })])
+        expect(rows.every((row) => !('prometheus_metric_name' in row))).toBe(true)
+    })
+
     const producerConfig = {
         LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'key',
         LOGS_INTERNAL_PRODUCER_URL: 'http://capture-logs.test/i/v1/logs',
@@ -150,6 +180,30 @@ describe('HogFunctionMonitoringService', () => {
         timestamp: DateTime.fromISO('2026-10-27T12:00:00Z'),
         level: 'info',
         message: `team ${teamId}`,
+    })
+
+    it.each([
+        { event: '$signals_report_ready', hidden: true },
+        { event: '$activity_log_entry_created', hidden: false },
+    ])('hides the log text of a destination run on $event: $hidden', async ({ event, hidden }) => {
+        // log_entries is readable through HogQL with project query access, without the event's read access.
+        const invocation = createExampleInvocation({ team_id: 2 }, { event: { event } as any })
+        const result = createInvocationResult(
+            invocation,
+            {},
+            {
+                logs: [{ level: 'error', timestamp: DateTime.now(), message: 'Request failed: echoed report payload' }],
+            }
+        )
+
+        service.queueInvocationResults([result])
+        await service.flush()
+
+        const messages = produceMock.mock.calls
+            .map(([message]) => parseJSON(message.value.toString()) as Record<string, unknown>)
+            .filter((row) => row.log_source === 'hog_function')
+            .map((row) => row.message)
+        expect(messages).toEqual([hidden ? HIDDEN_OUTPUT_MESSAGE : 'Request failed: echoed report payload'])
     })
 
     it('sends accepted logs to the logs product with the log entry timestamps, and drains them on stop', async () => {

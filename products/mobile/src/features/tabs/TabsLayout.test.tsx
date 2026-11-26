@@ -217,6 +217,40 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         queryClient.clear()
     })
 
+    test('scrolls the selected list on a second tap and preserves its position when switching tabs', async () => {
+        const scrollInbox = jest.fn()
+        const scrollViews = jest.fn()
+        function Inbox(): ReactElement {
+            useTabHeader('inbox', { ...LIST_SLOT, scrollToTop: scrollInbox })
+            return <InboxStub />
+        }
+        function Views(): ReactElement {
+            useTabHeader('views', { ...LIST_SLOT, scrollToTop: scrollViews })
+            return <ViewsStub />
+        }
+        await renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': Inbox,
+                '(tabs)/chats': ChatsStub,
+                '(tabs)/views': Views,
+                ...LIST_TABS,
+            },
+            { initialUrl: '/inbox', wrapper }
+        )
+
+        fireEvent.press(screen.getByTestId('inbox-nav-views'))
+        expect(scrollInbox).not.toHaveBeenCalled()
+        expect(scrollViews).not.toHaveBeenCalled()
+        fireEvent.press(screen.getByTestId('inbox-nav-views'))
+        expect(scrollViews).toHaveBeenCalledTimes(1)
+        fireEvent.press(screen.getByTestId('nav-inbox'))
+        expect(scrollInbox).not.toHaveBeenCalled()
+        fireEvent.press(screen.getByTestId('nav-inbox'))
+        expect(scrollInbox).toHaveBeenCalledTimes(1)
+        expect(scrollViews).toHaveBeenCalledTimes(1)
+    })
+
     test('exposes the regional status update from the main menu', async () => {
         await renderRouter(
             {

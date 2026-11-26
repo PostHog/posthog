@@ -2,15 +2,10 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.precalculated_events.sql import (
     KAFKA_PRECALCULATED_EVENTS_TABLE_SQL,
-    KAFKA_PRECALCULATED_EVENTS_WS_TABLE_SQL,
     PRECALCULATED_EVENTS_KAFKA_TABLE,
     PRECALCULATED_EVENTS_MV,
     PRECALCULATED_EVENTS_MV_SQL,
-    PRECALCULATED_EVENTS_WS_KAFKA_TABLE,
-    PRECALCULATED_EVENTS_WS_MV,
-    PRECALCULATED_EVENTS_WS_MV_SQL,
 )
-from posthog.run_mode import run_mode
 
 # The precalculated_events materialized view was deriving `date` from `toDate(_timestamp)`,
 # where `_timestamp` is the Kafka ingestion time. That broke backfills: events inserted by the
@@ -21,12 +16,10 @@ from posthog.run_mode import run_mode
 # field is read, and update the MVs to prefer the incoming date, falling back to
 # `toDate(_timestamp)` when absent (realtime path still works unchanged).
 #
-# The sharded target table is unchanged; only the Kafka engine tables and MVs are recreated.
+# The sharded target table is unchanged; only the Kafka engine table and MV are recreated.
 #
-# CLOUD-ONLY (WS): non-cloud environments (CI, dev, hobby) have a single ClickHouse node where
-# both the MSK and WS materialized views consume the same Kafka topic and write to the same
-# target, causing double-ingest. WS objects are only recreated in cloud; in non-cloud they are
-# dropped (if present) and not recreated.
+# The *_ws pair is dropped and not recreated, because 0308 drops it. Installs that created the pair
+# in 0229 still have it here.
 
 operations = [
     # Drop MVs first so the Kafka tables can be recreated without a brief double-write window.
@@ -35,7 +28,7 @@ operations = [
         node_roles=[NodeRole.INGESTION_MEDIUM],
     ),
     run_sql_with_exceptions(
-        f"DROP TABLE IF EXISTS {PRECALCULATED_EVENTS_WS_MV}",
+        "DROP TABLE IF EXISTS precalculated_events_ws_mv",
         node_roles=[NodeRole.INGESTION_MEDIUM],
     ),
     run_sql_with_exceptions(
@@ -43,7 +36,7 @@ operations = [
         node_roles=[NodeRole.INGESTION_MEDIUM],
     ),
     run_sql_with_exceptions(
-        f"DROP TABLE IF EXISTS {PRECALCULATED_EVENTS_WS_KAFKA_TABLE}",
+        "DROP TABLE IF EXISTS kafka_precalculated_events_ws",
         node_roles=[NodeRole.INGESTION_MEDIUM],
     ),
     # Recreate MSK objects on all environments.
@@ -55,19 +48,4 @@ operations = [
         PRECALCULATED_EVENTS_MV_SQL(),
         node_roles=[NodeRole.INGESTION_MEDIUM],
     ),
-] + (
-    [
-        # WarpStream path is cloud-only: recreating it in non-cloud double-ingests because
-        # the warpstream_calculated_events named collection points at the same Kafka hosts.
-        run_sql_with_exceptions(
-            KAFKA_PRECALCULATED_EVENTS_WS_TABLE_SQL(),
-            node_roles=[NodeRole.INGESTION_MEDIUM],
-        ),
-        run_sql_with_exceptions(
-            PRECALCULATED_EVENTS_WS_MV_SQL(),
-            node_roles=[NodeRole.INGESTION_MEDIUM],
-        ),
-    ]
-    if run_mode().is_deployed_cloud
-    else []
-)
+]

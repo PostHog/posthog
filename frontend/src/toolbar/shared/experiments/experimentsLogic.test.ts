@@ -38,7 +38,10 @@ describe('experimentsLogic', () => {
     function mountLogic({ withToken = true }: { withToken?: boolean } = {}): void {
         initKeaTests()
         toolbarConfigLogic
-            .build({ apiURL: 'http://localhost', ...(withToken ? { accessToken: 'test-token' } : {}) })
+            .build({
+                apiURL: 'http://localhost',
+                ...(withToken ? { accessToken: 'test-token', teamId: 2, projectId: 1 } : {}),
+            })
             .mount()
         logic = experimentsLogic()
         logic.mount()

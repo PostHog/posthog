@@ -22,6 +22,7 @@ import {
     SyncFrequencySelectProps,
     UPSTREAM_RULE,
     pinnedSegmentTooltip,
+    withPinnedSegment,
     syncFrequencyState,
 } from './SyncFrequencySelect'
 
@@ -71,6 +72,8 @@ export function QuillSyncFrequencySelect({
     'data-attr': dataAttr,
     pin,
     onUnpin,
+    label = 'Refresh every',
+    help = SYNC_FREQUENCY_HELP,
 }: SyncFrequencySelectProps): JSX.Element {
     const { selected, options, canUnpin, modeReason, reason, notes, explanation } = syncFrequencyState({
         bounds,
@@ -92,12 +95,12 @@ export function QuillSyncFrequencySelect({
     return (
         <Field className="items-start" data-attr={dataAttr}>
             <FieldLabel className="flex items-center gap-1">
-                Refresh every
+                {label}
                 <Tooltip>
                     <TooltipTrigger delay={0} render={<Button size="icon-xs" aria-label="About refresh frequency" />}>
                         <IconInfo />
                     </TooltipTrigger>
-                    <TooltipContent className="max-w-80">{SYNC_FREQUENCY_HELP}</TooltipContent>
+                    <TooltipContent className="max-w-80">{help}</TooltipContent>
                 </Tooltip>
                 {loading && (
                     <span className="inline-flex items-center gap-1 font-normal text-muted-foreground" role="status">
@@ -109,7 +112,7 @@ export function QuillSyncFrequencySelect({
                 <IconRabbit className={PACE_ICON_CLASS} aria-hidden />
                 <ToggleGroup
                     variant="outline"
-                    aria-label="Refresh every"
+                    aria-label={label}
                     value={selected ? [selected] : []}
                     onValueChange={(next: string[]) => {
                         const picked = next[0] as DataModelingSyncInterval | undefined
@@ -120,7 +123,7 @@ export function QuillSyncFrequencySelect({
                         }
                     }}
                 >
-                    {options.map((option) => {
+                    {(pin?.pinned ? withPinnedSegment(options, selected, { canUnpin }) : options).map((option) => {
                         const optionReason = reason ?? option.disabledReason
                         const pinnedHere = !!pin?.pinned && option.value === selected
                         if (optionReason) {

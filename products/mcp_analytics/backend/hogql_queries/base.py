@@ -123,6 +123,16 @@ def shared_filter_exprs(
     return [property_to_expr(all_properties, team)] if all_properties else []
 
 
+def isoformat_timestamp(value: datetime | None) -> str:
+    """An event time as ISO 8601 with its UTC offset, or "" when absent.
+
+    HogQL returns timestamps in the team's timezone. `toString()` in the query drops that offset,
+    so the browser parses the string as its own local time and shows the event shifted by the
+    difference between the two timezones.
+    """
+    return value.isoformat() if value else ""
+
+
 def display_person_properties(*, email: str, name: str) -> str:
     """JSON of only the person fields a row's person cell renders, omitting blanks.
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import stat
 import time
 import uuid
 import shlex
@@ -31,8 +32,15 @@ from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
+    SandboxFilesystemNotADirectoryError as ModalSandboxFilesystemNotADirectoryError,
+    SandboxFilesystemNotFoundError as ModalSandboxFilesystemNotFoundError,
+    SandboxFilesystemPermissionError as ModalSandboxFilesystemPermissionError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
+)
+from modal.types import (
+    FileInfo as ModalFileInfo,
+    FileType as ModalFileType,
 )
 from modal_proto import api_pb2
 from python_socks import ProxyError as SocksProxyError
@@ -61,6 +69,8 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_SAMPLER_PATH as CPU_BILLING_SAMPLER_PATH,
     CPU_BILLING_STATE_PATH,
+    CPU_STAT_PATH,
+    CPUACCT_USAGE_PATH,
     build_sampler_start_command,
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
@@ -86,7 +96,11 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    LIST_DIR_MISSING_EXIT_CODE,
+    SandboxDirEntry,
     build_bundled_skills_clear_command,
+    list_dir_command,
+    parse_list_dir_output,
     redact_sandbox_command,
     sandbox_repo_path,
 )
@@ -119,6 +133,26 @@ from .sandbox import (
 )
 
 logger = logging.getLogger(__name__)
+
+_MODAL_FILE_KINDS: dict[ModalFileType, Literal["file", "dir", "symlink"]] = {
+    ModalFileType.FILE: "file",
+    ModalFileType.DIRECTORY: "dir",
+    ModalFileType.SYMLINK: "symlink",
+}
+
+
+def _modal_entry_kind(info: ModalFileInfo) -> Literal["file", "dir", "symlink", "other"]:
+    # Modal reports FIFOs and sockets as FileType.FILE, and reading a FIFO blocks until a writer
+    # appears. The POSIX mode tells them apart; the enum is only a fallback for a mode without type bits.
+    if stat.S_IFMT(info.mode) == 0:
+        return _MODAL_FILE_KINDS.get(info.type, "other")
+    if stat.S_ISREG(info.mode):
+        return "file"
+    if stat.S_ISDIR(info.mode):
+        return "dir"
+    if stat.S_ISLNK(info.mode):
+        return "symlink"
+    return "other"
 
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
@@ -865,6 +899,8 @@ class ModalSandbox(AgentServerLaunchMixin):
         self._destroyed = False
 
     def _validate_agent_server_launch(self) -> None:
+        if self.config.agent_egress_probe:
+            raise RuntimeError("Egress probe sandboxes cannot launch an agent server")
         if not self._is_running_cached():
             raise RuntimeError("Sandbox not in running state.")
 
@@ -1045,6 +1081,8 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
+        if config.agent_egress_probe or config.agent_egress_observation:
+            SandboxConfig.model_validate(config.model_dump())
         sb: modal.Sandbox | None = None
         try:
             modal.enable_output()
@@ -1179,7 +1217,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 secret = modal.Secret.from_dict(env_dict)
                 secrets.append(secret)
 
-            sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
+            sandbox_name = config.name if config.agent_egress_probe else f"{config.name}-{uuid.uuid4().hex[:6]}"
 
             region = _get_modal_region()
 
@@ -1195,6 +1233,11 @@ class ModalSandbox(AgentServerLaunchMixin):
 
             if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
+
+            if config.agent_egress_probe or config.agent_egress_observation:
+                create_kwargs["experimental_options"] = {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024}
+            if config.agent_egress_probe:
+                create_kwargs["outbound_cidr_allowlist"] = []
 
             if config.block_network:
                 create_kwargs["block_network"] = True
@@ -1707,6 +1750,51 @@ class ModalSandbox(AgentServerLaunchMixin):
                 cause=e,
             )
 
+    def _raise_unless_running(self) -> None:
+        if not self._is_running_cached():
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+    def list_dir(self, path: str, *, limit: int | None = None) -> list[SandboxDirEntry] | None:
+        self._raise_unless_running()
+        # Modal's filesystem listing returns every entry with no limit, and the agent controls how many there are.
+        result = self.execute(list_dir_command(path, limit))
+        if result.exit_code == LIST_DIR_MISSING_EXIT_CODE:
+            return None
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                "Failed to list directory",
+                {"sandbox_id": self.id, "path": path, "stderr": result.stderr[:500]},
+                cause=RuntimeError(result.stderr[:500]),
+            )
+        return parse_list_dir_output(result.stdout)
+
+    def read_file(self, path: str, max_bytes: int) -> bytes | None:
+        self._raise_unless_running()
+        try:
+            info = self._sandbox.filesystem.stat(path)
+        except (
+            ModalSandboxFilesystemNotFoundError,
+            ModalSandboxFilesystemNotADirectoryError,
+            ModalSandboxFilesystemPermissionError,
+        ):
+            return None
+        except Exception as e:
+            _raise_if_proxy_failure(e, self.id, "filesystem_stat")
+            raise
+        if _modal_entry_kind(info) != "file" or info.size > max_bytes:
+            return None
+        # Modal's supported filesystem API has no bounded read, and a file can grow after the stat,
+        # so the bytes come from a capped shell read. Callers validate and cap the content, so a
+        # tampered shell can only corrupt the user's own memory.
+        result = self.execute(f"set -o pipefail; head -c {max_bytes + 1} -- {shlex.quote(path)} | base64 -w0")
+        if result.exit_code != 0:
+            return None
+        return base64.b64decode(result.stdout.strip())
+
     def _remove_temp_file(self, temp_path: str, step_timeout: int) -> None:
         try:
             self.execute(f"rm -f {shlex.quote(temp_path)}", timeout_seconds=min(step_timeout, 10))
@@ -1970,13 +2058,13 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     def read_cpu_usage_usec(self) -> int | None:
         try:
-            cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+            cpu_stat = self._sandbox.filesystem.read_text(CPU_STAT_PATH)
         except Exception:
             cpu_stat = None
         if cpu_stat is not None and (usage := parse_cpu_stat_usage_usec(cpu_stat)) is not None:
             return usage
         try:
-            cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+            cpuacct_usage = self._sandbox.filesystem.read_text(CPUACCT_USAGE_PATH)
             if cpuacct_usage.strip():
                 return int(cpuacct_usage) // 1000
         except Exception:
@@ -2025,7 +2113,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         if returncode is None:
             return "running"
         try:
-            result = getattr(modal_synchronizer._translate_in(self._sandbox), "_result", None)
+            result = modal_synchronizer._translate_in(self._sandbox)._impl.result
             if result is not None:
                 return api_pb2.GenericResult.GenericStatus.Name(result.status).lower().removeprefix("generic_status_")
         except Exception as e:

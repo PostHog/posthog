@@ -13,7 +13,6 @@ MEMORY_WATCHDOG_PATH = "/usr/local/bin/posthog-memory-watchdog"
 MEMORY_WATCHDOG_STATE_PATH = "/tmp/posthog-memory-watchdog.json"
 MEMORY_WATCHDOG_EVENTS_PATH = "/tmp/posthog-memory-watchdog.jsonl"
 MEMORY_WATCHDOG_LOG_PATH = "/tmp/posthog-memory-watchdog.log"
-MEMORY_WATCHDOG_CLI_PID_FILE = "/tmp/agent-cli.pid"
 MEMORY_WATCHDOG_HEARTBEAT_STALE_SECONDS = 10.0
 MEMORY_WATCHDOG_STATE_MAX_BYTES = 4096
 MEMORY_WATCHDOG_EVENTS_MAX_BYTES = 256 * 1024

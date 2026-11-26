@@ -8,7 +8,7 @@ import { pluralize } from 'lib/utils/strings'
 import type { NotificationConcept, NotificationRuleValue } from '../shared/notificationSettingDescriptors'
 import { MEMBERS_PER_PAGE, listKey, notificationGovernanceLogic, ruleFor } from './notificationGovernanceLogic'
 
-const OPTIONS: { value: NotificationRuleValue; label: string }[] = [
+export const NOTIFICATION_RULE_OPTIONS: { value: NotificationRuleValue; label: string }[] = [
     { value: 'none', label: 'No override' },
     { value: 'on', label: 'Always on' },
     { value: 'off', label: 'Always off' },
@@ -44,7 +44,7 @@ export function NotificationMemberList({
                         ? `Set ${pluralize(editableIds.length, 'matching member')} to`
                         : `Set all ${pluralize(editableIds.length, 'member')} to`}
                 </span>
-                {OPTIONS.map((option) => (
+                {NOTIFICATION_RULE_OPTIONS.map((option) => (
                     <LemonButton
                         key={option.value}
                         size="xsmall"
@@ -77,7 +77,7 @@ export function NotificationMemberList({
                                     size="xsmall"
                                     value={ruleFor(pendingRules, savedRules, concept.setting, scopeId, member.user_id)}
                                     onChange={(value) => setRule(concept.setting, scopeId, member.user_id, value)}
-                                    options={OPTIONS}
+                                    options={NOTIFICATION_RULE_OPTIONS}
                                     disabledReason={
                                         !member.editable
                                             ? 'This member has a higher organization access level than you'

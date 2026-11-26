@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -202,6 +203,31 @@ const unhealthyEventsDecorator = mswDecorator({
 
 export const ActionsListWithUnhealthyEvents: Story = {
     decorators: [unhealthyEventsDecorator],
+}
+
+export const ActionsListWithUnhealthyEventsQuill: Story = {
+    parameters: {
+        featureFlags: [...STORYBOOK_FEATURE_FLAGS, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: { waitForSelector: '[data-attr="action-event-health-warning"]', snapshotBrowsers: [] },
+    },
+    decorators: [unhealthyEventsDecorator],
+}
+
+export const ActionWithUnhealthyEventsQuill: Story = {
+    parameters: {
+        pageUrl: urls.action(MOCK_ACTION.id),
+        featureFlags: [...STORYBOOK_FEATURE_FLAGS, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: { waitForSelector: '[data-attr="action-event-health-warning"]', snapshotBrowsers: [] },
+    },
+    decorators: [unhealthyEventsDecorator],
+}
+
+export const ScreenActionQuill: Story = {
+    parameters: {
+        pageUrl: urls.action(MOCK_SCREEN_ACTION.id),
+        featureFlags: [...STORYBOOK_FEATURE_FLAGS, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: { waitForSelector: '[data-attr="edit-action-screen-name-input"]', snapshotBrowsers: [] },
+    },
 }
 
 export const ActionWithUnhealthyEvents: Story = {

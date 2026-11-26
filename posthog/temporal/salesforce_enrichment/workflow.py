@@ -23,16 +23,17 @@ from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_cl
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SalesforceEnrichmentInputs:
     """Inputs for the Salesforce enrichment workflow."""
 
     chunk_size: int = DEFAULT_CHUNK_SIZE
     max_chunks: int | None = None  # Optional limit for testing
     specific_domain: str | None = None  # Debug mode: enrich single domain, skip Salesforce
+    score_icp_fit: bool = False
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class EnrichChunkInputs:
     """Inputs for enriching a single chunk of accounts."""
 
@@ -40,6 +41,7 @@ class EnrichChunkInputs:
     chunk_size: int
     estimated_total_chunks: int | None = None  # For progress display
     specific_domain: str | None = None  # Debug mode: enrich single domain
+    score_icp_fit: bool = False
 
 
 @activity.defn
@@ -55,6 +57,7 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
             chunk_number=inputs.chunk_number,
             chunk_size=inputs.chunk_size,
             specific_domain=inputs.specific_domain,
+            score_icp_fit=inputs.score_icp_fit,
         )
 
         try:
@@ -63,6 +66,7 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
                 chunk_size=inputs.chunk_size,
                 estimated_total_chunks=inputs.estimated_total_chunks,
                 specific_domain=inputs.specific_domain,
+                score_icp_fit=inputs.score_icp_fit,
             )
 
             return result
@@ -143,6 +147,7 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
             chunk_size=inputs.chunk_size,
             max_chunks=inputs.max_chunks,
             specific_domain=inputs.specific_domain,
+            score_icp_fit=inputs.score_icp_fit,
         )
 
         # Debug mode: enrich single domain directly, skip caching and chunking
@@ -151,6 +156,7 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
                 chunk_number=0,
                 chunk_size=1,
                 specific_domain=inputs.specific_domain,
+                score_icp_fit=inputs.score_icp_fit,
             )
 
             result = await workflow.execute_activity(
@@ -167,6 +173,7 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
                 "records_processed": result.get("records_processed", 0),
                 "records_enriched": result.get("records_enriched", 0),
                 "records_updated": result.get("records_updated", 0),
+                "records_icp_fit_evaluated": result.get("records_icp_fit_evaluated", 0),
                 "enriched_data": result.get("enriched_data"),
                 "raw_harmonic_response": result.get("raw_harmonic_response"),
                 "updated_salesforce_accounts": result.get("updated_salesforce_accounts", []),
@@ -206,6 +213,7 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
                 chunk_number=chunk_number,
                 chunk_size=inputs.chunk_size,
                 estimated_total_chunks=estimated_total_chunks,
+                score_icp_fit=inputs.score_icp_fit,
             )
 
             chunk_result = await workflow.execute_activity(

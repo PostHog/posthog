@@ -19,13 +19,14 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { retryImport } from 'lib/utils/retryImport'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { urls } from 'scenes/urls'
 
-import { adminLoginAs } from '~/layout/navigation/ImpersonationNotice/adminLoginAs'
 import { ImpersonationReasonModal } from '~/layout/navigation/ImpersonationNotice/ImpersonationReasonModal'
+import { ImpersonationSessionUncertainError } from '~/layout/navigation/ImpersonationNotice/ImpersonationSessionUncertainError'
 import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from '~/types'
 
 import { supportLogic } from '../Support/supportLogic'
@@ -153,10 +154,17 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
         setIsLoginInProgress(true)
 
         try {
+            const { adminLoginAs } = await retryImport(
+                () => import('~/layout/navigation/ImpersonationNotice/adminLoginAs')
+            )
             await adminLoginAs({ userId: user.id, reason, readOnly })
             setSuccessfulUserId(user.id)
             window.location.reload()
-        } catch {
+        } catch (error) {
+            if (error instanceof ImpersonationSessionUncertainError) {
+                window.location.reload()
+                return
+            }
             lemonToast.error(`Failed to log in as ${user.first_name}`)
             setIsLoginInProgress(false) // Only set to false if we aren't about to reload the page
         }
@@ -192,6 +200,7 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
                 }}
                 title={`Log in as ${selectedUser?.first_name} ${selectedUser?.last_name}`}
                 confirmText="Log in"
+                loading={isLoginInProgress}
             >
                 <LemonCheckbox checked={readOnly} onChange={setReadOnly} label="Read-only mode (recommended)" />
             </ImpersonationReasonModal>

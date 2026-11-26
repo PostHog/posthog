@@ -12,20 +12,27 @@ from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
+from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule, get_direct_query_engine
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_schema import (
     auto_enable_new_schemas,
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    AnySource,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
     is_transient_egress_proxy_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import known_source_key
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -42,6 +49,22 @@ class SyncNewSchemasActivityInputs:
             "source_id": self.source_id,
             "team_id": self.team_id,
         }
+
+
+def _persist_column_metadata(
+    source: ExternalDataSource, source_impl: AnySource, schemas: list[SourceSchema], team_id: int
+) -> None:
+    """Store discovered column lists, as "Pull new schemas" does, so tables found after source creation
+    can be queried live and get a column picker without a person refreshing them."""
+    # In direct mode the reconcile also creates, hides and soft-deletes live tables; that stays a manual
+    # refresh. Warehouse mode, including synced sources that are also live-queryable, writes metadata only.
+    if source.is_direct_query:
+        return
+    engine = get_direct_query_engine(source.direct_engine)
+    if engine is not None:
+        engine.reconcile_schemas(source=source, source_schemas=schemas, team_id=team_id)
+    elif isinstance(source_impl, (SQLSource, ClickHouseSource)) and source_impl.supports_column_selection:
+        source_impl.reconcile_schema_metadata(source=source, source_schemas=schemas, team_id=team_id)
 
 
 @activity.defn
@@ -65,6 +88,12 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         return
 
     source = ExternalDataSource.objects.get(team_id=inputs.team_id, id=inputs.source_id)
+
+    if source.is_self_managed_migration:
+        # The source is rooted at a whole bucket, so discovery would offer every folder as a table.
+        # Users add its tables by path instead.
+        logger.info("Skipping schema discovery: the source reads tables from anywhere in its bucket")
+        return
 
     try:
         source_type_key = known_source_key(source.source_type)
@@ -115,6 +144,12 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             # message in get_non_retryable_errors.
             if isinstance(e, UndecryptedIntegrationSecretError):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {e}")
+                return
+
+            # An SSH server at its limit of new connections closed this one. A retry opens another
+            # session to the same busy server, so skip until the next discovery run.
+            if isinstance(e, SSHGatewayClosedBeforeBannerError):
+                logger.warning(f"Skipping schema discovery because the SSH server is busy: {e}")
                 return
 
             error_msg = str(e)
@@ -193,6 +228,11 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         strict_name_match=is_github,
         schema_metadata_by_name={s.name: s.schema_metadata for s in schemas if s.schema_metadata},
     )
+
+    try:
+        _persist_column_metadata(source, new_source, schemas, inputs.team_id)
+    except Exception:
+        logger.warning("Could not persist schema column metadata", exc_info=True)
 
     if len(sync_result.created) > 0:
         logger.info(f"Added new schemas: {', '.join(sync_result.created)}")

@@ -8,7 +8,7 @@ its ``resolve_ai_gateway_config`` validator and ``ai_gateway_headers`` helper.
 
 import os
 import time
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from typing import Any, Literal
 
 from django.conf import settings
@@ -22,7 +22,7 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
-from openai import APIError, RateLimitError
+from openai import DEFAULT_MAX_RETRIES, APIError, RateLimitError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import PrivateAttr
 from temporalio.exceptions import ApplicationError
@@ -30,6 +30,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.cloud_utils import is_cloud
 from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
 from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
+from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
 
@@ -48,8 +49,8 @@ class FlexFirstChatOpenAI(ChatOpenAI):
     The openai SDK's retry loop re-sends the byte-identical request, so it can only
     re-roll a flex capacity refusal. This override retries just the failing chat
     completion with service_tier="default", so an agent loop keeps its completed
-    turns instead of rerunning from scratch. Build flex clients with max_retries=0:
-    the tier switch is the retry.
+    turns instead of rerunning from scratch. Flex and its standard fallback each
+    get one attempt; calls that start on standard use the configured retry budget.
 
     A fallback then holds the client on standard, because retrying a tier that just
     refused wastes a call. How long it holds depends on what the tier cost to discover:
@@ -69,11 +70,22 @@ class FlexFirstChatOpenAI(ChatOpenAI):
     def _flex_allowed_now(self) -> bool:
         return self.service_tier == "flex" and not self._flex_latched and time.monotonic() >= self._flex_paused_until
 
+    def _prepare_call(self) -> None:
+        self._flex_requested = self._flex_allowed_now()
+        if self.service_tier == "flex":
+            max_retries = 0 if self._flex_requested else self.max_retries
+            self.root_client.max_retries = DEFAULT_MAX_RETRIES if max_retries is None else max_retries
+            self.root_async_client.max_retries = DEFAULT_MAX_RETRIES if max_retries is None else max_retries
+
     def _get_request_payload(self, input_: LanguageModelInput, *, stop: list[str] | None = None, **kwargs: Any) -> dict:
         # Assign rather than guard: langchain builds the payload as {**defaults, **kwargs},
         # so a caller-supplied service_tier would otherwise win and desync the flag.
         if self.service_tier == "flex":
-            kwargs = {**kwargs, "service_tier": "flex" if self._flex_requested else "default"}
+            kwargs = {
+                **kwargs,
+                "service_tier": "flex" if self._flex_requested else "default",
+                "timeout": FLEX_CALL_TIMEOUT if self._flex_requested else self.request_timeout,
+            }
         return super()._get_request_payload(input_, stop=stop, **kwargs)
 
     def _latch_or_raise(self, error: APIError) -> None:
@@ -100,9 +112,11 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
+        if self.streaming:
+            return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
         # Take flex whenever it is allowed, and freeze that for the call. Re-reading
         # allowance in the error handler would flip once a cooldown expired mid-call.
-        self._flex_requested = self._flex_allowed_now()
+        self._prepare_call()
         try:
             return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:
@@ -116,21 +130,23 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        self._flex_requested = self._flex_allowed_now()
+        if self.streaming:
+            return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+        self._prepare_call()
         try:
             return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
         except APIError as error:
             self._latch_or_raise(error)
             return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
-    # Streaming skips _generate, so it picks the tier itself. No fallback: tokens are
-    # already with the caller by the time an error arrives.
+    # Streaming also serves invoke/ainvoke when streaming=True, so it owns call setup.
+    # Tokens may already be with the caller when an error arrives, so streaming cannot fall back.
     def _stream(self, *args: Any, **kwargs: Any) -> Iterator[ChatGenerationChunk]:
-        self._flex_requested = self._flex_allowed_now()
+        self._prepare_call()
         return super()._stream(*args, **kwargs)
 
     async def _astream(self, *args: Any, **kwargs: Any) -> AsyncIterator[ChatGenerationChunk]:
-        self._flex_requested = self._flex_allowed_now()
+        self._prepare_call()
         async for chunk in super()._astream(*args, **kwargs):
             yield chunk
 
@@ -210,10 +226,8 @@ def build_langchain_chat_client(
     )
 
 
-# Per-call timeouts, capped so no single call can outlive the activity that runs the agent:
-# flex 120s x 1 attempt (the standard-tier fallback call is the retry), standard 240s x 2
-# attempts. The ai-gateway cuts non-streaming calls at ~290s, so longer client timeouts are
-# unreachable.
+# Keep attempts below the gateway's non-streaming deadline and the agent's activity budget.
+# A flex fallback already used its first attempt; only calls that start on standard get an SDK retry.
 FLEX_CALL_TIMEOUT = 120.0
 STANDARD_CALL_TIMEOUT = 240.0
 
@@ -229,6 +243,7 @@ def build_flex_first_chat_client(
     distinct_id: str,
     flex: bool = True,
     use_responses_api: bool = False,
+    authorize_request: Callable[[], None] | None = None,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client that prefers the flex service tier.
 
@@ -241,18 +256,33 @@ def build_flex_first_chat_client(
     Pass ``flex=False`` to opt a caller out while keeping the bounded timeouts.
     """
     use_flex = flex and model in FLEX_CAPABLE_MODELS
-    return build_langchain_chat_client(
+    client = build_langchain_chat_client(
         model,
-        FLEX_CALL_TIMEOUT if use_flex else min(timeout, STANDARD_CALL_TIMEOUT),
+        min(timeout, STANDARD_CALL_TIMEOUT),
         ai_product=ai_product,
         trace_id=trace_id,
         session_id=session_id,
         properties=properties,
         distinct_id=distinct_id,
         service_tier="flex" if use_flex else None,
-        max_retries=0 if use_flex else 1,
+        max_retries=1,
         use_responses_api=use_responses_api,
     )
+    if authorize_request is not None:
+        api_key: str = client.root_client.api_key
+
+        # The SDK resolves a callable key before every HTTP attempt, including its own retries.
+        def authorized_api_key() -> str:
+            authorize_request()
+            return api_key
+
+        client.root_client = client.root_client.with_options(api_key=authorized_api_key)
+        client.client = client.root_client.chat.completions
+        client.root_async_client = client.root_async_client.with_options(
+            api_key=database_sync_to_async_pool(authorized_api_key)
+        )
+        client.async_client = client.root_async_client.chat.completions
+    return client
 
 
 def build_langchain_callbacks(

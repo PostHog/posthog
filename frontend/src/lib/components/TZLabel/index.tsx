@@ -216,9 +216,16 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     )
 
     if (showPopover && isQuill) {
+        const [side, align = 'center'] = (dropdownProps.placement ?? 'top').split('-') as [
+            'top' | 'bottom' | 'left' | 'right',
+            ('start' | 'end')?,
+        ]
         return (
             <QuillHoverCard
                 arrow
+                side={side}
+                align={align}
+                disabled={dropdownProps.visible === false}
                 className="w-auto max-w-sm gap-0 p-0"
                 content={
                     <QuillTZLabelCard

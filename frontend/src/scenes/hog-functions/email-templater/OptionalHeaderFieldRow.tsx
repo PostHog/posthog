@@ -24,7 +24,9 @@ export function OptionalHeaderFieldRow({ field }: { field: OptionalHeaderField }
                     info={field.info}
                     error={field.key === 'preheader' ? logicProps.fieldErrors?.preheader : undefined}
                 >
-                    <LiquidSupportedText value={value} onChange={onChange} globals={logicProps.variables} />
+                    <div className="flex-1 min-w-0">
+                        <LiquidSupportedText value={value} onChange={onChange} globals={logicProps.variables} />
+                    </div>
                     <LemonButton
                         size="xsmall"
                         type="tertiary"

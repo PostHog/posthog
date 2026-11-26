@@ -98,6 +98,8 @@ describe('shared-image policy and legacy projection', () => {
   test('aliases, statuses and exclusions survive projection without changing legacy-only veto rules', () => {
     const policy = loadPolicy(fixture)
     expect(policy.filters.metadataAlias).toEqual(policy.filters.dataWarehouseMetadata)
+    const based = loadPolicy(fixture.replace('  dataWarehouseMetadata: &metadata\n', '  base: &base\n    - common/**\n  dataWarehouseMetadata: &metadata\n    - *base\n'))
+    expect(based.filters.dataWarehouseMetadata).toEqual(['common/**', ...policy.filters.dataWarehouseMetadata])
     const inline = 'legacyVeto: ["!tests/**"]\n'
     const projected = projectLegacyFilters(policy, inline)
     const files = [
@@ -119,15 +121,15 @@ describe('shared-image policy and legacy projection', () => {
     expect(new Filter(projected).match(files)).toEqual(new Filter(yaml.dump({...yaml.load(inline) as object, ...policy.filters})).match(files))
   })
 
-  test('the metadata channel filter and the broader active warehouse rule stay distinct', () => {
+  test('the metadata and data warehouse worker channel filters stay distinct', () => {
     const filter = new Filter(projectLegacyFilters(productionPolicy(), '{}'))
     const files = [
       {filename: 'products/data_modeling/backend/views.py', status: ChangeStatus.Modified},
-      {filename: 'products/warehouse_sources_queue/consumer.py', status: ChangeStatus.Modified},
+      {filename: 'products/warehouse_sources_queue/backend/core/jobs_db.py', status: ChangeStatus.Modified},
       {filename: 'Dockerfile', status: ChangeStatus.Modified}
     ]
     const result = filter.match(files)
     expect(result.dataWarehouseMetadata).toEqual([files[0], files[2]])
-    expect(result.dataWarehouse).toEqual([files[1], files[2]])
+    expect(result.dataWarehouseWorker).toEqual([files[1], files[2]])
   })
 })

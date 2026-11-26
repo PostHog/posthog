@@ -167,8 +167,4 @@ class FileSystemSyncMixin(Model):
         else:
             raise ValueError("Either 'type' or 'type__startswith' must be provided")
 
-        # Annotate a 'ref_id' from the chosen model field (e.g. 'id', 'short_id')
-        annotated_qs = qs.annotate(ref_id=Cast(F(ref_field), output_field=CharField())).annotate(
-            already_saved=Exists(already_saved)
-        )
-        return annotated_qs.filter(already_saved=False)
+        return qs.annotate(ref_id=Cast(F(ref_field), output_field=CharField())).filter(~Exists(already_saved))

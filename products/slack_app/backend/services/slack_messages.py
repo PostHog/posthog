@@ -554,14 +554,8 @@ def collect_thread_messages(
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
-    until_ts: str | None = None,
 ) -> list[SlackThreadMessage]:
     """Fetch thread messages, strip bot mentions, and resolve user display names.
-
-    ``until_ts`` clips the thread at a message, for a reader who forked the discussion
-    at a point in time: what was said afterwards was not what they were looking at.
-    Unbounded by default, which is what the mention path wants — it is answering the
-    thread as it stands.
 
     A thread whose root no longer exists — the user deleted the message that triggered
     us — comes back empty rather than raising. Callers read an empty thread as "nothing
@@ -579,8 +573,6 @@ def collect_thread_messages(
         logger.warning("slack_app_thread_message_deleted", channel=channel, thread_ts=thread_ts)
         return []
     raw_messages: list[dict] = thread_response.get("messages", [])
-    if until_ts:
-        raw_messages = [msg for msg in raw_messages if _ts_at_or_before(str(msg.get("ts") or ""), until_ts)]
 
     user_cache: dict[str, str] = {}
 
@@ -690,6 +682,8 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
 # Query param a link we compose can carry to tell our own unfurler to leave it alone
 # (honoured by `parse_posthog_resource_link`).
 UNFURL_OPT_OUT_PARAM = "unfurl"
+# Run state key holding the `ts` of the run's progress card.
+SLACK_PROGRESS_MESSAGE_TS_KEY = "slack_progress_message_ts"
 
 
 @dataclass(frozen=True)
@@ -720,6 +714,9 @@ class RunFooter:
     chart_links: bool = False
     # Model spend of the thread's task so far. Sandbox compute is not billed, so it is not included.
     thread_cost_usd: Decimal | None = None
+    # Where the run's progress card lives, so the handler edits or deletes it without searching
+    # the thread. Read once to seed the handler, which owns it from then on. Not rendered.
+    progress_message_ts: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -848,6 +845,7 @@ def load_run_footer(
             ),
             plan=plan,
             chart_links=bool((run.state or {}).get("slack_chart_links")),
+            progress_message_ts=(run.state or {}).get(SLACK_PROGRESS_MESSAGE_TS_KEY),
             # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
             thread_cost_usd=_thread_cost(run) if include_thread_cost and plan is None else None,
         )
@@ -921,48 +919,6 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     if not segments:
         return None
     return context_block(" · ".join(segments))
-
-
-def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
-    """The fork menu as a standalone block, for replies with no section to hang it on.
-
-    A streamed answer arrives as markdown chunks and the chart delivery puts the answer
-    in the card message, so neither has a `section` whose accessory the menu could be.
-    Costs a line, which is why the plain-post path prefers the accessory.
-    """
-    return {"type": "actions", "elements": [element]}
-
-
-FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
-
-
-def fork_menu_element(integration_id: int) -> dict[str, Any]:
-    """The overflow menu the footer carries as its accessory.
-
-    An overflow renders as a bare "…" with no label, which is as close to invisible as
-    an interactive element gets — the answer above it is what the reader came for. It
-    also has somewhere to put the next destination ("fork to a channel") without
-    growing a second control.
-
-    Returned as a bare element rather than wrapped in an `actions` block so it can be a
-    `section` accessory, which is what puts it on the footer's own line. Slack offers no
-    inline interactive element, so an accessory — right-aligned beside the text — is as
-    close to trailing the footer as Block Kit gets.
-
-    The option value carries the integration so the cross-region interactivity router
-    can tell whose click this is. Everything else the fork needs — the channel, and the
-    thread the reply is sitting in — rides on the `block_actions` payload.
-    """
-    return {
-        "type": "overflow",
-        "action_id": FORK_THREAD_ACTION_ID,
-        "options": [
-            {
-                "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
-                "value": json.dumps({"integration_id": integration_id}),
-            }
-        ],
-    }
 
 
 TURN_FEEDBACK_ACTION_ID = "slack_app_turn_feedback"

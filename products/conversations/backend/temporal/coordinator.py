@@ -27,7 +27,7 @@ with workflow.unsafe.imports_passed_through():
 
     from products.business_knowledge.backend.logic import has_ready_sources
     from products.conversations.backend.models import Ticket
-    from products.conversations.backend.models.constants import Status
+    from products.conversations.backend.models.constants import Channel, Status
     from products.conversations.backend.temporal.ai_reply.constants import MAX_CLARIFICATION_ROUNDS
     from products.conversations.backend.temporal.pipeline import SupportReplyInput, SupportReplyWorkflow
 
@@ -40,6 +40,10 @@ COORDINATOR_INTERVAL_MINUTES = 1
 # off only the first message. The reference is max(ticket.created_at, latest customer comment), so a
 # brand-new ticket also waits this long before its first draft — the latency we trade for completeness.
 TICKET_SETTLE_MINUTES = 1
+
+# Channels drafted on the first tick after a customer message, without the settle window. Email
+# customers rarely send a second message within a minute, so the wait only delays the draft.
+SETTLE_EXEMPT_CHANNELS: tuple[str, ...] = (Channel.EMAIL,)
 
 # Scan window. Keyed on last_message_at (the same axis the settle gate uses), so a ticket stays
 # eligible until SETTLE after its *last* customer message, regardless of how long ago it was created
@@ -147,8 +151,9 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     # First pass: the cheap per-ticket gates that don't touch the comments table. We keep
     # created_at around so a ticket with no customer comments yet still settles from its own
     # creation time (the initial message), not just from follow-up comments.
-    candidates: list[tuple[int, str, datetime, bool, int]] = []
+    candidates: list[tuple[int, str, datetime, bool, int, bool]] = []
     untriaged_ticket_ids: set[str] = set()
+    forwarded_ticket_ids: set[str] = set()
     skipped_ticket_ids_by_result: dict[str, list[str]] = {SKIPPED_TEAM_REPLIED: [], SKIPPED_CHANNEL_EXCLUDED: []}
     # The flag is org-keyed, so evaluate it once per org per scan instead of once per ticket.
     master_flag_by_org: dict[str, bool] = {}
@@ -180,12 +185,25 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
 
         if is_untriaged:
             untriaged_ticket_ids.add(str(ticket.id))
+        # The scan covers every team, so one ticket's malformed traits must not stop it.
+        traits = ticket.anonymous_traits if isinstance(ticket.anonymous_traits, dict) else {}
+        if traits.get("email_forwarded") is True:
+            forwarded_ticket_ids.add(str(ticket.id))
 
         awaiting, clarification_round = _awaiting_clarification_round(ticket)
         if awaiting and clarification_round > MAX_CLARIFICATION_ROUNDS:
             continue
 
-        candidates.append((team.id, str(ticket.id), ticket.created_at, awaiting, clarification_round))
+        candidates.append(
+            (
+                team.id,
+                str(ticket.id),
+                ticket.created_at,
+                awaiting,
+                clarification_round,
+                ticket.channel_source in SETTLE_EXEMPT_CHANNELS,
+            )
+        )
 
     if not candidates:
         _record_skipped_tickets(skipped_ticket_ids_by_result, now=now)
@@ -201,9 +219,10 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     #      A team-opened ticket (compose, or a team member starting the thread) has a team comment
     #      before the first customer comment. That opener is not engagement, so such a ticket is
     #      engaged only by an engaging comment newer than the first customer comment.
+    #      A forwarded ticket opens with a private team note, and its private customer comments are internal mail.
     #   2. Settle/debounce: the latest customer comment timestamp per ticket.
     by_team: dict[int, list[str]] = {}
-    for team_id, ticket_id_str, _created_at, _awaiting, _round in candidates:
+    for team_id, ticket_id_str, _created_at, _awaiting, _round, _settle_exempt in candidates:
         by_team.setdefault(team_id, []).append(ticket_id_str)
 
     engaged: set[str] = set()
@@ -219,7 +238,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             item_id__in=ticket_ids,
             item_context__automated_update_key__isnull=True,
         ).values_list("item_id", "item_context__author_type", "item_context__is_private", "created_at"):
-            if author_type == "customer":
+            if author_type == "customer" and is_private is not True:
                 prev = latest_customer_msg.get(item_id)
                 if prev is None or comment_created_at > prev:
                     latest_customer_msg[item_id] = comment_created_at
@@ -248,7 +267,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     settle_cutoff = now - timedelta(minutes=TICKET_SETTLE_MINUTES)
     eligible: list[EligibleTicket] = []
     per_team_counts: dict[int, int] = {}
-    for team_id, ticket_id_str, created_at, awaiting, clarification_round in candidates:
+    for team_id, ticket_id_str, created_at, awaiting, clarification_round, settle_exempt in candidates:
         if awaiting:
             last_customer = latest_customer_msg.get(ticket_id_str)
             last_ai = latest_ai_msg.get(ticket_id_str)
@@ -257,12 +276,14 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
                 continue
             if last_human is not None and last_human > last_ai:
                 continue
-            if last_customer > settle_cutoff:
+            if not settle_exempt and last_customer > settle_cutoff:
                 continue
         else:
             first_customer = first_customer_msg.get(ticket_id_str)
             earliest_team = earliest_non_customer_msg.get(ticket_id_str)
-            team_opened = earliest_team is not None and (first_customer is None or earliest_team < first_customer)
+            team_opened = ticket_id_str in forwarded_ticket_ids or (
+                earliest_team is not None and (first_customer is None or earliest_team < first_customer)
+            )
             if team_opened:
                 # Wait for the customer without recording a skip, because no team reply exists yet.
                 if first_customer is None:
@@ -283,7 +304,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             # activity — max(ticket creation, latest customer comment). If that's newer than the
             # cutoff the ticket is still settling; skip it and let a later tick pick it up.
             last_activity = max(created_at, latest_customer_msg.get(ticket_id_str, created_at))
-            if last_activity > settle_cutoff:
+            if not settle_exempt and last_activity > settle_cutoff:
                 continue
         if len(eligible) >= MAX_TICKETS_PER_RUN:
             continue

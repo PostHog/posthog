@@ -5,10 +5,12 @@ import { parse } from 'yaml'
 import { z } from 'zod'
 
 import { Duration } from '../duration'
+import { RunCard } from './card'
 
 export const CAP_USD = 200
 export const TTL_HOURS = 6
 export const REGION = 'us-east-1'
+export const PRODUCTION_READER_MONITORING_INTERVAL_SECONDS = 60
 
 const Usd = z.number().nonnegative()
 const Name = z.string().min(1)
@@ -60,15 +62,26 @@ export const CloudProfile = z
                 hostSubnet: Name,
                 hostSecurityGroup: Name,
                 hostInstanceProfile: Name,
+                hostLaunchTemplateId: Name,
+                hostLaunchTemplateVersion: z.string().regex(/^[1-9]\d*$/, 'a launch template version number'),
+                hostRootVolumeGb: z.number().int().positive(),
             })
             .strict(),
         engineVersion: Name,
         writerClass: Name,
-        readerAcu: z.object({ min: z.literal(1), max: z.number().int().positive() }).strict(),
+        readerAcu: z
+            .object({
+                min: z.literal(1),
+                max: z.number().int().positive(),
+                idleMax: z.number().optional(),
+            })
+            .strict(),
+        readerMonitoringIntervalSeconds: z
+            .literal([1, 5, 10, 15, 30, 60])
+            .default(PRODUCTION_READER_MONITORING_INTERVAL_SECONDS),
         host: z
             .object({
                 class: Name,
-                ebsGb: z.number().int().positive(),
                 imageParameter: Name,
                 bootstrapDeadline: Duration,
             })
@@ -120,7 +133,9 @@ export type CloudProfile = z.infer<typeof CloudProfile>
 
 export type InputFile = { file: string; bytes: Buffer; sha256: string }
 
-export type RunInputs = { profile: CloudProfile; inputs: InputFile[] }
+export type ProfileInputs = { profile: CloudProfile; runner: InputFile; inputs: InputFile[] }
+
+export type RunInputs = ProfileInputs & { card: RunCard }
 
 export class CloudProfileError extends Error {
     constructor(file: string, problems: string[]) {
@@ -160,9 +175,9 @@ export function loadCloudProfile(filePath: string): CloudProfile {
     return parseCloudProfile(filePath, readInput('cloud-profile.yaml', filePath))
 }
 
-export function loadRunInputs(filePath: string): RunInputs {
+export function loadRunInputs(filePath: string): ProfileInputs {
     const cloud = readInput('cloud-profile.yaml', filePath)
     const profile = parseCloudProfile(filePath, cloud)
     const runner = readInput('runner-profile.yaml', path.resolve(path.dirname(filePath), profile.runnerProfile))
-    return { profile, inputs: [cloud, runner] }
+    return { profile, runner, inputs: [cloud, runner] }
 }

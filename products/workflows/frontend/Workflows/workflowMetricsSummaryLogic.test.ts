@@ -26,7 +26,7 @@ import {
     workflowMetricsSummaryLogic,
 } from './workflowMetricsSummaryLogic'
 
-const SANDBOX_ONLY_RATE = { value: '-', tag: null, detail: 'All emails were sent from the sandbox sender' }
+const SANDBOX_ONLY_RATE = { value: '-', tag: null, detail: 'All emails were sent from the PostHog test sender' }
 
 const series = (labels: string[], ...namedValues: [string, number[]][]): AppMetricsTimeSeriesResponse => ({
     labels,

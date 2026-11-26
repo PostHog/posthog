@@ -27,7 +27,7 @@ from typing import Any
 import structlog
 
 from posthog.exceptions import QuotaLimitExceeded
-from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
+from posthog.llm.gateway_client import build_async_anthropic_client
 from posthog.models import Organization, Team
 
 from products.signals.backend.emission.pipeline import (
@@ -85,8 +85,9 @@ async def steering_filters_signal(
     """Whether this team's steering says to drop the signal.
 
     Returns False without an LLM call when the team has written no steering for the source. A dropped
-    signal reports itself as ``signal_data_source_filtered`` with ``steering_applied``, the same stage
-    event the batch pipeline fires, so a filtered signal is distinguishable from one lost to a failure.
+    signal reports itself as ``signal_data_source_filtered`` with ``filter_reason`` ``steering_rejected``,
+    the same stage event the batch pipeline fires, so a filtered signal is distinguishable from one lost
+    to a failure.
     """
     # Text only, dropping any `default_not_actionable` the row carries. See the module docstring.
     steering = SourceSteering(
@@ -116,16 +117,13 @@ async def steering_filters_signal(
     try:
         # Closed on the way out: unlike the batch pipeline, which builds one client for a whole run,
         # this path builds one per signal, and each carries its own httpx connection pool.
-        async with build_async_anthropic_client(
-            product="signals", ai_product=EMISSION_AI_PRODUCT, team_id=team.id
-        ) as client:
+        async with build_async_anthropic_client(ai_product=EMISSION_AI_PRODUCT, team_id=team.id) as client:
             actionable = await asyncio.wait_for(
                 check_actionability(
                     client,
                     team.id,
                     output,
                     apply_steering(system_one_prompt.policy, steering),
-                    gateway_mode=resolve_ai_gateway_config() is not None,
                     # Steering rules reference facts the description does not always carry (a host, a
                     # check kind), so the steered gate sees all of `extra`, as in the batch pipeline.
                     include_record_metadata=True,
@@ -153,5 +151,11 @@ async def steering_filters_signal(
         signal_source_type=source_type,
         signal_source_id=source_id,
     )
-    capture_pipeline_stage("signal_data_source_filtered", team, organization, output, {"steering_applied": True})
+    capture_pipeline_stage(
+        "signal_data_source_filtered",
+        team,
+        organization,
+        output,
+        {"filter_reason": "steering_rejected", "steering_applied": True},
+    )
     return True

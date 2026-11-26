@@ -230,6 +230,24 @@ class TestGetRowsPaged:
         assert result.requests == []
 
 
+class TestFetchJsonRetries:
+    @mock.patch("products.warehouse_sources.sources.chatwoot.chatwoot.make_tracked_session")
+    def test_retries_a_connection_reset_mid_body_stream(self, mock_session):
+        # requests surfaces a connection reset while streaming the body (inside _read_capped_body's
+        # iter_content) as ChunkedEncodingError, a sibling of ConnectionError rather than a subclass.
+        broken = mock.MagicMock(status_code=200, ok=True, is_redirect=False, is_permanent_redirect=False)
+        broken.iter_content.side_effect = requests.exceptions.ChunkedEncodingError(
+            "Connection broken: ConnectionResetError(104, 'Connection reset by peer')"
+        )
+        mock_session.return_value.get.side_effect = [broken, _resp([{"id": 3}])]
+        manager = _make_manager()
+
+        batches = list(get_rows(None, "1", "token", "teams", TEAM_ID, mock.MagicMock(), manager))
+
+        assert [item["id"] for batch in batches for item in batch] == [3]
+        assert mock_session.return_value.get.call_count == 2
+
+
 class TestGetRowsMessages:
     @mock.patch("products.warehouse_sources.sources.chatwoot.chatwoot.make_tracked_session")
     def test_deleted_conversation_404_is_skipped(self, mock_session):

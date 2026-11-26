@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
-import { VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, NodeKind, HeatmapSortOrder } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -84,6 +84,33 @@ const setup = (
 }
 
 describe('TwoDimensionalHeatmap', () => {
+    it.each([
+        [undefined, ['Stage 2', 'Stage 10', 'Stage 1'], ['20', '10', '30']],
+        [HeatmapSortOrder.Asc, ['Stage 1', 'Stage 2', 'Stage 10'], ['30', '20', '10']],
+        [HeatmapSortOrder.Desc, ['Stage 10', 'Stage 2', 'Stage 1'], ['10', '20', '30']],
+    ])('orders columns by %s without moving values to another label', async (xAxisSortOrder, headers, cells) => {
+        const logic = setup('(header null)', '', {
+            ...response,
+            results: [
+                ['Stage 2', 'Enterprise', 20],
+                ['Stage 10', 'Enterprise', 10],
+                ['Stage 1', 'Enterprise', 30],
+            ],
+        })
+        await screen.findByText('Stage 10')
+
+        act(() => {
+            logic.actions.updateChartSettings({ heatmap: { ...logic.values.chartSettings.heatmap, xAxisSortOrder } })
+        })
+
+        expect(
+            Array.from(screen.getByRole('table').querySelectorAll('thead th'))
+                .slice(1)
+                .map((header) => header.textContent)
+        ).toEqual(headers)
+        expect(screen.getAllByRole('cell').map((cell) => cell.textContent)).toEqual(cells)
+    })
+
     it('keeps null and literal labels separately inspectable even when display labels collide', async () => {
         const onInspect = jest.fn()
         const values = [null, 'null', 'null (2)', '']

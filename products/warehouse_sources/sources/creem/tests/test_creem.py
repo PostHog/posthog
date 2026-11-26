@@ -199,6 +199,100 @@ class TestLicenses:
         assert [row["id"] for row in result.rows] == ["lic_4"]
 
 
+class TestPagedFanOuts:
+    @pytest.mark.parametrize(
+        ("endpoint", "script", "parent_key", "expected_rows", "expected_params"),
+        [
+            pytest.param(
+                "AffiliateCommissions",
+                {
+                    "/v1/affiliates": [_page(["aff_1", "aff_2"], None)],
+                    "/v1/affiliates/aff_1/commissions": [_page(["com_1"], 2), _page(["com_2"], None)],
+                    "/v1/affiliates/aff_2/commissions": [ScriptedResponse(status=404, json={"status": 404})],
+                },
+                "affiliate_id",
+                [("aff_1", "com_1"), ("aff_1", "com_2")],
+                {
+                    "/v1/affiliates": [{"page_number": "1", "page_size": "50"}],
+                    "/v1/affiliates/aff_1/commissions": [
+                        {"page_number": "1", "page_size": "50"},
+                        {"page_number": "2", "page_size": "50"},
+                    ],
+                },
+                id="page_number_parent_and_child",
+            ),
+            pytest.param(
+                "CreditAccountEntries",
+                {
+                    "/v1/customer-credits/accounts": [_cursor_page(["cca_1"], True), _cursor_page(["cca_2"], False)],
+                    "/v1/customer-credits/accounts/cca_1/entries": [
+                        _cursor_page(["cce_1"], True),
+                        _cursor_page(["cce_2"], False),
+                    ],
+                    "/v1/customer-credits/accounts/cca_2/entries": [_cursor_page(["cce_3"], False)],
+                },
+                "account_id",
+                [("cca_1", "cce_1"), ("cca_1", "cce_2"), ("cca_2", "cce_3")],
+                {
+                    "/v1/customer-credits/accounts": [
+                        {"limit": "100", "starting_after": None},
+                        {"limit": "100", "starting_after": "cca_1"},
+                    ],
+                    "/v1/customer-credits/accounts/cca_1/entries": [
+                        {"limit": "100", "starting_after": None},
+                        {"limit": "100", "starting_after": "cce_1"},
+                    ],
+                },
+                id="cursor_parent_and_child",
+            ),
+            pytest.param(
+                "ProductPrices",
+                {
+                    "/v1/products/search": [_page(["prod_1"], 2), _page(["prod_2"], None)],
+                    "/v1/products/prod_1/prices": [
+                        ScriptedResponse(
+                            json={
+                                "items": [{"id": "pprice_2"}, {"id": "pprice_1"}],
+                                "subscriptions_without_price_version": {"total": 0},
+                            }
+                        )
+                    ],
+                    "/v1/products/prod_2/prices": [ScriptedResponse(status=404, json={"status": 404})],
+                },
+                "product_id",
+                [("prod_1", "pprice_2"), ("prod_1", "pprice_1")],
+                {
+                    "/v1/products/search": [
+                        {"page_number": "1", "page_size": "50"},
+                        {"page_number": "2", "page_size": "50"},
+                    ],
+                    # The price listing takes no paging params and answers in one response.
+                    "/v1/products/prod_1/prices": [{"page_number": None, "page_size": None, "limit": None}],
+                },
+                id="page_number_parent_unpaged_child",
+            ),
+        ],
+    )
+    def test_pages_parent_and_child_each_in_their_own_style(
+        self,
+        endpoint: str,
+        script: dict[str, list[ScriptedResponse]],
+        parent_key: str,
+        expected_rows: list[tuple[str, str]],
+        expected_params: dict[str, list[dict[str, str | None]]],
+    ) -> None:
+        result = _driver().run(endpoint, route(script))
+
+        assert result.raised is None
+        assert [(row[parent_key], row["id"]) for row in result.rows] == expected_rows
+        for path, expected in expected_params.items():
+            names = expected[0].keys()
+            sent = [
+                {name: request.param(name) for name in names} for request in result.requests if request.path == path
+            ]
+            assert sent == expected
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("answer", "expected"),

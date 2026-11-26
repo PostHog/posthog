@@ -18,6 +18,7 @@ import psycopg
 import botocore.exceptions
 import deltalake.exceptions
 from parameterized import parameterized
+from s3fs import S3FileSystem
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     NonRetryableException,
     S3OperationError,
     _is_transient_s3_connection_error,
+    _list_query_folder_files,
     prepare_s3_files_for_querying,
     retry_internal_db_operation,
     with_internal_db_retries,
@@ -65,7 +67,7 @@ def _fake_s3(**kwargs):
         "invalidate_cache": lambda: None,
         "_ls": AsyncMock(return_value=[]),
         "_exists": AsyncMock(return_value=False),
-        "_find": AsyncMock(return_value={}),
+        "_lsdir": AsyncMock(return_value=[]),
         "_cp_file": AsyncMock(),
         "_copy_basic": AsyncMock(),
         "_copy": AsyncMock(),
@@ -510,12 +512,13 @@ def _rotation(
     return config
 
 
-def _find_returning(listings: dict[str, dict[str, dict]]) -> AsyncMock:
-    async def _find(path: str, prefix: str = "", detail: bool = True) -> dict[str, dict]:
+def _lsdir_returning(listings: dict[str, dict[str, dict]]) -> AsyncMock:
+    async def _lsdir(path: str, delimiter: str = "/", prefix: str = "") -> list[dict]:
         assert path == _JOB_URI
-        return listings.get(prefix.rstrip("/"), {})
+        assert delimiter == ""
+        return list(listings.get(prefix.rstrip("/"), {}).values())
 
-    return AsyncMock(side_effect=_find)
+    return AsyncMock(side_effect=_lsdir)
 
 
 async def _prepare_double_buffered(
@@ -537,6 +540,42 @@ async def _prepare_double_buffered(
             double_buffer=True,
             pointer_history=history,
         )
+
+
+class TestListQueryFolderFiles:
+    @parameterized.expand(
+        [
+            ("empty_slot", [], set()),
+            ("flat_table", ["a.parquet", "b.parquet"], {"a.parquet", "b.parquet"}),
+            (
+                "partitioned_table",
+                [f"_ph_partition_key={i}/part-0.parquet" for i in range(500)],
+                {f"_ph_partition_key={i}/part-0.parquet" for i in range(500)},
+            ),
+        ]
+    )
+    async def test_lists_the_slot_without_the_quadratic_find(self, _name, slot_files, expected):
+        bucket, _, job_key = _JOB_KEY.partition("/")
+        objects = [f"{job_key}/{_SLOT_A}/{name}" for name in slot_files]
+        objects += [f"{job_key}/{_SLOT_B}/other.parquet", f"{job_key}/{_SLOT_A}_old/other.parquet"]
+
+        async def list_objects(self, bucket_name, max_items=None, delimiter="/", prefix="", versions=False):
+            assert bucket_name == bucket
+            for key in objects:
+                if key.startswith(prefix):
+                    entry = {"Key": key, "Size": 1, "type": "file"}
+                    S3FileSystem._fill_info(entry, bucket_name)
+                    yield entry
+
+        s3 = S3FileSystem(anon=True, skip_instance_cache=True)
+        with (
+            patch.object(S3FileSystem, "_iterdir", list_objects),
+            patch.object(S3FileSystem, "_find", side_effect=AssertionError("_find is quadratic in the folders")),
+        ):
+            files = await _list_query_folder_files(s3, f"{_JOB_URI}/{_SLOT_A}")
+
+        assert set(files) == expected
+        assert all(uri == f"s3://{_JOB_KEY}/{_SLOT_A}/{name}" for name, uri in files.items())
 
 
 class TestDoubleBufferedQueryFolders:
@@ -571,7 +610,7 @@ class TestDoubleBufferedQueryFolders:
     async def test_fills_the_least_recently_used_empty_slot_in_full(
         self, _name: str, existing: str | None, history: QueryFolderPointerHistory | None, expected: str
     ):
-        s3 = _fake_s3(_find=_find_returning({}))
+        s3 = _fake_s3(_lsdir=_lsdir_returning({}))
 
         folder = await _prepare_double_buffered(s3, existing=existing, history=history, file_uris=_live("p0", "p1"))
 
@@ -585,7 +624,7 @@ class TestDoubleBufferedQueryFolders:
         # pays for the files that changed, not for every live file, and a file that stopped being live
         # leaves the slot before readers are pointed at it, or the glob returns its rows twice.
         s3 = _fake_s3(
-            _find=_find_returning(
+            _lsdir=_lsdir_returning(
                 {_SLOT_A: _standby_listing(_SLOT_A, "p1", "stale"), _SLOT_B: _standby_listing(_SLOT_B, "p1")}
             )
         )
@@ -610,7 +649,9 @@ class TestDoubleBufferedQueryFolders:
         # not when it became the pointer: a reader that started just before the flip may still be
         # globbing it for up to the buffer.
         s3 = _fake_s3(
-            _find=_find_returning({_SLOT_A: _standby_listing(_SLOT_A, "p1"), _SLOT_B: _standby_listing(_SLOT_B, "p1")})
+            _lsdir=_lsdir_returning(
+                {_SLOT_A: _standby_listing(_SLOT_A, "p1"), _SLOT_B: _standby_listing(_SLOT_B, "p1")}
+            )
         )
         a_stopped = datetime.now(UTC) - timedelta(seconds=seconds_since_a_stopped)
         history = _history(_SLOT_C, inactive={_SLOT_A: a_stopped, _SLOT_B: _MOMENTS_AGO})
@@ -621,17 +662,17 @@ class TestDoubleBufferedQueryFolders:
             assert _TIMESTAMPED_FOLDER.match(folder)
             assert self._copied(s3) == {f"{_JOB_URI}/{folder}/p1", f"{_JOB_URI}/{folder}/p2"}
             # Both slots are on record as read within the buffer, so a listing cannot make one usable.
-            s3._find.assert_not_awaited()
+            s3._lsdir.assert_not_awaited()
         else:
             assert folder == expected_slot
             assert self._copied(s3) == {f"{_JOB_URI}/{expected_slot}/p2"}
-            assert s3._find.await_count == 1
+            assert s3._lsdir.await_count == 1
 
     async def test_skips_a_recently_read_populated_slot_for_an_empty_one(self):
         # After an unrecorded pointer move the history restarts, so a populated slot with no record
         # is as suspect as one read moments ago. An empty slot has no prefix in S3 and nothing can be
         # reading it, so it is still usable even when it sorts behind the suspect one.
-        s3 = _fake_s3(_find=_find_returning({_SLOT_B: _standby_listing(_SLOT_B, "p1")}))
+        s3 = _fake_s3(_lsdir=_lsdir_returning({_SLOT_B: _standby_listing(_SLOT_B, "p1")}))
         history = _history(_SLOT_A, inactive={_SLOT_B: _MOMENTS_AGO}, history_since=_MOMENTS_AGO)
 
         folder = await _prepare_double_buffered(s3, existing=_SLOT_A, history=history, file_uris=_live("p1"))
@@ -644,7 +685,7 @@ class TestDoubleBufferedQueryFolders:
         # diff the fresh listing against the standby again, otherwise it copies the vanished file
         # forever or leaves the compacted file behind.
         cp_file = AsyncMock(side_effect=[FileNotFoundError("p2"), None])
-        s3 = _fake_s3(_cp_file=cp_file, _find=_find_returning({_SLOT_A: _standby_listing(_SLOT_A, "p1")}))
+        s3 = _fake_s3(_cp_file=cp_file, _lsdir=_lsdir_returning({_SLOT_A: _standby_listing(_SLOT_A, "p1")}))
         refresh = AsyncMock(return_value=_live("p1", "compacted"))
 
         with (
@@ -684,7 +725,7 @@ class TestDoubleBufferedQueryFolders:
         self, _name: str, existing: str | None, history: QueryFolderPointerHistory | None
     ):
         s3 = _fake_s3(
-            _find=_find_returning({slot: _standby_listing(slot, "p1") for slot in (_SLOT_A, _SLOT_B, _SLOT_C)})
+            _lsdir=_lsdir_returning({slot: _standby_listing(slot, "p1") for slot in (_SLOT_A, _SLOT_B, _SLOT_C)})
         )
 
         folder = await _prepare_double_buffered(s3, existing=existing, history=history, file_uris=_live("p1", "p2"))
@@ -700,7 +741,7 @@ class TestDoubleBufferedQueryFolders:
         stale = f"my_table__query_{_stale_epoch()}_0badf00d"
         s3 = _fake_s3(
             _ls=AsyncMock(return_value=_job_folder_listing(_SLOT_A, _SLOT_B, _SLOT_C, stale)),
-            _find=_find_returning({}),
+            _lsdir=_lsdir_returning({}),
         )
 
         folder = await _prepare_double_buffered(s3, existing=_SLOT_A, history=_history(_SLOT_A), file_uris=_live("p1"))
@@ -748,7 +789,7 @@ class TestDoubleBufferedQueryFolders:
         # it on each publish, and a table that fell back must not keep its full copy forever.
         history = QueryFolderPointerHistory.from_config(config, "my_table__query")
         existing = existing or (history.active if history is not None else None)
-        s3 = _fake_s3(_find=_find_returning({}))
+        s3 = _fake_s3(_lsdir=_lsdir_returning({}))
 
         folder = await _prepare_double_buffered(s3, existing=existing, history=history, file_uris=_live("p1"))
 
@@ -778,7 +819,7 @@ class TestDoubleBufferedQueryFolders:
         # file left in the standby is different: the caller flips readers to it next, so swallowing
         # the failure would publish duplicate rows. Raising keeps the pointer where it is.
         s3 = _fake_s3(
-            _find=_find_returning({_SLOT_A: _standby_listing(_SLOT_A, "p1", "stale")}),
+            _lsdir=_lsdir_returning({_SLOT_A: _standby_listing(_SLOT_A, "p1", "stale")}),
             _rm=AsyncMock(side_effect=PermissionError("Access Denied")),
         )
         history = _history(_SLOT_C, inactive={_SLOT_A: _LONG_AGO, _SLOT_B: _MOMENTS_AGO})

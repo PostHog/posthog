@@ -14,12 +14,14 @@ import psycopg
 import psycopg.errors
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     HostNotAllowedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import SSLRequiredError
 
 # Server requires (or rejects) an encrypted connection. Kept specific so a transient
 # "SSL connection has been closed unexpectedly" stays a retryable connection failure.
@@ -98,6 +100,11 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
 
     # sshtunnel's own exception, not a psycopg one — must be checked before the psycopg guard below.
     if isinstance(exc, BaseSSHTunnelForwarderError):
+        # The batch path retries a close before the banner because each table opens its own session,
+        # so a busy server refuses part of a burst. CDC opens one session per source, and the connect
+        # already retried in-process, so a close here points at the tunnel configuration.
+        if isinstance(exc, SSHGatewayClosedBeforeBannerError):
+            return CDCErrorCategory.SSH_TUNNEL_FAILED
         if _SSH_GATEWAY_SESSION_ERROR_MARKER in str(exc).lower():
             return CDCErrorCategory.SSH_TUNNEL_FAILED
         return None
@@ -109,6 +116,13 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         if str(exc).startswith(SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR):
             return CDCErrorCategory.SSH_TUNNEL_FAILED
         return CDCErrorCategory.HOST_UNREACHABLE
+
+    # `_connect_to_postgres` already converts the raw psycopg SSL rejection into this type before
+    # the CDC path ever sees it, so the `_SSL_REQUIRED_MARKERS` check below never fires for it —
+    # must be checked here, before the `psycopg.Error` guard, since `SSLRequiredError` is a plain
+    # `Exception`, not a psycopg one.
+    if isinstance(exc, SSLRequiredError):
+        return CDCErrorCategory.SSL_REQUIRED
 
     # Guard all string-based checks: only psycopg exceptions carry these message patterns.
     # A non-psycopg exception whose message happens to contain e.g. "does not exist" would

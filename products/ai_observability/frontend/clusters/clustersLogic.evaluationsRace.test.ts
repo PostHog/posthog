@@ -70,10 +70,24 @@ describe('clustersLogic / llmEvaluationsLogic load-order race', () => {
 
     it('waits for evaluations to settle before deriving a detector verdict, instead of reading detectorEvaluationIds as []', async () => {
         const queryHogQLMock = api.queryHogQL as jest.Mock
-        queryHogQLMock.mockResolvedValue({
-            // eval_id, name, result, applicable, evaluation_id — matches loadEvaluationItemAttributes's SELECT
-            results: [['eval-uuid-1', 'Struggle detector', 'true', null, 'det-1']],
-        })
+        queryHogQLMock.mockImplementation(async (sql) => ({
+            results: String(sql).includes("event = '$ai_evaluation'")
+                ? [
+                      [
+                          'eval-uuid-1',
+                          'Struggle detector',
+                          'true',
+                          null,
+                          'Reason',
+                          'hog',
+                          null,
+                          'trace-1',
+                          '2026-04-20',
+                          'det-1',
+                      ],
+                  ]
+                : [],
+        }))
 
         const logic = clustersLogic()
         logic.mount()
@@ -111,15 +125,13 @@ describe('clustersLogic / llmEvaluationsLogic load-order race', () => {
             level: 'evaluation',
         } as ClusteringRun
 
-        // Fire the eval-level attributes loader directly — mirrors what
-        // loadClusteringRunSuccess dispatches for an evaluation-level run — while
-        // llmEvaluationsLogic's own evaluations fetch is still gated (evaluationsLoading is
-        // true, detectorEvaluationIds is still []).
-        logic.actions.loadEvaluationAttributesForRun(mockRun)
+        logic.actions.loadClusteringRunSuccess(mockRun)
 
         // The gate must actually hold: the HogQL read must not fire before evaluations settle,
         // otherwise it would run with a stale, empty detectorEvaluationIds.
-        expect(queryHogQLMock).not.toHaveBeenCalled()
+        expect(
+            queryHogQLMock.mock.calls.filter(([sql]) => String(sql).includes("event = '$ai_evaluation'"))
+        ).toHaveLength(0)
 
         await expectLogic(llmEvaluationsLogic(), () => {
             resolveEvaluationsFetch?.()
@@ -129,15 +141,35 @@ describe('clustersLogic / llmEvaluationsLogic load-order race', () => {
 
         expect(llmEvaluationsLogic().values.detectorEvaluationIds).toEqual(['det-1'])
         expect(logic.values.evaluationItemAttributes['eval-uuid-1'].verdict).toBe('fail')
+        expect(logic.values.traceSummaries['eval-uuid-1'].evaluationVerdict).toBe('fail')
+        expect(logic.values.availableEvaluatorNames).toEqual([{ name: 'Struggle detector', count: 1 }])
+        expect(
+            queryHogQLMock.mock.calls.filter(([sql]) => String(sql).includes("event = '$ai_evaluation'"))
+        ).toHaveLength(1)
 
         logic.unmount()
     })
 
     it('does not block forever when the evaluations fetch fails — falls back to non-detector verdicts', async () => {
         const queryHogQLMock = api.queryHogQL as jest.Mock
-        queryHogQLMock.mockResolvedValue({
-            results: [['eval-uuid-1', 'Struggle detector', 'true', null, 'det-1']],
-        })
+        queryHogQLMock.mockImplementation(async (sql) => ({
+            results: String(sql).includes("event = '$ai_evaluation'")
+                ? [
+                      [
+                          'eval-uuid-1',
+                          'Struggle detector',
+                          'true',
+                          null,
+                          'Reason',
+                          'hog',
+                          null,
+                          'trace-1',
+                          '2026-04-20',
+                          'det-1',
+                      ],
+                  ]
+                : [],
+        }))
 
         // Override the gated success handler from beforeEach with one that fails instead.
         useMocks({
@@ -179,7 +211,7 @@ describe('clustersLogic / llmEvaluationsLogic load-order race', () => {
             level: 'evaluation',
         } as ClusteringRun
 
-        logic.actions.loadEvaluationAttributesForRun(mockRun)
+        logic.actions.loadClusteringRunSuccess(mockRun)
 
         await expectLogic(logic).toDispatchActions(['setEvaluationItemAttributes'])
 

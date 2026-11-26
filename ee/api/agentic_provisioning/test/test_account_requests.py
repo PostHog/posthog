@@ -244,6 +244,8 @@ class TestAccountRequests(ProvisioningTestBase):
             ("verified_ignores_radar_block", True, "block", "newuser@example.com", 200, None),
             ("verified_disposable_email", True, "allow", "newuser@mailinator.com", 403, "access_blocked"),
             ("verified_disposable_subdomain", True, "allow", "newuser@inbox.mailinator.com", 403, "access_blocked"),
+            ("verified_wildcard_dns", True, "allow", "newuser@203-0-113-7.sslip.io", 403, "access_blocked"),
+            ("unverified_wildcard_dns", False, "allow", "newuser@203.0.113.7.NIP.io", 403, "access_blocked"),
         ]
     )
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test-key")
@@ -253,7 +255,7 @@ class TestAccountRequests(ProvisioningTestBase):
         self.partner.is_verified = partner_verified
         self.partner.save(update_fields=["is_verified"])
 
-        with patch("posthog.workos_radar.requests.post") as mock_radar:
+        with patch("posthog.workos_radar.workos_radar_check") as mock_radar:
             mock_radar.return_value.status_code = 200
             mock_radar.return_value.json.return_value = {"verdict": verdict}
             res = self._post_account_request(self._account_request_payload(email=email))

@@ -29,6 +29,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ReplayTabs } from '~/types'
 
@@ -47,9 +48,11 @@ import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
     issueFiltersLogic,
 } from '../../components/IssueFilters/issueFiltersLogic'
+import { issueListUrlWithTag } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueSeveritySelect } from '../../components/IssueSeveritySelect'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueStatusSelect } from '../../components/IssueStatusSelect'
+import { IssueTagsButton } from '../../components/IssueTagsButton/IssueTagsButton'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { SuppressSimilarIssuesDialog } from '../../components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
@@ -62,7 +65,6 @@ import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { IssueSummary } from './IssueSummary'
-import { IssueTags } from './IssueTags'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -87,6 +89,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isMobile = isWindowLessThan('md')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     const hasSceneMenuBar = useFeatureFlag('SCENE_MENU_BAR')
+    const hasIssueTags = useFeatureFlag('ERROR_TRACKING_ISSUE_TAGS')
     const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
     // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
     const [emailInOverflow, setEmailInOverflow] = useState(true)
@@ -131,6 +134,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         router.actions.push(urls.replayVisionScannerOverview('new'))
     }, [issueId, issue?.name, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp])
 
+    const openIssueListWithTag = useCallback((key: string): void => {
+        router.actions.push(issueListUrlWithTag(key))
+    }, [])
+
     useAttachedContext(
         issueIdValid ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
     )
@@ -163,6 +170,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     canEdit
                                     name={issue.name ?? undefined}
                                     onNameChange={updateName}
+                                    nameAction={<TodayScenePinButton />}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
                                     className={clsx(
@@ -195,6 +203,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         onChange={updateAssignee}
                                                         disabled={issue.status != 'active'}
                                                     />
+                                                    {hasIssueTags && (
+                                                        <IssueTagsButton
+                                                            tags={issue.tags}
+                                                            onTagClick={openIssueListWithTag}
+                                                            size="default"
+                                                        />
+                                                    )}
                                                 </ButtonGroup>
                                                 {issue.name ? (
                                                     <ButtonGroup>
@@ -291,6 +306,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 onChange={updateAssignee}
                                                 disabled={issue.status != 'active'}
                                             />
+                                            {hasIssueTags && (
+                                                <IssueTagsButton
+                                                    tags={issue.tags}
+                                                    onTagClick={openIssueListWithTag}
+                                                    size="default"
+                                                />
+                                            )}
                                         </ButtonGroup>
                                         <IssueEmailMenu issueId={issue.id} issueName={issue.name} />
                                         <IssueStatusButton status={issue.status} onChange={updateStatus} />
@@ -341,7 +363,6 @@ const RightHandColumn = ({
     const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
     const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
-    const hasIssueTags = useFeatureFlag('ERROR_TRACKING_ISSUE_TAGS')
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
     const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
@@ -365,7 +386,6 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={detailEvent} />
-            {hasIssueTags && <IssueTags tags={issue?.tags ?? []} />}
             <IssueSummary />
             <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">

@@ -5,20 +5,21 @@
 // holds it, so a failed send leaves the rows for the next tick. A send that succeeds but fails
 // to commit sends the rows again, and the event uuid (the row id) lets PostHog drop the copy.
 
+import https from 'node:https'
 import type { Pool, PoolClient } from 'pg'
 
+import type { ProxyAwareAgentOptions } from '../crypto/aws-kms'
 import type { AuditExportConfig } from '../lib/config'
 import { logger } from '../lib/logging'
-import { auditExportLagSeconds, auditExportedTotal } from './metrics'
+import { auditExportedTotal } from './metrics'
 
 export const AUDIT_EVENT = '$credentials_access'
 
 /** Distinct id of every event. The user id is a property, so no person profile is created. */
 export const AUDIT_DISTINCT_ID = 'credentials-service'
 
-// Arbitrary constants, unique within this database.
+// Arbitrary constant, unique within this database.
 export const EXPORT_LOCK_KEY = 7_201_001
-export const RETENTION_LOCK_KEY = 7_201_002
 
 interface AuditRow {
     id: string
@@ -50,7 +51,7 @@ export interface CaptureEvent {
  * Only these columns are ever selected. `details` and `jti` stay out of the event on purpose.
  * `fields` holds secret key names, never values.
  */
-export function toCaptureEvent(row: AuditRow): CaptureEvent {
+export function toCaptureEvent(row: AuditRow, environment: string): CaptureEvent {
     return {
         event: AUDIT_EVENT,
         distinct_id: AUDIT_DISTINCT_ID,
@@ -58,6 +59,7 @@ export function toCaptureEvent(row: AuditRow): CaptureEvent {
         timestamp: row.occurred_at.toISOString(),
         properties: {
             $process_person_profile: false,
+            environment,
             deployment: row.deployment,
             caller: row.caller,
             user_id: row.user_id === null ? null : Number(row.user_id),
@@ -77,11 +79,57 @@ export type TickResult = 'idle' | 'exported' | 'not_leader' | 'failed'
 
 export type Sender = (events: CaptureEvent[]) => Promise<void>
 
-/** Plain fetch, so it follows the pod's own proxy handling: direct unless Node is told to use the env proxy. */
-export function captureSender(config: AuditExportConfig, fetchFn: typeof fetch = fetch): Sender {
+/** A fetch-shaped POST over `node:https`. Node's fetch takes no agent, so it cannot use a proxy agent. */
+export function agentFetch(agent: https.Agent, timeoutMs: number): typeof fetch {
+    return ((url: URL, init: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+            const req = https.request(
+                url,
+                {
+                    method: init.method,
+                    headers: init.headers as Record<string, string>,
+                    agent,
+                    signal: init.signal ?? undefined,
+                },
+                (res) => {
+                    clearTimeout(timer)
+                    // The promise is settled here, so a later reset only needs to not crash the process.
+                    res.on('error', (err) => logger.debug('audit:export_response_error', { error: err.message }))
+                    // The body is never read. Draining it frees the socket.
+                    res.resume()
+                    resolve(new Response(null, { status: res.statusCode ?? 502 }))
+                }
+            )
+            // Neither the abort signal nor a socket timeout fires while the proxy holds the CONNECT
+            // open without answering, because the request has no socket yet.
+            const timer = setTimeout(() => req.destroy(new Error('capture request timed out')), timeoutMs)
+            req.on('error', (err) => {
+                clearTimeout(timer)
+                reject(err)
+            })
+            req.end(init.body as string)
+        })) as unknown as typeof fetch
+}
+
+/**
+ * Sends direct by default. With `proxyUrl` it goes through the egress proxy, because Node's fetch
+ * ignores the pod's HTTPS_PROXY.
+ */
+export function captureSender(config: AuditExportConfig, fetchFn?: typeof fetch): Sender {
     const url = new URL('/batch/', config.host)
+    const doFetch =
+        fetchFn ??
+        (config.proxyUrl
+            ? agentFetch(
+                  new https.Agent({
+                      keepAlive: true,
+                      proxyEnv: { HTTPS_PROXY: config.proxyUrl },
+                  } as ProxyAwareAgentOptions),
+                  config.timeoutMs
+              )
+            : fetch)
     return async (events) => {
-        const res = await fetchFn(url, {
+        const res = await doFetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_key: config.apiKey, batch: events }),
@@ -102,7 +150,8 @@ export class AuditExporter {
     constructor(
         private readonly pool: Pool,
         private readonly send: Sender,
-        private readonly batchSize: number
+        private readonly batchSize: number,
+        private readonly environment: string
     ) {}
 
     /** Ends the current pass after its batch, so shutdown does not wait for the whole backlog. */
@@ -110,9 +159,8 @@ export class AuditExporter {
         this.stopped = true
     }
 
-    /** One pass: updates the lag gauge, then, as the leader, exports until nothing waits or a send fails. */
+    /** One pass: as the leader, exports until nothing waits or a send fails. */
     async tick(): Promise<TickResult> {
-        await this.updateLag()
         const client = await this.pool.connect()
         // A checked-out client has no error listener, so a dropped connection during a send
         // would otherwise be an uncaught 'error' event.
@@ -172,7 +220,7 @@ export class AuditExporter {
                 return 0
             }
             try {
-                await this.send(result.rows.map(toCaptureEvent))
+                await this.send(result.rows.map((row) => toCaptureEvent(row, this.environment)))
             } catch (err) {
                 auditExportedTotal.labels({ outcome: 'failed' }).inc(result.rows.length)
                 throw err
@@ -196,18 +244,6 @@ export class AuditExporter {
         } catch (err) {
             await client.query('ROLLBACK').catch(() => undefined)
             throw err
-        }
-    }
-
-    private async updateLag(): Promise<void> {
-        try {
-            const result = await this.pool.query(
-                `SELECT COALESCE(EXTRACT(EPOCH FROM now() - min(occurred_at)), 0) AS lag
-                 FROM audit_log WHERE exported_at IS NULL`
-            )
-            auditExportLagSeconds.set(Number(result.rows[0].lag))
-        } catch (err) {
-            logger.warn('audit:lag_query_failed', { error: err instanceof Error ? err.message : String(err) })
         }
     }
 }

@@ -767,6 +767,14 @@ def test_cp_data_path_for_renders_the_ducklake_data_path(
     assert managed_warehouse.cp_data_path_for(org_id) == expected
     assert mock_request.call_args.kwargs["require_enabled"] is False
 
+    # The backfill checks the data path against the bucket, so both must come from one status.
+    mock_request.reset_mock()
+    with patch("products.managed_warehouse.backend.presentation.views._reconcile_bucket_from_status"):
+        storage = managed_warehouse.cp_storage_for(org_id)
+    assert (storage.data_path if storage is not None else None) == expected
+    assert storage is None or storage.data_path.startswith(f"s3://{storage.bucket}/")
+    assert mock_request.call_count == 1
+
 
 def test_teams_response_attaches_the_org_naming_policy_to_each_row() -> None:
     response = Response(

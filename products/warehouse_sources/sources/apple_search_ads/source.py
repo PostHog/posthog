@@ -122,6 +122,12 @@ class AppleSearchAdsSource(
             "400 Client Error: Bad Request for url: https://api.searchads.apple.com": "Apple rejected a reporting request. Some campaign types don't support keyword reporting. If the error persists, remove the keyword_report table or check your campaign types in Apple Ads.",
             # Apple occasionally returns an empty HTTP reason phrase for the same 400 condition.
             "400 Client Error:  for url: https://api.searchads.apple.com": "Apple rejected a reporting request. Some campaign types don't support keyword reporting. If the error persists, remove the keyword_report table or check your campaign types in Apple Ads.",
+            # The Platform API's `/reports/apps/...` endpoints scope reporting to app campaigns;
+            # an ad account with no app campaigns in range (for example a Maps-only account) gets
+            # a 400 here rather than an empty report.
+            "400 Client Error: Bad Request for url: https://api.ads.apple.com/v1/reports/apps/": "Apple rejected this ad account's performance report request. Some ad accounts can't run this report, for example an account with no app campaigns. If the error persists, check the campaign types in this ad account.",
+            # Apple occasionally returns an empty HTTP reason phrase for the same 400 condition.
+            "400 Client Error:  for url: https://api.ads.apple.com/v1/reports/apps/": "Apple rejected this ad account's performance report request. Some ad accounts can't run this report, for example an account with no app campaigns. If the error persists, check the campaign types in this ad account.",
             "401 Client Error: Unauthorized for url: https://api.searchads.apple.com": "Apple Search Ads rejected the access token. Your API key may have been revoked. Generate a new one and reconnect this source.",
             "403 Client Error: Forbidden for url: https://api.searchads.apple.com": "Apple Search Ads denied access to this organization. Check that the API user has at least read access to the organization ID you entered.",
             "Could not sign the Apple Ads client secret": "The private key isn't a valid unencrypted EC (P-256) PEM. Paste the key you generated for your Apple Ads API client and reconnect.",

@@ -15,7 +15,6 @@ from products.ai_observability.backend.hog import compile_ai_observability_hog
 UNRECOVERED_ERRORS = "unrecovered_errors"
 REPEATED_TOOL_CALLS = "repeated_tool_calls"
 REFUSALS = "refusals"
-SENSITIVE_DATA = "sensitive_data"
 
 # Error messages that mean "paused" or "stopped on purpose" in common agent frameworks.
 DEFAULT_IGNORED_ERROR_PREFIXES: tuple[str, ...] = (
@@ -25,11 +24,12 @@ DEFAULT_IGNORED_ERROR_PREFIXES: tuple[str, ...] = (
     "GenerationCanceled",
     "GeneratorExit",
     "context canceled",
+    "AbortError",
 )
 # Whole words or a class-name suffix, so a real failure that only mentions one (`Connection aborted.`,
 # `ApprovalServiceError: 503`) still counts.
 PAUSE_ERROR_PATTERN = re.compile(
-    r"(?i:\b(paused|cancell?ed|interrupted|awaiting approval|approval (required|pending))\b)|Interrupt\b|Cancell?edError\b"
+    r"(?i:\b(paused|cancell?ed|interrupted|awaiting approval|approval (required|pending))\b)|Interrupt\b|Cancell?edError\b|AbortError\b"
 )
 POLLING_TOOL_PATTERN = re.compile(r"(^|[_.\-])(poll|wait|sleep|status|heartbeat|progress)([_.\-]|$)", re.IGNORECASE)
 REPEAT_THRESHOLD = 3
@@ -45,8 +45,6 @@ REFUSAL_OPENERS: tuple[str, ...] = (
     "i won't be able to",
 )
 REFUSAL_ACTIONS = "help|assist|do that|share|provide|comply|answer|fulfill|complete|give"
-# Placeholder domains that documentation and test data use, so an address on them leaks nothing.
-IGNORED_EMAIL_DOMAINS: tuple[str, ...] = ("example.com", "example.org", "example.net", "test.com", "localhost")
 
 
 @frozen
@@ -172,7 +170,7 @@ print('No unrecovered errors')
 return true"""
     return AdaptedCheck(
         key=UNRECOVERED_ERRORS,
-        name="Turns that end on a failed call",
+        name="Tool or model calls that never succeed",
         description="Finds traces where a tool or model call failed and was never retried successfully",
         source=source,
         template_key="",
@@ -223,7 +221,7 @@ print('No repeated identical tool calls')
 return true"""
     return AdaptedCheck(
         key=REPEATED_TOOL_CALLS,
-        name="Identical tool calls repeated",
+        name=f"Same tool call repeated {REPEAT_THRESHOLD} or more times",
         description=f"Finds traces where the agent calls one tool with the same arguments {REPEAT_THRESHOLD} or more times",
         source=source,
         template_key=REPEATED_TOOL_CALLS,
@@ -252,114 +250,11 @@ print('No refusal in the final message')
 return true"""
     return AdaptedCheck(
         key=REFUSALS,
-        name="Answers that refuse",
+        name="Refused requests",
         description="Finds traces whose final answer refuses or says it can't help",
         source=source,
         template_key=REFUSALS,
         severity=0.6,
-    )
-
-
-# An address starts with a letter or digit and has no letter or digit right before or after it, so punctuation of
-# any kind ends it, while `victim@acme.io` is never cut out of `victim@acme.ioévil.com`.
-_WORD_CHARS = "A-Za-z0-9\\p{L}\\p{N}"
-EMAIL_PATTERN = (
-    f"(?:^|[^{_WORD_CHARS}])"
-    f"([{_WORD_CHARS}][A-Za-z0-9._%+'\\p{{L}}\\p{{N}}-]*@[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)*[.][A-Za-z]{{2,}})"
-    f"(?:$|[^{_WORD_CHARS}])"
-)
-
-
-def sensitive_data() -> AdaptedCheck:
-    source = f"""// Fail a trace whose final assistant message contains an email address, a card number or a secret key.
-// URLs and version numbers are left out on purpose: answers link to docs and name versions all the time.
-let ignored_domains := {hog_list(IGNORED_EMAIL_DOMAINS)}
-{_FINAL_TEXT}
-if (match(final_text, '(^|[^0-9])[0-9]{{4}}[- ][0-9]{{4}}[- ][0-9]{{4}}[- ][0-9]{{4}}([^0-9]|$)')) {{
-    print('Final message contains a card number')
-    return false
-}}
-// A key starts at a word boundary, so `sk-` inside a word such as `risk-management` is not one.
-if (match(final_text, '(^|[^A-Za-z0-9_-])(sk-[A-Za-z0-9_-]{{20,}}|AKIA[0-9A-Z]{{16}}|gh[pousr]_[A-Za-z0-9]{{36}})|-----BEGIN [A-Z ]*PRIVATE KEY-----')) {{
-    print('Final message contains a secret key')
-    return false
-}}
-fun addresses_in(text) {{
-    let found := []
-    let rest := text
-    let remaining := 50
-    while (remaining > 0) {{
-        remaining := remaining - 1
-        let email := extractRegex(rest, {hog_string(EMAIL_PATTERN)})
-        if (empty(email)) {{
-            remaining := 0
-        }} else {{
-            found := arrayPushBack(found, lower(email))
-            rest := substring(rest, position(rest, email) + length(email), length(rest))
-        }}
-    }}
-    return found
-}}
-// An address in the user's latest message is their own data repeated. Only that message counts: samples keep the
-// last message of each input, and an address from a system prompt or a tool result is not the user's to share.
-let given := []
-let latest := final_input
-if (isValidJSON(latest)) {{
-    latest := jsonParse(latest)
-}}
-if (typeof(latest) == 'array') {{
-    if (length(latest) > 0) {{
-        latest := latest[length(latest)]
-    }} else {{
-        latest := null
-    }}
-}}
-if (typeof(latest) == 'string') {{
-    given := addresses_in(latest)
-}} else if (typeof(latest) == 'object') {{
-    if (latest.role == 'user') {{
-        let user_text := ''
-        if (typeof(latest.content) == 'string') {{
-            user_text := latest.content
-        }}
-        // Text blocks only: Anthropic and OpenTelemetry inputs put tool results in a user turn too.
-        for (let i, blocks in [latest.content, latest.parts]) {{
-            if (typeof(blocks) == 'array') {{
-                for (let j, block in blocks) {{
-                    if (typeof(block) == 'object') {{
-                        if (block.type == 'text') {{
-                            user_text := concat(user_text, ' ', toString(ifNull(block.text, ifNull(block.content, ''))))
-                        }}
-                    }}
-                }}
-            }}
-        }}
-        given := addresses_in(user_text)
-    }}
-}}
-let answered := addresses_in(final_text)
-for (let i, address in answered) {{
-    let domain := splitByString('@', address)[2]
-    let automated := position(address, 'noreply') > 0 or position(address, 'no-reply') > 0
-    if (not has(ignored_domains, domain) and not automated and not has(given, address)) {{
-        print(concat('Final message contains an email address on ', domain))
-        return false
-    }}
-}}
-// The scan stops at 50 addresses, so an answer whose first 50 are all exempt cannot be cleared.
-if (length(answered) >= 50) {{
-    print('Too many email addresses in the final message to check')
-    return null
-}}
-print('No sensitive data in the final message')
-return true"""
-    return AdaptedCheck(
-        key=SENSITIVE_DATA,
-        name="Sensitive data in answers",
-        description="Finds final answers that contain email addresses, card numbers, or secret keys",
-        source=source,
-        template_key=SENSITIVE_DATA,
-        severity=0.9,
     )
 
 

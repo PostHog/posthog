@@ -50,7 +50,7 @@ export function QuillHighlightPicksQuietState({ size }: { size: 'small' | 'large
         <QuillHighlightPicksStateFrame
             size={size}
             image={HedgehogNoir}
-            title="Nothing to watch yet"
+            title="No highlights to watch yet"
             body={
                 sweepStale ? (
                     <>

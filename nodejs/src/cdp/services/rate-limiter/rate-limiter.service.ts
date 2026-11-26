@@ -34,7 +34,7 @@ const claimLatency = new Histogram({
 })
 
 // Atomic "claim up to" token-bucket script.
-//   KEYS[1]      = bucket hash key (stores `ts`, `pool`, and the `resv` slot cursor)
+//   KEYS[1]      = bucket hash key (stores `ts`, `pool`, `cap`, and the `resv` slot cursor)
 //   ARGV[1]      = requested tokens (integer)
 //   ARGV[2]      = pool capacity (max tokens the bucket can hold)
 //   ARGV[3]      = refill rate (tokens per second)
@@ -51,6 +51,14 @@ const claimLatency = new Histogram({
 // the bucket on this code path.
 //
 // Returns {granted, retryAfterMs, reserved}.
+//
+// `cap` is the highest capacity the bucket has been claimed under. A caller with a
+// higher capacity (a team moved to a higher email tier) adds the difference to the
+// pool, so the bucket keeps what was spent instead of what was left. Without that, a
+// team that used its old allowance waits a full refill period for the new one. A
+// lower capacity only clamps the pool and never lowers `cap`. Workers with stale
+// configs can alternate between two capacities, and each switch back up would
+// otherwise grant the difference again.
 //
 // The reservation (ARGV[5] > 0), in plain terms: when the bucket says no, it also
 // hands the caller a time slot, like a ticket at a counter. The bucket remembers
@@ -73,10 +81,12 @@ local time = redis.call('TIME')
 -- TIME returns {seconds, microseconds}; flatten to epoch ms.
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 
-local existing = redis.call('hmget', key, 'ts', 'pool', 'resv')
+local existing = redis.call('hmget', key, 'ts', 'pool', 'resv', 'cap')
 local rawTs = existing[1]
 local rawPool = existing[2]
 local rawResv = existing[3]
+local rawCap = existing[4]
+local highestCap = capacity
 
 local available
 if rawTs == false then
@@ -93,6 +103,13 @@ else
     else
         currentTokens = tonumber(rawPool)
     end
+    if rawCap ~= false then
+        if capacity > tonumber(rawCap) then
+            currentTokens = currentTokens + capacity - tonumber(rawCap)
+        else
+            highestCap = tonumber(rawCap)
+        end
+    end
     available = math.min(capacity, currentTokens + (elapsedMs / 1000.0) * refillPerSecond)
 end
 
@@ -108,7 +125,7 @@ end
 local granted = math.floor(rawGranted)
 local tokensAfter = available - granted
 
-redis.call('hset', key, 'ts', now, 'pool', tokensAfter)
+redis.call('hset', key, 'ts', now, 'pool', tokensAfter, 'cap', highestCap)
 redis.call('expire', key, ttlSeconds)
 
 if granted > 0 or reserveOnDenyMaxMs <= 0 or refillPerSecond <= 0 then

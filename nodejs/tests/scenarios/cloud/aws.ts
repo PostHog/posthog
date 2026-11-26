@@ -3,7 +3,7 @@ import { execFile } from 'child_process'
 import { parseJSON } from '~/common/utils/json-parse'
 
 export type Aws = {
-    call(args: string[]): Promise<unknown>
+    call(args: string[], signal?: AbortSignal): Promise<unknown>
     text(args: string[]): Promise<string>
 }
 
@@ -31,15 +31,17 @@ function retryBudgetOf(args: string[]): NodeJS.ProcessEnv {
 }
 
 export function awsCli(env: NodeJS.ProcessEnv): Aws {
-    const run = (args: string[]): Promise<string> =>
+    const run = (args: string[], signal?: AbortSignal): Promise<string> =>
         new Promise((resolve, reject) =>
             execFile(
                 'aws',
                 args,
-                { env: { ...env, ...retryBudgetOf(args) }, maxBuffer: OUTPUT_LIMIT_BYTES },
+                { env: { ...env, ...retryBudgetOf(args) }, maxBuffer: OUTPUT_LIMIT_BYTES, signal },
                 (error, stdout, stderr) => {
                     if (!error) {
                         resolve(stdout)
+                    } else if (signal?.aborted) {
+                        reject(new Error(`aws ${args.slice(0, 2).join(' ')} was cancelled`))
                     } else if (typeof error.code === 'number') {
                         reject(new AwsError(args, error.code, stderr))
                     } else {
@@ -49,8 +51,8 @@ export function awsCli(env: NodeJS.ProcessEnv): Aws {
             )
         )
     return {
-        call: async (args) => {
-            const stdout = await run([...args, '--output', 'json'])
+        call: async (args, signal) => {
+            const stdout = await run([...args, '--output', 'json'], signal)
             return stdout.trim() === '' ? null : parseJSON(stdout)
         },
         text: async (args) => (await run(args)).trim(),

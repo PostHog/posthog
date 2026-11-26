@@ -23,6 +23,7 @@ from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
 
 from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunSpend, TaskRunTokenUsage
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
+from products.tasks.backend.logic.services.sandbox_config import sandbox_ai_gateway_worker_url
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
 from products.tasks.backend.models import SandboxSession, TaskRun, TaskRunGatewayRequest
 
@@ -77,12 +78,16 @@ def _save_accounting_state(run: TaskRun) -> None:
     # It also leaves `updated_at` alone, because recency gauges and stale-run sweeps read it.
     previous = TaskRun.objects.select_related("task").get(id=run.id, team_id=run.team_id)
     delta = (_recorded_cost_microusd(run) or 0) - (_recorded_cost_microusd(previous) or 0)
+    standard_delta = (_recorded_cost_microusd(run, standard=True) or 0) - (
+        _recorded_cost_microusd(previous, standard=True) or 0
+    )
     TaskRun.objects.filter(id=run.id, team_id=run.team_id).update(state=run.state)
     task_run_cost_updated.send(
         sender=TaskRun,
         run_id=run.id,
         team_id=run.team_id,
         cost_delta_microusd=delta,
+        standard_cost_delta_microusd=standard_delta,
         accounting_failed=_accounting_failed(run),
         origin_product=previous.task.origin_product,
     )
@@ -217,6 +222,11 @@ def process_pending_gateway_usage(*, run_id: UUID, team_id: int, limit: int = 20
                 else:
                     providers = state["token_cost"].setdefault(request_cost.model, {})
                     bucket = providers.setdefault(request_cost.provider, {})
+                    bucket["standard_cost_adjustment_microusd"] = (
+                        bucket.get("standard_cost_adjustment_microusd", 0)
+                        + request_cost.standard_cost_microusd
+                        - request_cost.cost_microusd
+                    )
                     bucket["cost_microusd"] = bucket.get("cost_microusd", 0) + request_cost.cost_microusd
                     bucket["request_ids"] = [*bucket.get("request_ids", []), request_id]
             state["unprocessed_request_ids"] = remaining
@@ -262,7 +272,7 @@ def get_task_cost(*, team_id: int, task_id: UUID) -> TaskRunCost:
 
 async def _fetch_gateway_cost(request_id: str) -> GatewayRequestCost | None:
     return await fetch_gateway_cost(
-        request_id, base_url=settings.SANDBOX_AI_GATEWAY_URL or "", api_key=settings.SANDBOX_AI_GATEWAY_MINT_KEY or ""
+        request_id, base_url=sandbox_ai_gateway_worker_url(), api_key=settings.SANDBOX_AI_GATEWAY_MINT_KEY or ""
     )
 
 
@@ -281,11 +291,16 @@ def _token_usage(run: TaskRun, *, queued: bool | None = None) -> TaskRunTokenUsa
     )
 
 
-def _recorded_cost_microusd(run: TaskRun) -> int | None:
+def _bucket_cost_microusd(bucket: dict[str, Any], *, standard: bool = False) -> int:
+    cost = bucket.get("cost_microusd", 0)
+    return cost + bucket.get("standard_cost_adjustment_microusd", 0) if standard else cost
+
+
+def _recorded_cost_microusd(run: TaskRun, *, standard: bool = False) -> int | None:
     state = run.state or {}
     if not isinstance(state.get("token_cost"), dict):
         return None
-    return sum(bucket.get("cost_microusd", 0) for bucket in _cost_buckets(state))
+    return sum(_bucket_cost_microusd(bucket, standard=standard) for bucket in _cost_buckets(state))
 
 
 def get_task_run_token_usage(*, run_id: UUID, team_id: int) -> TaskRunTokenUsage:
@@ -310,6 +325,7 @@ def _run_spend(
         run_id=run.id,
         task_id=run.task_id,
         cost_microusd=usage.cost_microusd,
+        standard_cost_microusd=_recorded_cost_microusd(run, standard=True),
         complete=usage.complete and compute_complete,
         is_terminal=run.is_terminal,
         stage=(run.state or {}).get("ai_stage") or "task",

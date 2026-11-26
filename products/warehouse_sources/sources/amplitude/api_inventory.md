@@ -69,11 +69,65 @@ So `401`/`403` are permanent auth failures (wired into `get_non_retryable_errors
   lists group types, so overrides are not synced.
 - Custom group properties carry a `grp:` prefix.
 
+### Dashboard REST charts: `retention`, `composition`, `revenue_ltv`
+
+These endpoints compute a chart over a `start`/`end` date range (`YYYYMMDD`, in the project's time zone).
+We send a trailing window of `DASHBOARD_LOOKBACK_DAYS` (90) days ending today in UTC. The values keep
+changing until a cohort matures (retention days, LTV `r1d`..`r90d`), and the only filter is the cohort date,
+so all three are full refresh with no incremental field. Each sync replaces the table with the latest window.
+
+Query cost: a query costs `days * conditions * type cost`, at least 10. Queries that run at the same time can
+cost 1,000 in total, and a retention query costs 8 per day, so the window must stay under 125 days.
+
+- `retention` — `GET /api/2/retention` with `se={"event_type":"_new"}`, `re={"event_type":"_all"}`,
+  `rm=nday`, `i=1`: the default chart of new users who return with any event. Response:
+  `data.series[0].values` maps each cohort date label to a list of `{count, outof, incomplete}`. Index 0
+  holds the cohort size and index N + 1 holds day N, so we emit one row per cohort date and day.
+  Primary key: `["date", "day"]`. The docs show date labels as `Aug 14` (no year); we also accept
+  `YYYY-MM-DD`, and infer the year from the window end.
+- `composition` — `GET /api/2/composition?p=<property>`, one request per built-in property the docs list
+  (`version`, `country`, `city`, `region`, `DMA`, `language`, `platform`, `os`, `device`, `start_version`,
+  `paying`). Response: `data.xValues` (property values) aligned with `data.series[0]` (unique users).
+  Primary key: `["property", "value"]`. Values are stored as strings so every property shares one column
+  type. Custom `gp:` properties need a name and have no list call, so they are not queried.
+- `revenue_ltv` — `GET /api/2/revenue/ltv`, one request per metric `m` (0 ARPU, 1 ARPPU, 2 total revenue,
+  3 paying users) with `i=1`. Response: `data.series[0].values` maps each cohort date to
+  `{r1d..r90d, count, paid, total_amount}`, which becomes one row with a `metric` label.
+  Primary key: `["date", "metric"]`.
+
+### `lookup_tables` — `/api/3/lookup_table`
+
+- Grain: one lookup table definition. Primary key: `name` (tables are named uniquely per project).
+  Sync mode: full refresh.
+- Lookup Table API 2, on its own host: US `https://data-api.amplitude.com`, EU
+  `https://data-api.eu.amplitude.com`. Same HTTP Basic auth as the other project endpoints.
+- Returns a bare JSON array with no paging. Needs a Growth or Enterprise plan with the Govern add-on.
+- The table contents (`/api/3/lookup_table/:name/csv`) are not synced: each table has its own CSV columns.
+- The v1 API (`/api/2/lookup_table`) is deprecated, so it is not used.
+
+### Experiment Management API: `experiments`, `flags`, `deployments`
+
+- Paths: `/api/1/experiments`, `/api/1/flags`, `/api/1/deployments`. Primary key: `id`. Sync mode: full refresh.
+- Own host: US `https://experiment.amplitude.com`, EU `https://experiment.eu.amplitude.com`.
+- Auth: `Authorization: Bearer <management API key>`. This key is separate from the project API key and
+  secret key, so the source has an optional `management_api_key` field. Without it these tables report a
+  permission error in the schema picker, and a sync fails with a non-retryable error. `401`/`403` mean the
+  key is invalid or has no access to the project.
+- Responses are wrapped in `{"experiments" | "flags" | "deployments": [...], "nextCursor": ...}`. We send
+  `limit=1000` (the cap) and pass `nextCursor` back as `cursor` until it is absent, empty, or repeats.
+- `experiments` and `flags` send `includeArchived=true`, so archived items stay in the table. Lists are
+  ordered newest first and have no timestamp filter.
+- `deployments` drops the `key` field: it is the deployment key that SDKs use, and a server deployment key
+  is a secret.
+- Rate limit: 100 requests per second and 100,000 per day, per project.
+
 ## Not synced
 
 - `GET /api/2/release` — the Releases API documents only `POST` (create a release). There is no list call.
 - `POST /api/2/audit-logs/{ORG_ID}` — a `POST` that needs an organization API key and secret key issued by
   Amplitude Support, not the project keys this source collects. The response shape is not documented.
+- `GET /api/2/funnels` — needs the funnel steps as one `e` event per step. Steps are specific to each
+  project's events and there is no default funnel, so there is no fixed table to sync.
 - `GET /api/3/chart/{chart_id}/...` — returns the results of one saved chart. The chart ID comes from the
   web app URL (no list call exists), and the response shape changes with the chart type.
 

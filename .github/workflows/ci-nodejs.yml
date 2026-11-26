@@ -102,10 +102,18 @@ jobs:
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
               # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   # node_src_files feeds jest --findRelatedTests in the select step below.
                   list-files: 'escape'
+                  reuse-checks: Node.js Tests Pass
+                  reuse-proof-checks: |
+                      Node.js Build (depot-ubuntu-24.04)
+                      Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
+                  reuse-blocking-labels: ci-no-reuse
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       nodejs:
                         - '.github/scripts/jest-retries.cjs'
@@ -119,6 +127,8 @@ jobs:
                         # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
                         - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
+                        # liquid.test.ts reads the importers' template fixtures with readFileSync.
+                        - 'products/messaging/backend/tests/fixtures/*render*.json'
                         # The Jest shared-fixtures suite pins the native replay anonymizer against
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
@@ -135,6 +145,8 @@ jobs:
                         # admits ingestion-consumer, which does not depend on the fixture's crate, so
                         # a capture-side envelope change would skip the test that pins the consumer.
                         - 'rust/common/ingestion_warnings/*.json'
+                        # The schema-check manifest test reads the shared deploy requirements examples.
+                        - 'tools/deploy-requirements/examples/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
@@ -183,6 +195,8 @@ jobs:
                       node_full:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'products/cdp/backend/filter_globals.json'
+                        - 'products/messaging/backend/tests/fixtures/*render*.json'
+                        - 'tools/deploy-requirements/examples/**'
                         - 'common/hogvm/typescript/src/**'
                         - '**/crosslang/**'
                         - '.github/scripts/jest-retries.cjs'
@@ -359,8 +373,8 @@ jobs:
                   } >> "$GITHUB_OUTPUT"
 
     lint:
-        # Not on master push — master coverage comes from the hourly run (see `schedule`).
-        if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
+        # The merge queue already checks formatting, lint and boundaries before each commit lands.
+        if: needs.changes.outputs.nodejs == 'true' && github.event_name == 'pull_request'
         name: Node.js Code quality (depot-ubuntu-24.04)
         needs: changes
         runs-on: depot-ubuntu-24.04
@@ -410,7 +424,7 @@ jobs:
             - name: Restore Prettier cache
               id: prettier-cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
+              with: &nodejs-prettier-cache
                   path: nodejs/node_modules/.cache/prettier-ci
                   # Prettier does not include plugin versions in its cache key.
                   key: nodejs-prettier-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.nvmrc', '.editorconfig', '.prettierignore', 'nodejs/.prettierrc', 'nodejs/.prettierignore', 'nodejs/.editorconfig') }}-${{ github.sha }}
@@ -432,13 +446,6 @@ jobs:
                         else
                             echo "Ingestion boundary guard not present on this branch; skipping."
                         fi
-
-            - name: Save Prettier cache
-              if: github.ref == 'refs/heads/master' && steps.prettier-cache.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: nodejs/node_modules/.cache/prettier-ci
-                  key: ${{ steps.prettier-cache.outputs.cache-primary-key }}
 
     build:
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
@@ -489,6 +496,12 @@ jobs:
             - name: Prepare Node.js workspace
               run: bin/turbo --filter=@posthog/nodejs prepare
 
+            - name: Restore Prettier cache
+              if: github.event_name == 'schedule'
+              id: prettier-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with: *nodejs-prettier-cache
+
             - name: Check builds correctly
               run: pnpm --filter=@posthog/nodejs build
               env:
@@ -504,6 +517,17 @@ jobs:
                   else
                       echo "✅ Build is valid - failed as expected without module errors"
                   fi
+
+            - name: Check formatting with prettier
+              if: github.event_name == 'schedule'
+              run: pnpm --filter=@posthog/nodejs format:check --cache --cache-strategy content --cache-location node_modules/.cache/prettier-ci
+
+            - name: Save Prettier cache
+              if: github.event_name == 'schedule' && github.ref == 'refs/heads/master' && steps.prettier-cache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: nodejs/node_modules/.cache/prettier-ci
+                  key: ${{ steps.prettier-cache.outputs.cache-primary-key }}
 
     tests:
         # Not on master push — master coverage comes from the hourly run (see `schedule`).

@@ -6,7 +6,11 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.sources.frill.settings import FRILL_ENDPOINTS, FrillEndpointConfig
+from products.warehouse_sources.sources.frill.settings import (
+    FRILL_ENDPOINTS,
+    INTEGRATION_LINK_TYPES,
+    FrillEndpointConfig,
+)
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
@@ -30,6 +34,8 @@ class FrillResumeConfig:
     # `after` cursor into the endpoint's top-level list. For the comments fan-out this is the
     # cursor into /ideas — comments resume at the last fully processed page of parent ideas.
     after: Optional[str] = None
+    # Integration links only: the `type` whose pages `after` points into.
+    link_type: Optional[str] = None
 
 
 def _make_session(api_key: str) -> requests.Session:
@@ -173,6 +179,38 @@ def _comment_rows(
             resumable_source_manager.save_state(FrillResumeConfig(after=next_after))
 
 
+def _integration_link_rows(
+    session: requests.Session,
+    config: FrillEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[FrillResumeConfig],
+    resume: Optional[FrillResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Page GET /integration-links once per integration type: the endpoint rejects a request
+    with neither `type` nor `idea_idx`, and each row carries its own `idea_idx`."""
+    url = f"{FRILL_BASE_URL}{config.path}"
+    link_types = list(INTEGRATION_LINK_TYPES)
+    start, after = 0, None
+    if resume is not None and resume.link_type in link_types:
+        start, after = link_types.index(resume.link_type), resume.after
+
+    for position in range(start, len(link_types)):
+        link_type = link_types[position]
+        following_type = link_types[position + 1] if position + 1 < len(link_types) else None
+        params = {**config.params, "type": link_type}
+        for records, next_after in _iter_pages(session, url, params, logger, after=after):
+            if next_after is not None:
+                resumable_source_manager.save_state(FrillResumeConfig(after=next_after, link_type=link_type))
+            elif following_type is not None:
+                resumable_source_manager.save_state(FrillResumeConfig(link_type=following_type))
+
+            if records:
+                yield records
+            else:
+                resumable_source_manager.safe_point()
+        after = None
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -186,6 +224,10 @@ def get_rows(
     after = resume.after if resume is not None else None
     if after is not None:
         logger.debug(f"Frill: resuming endpoint={endpoint} from cursor={after}")
+
+    if endpoint == "integration_links":
+        yield from _integration_link_rows(session, config, logger, resumable_source_manager, resume)
+        return
 
     if endpoint == "comments":
         yield from _comment_rows(session, config, logger, resumable_source_manager, after)

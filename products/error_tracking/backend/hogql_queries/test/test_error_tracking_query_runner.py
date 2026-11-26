@@ -26,6 +26,7 @@ from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
     ErrorTrackingIssueTagFilter,
+    ErrorTrackingIssueTagsFilter,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
     ErrorTrackingSimilarIssuesQuery,
@@ -99,6 +100,7 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
     taggers=(),
 )
 OTHER_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="other_tag", label="Other tag")
+THIRD_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="third_tag", label="Third tag")
 
 
 @frozen
@@ -267,6 +269,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         status=None,
         severity=None,
         issueTag=None,
+        issueTags=None,
         volumeResolution=1,
         withAggregations=False,
         withFirstEvent=False,
@@ -293,6 +296,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                     status=status,
                     severity=severity,
                     issueTag=issueTag,
+                    issueTags=issueTags,
                     volumeResolution=volumeResolution,
                     withFirstEvent=withFirstEvent,
                     withAggregations=withAggregations,
@@ -1323,31 +1327,45 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self._create_issues_four_and_five()
         self._write_tag_rows(
             _TagRow(issue_id=self.issue_id_one, key=BLOCKS_CHECKOUT.key, value=True),
+            _TagRow(issue_id=self.issue_id_one, key=OTHER_TAG.key, value=True),
             _TagRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=True),
             _TagRow(issue_id=self.issue_id_two, key=BLOCKS_CHECKOUT.key, value=False, version=2),
             _TagRow(issue_id=self.issue_id_three, key=BLOCKS_CHECKOUT.key, value=True),
             _TagRow(issue_id=self.issue_id_three, key=BLOCKS_CHECKOUT.key, value=None, version=2),
+            _TagRow(issue_id=self.issue_id_three, key=OTHER_TAG.key, value=True),
+            _TagRow(issue_id=self.issue_id_three, key=THIRD_TAG.key, value=True),
+            _TagRow(issue_id=self.issue_id_two, key="retired_tag", value=True),
+            _TagRow(issue_id=self.issue_id_four, key=BLOCKS_CHECKOUT.key, value=True),
             _TagRow(issue_id=self.issue_id_four, key=OTHER_TAG.key, value=True),
+            _TagRow(issue_id=self.issue_id_four, key=THIRD_TAG.key, value=True),
             _TagRow(issue_id=self.issue_id_five, key=BLOCKS_CHECKOUT.key, value=True),
             _TagRow(issue_id=self.issue_id_five, key=BLOCKS_CHECKOUT.key, value=True, version=2, is_deleted=True),
+            _TagRow(issue_id=self.issue_id_five, key=OTHER_TAG.key, value=True),
         )
         filter_group = self._status_is_set_filter() if legacy_shape else None
+        filters: dict[str, dict[str, ErrorTrackingIssueTagFilter | ErrorTrackingIssueTagsFilter]] = {
+            "legacy_applied": {"issueTag": ErrorTrackingIssueTagFilter(key=BLOCKS_CHECKOUT.key, applied=True)},
+            "legacy_not_applied": {"issueTag": ErrorTrackingIssueTagFilter(key=BLOCKS_CHECKOUT.key, applied=False)},
+            "has_all_and_not": {
+                "issueTags": ErrorTrackingIssueTagsFilter(
+                    has=[BLOCKS_CHECKOUT.key, OTHER_TAG.key, "retired_tag"], hasNot=[THIRD_TAG.key]
+                )
+            },
+            "legacy_and_new": {
+                "issueTag": ErrorTrackingIssueTagFilter(key=THIRD_TAG.key, applied=False),
+                "issueTags": ErrorTrackingIssueTagsFilter(has=[BLOCKS_CHECKOUT.key, OTHER_TAG.key]),
+            },
+        }
 
         with (
-            mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT,)),
+            mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, OTHER_TAG, THIRD_TAG)),
             mock.patch.object(
                 team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
             ),
         ):
-            by_applied = {
-                applied: {
-                    result["id"]
-                    for result in self._calculate(
-                        filterGroup=filter_group,
-                        issueTag=ErrorTrackingIssueTagFilter(key=BLOCKS_CHECKOUT.key, applied=applied),
-                    )["results"]
-                }
-                for applied in (True, False)
+            by_filter = {
+                name: {result["id"] for result in self._calculate(filterGroup=filter_group, **tag_filter)["results"]}
+                for name, tag_filter in filters.items()
             }
 
         every_issue = {
@@ -1358,10 +1376,12 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             self.issue_id_five,
         }
         expected = {
-            True: {self.issue_id_one},
-            False: {self.issue_id_two, self.issue_id_three, self.issue_id_four, self.issue_id_five},
+            "legacy_applied": {self.issue_id_one, self.issue_id_four},
+            "legacy_not_applied": {self.issue_id_two, self.issue_id_three, self.issue_id_five},
+            "has_all_and_not": {self.issue_id_one},
+            "legacy_and_new": {self.issue_id_one},
         }
-        self.assertEqual(by_applied, expected if filter_applies else dict.fromkeys(expected, every_issue))
+        self.assertEqual(by_filter, expected if filter_applies else dict.fromkeys(expected, every_issue))
 
     @parameterized.expand([("issue_tags_on", True), ("issue_tags_off", False)])
     @time_machine.travel("2022-01-10T12:11:00", tick=False)

@@ -2,7 +2,6 @@ import { PluginKey } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion, { exitSuggestion } from '@tiptap/suggestion'
-import { useValues } from 'kea'
 import {
     forwardRef,
     useCallback,
@@ -19,7 +18,6 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { IconBold, IconItalic, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 
 /** Plugin key for {@link createInlineMarkdownSlashCommandsExtension} (use for `exitSuggestion` / debugging). */
 export const INLINE_MARKDOWN_SLASH_COMMANDS_PLUGIN_KEY = new PluginKey('inlineRichMarkdownSlashCommands')
@@ -47,6 +45,8 @@ export type InlineMarkdownSlashCommandItem = {
 export type InlineMarkdownSlashImageHostRef = {
     pick: () => void
     showSlashImageUpload: boolean
+    /** Without object storage the Image item shows but stays disabled. The host reads it, so the menu needs no app state. */
+    objectStorageAvailable: boolean
 }
 
 /** Mutable ref the inline editor sets each render; opens the same link popover as the bubble toolbar. */
@@ -261,7 +261,7 @@ export const InlineMarkdownSlashMenu = forwardRef<InlineMarkdownSlashMenuRef, In
     ): JSX.Element {
         const [selectedFlatIndex, setSelectedFlatIndex] = useState(0)
         const activeItemRef = useRef<HTMLButtonElement | null>(null)
-        const { objectStorageAvailable } = useValues(preflightLogic)
+        const objectStorageAvailable = slashImageHostRef?.current?.objectStorageAvailable ?? false
 
         // Compute each render (not memoized on ref identity) so `slashImageHostRef.current.showSlashImageUpload`
         // stays in sync whenever this menu re-renders (e.g. suggestion onUpdate).

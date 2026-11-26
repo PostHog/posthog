@@ -68,12 +68,41 @@ class TestGetRows:
         assert result.raised is None
         assert result.params("page") == ["7"]
 
-    def test_tags_are_normalized_into_rows(self) -> None:
-        result = _driver().run("tags", [ScriptedResponse(json={"data": ["onboarding", "remarketing"]})])
+    @pytest.mark.parametrize(
+        "endpoint, body, expected_path, expected_items",
+        [
+            (
+                "tags",
+                {"data": ["onboarding", "remarketing"]},
+                "/v1/tags",
+                [[{"name": "onboarding"}, {"name": "remarketing"}]],
+            ),
+            (
+                "knowledge_base_writers",
+                {"data": [{"account_id": 11, "name": "Writer One", "email": "one@example.com"}]},
+                "/v1/knowledge/writers",
+                [[{"account_id": 11, "name": "Writer One", "email": "one@example.com"}]],
+            ),
+            (
+                "knowledge_base_writers",
+                [{"account_id": 12, "name": "Writer Two", "email": "two@example.com"}],
+                "/v1/knowledge/writers",
+                [[{"account_id": 12, "name": "Writer Two", "email": "two@example.com"}]],
+            ),
+            ("knowledge_base_writers", {"data": []}, "/v1/knowledge/writers", []),
+            ("knowledge_base_writers", {"data": None}, "/v1/knowledge/writers", []),
+        ],
+        ids=["tags_normalized", "writers_wrapped", "writers_bare_array", "writers_empty", "writers_null_data"],
+    )
+    def test_single_request_endpoints(
+        self, endpoint: str, body: object, expected_path: str, expected_items: list[list[dict]]
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
 
         assert result.raised is None
-        assert result.items == [[{"name": "onboarding"}, {"name": "remarketing"}]]
-        assert result.paths == ["/v1/tags"]
+        assert result.items == expected_items
+        assert result.paths == [expected_path]
+        assert result.saved_states == []
 
 
 class TestArticlesFanOut:

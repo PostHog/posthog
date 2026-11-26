@@ -82,20 +82,62 @@ def test_gate_runs_drop_runs_from_other_branches(
             script.gate_runs(trigger, 40)
 
 
-def test_retries_a_workflow_listing_timeout_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = 0
+EOF_ERROR = subprocess.CalledProcessError(1, "depot", stderr="failed to get workflow: unavailable: unexpected EOF")
+SETTLED_WORKFLOW = {
+    "workflow_id": "wf",
+    "run_id": "run",
+    "sha": "abc",
+    "status": "finished",
+    "created_at": "2026-10-05T12:23:00Z",
+}
+
+
+@pytest.mark.parametrize(
+    "failing_call,failure",
+    [
+        pytest.param("list", subprocess.TimeoutExpired("depot", script.CLI_TIMEOUT_SECONDS), id="listing_timeout"),
+        pytest.param("list", EOF_ERROR, id="listing_eof"),
+        pytest.param("show", EOF_ERROR, id="show_eof"),
+    ],
+)
+def test_gate_runs_recover_from_one_transient_depot_failure(
+    monkeypatch: pytest.MonkeyPatch, failing_call: str, failure: subprocess.SubprocessError
+) -> None:
+    failed: set[str] = set()
 
     def depot_response(*args: str) -> str:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise subprocess.TimeoutExpired("depot", script.CLI_TIMEOUT_SECONDS)
-        return "[]"
+        if args[1] == failing_call and failing_call not in failed:
+            failed.add(failing_call)
+            raise failure
+        if args[1] == "list":
+            return json.dumps([SETTLED_WORKFLOW])
+        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": "finished"}]})
 
     monkeypatch.setattr(script, "depot", depot_response)
+    monkeypatch.setattr("time.sleep", lambda _: None)
 
-    assert script.master_workflows(["finished"], 5, trigger="schedule") == []
-    assert calls == 2
+    assert [run["conclusion"] for run in script.gate_runs("schedule", 12)] == ["success"]
+
+
+@pytest.mark.parametrize(
+    "show_output",
+    [pytest.param(EOF_ERROR, id="persistent_eof"), pytest.param("", id="empty_response")],
+)
+def test_gate_runs_fail_closed_when_a_workflow_stays_unreadable(
+    monkeypatch: pytest.MonkeyPatch, show_output: str | subprocess.SubprocessError
+) -> None:
+    def depot_response(*args: str) -> str:
+        if args[1] == "list":
+            return json.dumps([SETTLED_WORKFLOW])
+        if isinstance(show_output, Exception):
+            raise show_output
+        return show_output
+
+    monkeypatch.setattr(script, "depot", depot_response)
+    monkeypatch.setattr("time.sleep", lambda _: None)
+
+    with pytest.raises((subprocess.CalledProcessError, json.JSONDecodeError)):
+        script.gate_runs("schedule", 12)
 
 
 @pytest.mark.parametrize("status", [None, "running", "cancelled", "finished", "failed"])
@@ -173,6 +215,51 @@ def test_find_trusts_only_push_runs_on_master(monkeypatch: pytest.MonkeyPatch, s
     workflows = script.find("migrated-schema", 1, 1, 2, trigger="push", statuses=["finished"])
 
     assert [workflow["run_id"] for workflow in workflows] == found
+
+
+SCHEDULED_RUNS_BY_CREATED_AT = {
+    "full-on-time": "2026-11-18T18:23:53Z",
+    "core-only": "2026-11-18T19:23:40Z",
+    "full-started-late": "2026-11-18T22:05:00Z",
+    "core-only-before-midnight": "2026-11-18T23:24:00Z",
+    "full-after-midnight": "2026-11-19T00:23:30Z",
+}
+
+
+def scheduled_runs_response(*args: str, **kwargs: object) -> str:
+    if args[:2] == ("workflow", "list"):
+        return json.dumps(
+            [
+                {"workflow_id": run_id, "run_id": run_id, "sha": "abc", "status": "finished", "created_at": created_at}
+                for run_id, created_at in SCHEDULED_RUNS_BY_CREATED_AT.items()
+            ]
+        )
+    if args[:2] == ("artifacts", "list"):
+        return json.dumps(
+            {
+                "artifacts": [
+                    {"artifact_id": str(i), "name": f"timing_data-Core-{i}", "created_at": "x"} for i in range(40)
+                ]
+            }
+        )
+    return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": "finished"}]})
+
+
+@pytest.mark.parametrize(
+    "matrix,expected",
+    [
+        ("full", ["full-after-midnight", "full-started-late", "full-on-time"]),
+        ("core-only", ["core-only-before-midnight", "core-only"]),
+    ],
+)
+def test_scheduled_reads_keep_only_the_runs_of_one_cron(
+    monkeypatch: pytest.MonkeyPatch, matrix: str, expected: list[str]
+) -> None:
+    monkeypatch.setattr(script, "depot", scheduled_runs_response)
+
+    assert [run["id"] for run in script.gate_runs("schedule", 12, matrix)] == expected
+    found = script.find("timing_data-", 38, 5, 36500, trigger="schedule", statuses=["finished"], matrix=matrix)
+    assert [workflow["run_id"] for workflow in found] == expected
 
 
 def test_commits_on_master_trusts_only_comparisons_of_the_commit_asked_about(monkeypatch: pytest.MonkeyPatch) -> None:

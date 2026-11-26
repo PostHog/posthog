@@ -5,6 +5,8 @@
 // fleet findings feed reads `loadRunsWindow` (a fixed lookback assembled by walking
 // the runs endpoint's `date_to` cursor past its 100-row page cap).
 
+import { scoutDisplayName } from '@posthog/agent-contracts/scout-names'
+
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 
@@ -12,6 +14,16 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
 import { formatCredits, usdToCredits } from './credits'
+
+export {
+    prettifyScoutSkillName,
+    scoutDisplayName,
+    scoutNameForSkill,
+    scoutNamesBySkill,
+    SIGNALS_SCOUT_SKILL_PREFIX,
+    stripScoutPrefix,
+    withScoutNoun,
+} from '@posthog/agent-contracts/scout-names'
 
 /**
  * How many of each scout's most recent runs the per-scout stats describe — the count the
@@ -108,16 +120,6 @@ export function mostRecentEmittedRuns(runs: SignalScoutRunSummary[]): SignalScou
 
 // ── Scout skill-name helpers ──────────────────────────────────────────────────
 
-/** The shared `signals-scout-*` skill-name prefix. The fleet prefix is noise inside the scouts surface. */
-export const SIGNALS_SCOUT_SKILL_PREFIX = 'signals-scout-'
-
-/** Strip the fleet prefix, leaving the bare scout code name verbatim. `signals-scout-apm` → `apm`. */
-export function stripScoutPrefix(skillName: string): string {
-    return skillName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)
-        ? skillName.slice(SIGNALS_SCOUT_SKILL_PREFIX.length)
-        : skillName
-}
-
 /** The prefix on a report-pipeline stage's writer identity, such as `pipeline:report-research`. A
  * stage writes scout memory but is not a scout. */
 export const PIPELINE_WRITER_PREFIX = 'pipeline:'
@@ -127,21 +129,8 @@ export function isPipelineWriter(skillName: string): boolean {
     return skillName.startsWith(PIPELINE_WRITER_PREFIX)
 }
 
-/** "signals-scout-error-tracking" → "Error tracking" */
-export function prettifyScoutSkillName(skillName: string): string {
-    const cleaned = stripScoutPrefix(skillName).replace(/[-_]/g, ' ').trim()
-    if (!cleaned) {
-        return skillName
-    }
-    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
-}
-
 /** Mirrors `SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH`, so the field reports the cap the server enforces. */
 export const MAX_SCOUT_DISPLAY_NAME_LENGTH = 200
-
-export function scoutDisplayName(config: Pick<SignalScoutConfig, 'skill_name' | 'display_name'>): string {
-    return config.display_name || prettifyScoutSkillName(config.skill_name)
-}
 
 // ── Run status / outcome ─────────────────────────────────────────────────────
 
@@ -226,6 +215,32 @@ export function isRunStuck(run: SignalScoutRunSummary, now: Date): boolean {
     }
     const duration = runDurationSeconds(run, now)
     return duration !== null && duration >= STUCK_THRESHOLD_SECONDS
+}
+
+/** Mirrors `STALE_RUN_CUTOFF_S` in the scout harness: an unfinished run older than this blocks nothing. */
+const LIVE_RUN_CUTOFF_MS = 2 * (30 * 60 + 16 * 60) * 1000
+
+/**
+ * The run that holds the scout's lane, matched to the backend's `live_lane_runs`: queued or running,
+ * not a private trial, and inside the stale cutoff. This is the run the stop route cancels, and the
+ * run that makes the backend refuse Run now.
+ */
+export function liveLaneRun(runs: SignalScoutRunSummary[], now: Date): SignalScoutRunSummary | null {
+    const cutoff = now.getTime() - LIVE_RUN_CUTOFF_MS
+    let live: SignalScoutRunSummary | null = null
+    for (const run of runs) {
+        if (isSettledRun(run) || run.metadata?.scout_trial) {
+            continue
+        }
+        const createdAt = Math.min(new Date(run.created_at).getTime(), new Date(run.started_at).getTime())
+        if (!(createdAt >= cutoff)) {
+            continue
+        }
+        if (!live || run.created_at > live.created_at) {
+            live = run
+        }
+    }
+    return live
 }
 
 // ── Report channel (emit_report / edit_report) ───────────────────────────────

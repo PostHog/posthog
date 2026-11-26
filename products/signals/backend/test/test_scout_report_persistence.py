@@ -21,6 +21,7 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
     SafetyJudgment,
+    SourceIssue,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     SummaryChange,
@@ -47,6 +48,7 @@ from products.signals.backend.scout_report import (
     InvalidScoutReportError,
     ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
+    SourceIssueAlreadyReportedError,
     append_report_note,
     create_scout_report,
     record_content_revision,
@@ -129,11 +131,40 @@ class TestScoutReportPersistence(BaseTest):
             )
             snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=result.report_id)
             assert snapshot.state.corrections_id is not None
+            assert SignalReportArtefact.objects.get(
+                team_id=self.team.id, report_id=result.report_id, type="suggested_reviewers"
+            ).implementation_authorization == {"mode": "reviewer", "user_id": None}
             assert [entry.user_uuid for entry in snapshot.reviewers] == [str(user.uuid) for user in chosen]
             assert resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
                 user.id for user in chosen
             }
             assert not assignment_side_effects_allowed(team_id=self.team.id, report_id=result.report_id)
+
+    @parameterized.expand([("scout", False, SOURCE_PRODUCT), ("user_authored", True, "user_authored")])
+    def test_a_report_born_ready_sends_its_known_source_to_the_ready_event(
+        self, _name: str, user_authored: bool, expected_source: str
+    ) -> None:
+        # The backing signals reach ClickHouse after the commit, so the lookup there finds nothing yet.
+        with (
+            patch("products.signals.backend.report_ready_event.feature_enabled_or_false", return_value=True),
+            patch("products.signals.backend.report_ready_event.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.report_ready_event.produce_internal_event") as produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            create_scout_report(
+                team_id=self.team.id,
+                title="Checkout API p99 latency regressed",
+                summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                attribution=ArtefactAttribution.system(),
+                created_by_id=self.user.id if user_authored else None,
+            )
+
+        properties = produce.call_args.kwargs["event"].properties
+        assert (properties["source_products"], properties["source_products_text"]) == (
+            [expected_source],
+            expected_source,
+        )
 
     @parameterized.expand(
         [
@@ -188,6 +219,38 @@ class TestScoutReportPersistence(BaseTest):
             )
         assert raised.value.existing.report_id == first.report_id
         assert raised.value.existing.status == SignalReport.Status.READY
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+
+    @parameterized.expand(
+        [
+            ("another filing", "emission-2", SourceIssueAlreadyReportedError),
+            ("retry", "emission-1", ScoutReportAlreadyEmittedError),
+        ]
+    )
+    def test_create_refuses_an_issue_a_concurrent_filing_reported(
+        self, _name: str, idempotency_key: str, raised_type: type[Exception]
+    ) -> None:
+        # Both calls passed the emit path's unlocked pre-check while the other was judging. The check
+        # under the lock is what stops the second report, and a retry must still get its own report back.
+        run = self._make_run()
+        issue = SourceIssue.github("acme/widgets", 42)
+
+        def emit(key: str) -> str:
+            return create_scout_report(
+                team_id=self.team.id,
+                title="Checkout API p99 latency regressed",
+                summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+                run=run,
+                source_issues=[issue],
+                idempotency_key=key,
+            ).report_id
+
+        first_report_id = emit("emission-1")
+        with pytest.raises(raised_type) as raised:
+            emit(idempotency_key)
+        assert raised.value.existing.report_id == first_report_id  # type: ignore[attr-defined]
         assert SignalReport.objects.filter(team=self.team).count() == 1
 
     @parameterized.expand([(False,), (True,)])

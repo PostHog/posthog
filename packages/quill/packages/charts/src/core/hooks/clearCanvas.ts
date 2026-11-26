@@ -1,7 +1,7 @@
 import { syncCanvasSize } from '../canvas-size'
 import type { ChartDimensions } from '../types'
 
-/** Size the backing store to `dimensions`, reset the transform to device-pixel scale, and clear
+/** Size the backing store to `dimensions`, reset the transform to its pixel ratio, and clear
  *  the whole canvas, leaving the ctx in a saved state the caller restores after drawing. Shared by
  *  the static and hover draw loops.
  *
@@ -13,7 +13,7 @@ import type { ChartDimensions } from '../types'
  *  Each axis gets its own ratio: `syncCanvasSize` rounds each side, and on a capped tall canvas
  *  one shared ratio drifts the far rows by tens of pixels. */
 export function clearAndPrepare(ctx: CanvasRenderingContext2D, dimensions: ChartDimensions): void {
-    const fallback = window.devicePixelRatio || 1
+    const fallback = dimensions.pixelRatio ?? (window.devicePixelRatio || 1)
     syncCanvasSize(ctx.canvas, dimensions, fallback)
     const scaleX = dimensions.width > 0 ? ctx.canvas.width / dimensions.width : fallback
     const scaleY = dimensions.height > 0 ? ctx.canvas.height / dimensions.height : fallback

@@ -80,7 +80,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             language: 'javascript',
                             file: 'Node.js',
                             code: dedent`
-                                posthog.captureException(e, 'user_distinct_id', additionalProperties)
+                                posthog.captureException(e, { distinctId: 'user_distinct_id', properties: additionalProperties })
                             `,
                         },
                     ]}

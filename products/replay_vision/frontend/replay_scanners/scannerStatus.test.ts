@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { makeQuota } from '../utils/quotaTestUtils'
 import { stoppedByFreeCredits } from './scannerCopy'
-import { ScannerStatusFields, scannerStatus, spendAgainstLimit } from './scannerStatus'
+import { ScannerStatusFields, isOffByChoice, scannerStatus, spendAgainstLimit } from './scannerStatus'
 
 const NOW = dayjs('2026-05-12T12:00:00Z')
 
@@ -196,5 +196,16 @@ describe('scannerStatus', () => {
                 quota
             )
         ).toEqual(expected)
+    })
+
+    test.each([
+        ['never turned on', { enabled: false, disabled_reason: null }, true],
+        ['turned off by hand', { enabled: false, disabled_reason: 'manual' }, true],
+        ['already scheduled', { enabled: true, disabled_reason: null }, false],
+        ['out of free credits', { enabled: false, disabled_reason: 'free_credits_used' }, false],
+        ['no AI consent', { enabled: false, disabled_reason: 'no_ai_consent' }, false],
+        ['not loaded', null, false],
+    ] as const)('isOffByChoice: %s', (_, scanner, expected) => {
+        expect(isOffByChoice(scanner)).toBe(expected)
     })
 })

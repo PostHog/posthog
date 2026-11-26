@@ -81,7 +81,10 @@ describe('shim consumer integration', () => {
             global.fetch = fetchMock as unknown as typeof fetch
 
             // Authenticate the Toolbar session — this is the path that used to break.
-            toolbarConfigLogic.actions.setOAuthTokens('access-token', 'refresh-token', 'client-id')
+            toolbarConfigLogic.actions.setOAuthTokens('access-token', 'refresh-token', 'client-id', {
+                teamId: 2,
+                projectId: 1,
+            })
             expect(toolbarConfigLogic.values.isAuthenticated).toBe(true)
 
             const { hedgehogModeLogic } = await import('~/lib/components/HedgehogMode/hedgehogModeLogic')

@@ -1,5 +1,5 @@
 import { setAuthProvider } from './client'
-import { fetchInsightMetadata, getInsightSummary } from './insights'
+import { fetchInsightMetadata, getInsightSummary, readInsight } from './insights'
 
 describe('insight summary', () => {
     beforeEach(() =>
@@ -30,6 +30,26 @@ describe('insight summary', () => {
             'https://example.com/api/projects/7/insights/?basic=true&short_id=1234&refresh=force_cache',
             expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token' }) })
         )
+    })
+    test('keeps the conversation project for a saved insight and its numeric short-id fallback', async () => {
+        const fetch = jest
+            .fn()
+            .mockResolvedValueOnce({ ok: true, text: async () => JSON.stringify({ id: 1234, short_id: 'different' }) })
+            .mockResolvedValueOnce({
+                ok: true,
+                text: async () => JSON.stringify({ results: [{ id: 9, short_id: '1234', name: 'Signups' }] }),
+            })
+        globalThis.fetch = fetch
+        await expect(
+            readInsight(
+                { shortId: '1234' },
+                { refresh: 'blocking', scope: { host: 'https://example.com', projectId: 42 } }
+            )
+        ).resolves.toMatchObject({ id: 9, short_id: '1234' })
+        expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+            'https://example.com/api/projects/42/insights/1234/?refresh=blocking',
+            'https://example.com/api/projects/42/insights/?short_id=1234&refresh=force_cache',
+        ])
     })
     test.each([404, 403, 500])('handles status %s', async (status) => {
         globalThis.fetch = jest

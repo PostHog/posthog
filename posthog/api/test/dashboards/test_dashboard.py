@@ -25,7 +25,6 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
-from posthog.helpers.dashboard_templates import create_from_template, create_group_type_mapping_detail_dashboard
 from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -52,6 +51,8 @@ from products.alerts.backend.facade.platform import native_insight_alert_ids_by_
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.api import apply_dashboard_template_json
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -61,6 +62,7 @@ from products.dashboards.backend.presentation.views.dashboard import (
     _parse_tags_filter,
     serialize_tile_with_context,
 )
+from products.groups.backend.facade.api import create_group_type_detail_dashboard
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.presentation.insight import InsightSerializer
 
@@ -664,6 +666,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         mock_record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)
 
+        self.assertIsNotNone(response_data["last_accessed_at"])
         self.assertEqual(response_data["name"], "private dashboard")
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
@@ -1146,7 +1149,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with mute_selected_signals():
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-            baseline = 10
+            baseline = 11
             # Each dashboard GET that materializes at least one insight runner performs one
             # property-access-control feature check, memoized across all runners on the dashboard
             # by `get_restricted_properties_for_team`'s per-scope cache. It costs no Postgres
@@ -1604,36 +1607,38 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
         self.team.primary_dashboard_id = dashboard_id
         self.team.save()
-        self.team.home_tab_dashboard = Dashboard.objects.get(pk=dashboard_id)
+        dashboards_api.set_home_tab_dashboard(team_id=self.team.id, dashboard_id=dashboard_id)
 
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
         self.team.refresh_from_db()
         assert self.team.primary_dashboard is None
-        assert self.team.home_tab_dashboard is None
+        assert dashboards_api.home_tab_dashboard_id(team_id=self.team.id) is None
 
     def test_home_dashboard_ignores_bulk_soft_deleted_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Home")
-        self.team.home_tab_dashboard = dashboard
+        dashboards_api.set_home_tab_dashboard(team_id=self.team.id, dashboard_id=dashboard.id)
 
         Dashboard.objects.filter(pk=dashboard.pk).update(deleted=True)
 
-        assert self.team.home_tab_dashboard is None
+        assert dashboards_api.home_tab_dashboard_id(team_id=self.team.id) is None
 
     def test_delete_dashboard_resets_group_type_detail_dashboard_if_needed(self):
         group_type = create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
-        dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
-        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard.id}, caller_tag="test")
+        dashboard_id = create_group_type_detail_dashboard(
+            self.team, self.user, group_type="organization", name_singular=None, name_plural=None
+        )
+        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard_id}, caller_tag="test")
 
         cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
         stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}"
         cache.set(cache_key, [{"stale": True}], 300)
         cache.set(stale_cache_key, [{"stale": True}], 300)
 
-        self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards", {"delete_insights": True})
         self.assertIsNone(cache.get(cache_key))
         self.assertIsNone(cache.get(stale_cache_key))
         # Strong consistency bypasses the cache so this read doesn't re-populate the keys asserted above.
@@ -3930,11 +3935,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_create_from_template_rejects_oversized_agent_context(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        template = DashboardTemplate(
-            template_name="Oversized agent context",
-            dashboard_description="",
-            dashboard_filters={},
-            tiles=[
+        template: dict[str, Any] = {
+            "template_name": "Oversized agent context",
+            "dashboard_description": "",
+            "dashboard_filters": {},
+            "tiles": [
                 {
                     "type": "TEXT",
                     "body": "Dashboard summary",
@@ -3942,11 +3947,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "layouts": {},
                 }
             ],
-        )
+        }
         text_count = Text.objects.count()
 
         with self.assertRaisesRegex(ValueError, "Agent context cannot exceed 10000 characters"):
-            create_from_template(dashboard, template, self.user)
+            apply_dashboard_template_json(
+                team_id=self.team.id, dashboard_id=dashboard.id, template=template, user_id=self.user.id
+            )
 
         assert Text.objects.count() == text_count
 
@@ -4895,11 +4902,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertNotIn("insight", streamed_tile)
         self.assertNotIn("Confidential usage", json.dumps(streamed_tile))
 
-    def test_create_unlisted_dashboard_creates_tags(self):
-        """Test that unlisted dashboards get tags"""
+    @parameterized.expand(
+        [
+            (
+                "llm-analytics",
+                "AI observability default",
+                "Overview of your AI usage, costs, and performance",
+                9,
+                ["ai-observability"],
+            ),
+            ("mcp-analytics", "MCP Analytics Default", "Overview of your MCP usage.", 3, []),
+        ]
+    )
+    def test_create_unlisted_dashboard_creates_tags(
+        self,
+        tag: str,
+        expected_name: str,
+        expected_description: str,
+        expected_insight_count: int,
+        expected_insight_tags: list[str],
+    ) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
-            {"tag": "llm-analytics"},
+            {"tag": tag},
             format="json",
         )
 
@@ -4908,18 +4933,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Verify dashboard was created with unlisted mode
         self.assertEqual(dashboard.creation_mode, "unlisted")
-        self.assertEqual(dashboard.name, "AI observability default")
+        self.assertEqual(
+            (dashboard.name, dashboard.description, dashboard.filters),
+            (expected_name, expected_description, {"date_from": "-7d"}),
+        )
 
         # Verify tags were created
         tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["llm-analytics"])
+        self.assertEqual(tags, [tag])
 
         insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
-        self.assertGreater(insights.count(), 0)
+        self.assertEqual(insights.count(), expected_insight_count)
         for insight in insights:
             self.assertEqual(
                 list(insight.tagged_items.values_list("tag__name", flat=True)),
-                ["ai-observability"],
+                expected_insight_tags,
             )
 
     def test_create_unlisted_dashboard_enforces_uniqueness(self):
@@ -4940,6 +4968,40 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("already exists", response.json()["error"])
+
+    def test_create_unlisted_dashboard_reads_dashboards_from_the_writer(self) -> None:
+        # Tests configure no "replica" alias, so a Dashboard read routed to it raises instead of
+        # silently missing the uncommitted row the way a real replica does.
+        def route_dashboard_reads_to_replica(model: type, **hints: Any) -> str:
+            return "replica" if model is Dashboard else "default"
+
+        with patch("django.db.router.db_for_read", side_effect=route_dashboard_reads_to_replica):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
+                {"tag": "llm-analytics"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    @parameterized.expand(
+        [
+            ("use_template", "", {"name": "from template", "use_template": "DEFAULT_APP"}, status.HTTP_201_CREATED),
+            ("template_json", "create_from_template_json", {"template": valid_template}, status.HTTP_200_OK),
+        ]
+    )
+    def test_template_dashboard_reloads_from_the_writer(
+        self, _name: str, action: str, payload: dict[str, Any], expected_status: int
+    ) -> None:
+        # Only a reload of a Dashboard instance goes to the missing "replica" alias. These endpoints
+        # also make Dashboard reads that tolerate replica lag, such as the count before the limit check.
+        def route_dashboard_reloads_to_replica(model: type, **hints: Any) -> str:
+            return "replica" if model is Dashboard and isinstance(hints.get("instance"), Dashboard) else "default"
+
+        with patch("django.db.router.db_for_read", side_effect=route_dashboard_reloads_to_replica):
+            response = self.client.post(f"/api/environments/{self.team.id}/dashboards/{action}", payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.json())
 
     def test_filter_dashboards_by_creation_mode(self):
         """Test that dashboards can be filtered by creation_mode query param"""

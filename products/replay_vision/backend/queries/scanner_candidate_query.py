@@ -18,16 +18,13 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
-from posthog.session_recordings.queries.session_recording_list_from_query import (
-    UNSCORED_SURFACING_SCORE,
-    SessionRecordingListFromQuery,
-)
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
     GROUP_KEY_RESOLUTION_MAX_SECONDS,
     GROUP_KEY_RESOLUTION_QUERY_TYPE,
 )
 
-from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MAX_SESSION_ID_LENGTH,
@@ -79,34 +76,6 @@ SWEEP_GROUP_KEY_RESOLUTION_SECONDS = 30
 
 # Emitted by `emit_observation_event_activity` once an observation succeeds.
 OBSERVATION_EVENT_NAME = "$recording_observed"
-
-# Calibrated from the prod score distribution: focused keeps roughly the top 25% of sessions, balanced the top 65%.
-FOCUSED_SURFACING_THRESHOLD = 0.30
-BALANCED_SURFACING_THRESHOLD = 0.10
-_SURFACING_THRESHOLDS = {
-    SamplingMode.FOCUSED: FOCUSED_SURFACING_THRESHOLD,
-    SamplingMode.BALANCED: BALANCED_SURFACING_THRESHOLD,
-}
-
-
-def surfacing_score_predicate(sampling_mode: SamplingMode | str) -> ast.Expr | None:
-    """Quality pre-filter on the per-session surfacing score; None means no filter. Raises on unknown modes."""
-    threshold = _SURFACING_THRESHOLDS.get(SamplingMode(sampling_mode))
-    if threshold is None:
-        return None
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.GtEq,
-        left=ast.Call(
-            name="coalesce",
-            args=[
-                ast.Call(name="max", args=[ast.Field(chain=["s", "surfacing_score"])]),
-                # Unscored sessions get the same neutral score the recordings list shows, so a session
-                # visible as eligible in the UI is also eligible to the sweep.
-                ast.Constant(value=UNSCORED_SURFACING_SCORE),
-            ],
-        ),
-        right=ast.Constant(value=threshold),
-    )
 
 
 def eligibility_predicates() -> list[ast.Expr]:
@@ -188,7 +157,6 @@ class ScannerCandidateQuery:
         user: User | None = None,
         # Per-scanner sampling salt (pass the scanner id); must stay stable across sweeps of the same scanner.
         sampling_salt: str,
-        sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
         last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
@@ -240,8 +208,6 @@ class ScannerCandidateQuery:
         extra_having: list[ast.Expr] = eligibility_predicates()
         if (sampling := self._sampling_predicate()) is not None:
             extra_having.append(sampling)
-        if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
-            extra_having.append(surfacing)
 
         # Bounding positive events subqueries to a few hours keeps the every-few-minutes sweep from
         # re-scanning the full events lookback each tick. Exclusion blocklists ignore the floor (see
@@ -559,7 +525,7 @@ def variant_sampling_predicate(rates: dict[str, float], sampling_salt: str) -> a
 class WindowedCandidateQuery:
     """Enumerate a scanner's candidate sessions inside a closed historical window.
 
-    Same eligibility, sampling, and surfacing predicates as `ScannerCandidateQuery`, but bounded on both
+    Same eligibility and sampling predicates as `ScannerCandidateQuery`, but bounded on both
     sides and walked newest-first: batches descend from `window_end` via a `(end_time, session_id)` keyset
     cursor. `count()` runs the identical predicate set without cursor or limit, so the creation-time
     enumeration is exactly the set the ticks will walk (the window is closed, so it can only shrink as
@@ -585,7 +551,6 @@ class WindowedCandidateQuery:
         # query carrying an exposure filter. A query without one is unaffected either way.
         user: User | None = None,
         sampling_salt: str,
-        sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
         cursor_end_time: dt.datetime | None = None,
         cursor_session_id: str | None = None,
         # Oldest-first. The catch-up pass walks this way so a batch that fills up can advance its
@@ -647,8 +612,6 @@ class WindowedCandidateQuery:
         )
         if sampling is not None:
             extra_having.append(sampling)
-        if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
-            extra_having.append(surfacing)
 
         self._inner = SessionRecordingListFromQuery(
             team=team,

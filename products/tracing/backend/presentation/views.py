@@ -71,13 +71,14 @@ from ..facade.api import (
     run_duration_histogram_query,
     run_impact_query,
     run_latency_heatmap_query,
+    run_latency_percentiles_query,
     run_service_health_query,
     run_symbol_stats_query,
     service_health_byte_cap_message,
     summarize_trace,
 )
 from ..facade.enums import ServiceHealthStatus
-from ..has_spans_query_runner import team_has_spans
+from ..has_spans_query_runner import find_stored_trace_id, team_has_spans
 from ..logic import (
     _ROW_LIMIT,
     DEFAULT_AGGREGATION_ROW_LIMIT,
@@ -291,6 +292,14 @@ class _TracingQueryBodySerializer(serializers.Serializer):
         default=False,
         help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
+    includeEvents = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, "
+            "so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false."
+        ),
+    )
 
 
 class _TracingBodyPagingSerializer(serializers.Serializer):
@@ -374,6 +383,35 @@ class _TracingLatencyHeatmapResponseSerializer(serializers.Serializer):
             "Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the "
             "window appears in at least one row, so the full x axis can be derived from the response."
         ),
+    )
+
+
+class _TracingLatencyPercentilesRequestSerializer(serializers.Serializer):
+    query = _TracingTimeseriesQueryBodySerializer(help_text="The latency percentiles query to execute.")
+
+
+class _TracingLatencyPercentilesRowSerializer(serializers.Serializer):
+    time = serializers.CharField(help_text="ISO 8601 UTC start of the time bucket.")
+    count = serializers.IntegerField(
+        help_text=(
+            "Spans the percentiles cover in this bucket: server and consumer spans, or root spans when the "
+            "matching spans in the window hold neither. 0 for a bucket with no such spans."
+        )
+    )
+    p50_ns = serializers.IntegerField(
+        allow_null=True, help_text="Median duration in nanoseconds. Null when count is 0."
+    )
+    p95_ns = serializers.IntegerField(
+        allow_null=True, help_text="95th percentile duration in nanoseconds. Null when count is 0."
+    )
+    p99_ns = serializers.IntegerField(
+        allow_null=True, help_text="99th percentile duration in nanoseconds. Null when count is 0."
+    )
+
+
+class _TracingLatencyPercentilesResponseSerializer(serializers.Serializer):
+    results = _TracingLatencyPercentilesRowSerializer(
+        many=True, help_text="One row per time bucket in the window, ordered by time, on the sparkline's time axis."
     )
 
 
@@ -868,6 +906,17 @@ class _TracingTreeRequestSerializer(serializers.Serializer):
     query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
 
 
+class _SpanEventSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Event name, for example `exception`.")
+    timestamp = serializers.DateTimeField(
+        allow_null=True, help_text="When the event occurred. Null when the SDK did not set a time."
+    )
+    attributes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Event attributes. Keys are whatever the instrumentation set.",
+    )
+
+
 class _SpanSerializer(serializers.Serializer):
     """One span row as the query and trace actions return it.
 
@@ -906,29 +955,21 @@ class _SpanSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Resource attributes of the emitting service. Keys are whatever the instrumentation set.",
     )
-
-
-class _SpanEventSerializer(serializers.Serializer):
-    name = serializers.CharField(help_text="Event name, for example `exception`.")
-    timestamp = serializers.DateTimeField(
-        allow_null=True, help_text="When the event occurred. Null when the SDK did not set a time."
-    )
-    attributes = serializers.DictField(
-        child=serializers.CharField(),
-        help_text="Event attributes. Keys are whatever the instrumentation set.",
+    events = _SpanEventSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "OpenTelemetry span events, earliest first. The trace action returns them, and list queries only "
+            "with `includeEvents`. Omitted when `excludeAttributes` is true."
+        ),
     )
 
 
 class _TraceSpanSerializer(_SpanSerializer):
-    """A span in a single trace. The trace action adds self time and span events, which the list does not return."""
+    """A span in a single trace. The trace action adds self time, which the list does not return."""
 
     self_time_nano = serializers.FloatField(
         help_text="Span duration minus the time spent in its children, in nanoseconds."
-    )
-    events = _SpanEventSerializer(
-        many=True,
-        required=False,
-        help_text="OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true.",
     )
 
 
@@ -1141,6 +1182,22 @@ class _TracingServiceNamesResponseSerializer(serializers.Serializer):
 class _HasSpansResponseSerializer(serializers.Serializer):
     hasSpans = serializers.BooleanField(
         help_text="Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state."
+    )
+
+
+class _StoredTraceQuerySerializer(serializers.Serializer):
+    trace_id = serializers.CharField(
+        max_length=255,
+        trim_whitespace=False,
+        help_text="A trace id from another product, such as an `$ai_trace_id`. Any string is accepted.",
+    )
+
+
+class _StoredTraceResponseSerializer(serializers.Serializer):
+    traceId = serializers.CharField(
+        allow_null=True,
+        help_text="The id as lowercase hex when the team stores a span of this trace, in any time range. Null when "
+        "the id is not an OpenTelemetry trace id, as 32 hex characters or a hyphenated UUID, or no span is stored.",
     )
 
 
@@ -1483,6 +1540,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"hasSpans": has_spans}, status=status.HTTP_200_OK)
 
+    @extend_schema(parameters=[_StoredTraceQuerySerializer], responses={200: _StoredTraceResponseSerializer})
+    @action(detail=False, methods=["GET"], url_path="stored_trace", required_scopes=["tracing:read"])
+    def stored_trace(self, request: Request, *args, **kwargs) -> Response:
+        """Resolve a trace id from another product to a trace that Tracing stores spans for, so a
+        link to the trace can stay hidden when it would open nothing."""
+        query = _StoredTraceQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        trace_id = find_stored_trace_id(self.team, query.validated_data["trace_id"])
+        return Response(_StoredTraceResponseSerializer({"traceId": trace_id}).data, status=status.HTTP_200_OK)
+
     @extend_schema(
         request=_TracingQueryRequestSerializer,
         responses={200: _TracingQueryResponseSerializer},
@@ -1533,6 +1601,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             flatSpans=flat_spans,
             prefetchSpans=prefetch_spans,
             excludeAttributes=query_data.get("excludeAttributes", False),
+            includeEvents=self._parse_bool(query_data.get("includeEvents")),
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)
@@ -1847,6 +1916,35 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status_codes=query_data.get("statusCodes", None),
             filter_group=filter_group,
             root_spans=query_data.get("rootSpans", True),
+        )
+
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=_TracingLatencyPercentilesRequestSerializer,
+        responses={200: _TracingLatencyPercentilesResponseSerializer},
+    )
+    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
+    def latency_percentiles(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = self._query_body(request.data)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        response = run_latency_percentiles_query(
+            team=self.team,
+            date_range=date_range,
+            service_names=query_data.get("serviceNames", None),
+            status_codes=query_data.get("statusCodes", None),
+            filter_group=filter_group,
         )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)

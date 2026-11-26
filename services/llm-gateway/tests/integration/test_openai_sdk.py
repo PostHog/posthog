@@ -66,7 +66,7 @@ def oai_sdk_config(request) -> OpenAISDKTestConfig:
         return OpenAISDKTestConfig(client=client, model="gpt-4o-mini", provider="openai")
     else:
         client = request.getfixturevalue("cloudflare_openai_client")
-        return OpenAISDKTestConfig(client=client, model="@cf/moonshotai/kimi-k2.6", provider="cloudflare")
+        return OpenAISDKTestConfig(client=client, model="@cf/zai-org/glm-5.3", provider="cloudflare")
 
 
 class TestOpenAIModelsEndpoint:
@@ -120,7 +120,8 @@ class TestChatCompletions:
         stream = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[{"role": "user", "content": "Say 'hi' and nothing else."}],
-            max_tokens=300,
+            # GLM streams reasoning deltas before content, so a tight budget can end the stream with none.
+            max_tokens=1024,
             stream=True,
         )
 

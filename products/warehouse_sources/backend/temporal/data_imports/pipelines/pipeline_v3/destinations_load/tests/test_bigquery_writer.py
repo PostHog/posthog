@@ -1,4 +1,5 @@
 import io
+import decimal
 from collections.abc import AsyncIterator
 
 import pytest
@@ -12,6 +13,7 @@ from google.cloud import bigquery
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
+    BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
 )
@@ -275,6 +277,44 @@ class TestConfigValidation:
         with pytest.raises(DestinationConfigurationError, match="Data Editor"):
             await writer.prepare_run(_ctx())
 
+    @pytest.mark.asyncio
+    async def test_a_project_with_no_billing_account_is_a_configuration_error(self) -> None:
+        # Without this, a free-tier project's DML rejection reads as transient and the sync
+        # retries forever instead of telling the customer to enable billing.
+        client = FakeBigQueryClient()
+        client.create_dataset = MagicMock(  # type: ignore[method-assign]
+            side_effect=Forbidden(
+                "403 Billing has not been enabled for this project. Enable billing at "
+                "https://console.cloud.google.com/billing.; reason: billingNotEnabled, message: Billing has not "
+                "been enabled for this project."
+            )
+        )
+        writer = LocalBigQueryWriter(_ctx(), client)
+
+        with pytest.raises(DestinationConfigurationError, match="Enable billing"):
+            await writer.prepare_run(_ctx())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sync_type,primary_keys",
+    [("full_refresh", ()), ("incremental", ("id",)), ("incremental", ())],
+    ids=["full_refresh", "merge", "append"],
+)
+async def test_bytes_written_sums_every_parquet_file_loaded(sync_type: str, primary_keys: tuple[str, ...]) -> None:
+    client = FakeBigQueryClient()
+    ctx = _ctx(sync_type=sync_type, primary_keys=primary_keys)
+    writer = LocalBigQueryWriter(ctx, client)
+
+    await writer.prepare_run(ctx)
+    outcome = await writer.write_batch(
+        _batches(_rows([1], ["a"]), _rows([2], ["b"])),
+        DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False),
+    )
+
+    assert len(client.uploaded_bytes) == 2
+    assert outcome == BatchWriteOutcome(rows_written=2, bytes_written=sum(client.uploaded_bytes))
+
 
 @pytest.mark.asyncio
 class TestFullRefresh:
@@ -361,6 +401,67 @@ class TestFullRefresh:
         await _deliver(writer, ctx, _rows([2], ["b"]), 1, is_final=True)
 
         assert _read(client) == [(1, "a"), (2, "b")]
+
+    async def test_a_column_that_is_null_in_an_earlier_batch_publishes_as_the_later_batchs_real_type(
+        self,
+    ) -> None:
+        # Regression: BigQuery autodetects a column's type from whichever chunk first loads it,
+        # and an all-null column comes out as STRING. Loading it anyway in the batch that
+        # creates the staging table used to lock in STRING for the column's whole life, so a
+        # later batch's real integer published as the string "42" instead of the integer 42.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "note": [None]}), 0)
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "note": [42]}), 1, is_final=True)
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.types["note"] == "INTEGER"
+        assert sorted((row["id"], row["note"]) for row in table.rows) == [(1, None), (2, 42)]
+
+    async def test_a_whole_number_followed_by_a_fraction_widens_the_staging_column(self) -> None:
+        # Regression: a column an earlier batch sends only as whole numbers fixes the staging
+        # table's column as INTEGER, and a later batch's fractional value failed the whole load
+        # job outright. The staging table belongs to this run alone, so BigQuery can widen its
+        # column instead of losing precision or failing.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "rate": [1]}), 0)
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "rate": [0.5]}), 1, is_final=True)
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.types["rate"] == "FLOAT"
+        assert sorted((row["id"], row["rate"]) for row in table.rows) == [(1, 1), (2, 0.5)]
+
+    async def test_a_value_that_cannot_convert_between_batches_is_a_configuration_error_naming_the_table(
+        self,
+    ) -> None:
+        # Regression: the staging table is rebuilt every run and takes its types from whichever
+        # batch arrives first, so reusing the merge and append paths' wording ("change the
+        # column type in BigQuery") sent the customer to a fix that cannot work here — the next
+        # run rebuilds the same staging table from the same clashing batches. The message also
+        # has to name which table is affected: one destination's `latest_error` serves every
+        # table it syncs.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "active": [True]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="active") as excinfo:
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "active": [2]}), 1)
+
+        assert "BigQuery" not in str(excinfo.value)
+        assert ctx.table_name in str(excinfo.value)
+        # Regression: `abort_destinations` skips `abort_run` for a configuration error, on the
+        # contract that it is raised before anything is staged. This one fires after the first
+        # batch already loaded real rows into the staging table, so without deleting it here the
+        # table would never be cleaned up and would sit in the customer's dataset forever.
+        with pytest.raises(NotFound):
+            client.get_table(f"proj.dataset.{staging_table_name(ctx)}")
 
 
 @pytest.mark.asyncio
@@ -542,3 +643,34 @@ class TestAppend:
 
         with pytest.raises(DestinationConfigurationError, match="active"):
             await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "active": [2]}), 1)
+
+
+@pytest.mark.asyncio
+class TestDecimalColumns:
+    async def test_a_decimal_wider_than_numerics_scale_loads_as_bignumeric(self) -> None:
+        # Regression: autodetect only ever offers NUMERIC (scale 9) unless the load job's
+        # decimal_target_types also allows BIGNUMERIC, so a source decimal128 column with a
+        # wider scale — a shape sources send routinely — failed the load outright on every retry.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+        amount = pa.array([decimal.Decimal("1.123456789012345678")], type=pa.decimal128(38, 18))
+        batch = pa.RecordBatch.from_arrays([amount], names=["amount"])
+
+        await _deliver(writer, ctx, batch, 0, is_final=True)
+
+        assert client.get_table("proj.dataset.charges").types["amount"] == "BIGNUMERIC"
+
+    def test_the_fake_rejects_the_wide_decimal_without_bignumeric_the_way_bigquery_does(self) -> None:
+        # Guards the case above: if the fake accepted a wide-scale decimal regardless of
+        # decimal_target_types, that case would pass with or without the writer requesting it.
+        client = FakeBigQueryClient()
+        amount = pa.array([decimal.Decimal("1.123456789012345678")], type=pa.decimal128(38, 18))
+        batch = pa.RecordBatch.from_arrays([amount], names=["amount"])
+
+        with pytest.raises(BadRequest, match="NUMERIC"):
+            client.load_table_from_file(
+                _parquet(batch),
+                "proj.dataset.charges",
+                bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE),
+            )

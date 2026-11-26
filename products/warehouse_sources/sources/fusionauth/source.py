@@ -41,6 +41,8 @@ SCHEMA_DESCRIPTIONS: dict[str, str] = {
     "IdentityProviderLinks": _PER_USER_DESCRIPTION,
     "DailyActiveUsers": _REPORT_DESCRIPTION,
     "MonthlyActiveUsers": _REPORT_DESCRIPTION,
+    "RegistrationReport": _REPORT_DESCRIPTION,
+    "LoginReport": _REPORT_DESCRIPTION,
 }
 
 
@@ -88,7 +90,7 @@ class FusionAuthSource(ResumableSource[FusionAuthSourceConfig, FusionAuthResumeC
             name=ExternalDataSourceType.FUSIONAUTH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="FusionAuth",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your FusionAuth instance's base URL and an API key to pull your FusionAuth data into the PostHog Data warehouse.
 
 You can create an API key in the FusionAuth admin UI under **Settings > API Keys**.
@@ -129,6 +131,10 @@ Audit logs, event logs, and login records require the Elasticsearch search engin
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid FusionAuth API key. Please generate a new key and reconnect.",
+            # Reports (the active user, registration and login reports) need a key that isn't scoped
+            # to a tenant; a tenant-scoped key gets a 403 on every attempt, never a transient one.
+            # The base URL is self-hosted and customer-controlled, so the match can't include it.
+            "403 Client Error": "FusionAuth denied access to this table. Reports need an API key that is not scoped to a tenant; check the key's permissions in your FusionAuth instance, then reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The FusionAuth base URL is not allowed. Please use your organization's FusionAuth instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The FusionAuth base URL must use HTTPS. Update the source to an https:// URL and reconnect.",
         }

@@ -4149,6 +4149,21 @@ if (not res.success) { throw Error(res.error) }`,
                 expect(await sendsLeftInTheTeamBudget(runner)).toBe(3)
             })
 
+            it('measures the wait of a transactional send from when the API accepted it', async () => {
+                const { executor: runner } = createExecutor(createEmailService({ ses }))
+                const invocation = flowInvocation(emailFlow(storedStep()))
+                invocation.state.event = { ...invocation.state.event, event: '$transactional_email' }
+                invocation.state.acceptedAt = DateTime.utc().minus({ seconds: 120 }).toISO()
+                const name = 'cdp_email_queue_to_send_ms'
+                const labels = { source: 'transactional_api' }
+                const sumBefore = await metricValue(name, labels, `${name}_sum`)
+
+                const result = await runUntilHeld(runner, invocation)
+
+                expect(result.finished).toBe(true)
+                expect((await metricValue(name, labels, `${name}_sum`)) - sumBefore).toBeGreaterThanOrEqual(120_000)
+            })
+
             it('records the wait of the next email as not held by the team cap', async () => {
                 const { executor: runner } = createExecutor(createEmailService({ ses }))
                 const waits = (teamCapped: string): Promise<number> =>
@@ -4276,6 +4291,28 @@ if (not res.success) { throw Error(res.error) }`,
             {
                 name: 'a step whose own email input lists files without them, because only an accepted send has files',
                 step: () => ({ ...storedStep(), attachments: [attachmentFile] }),
+                stepConfig: {},
+                send: (): QueuedSend | undefined => undefined,
+                expected: () => ({ type: 'email', ...storedStep(), template: {} }),
+            },
+            {
+                name: "a code send's reply thread",
+                step: storedStep,
+                stepConfig: {},
+                send: (): QueuedSend => ({
+                    tracking: { captureEngagement: false },
+                    thread: { inReplyTo: '<parent@x>', references: ['<root@x>'] },
+                }),
+                expected: () => ({
+                    type: 'email',
+                    ...storedStep(),
+                    thread: { inReplyTo: '<parent@x>', references: ['<root@x>'] },
+                    template: {},
+                }),
+            },
+            {
+                name: 'a step whose own email input sets a reply thread without it, because only an accepted send threads',
+                step: () => ({ ...storedStep(), thread: { inReplyTo: '<step@x>', references: [] } }),
                 stepConfig: {},
                 send: (): QueuedSend | undefined => undefined,
                 expected: () => ({ type: 'email', ...storedStep(), template: {} }),

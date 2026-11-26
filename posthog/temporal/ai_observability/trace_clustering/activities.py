@@ -22,7 +22,6 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.retries import is_last_attempt
-from posthog.temporal.ai_observability.team_discovery import get_min_traces_override
 from posthog.temporal.ai_observability.trace_clustering import constants
 from posthog.temporal.ai_observability.trace_clustering.clustering import (
     calculate_distances_to_cluster_means,
@@ -53,6 +52,8 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
 from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.ai_observability.backend.facade.clustering_runtime import require_current_job
+
 logger = structlog.get_logger(__name__)
 
 
@@ -79,9 +80,11 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
 
     # The coordinator can run a team after it is deleted, so skip the run instead of failing it.
     try:
-        team = Team.objects.get(id=inputs.team_id)
+        team = Team.objects.get(
+            id=inputs.team_id, clustering_config__enabled=True, organization__is_ai_data_processing_approved=True
+        )
     except Team.DoesNotExist:
-        logger.info("Team not found, skipping clustering run", team_id=inputs.team_id)
+        logger.info("Team not eligible for clustering, skipping run", team_id=inputs.team_id)
         return ClusteringComputeResult(
             clustering_run_id=clustering_run_id,
             items=[],
@@ -94,6 +97,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             analysis_level=inputs.analysis_level,
         )
 
+    job_scope = require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     item_ids, embeddings_map, batch_run_ids_map = fetch_item_embeddings_for_clustering(
         team=team,
         window_start=window_start,
@@ -101,6 +105,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         max_samples=inputs.max_samples,
         analysis_level=inputs.analysis_level,
         job_id=inputs.job_id if inputs.job_id else None,
+        job_scope=job_scope,
     )
 
     logger.info(
@@ -109,9 +114,8 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         analysis_level=inputs.analysis_level,
     )
 
-    # Need enough items for UMAP (n_neighbors default=15) and meaningful clusters.
-    # A per-team override lets low-volume teams opt below the global minimum.
-    min_traces = get_min_traces_override(inputs.team_id) or constants.MIN_TRACES_FOR_CLUSTERING
+    # UMAP and HDBSCAN still need a small number of samples to produce a usable projection.
+    min_traces = constants.MIN_TRACES_FOR_CLUSTERING
     if len(item_ids) < min_traces:
         logger.warning(
             "Not enough items for clustering",
@@ -339,6 +343,7 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
 
 
 def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
+    require_current_job(inputs.team_id, inputs.clustering_job_id, inputs.job_scope)
     """LLM labeling implementation called by the activity.
 
     Uses a LangGraph agent that can iteratively explore cluster structure
@@ -387,6 +392,7 @@ async def generate_cluster_labels_activity(inputs: GenerateLabelsActivityInputs)
 
 
 def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
+    require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     """Event emission implementation called by the activity."""
     clusters = emit_cluster_events(
         team_id=inputs.team_id,
