@@ -4,7 +4,7 @@
  * `products/dashboards/backend/v2/frames.py` (`frame_json`).
  */
 
-export interface FrameField {
+export type FrameField = {
     name: string
     type: 'time' | 'number' | 'string' | 'boolean' | 'other'
     /** A time field holds epoch milliseconds. A number field holds null for a gap. */
@@ -13,7 +13,7 @@ export interface FrameField {
     labels?: Record<string, string>
 }
 
-export interface Frame {
+export type Frame = {
     name: string | null
     labels: Record<string, string>
     fields: FrameField[]
@@ -21,7 +21,7 @@ export interface Frame {
     hash: string
 }
 
-export interface QueryBatchLine {
+export type QueryBatchLine = {
     i: number
     refId?: string
     error?: string

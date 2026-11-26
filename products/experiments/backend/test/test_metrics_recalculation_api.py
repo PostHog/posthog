@@ -27,11 +27,11 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
-from products.experiments.backend.recalculation import (
+from products.experiments.backend.recalculation.admission import (
     RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
     RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
-    RUN_ENTRY_HIDDEN_MESSAGE,
 )
+from products.experiments.backend.recalculation.payloads import RUN_ENTRY_HIDDEN_MESSAGE
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalculation.logic import (
     _calculate_experiment_metric_for_recalculation_sync,
@@ -307,7 +307,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         if timeseries_point:
             self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
         run = self._run_in_state(exp, run_status) if run_status is not None else None
-        sync_execute = "products.experiments.backend.recalculation.sync_execute"
+        sync_execute = "products.experiments.backend.recalculation.query_progress.sync_execute"
         progress_read = (
             mock.patch(sync_execute, side_effect=live_progress)
             if isinstance(live_progress, Exception)
