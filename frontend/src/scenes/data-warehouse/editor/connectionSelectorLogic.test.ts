@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import { createElement, createRef } from 'react'
 
@@ -17,9 +17,11 @@ import {
     LOADING_CONNECTIONS,
     POSTHOG_WAREHOUSE,
 } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
+import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
 import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
 import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import { editorSizingLogic } from './editorSizingLogic'
 import { QueryWindow } from './QueryWindow'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
@@ -114,13 +116,13 @@ jest.mock('products/posthog_ai/frontend/api/logics', () => ({
 
 const mockConnectionsList = externalDataSourcesConnectionsList as jest.Mock
 
-function renderConnectionSelectorSurface(surface: string, hideConnectionSelector = false): void {
+function renderConnectionSelectorSurface(surface: string, hideConnectionSelector = false): ReturnType<typeof render> {
     const connectionSelectorConfig = {
         allowedEngines: ['clickhouse'],
         requireHogQL: true,
         showSourceActions: false,
     }
-    render(
+    return render(
         surface === 'toolbar'
             ? createElement(QueryWindow, {
                   tabId: 'policy-tab',
@@ -389,69 +391,86 @@ describe('connectionSelectorLogic', () => {
         expect(options[0].options.some((option) => option.value === 'selected')).toBe(false)
     })
 
-    it.each(['toolbar', 'schema'])('applies the connection policy in the %s picker', async (surface) => {
-        mockConnectionsList.mockResolvedValue([
-            { id: 'clickhouse', description: 'Analytics', engine: 'clickhouse', supports_hogql: true },
-            { id: 'postgres', description: 'Reporting', engine: 'postgres', supports_hogql: true },
-        ])
-        const unmountFeatureFlags = featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MANAGED_TRINO_QUERY], {
-            [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: true,
+    describe('picker surfaces', () => {
+        let unmountLogics: (() => void)[]
+
+        beforeEach(() => {
+            unmountLogics = [
+                featureFlagLogic.mount(),
+                sqlEditorVimLogic.mount(),
+                editorSizingLogic.mount(),
+                sqlEditorLogic({ tabId: 'policy-tab' }).mount(),
+            ]
+            logic = connectionSelectorLogic()
+            logic.mount()
         })
 
-        try {
-            renderConnectionSelectorSurface(surface)
-            await act(async () => {
-                await expectLogic(connectionSelectorLogic()).toFinishAllListeners()
-            })
-            fireEvent.click(await screen.findByText('PostHog (ClickHouse)'))
+        afterEach(() => {
+            cleanup()
+            unmountLogics.reverse().forEach((unmount) => unmount())
+        })
 
-            const clickHouse = await screen.findByText('Analytics (ClickHouse)')
-            expect(screen.queryByText('Reporting (Postgres)')).toBeNull()
-            expect(screen.queryByText('PostHog (Trino)')).toBeNull()
-            expect(screen.queryByText('Configure sources')).toBeNull()
-            expect(screen.queryByText('Add direct connection')).toBeNull()
-            expect(screen.queryByLabelText('Open settings for Analytics (ClickHouse)')).toBeNull()
+        it.each(['toolbar', 'schema'])('applies the connection policy in the %s picker', async (surface) => {
+            mockConnectionsList.mockResolvedValue([
+                { id: 'clickhouse', description: 'Analytics', engine: 'clickhouse', supports_hogql: true },
+                { id: 'postgres', description: 'Reporting', engine: 'postgres', supports_hogql: true },
+            ])
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MANAGED_TRINO_QUERY], {
+                [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: true,
+            })
+
+            const { container } = renderConnectionSelectorSurface(surface)
+            await act(async () => {
+                await expectLogic(logic).toFinishAllListeners()
+            })
+            const trigger = container.querySelector<HTMLElement>('[data-attr="sql-editor-connection-selector"]')!
+            expect(await within(trigger).findByText('PostHog (ClickHouse)')).toBeVisible()
+            fireEvent.click(trigger)
+
+            const menu = within(document.querySelector<HTMLElement>('.Popover__content')!)
+            const clickHouse = await menu.findByText('Analytics (ClickHouse)')
+            expect(menu.queryByText('Reporting (Postgres)')).toBeNull()
+            expect(menu.queryByText('PostHog (Trino)')).toBeNull()
+            expect(menu.queryByText('Configure sources')).toBeNull()
+            expect(menu.queryByText('Add direct connection')).toBeNull()
+            expect(menu.queryByLabelText('Open settings for Analytics (ClickHouse)')).toBeNull()
 
             fireEvent.click(clickHouse)
             expect(sqlEditorLogic({ tabId: 'policy-tab' }).values.sourceQuery.source.connectionId).toBe('clickhouse')
-        } finally {
-            unmountFeatureFlags()
-        }
-    })
-
-    it.each(['toolbar', 'schema'])('hides the %s picker when requested', (surface) => {
-        renderConnectionSelectorSurface(surface, true)
-
-        expect(document.querySelector('[data-attr="sql-editor-connection-selector"]')).toBeNull()
-    })
-
-    it.each(['toolbar', 'schema'])('shows a missing saved connection in the %s picker', async (surface) => {
-        const editor = sqlEditorLogic({ tabId: 'policy-tab' })
-        const unmountEditor = editor.mount()
-        editor.actions.setSourceQuery({
-            ...editor.values.sourceQuery,
-            source: { ...editor.values.sourceQuery.source, connectionId: 'missing' },
+            expect(within(trigger).getByText('Analytics (ClickHouse)')).toBeVisible()
         })
-        try {
-            renderConnectionSelectorSurface(surface)
+
+        it.each(['toolbar', 'schema'])('hides the %s picker when requested', (surface) => {
+            const { container } = renderConnectionSelectorSurface(surface, true)
+
+            expect(container.querySelector('[data-attr="sql-editor-connection-selector"]')).toBeNull()
+            expect(mockConnectionsList).not.toHaveBeenCalled()
+        })
+
+        it.each(['toolbar', 'schema'])('shows a missing saved connection in the %s picker', async (surface) => {
+            const editor = sqlEditorLogic({ tabId: 'policy-tab' })
+            editor.actions.setSourceQuery({
+                ...editor.values.sourceQuery,
+                source: { ...editor.values.sourceQuery.source, connectionId: 'missing' },
+            })
+            const { container } = renderConnectionSelectorSurface(surface)
             await act(async () => {
-                await expectLogic(connectionSelectorLogic()).toFinishAllListeners()
+                await expectLogic(logic).toFinishAllListeners()
             })
 
-            fireEvent.click(await screen.findByText('Selected connection (unavailable)'))
-            expect(
-                screen
-                    .getAllByText('Selected connection (unavailable)')
-                    .some((label) => label.closest('button')?.getAttribute('aria-disabled') === 'true')
-            ).toBe(true)
+            const trigger = container.querySelector<HTMLElement>('[data-attr="sql-editor-connection-selector"]')!
+            expect(await within(trigger).findByText('Selected connection (unavailable)')).toBeVisible()
+            fireEvent.click(trigger)
+
+            const menu = within(document.querySelector<HTMLElement>('.Popover__content')!)
+            const unavailableOption = menu.getByText('Selected connection (unavailable)').closest('button')!
+            expect(unavailableOption).toHaveAttribute('aria-disabled', 'true')
             expect(editor.values.sourceQuery.source.connectionId).toBe('missing')
 
-            fireEvent.click(screen.getByText('PostHog (ClickHouse)'))
+            fireEvent.click(menu.getByText('PostHog (ClickHouse)'))
             expect(editor.values.sourceQuery.source.connectionId).toBeUndefined()
-        } finally {
-            unmountEditor()
-        }
+            expect(within(trigger).getByText('PostHog (ClickHouse)')).toBeVisible()
+        })
     })
 
     it.each([
