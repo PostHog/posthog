@@ -90,6 +90,7 @@ class TestParseActionSettings(SimpleTestCase):
         [
             ("unknown action", "send_fax", {"prompt": "x"}),
             ("empty prompt", "ask_ai", {"prompt": ""}),
+            ("whitespace prompt", "ask_ai", {"prompt": "   "}),
             ("missing prompt", "ask_ai", {}),
             ("unknown setting", "ask_ai", {"prompt": "x", "url": "https://example.com"}),
             ("settings not an object", "ask_ai", ["x"]),

@@ -2,11 +2,12 @@
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Annotated
 
 from django.db.models import F, Q
 
 import structlog
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from posthog.models import Team, User
 
@@ -30,7 +31,7 @@ class ActionHandler(ABC):
 class _AskAiSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    prompt: str = Field(min_length=1, max_length=2000)
+    prompt: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
 
 class _AskAiHandler(ActionHandler):
