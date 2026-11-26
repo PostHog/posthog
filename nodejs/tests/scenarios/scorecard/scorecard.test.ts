@@ -292,12 +292,13 @@ describe('scorecard', () => {
 
     it.each<[string, NonNullable<RunResult['alerts']>, object]>([
         [
-            'counts and names the rules it evaluated, could not evaluate and left out',
+            'counts and names the rules it evaluated, could not evaluate and left out, and the gaps in its evidence',
             {
                 evaluated: ['SyntheticA', 'SyntheticB'],
                 fired: ['SyntheticB'],
                 unevaluable: [{ rule: 'SyntheticC', selectors: ['synthetic_gone_total'] }],
                 excluded: ['SyntheticD'],
+                gaps: [{ from: 1000, to: 4000, reason: 'missed evaluations', rules: ['SyntheticA'] }],
             },
             {
                 alerts_evaluated: ['SyntheticA', 'SyntheticB'],
@@ -308,6 +309,8 @@ describe('scorecard', () => {
                 alerts_unevaluable_count: 1,
                 alerts_excluded: ['SyntheticD'],
                 alerts_excluded_count: 1,
+                alerts_gaps: [{ from: 1000, to: 4000, reason: 'missed evaluations', rules: ['SyntheticA'] }],
+                alerts_gaps_count: 1,
             },
         ],
         [

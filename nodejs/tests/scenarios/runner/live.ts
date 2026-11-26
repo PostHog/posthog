@@ -38,6 +38,7 @@ export type LiveRecord =
     | {
           type: 'alert'
           at: number
+          latest?: number
           rule: string
           instance: string
           tier?: string

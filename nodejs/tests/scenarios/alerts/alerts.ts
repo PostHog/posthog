@@ -13,12 +13,15 @@ const SCRAPE_INTERVAL_MS = 5000
 const NEVER_EVALUATED = 'vmalert did not evaluate it during the run'
 const COMPARISON = /(>=|<=|==|!=|>|<)\s*(?:bool\s+)?(-?[0-9.]+(?:e[+-]?[0-9]+)?)/gi
 const POLLS_PER_INTERVAL = 4
+const MISSED_AFTER_INTERVALS = 1.5
+const MISSED_EVALUATIONS = 'missed evaluations'
 const QUOTED = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`[^`]*`/g
 
 export type AlertState = 'pending' | 'firing' | 'resolved'
 
 export type AlertTransition = {
     at: number
+    latest?: number
     rule: string
     instance: string
     tier?: string
@@ -35,9 +38,11 @@ type RuleLine =
     | { type: 'rule'; rule: string; state: 'unevaluable'; selectors: string[]; error?: string }
     | { type: 'rule'; rule: string; state: 'excluded' }
 
+export type AlertGap = { from: number; to: number; reason: string; rules?: string[] }
+
 type Since = { sinceDriveMs: number; sinceValves: { valve: string; target: string; sinceMs: number }[] }
 
-export type AlertLine = ({ type: 'transition' } & AlertTransition & Since) | RuleLine
+export type AlertLine = ({ type: 'transition' } & AlertTransition & Since) | ({ type: 'gap' } & AlertGap) | RuleLine
 
 export type AlertCoverage =
     | {
@@ -45,6 +50,7 @@ export type AlertCoverage =
           fired: string[]
           unevaluable: { rule: string; selectors: string[]; error?: string }[]
           excluded: string[]
+          gaps: AlertGap[]
       }
     | { unread: string }
 
@@ -120,11 +126,12 @@ function evaluationAfter(activeAt: number, evaluatedAt: number, intervalMs: numb
     return activeAt + (Math.floor((evaluatedAt - activeAt) / intervalMs) + 1) * intervalMs
 }
 
-function transitionOf(rule: VmRule, alert: VmAlert, state: AlertState, at: number): AlertTransition {
+function transitionOf(rule: VmRule, alert: VmAlert, state: AlertState, at: number, latest?: number): AlertTransition {
     const value = Number(alert.value)
     const threshold = thresholdOf(rule.query)
     return {
         at,
+        ...(latest !== undefined && latest > at && { latest }),
         rule: rule.name,
         instance: alert.id,
         ...(alert.labels.severity !== undefined && { tier: alert.labels.severity }),
@@ -160,7 +167,7 @@ async function missingSelectorsOf(engine: Engine, query: string, since: number):
     return missing
 }
 
-function coverageOf(lines: RuleLine[], fired: string[]): AlertCoverage {
+function coverageOf(lines: RuleLine[], fired: string[], gaps: AlertGap[]): AlertCoverage {
     const named = (state: RuleLine['state']): string[] =>
         lines.flatMap((line) => (line.state === state ? [line.rule] : []))
     return {
@@ -172,6 +179,7 @@ function coverageOf(lines: RuleLine[], fired: string[]): AlertCoverage {
                 : []
         ),
         excluded: named('excluded'),
+        gaps,
     }
 }
 
@@ -188,6 +196,11 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
     const transitions: AlertTransition[] = []
     const errors = new Map<string, string>()
     const open = new Map<string, { rule: VmRule; alert: VmAlert }>()
+    const evaluatedAt = new Map<string, number>()
+    const missed = new Map<string, AlertGap & { rules: string[] }>()
+    const failedReads: AlertGap[] = []
+    let failing: { from: number; reason: string } | undefined
+    let readAt = since * 1000
     let rules: VmRule[] = []
     const record = (transition: AlertTransition): void => {
         transitions.push(transition)
@@ -204,6 +217,28 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
         )
         const shortestMs = Math.min(...data.groups.map(({ interval }) => interval * 1000))
         pollMs = options.pollMs ?? Math.min(POLL_MS, shortestMs / POLLS_PER_INTERVAL)
+        const recovering = failing !== undefined
+        const jumped = new Map<string, number>()
+        for (const rule of rules) {
+            const evaluated = Date.parse(rule.lastEvaluation)
+            // vmalert reports the year 1 for a rule it has not evaluated yet.
+            if (!(evaluated > 0)) {
+                continue
+            }
+            const before = evaluatedAt.get(rule.id)
+            evaluatedAt.set(rule.id, evaluated)
+            if (before === undefined || evaluated - before <= MISSED_AFTER_INTERVALS * intervalMsOf.get(rule.id)!) {
+                continue
+            }
+            jumped.set(rule.id, evaluated)
+            // The failed read already reports this window, with its error.
+            if (!recovering) {
+                const key = JSON.stringify([before, evaluated])
+                const gap = missed.get(key) ?? { from: before, to: evaluated, reason: MISSED_EVALUATIONS, rules: [] }
+                gap.rules.push(rule.name)
+                missed.set(key, gap)
+            }
+        }
         const seen = new Set<string>()
         for (const rule of rules) {
             if (rule.lastError) {
@@ -211,24 +246,33 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
             } else {
                 errors.delete(rule.name)
             }
+            const intervalMs = intervalMsOf.get(rule.id)!
             for (const alert of rule.alerts ?? []) {
                 const key = JSON.stringify([rule.id, alert.id])
-                const previous = open.get(key)
+                const activeAt = Date.parse(alert.activeAt)
+                let previous = open.get(key)
+                if (previous !== undefined && Date.parse(previous.alert.activeAt) !== activeAt) {
+                    const ended = evaluationAfter(
+                        Date.parse(previous.alert.activeAt),
+                        Date.parse(previous.rule.lastEvaluation),
+                        intervalMs
+                    )
+                    record(transitionOf(previous.rule, previous.alert, 'resolved', ended, activeAt))
+                    previous = undefined
+                }
                 const was = previous?.alert.state
                 seen.add(key)
-                const activeAt = Date.parse(alert.activeAt)
                 if (was === undefined && (alert.state === 'pending' || rule.duration > 0)) {
                     const pending = transitionOf(rule, alert, 'pending', activeAt)
                     record(alert.state === 'pending' ? pending : { ...pending, value: null })
                 }
                 if (alert.state === 'firing' && was !== 'firing') {
-                    const intervalMs = intervalMsOf.get(rule.id)!
                     const due = activeAt + Math.ceil(Math.round(rule.duration * 1000) / intervalMs) * intervalMs
                     const afterPending =
                         was === 'pending'
                             ? evaluationAfter(activeAt, Date.parse(previous!.rule.lastEvaluation), intervalMs)
                             : due
-                    record(transitionOf(rule, alert, 'firing', Math.max(due, afterPending)))
+                    record(transitionOf(rule, alert, 'firing', Math.max(due, afterPending), jumped.get(rule.id)))
                 }
                 open.set(key, { rule, alert })
             }
@@ -241,14 +285,24 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
                     Date.parse(rule.lastEvaluation),
                     intervalMsOf.get(rule.id)!
                 )
-                record(transitionOf(rule, alert, 'resolved', at))
+                record(transitionOf(rule, alert, 'resolved', at, jumped.get(rule.id)))
             }
         }
     }
+    const recovered = (): void => {
+        readAt = Date.now()
+        if (failing !== undefined) {
+            failedReads.push({ ...failing, to: readAt })
+            failing = undefined
+        }
+    }
+    const gapsOf = (): AlertGap[] => [...failedReads, ...missed.values()].sort((a, b) => a.from - b.from)
     const stopped = new AbortController()
     const polling = (async () => {
         while (!stopped.signal.aborted) {
-            await read().catch(() => undefined)
+            await read().then(recovered, (error: unknown) => {
+                failing ??= { from: readAt, reason: messageOf(error) }
+            })
             await sleep(pollMs, undefined, { signal: stopped.signal }).catch(() => undefined)
         }
     })()
@@ -258,6 +312,7 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
             ...transition,
             ...sinceOf(transition.at, drive, timeline),
         }))
+    const gapLines = (): AlertLine[] => gapsOf().map((gap) => ({ type: 'gap' as const, ...gap }))
     let closed: Promise<void> | undefined
     const close = (): Promise<void> =>
         (closed ??= (async () => {
@@ -273,8 +328,9 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
         stopped.abort()
         await polling
         await read()
+        recovered()
         const fired = transitions.filter(
-            ({ state, at }) => state === 'firing' && at >= drive.startedAt && at <= judgedAt
+            ({ state, at, latest }) => state === 'firing' && at >= drive.startedAt && (latest ?? at) <= judgedAt
         )
         const ruleLines: RuleLine[] = []
         for (const { name: rule, query, lastEvaluation } of rules) {
@@ -288,15 +344,15 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
         }
         ruleLines.push(...excluded.map((rule): RuleLine => ({ type: 'rule', rule, state: 'excluded' })))
         return {
-            lines: [...transitionLines(drive, timeline), ...ruleLines],
-            coverage: coverageOf(ruleLines, [...new Set(fired.map(({ rule }) => rule))]),
+            lines: [...transitionLines(drive, timeline), ...gapLines(), ...ruleLines],
+            coverage: coverageOf(ruleLines, [...new Set(fired.map(({ rule }) => rule))], gapsOf()),
         }
     }
     return {
         finish: (drive, timeline, judgedAt) =>
             finish(drive, timeline, judgedAt)
                 .catch((error: unknown) => ({
-                    lines: transitionLines(drive, timeline),
+                    lines: [...transitionLines(drive, timeline), ...gapLines()],
                     coverage: { unread: `the alert read failed: ${messageOf(error)}` },
                 }))
                 .finally(close),

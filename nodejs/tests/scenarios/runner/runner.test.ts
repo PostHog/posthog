@@ -1845,6 +1845,7 @@ describe('runner through seed, drive and judge', () => {
             fired: ['SyntheticEmailSent'],
             unevaluable: [{ rule: 'SyntheticNeedsMissingSeries', selectors: ['synthetic_lost_total'] }],
             excluded: [],
+            gaps: expect.any(Array),
         })
         const linesOf = (file: string): Record<string, unknown>[] =>
             readFileSync(path.join(result.evidenceDir, file), 'utf8')

@@ -663,10 +663,11 @@ export function createRunner(
                         alerts: loaded.alerts,
                         targets,
                         scrapeIntervalMs: alertScrapeIntervalMs,
-                        onTransition: ({ at, rule, instance, tier, state, value }) =>
+                        onTransition: ({ at, latest, rule, instance, tier, state, value }) =>
                             live.write({
                                 type: 'alert',
                                 at,
+                                ...(latest !== undefined && { latest }),
                                 rule,
                                 instance,
                                 ...(tier !== undefined && { tier }),

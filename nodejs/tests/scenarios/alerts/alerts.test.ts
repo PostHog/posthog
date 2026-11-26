@@ -7,7 +7,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import { parse, stringify } from 'yaml'
 
 import { PROFILES_DIR } from '../cards'
-import { AlertLine, AlertTransition, recordAlerts, startAlerts } from './alerts'
+import { AlertCoverage, AlertGap, AlertLine, AlertTransition, recordAlerts, startAlerts } from './alerts'
 import { Engine } from './engine'
 import { readsOf, selectorsOf } from './selectors'
 
@@ -81,6 +81,10 @@ function transitionsSeen(): {
     }
 }
 
+// A real engine on a busy host can miss an evaluation, but never before the run began.
+const gapsBefore = (coverage: AlertCoverage, at: number): AlertGap[] =>
+    ('gaps' in coverage ? coverage.gaps : []).filter(({ from }) => from < at)
+
 describe('alerts on a scenario run', () => {
     let metrics: Metrics
     beforeEach(async () => {
@@ -110,6 +114,7 @@ describe('alerts on a scenario run', () => {
                 },
             ])
             const transitions = transitionsSeen()
+            const engineAskedAt = Date.now()
             const alerts = await startAlerts({
                 alerts: { ...files, exclude: [] },
                 targets: [{ role: 'synthetic-role', replica: 0, metricsUrl: `${metrics.url}?shard=a` }],
@@ -153,7 +158,9 @@ describe('alerts on a scenario run', () => {
                     fired: ['SyntheticQueueDeepWarning'],
                     unevaluable: [],
                     excluded: [],
+                    gaps: expect.any(Array),
                 })
+                expect(gapsBefore(coverage, engineAskedAt)).toEqual([])
                 expect(transitions.seen.map(({ state }) => state)).toEqual(['pending', 'firing', 'resolved'])
             } finally {
                 await alerts.close()
@@ -189,6 +196,7 @@ describe('alerts on a scenario run', () => {
                     rules: [{ alert: 'SyntheticNeverEvaluated', expr: 'sum(synthetic_queue_depth) > 100' }],
                 },
             ])
+            const engineAskedAt = Date.now()
             const alerts = await startAlerts({
                 alerts: { ...files, exclude: ['SyntheticLeftOut'] },
                 targets: [
@@ -213,7 +221,9 @@ describe('alerts on a scenario run', () => {
                         { rule: 'SyntheticNeverEvaluated', selectors: [], error: neverEvaluated },
                     ],
                     excluded: ['SyntheticLeftOut'],
+                    gaps: expect.any(Array),
                 })
+                expect(gapsBefore(coverage, engineAskedAt)).toEqual([])
                 expect(
                     lines.filter((line): line is Extract<AlertLine, { type: 'rule' }> => line.type === 'rule')
                 ).toEqual([
@@ -283,7 +293,9 @@ describe('alerts on a scenario run', () => {
         return {
             alerting: () =>
                 reads < answers.length
-                    ? Promise.resolve(answers[reads++])
+                    ? Promise.resolve(answers[reads++]).then((answer) =>
+                          answer instanceof Error ? Promise.reject(answer) : answer
+                      )
                     : thenFail
                       ? Promise.reject(new Error('vmalert went away'))
                       : Promise.resolve(answers.at(-1)),
@@ -350,6 +362,17 @@ describe('alerts on a scenario run', () => {
             { pendingValue: null, firedAfterMs: 2100, fired: ['SyntheticQueueDeep'] },
         ],
         [
+            'a firing seen only after missed evaluations, which may have fired after the judge started',
+            1,
+            2,
+            [
+                { state: 'pending', evaluatedAfterMs: 1000, value: '12' },
+                { state: 'firing', evaluatedAfterMs: 4000, value: '50' },
+            ],
+            3500,
+            { pendingValue: 12, firedAfterMs: 2000, fired: [] },
+        ],
+        [
             'a firing after the judge started',
             1,
             2,
@@ -376,7 +399,7 @@ describe('alerts on a scenario run', () => {
         expect(coverage).toMatchObject({ fired: expected.fired })
     })
 
-    it('dates a resolution by the evaluation after the last one that showed the alert', async () => {
+    it('bounds a resolution between the evaluation after the last one that showed the alert and the one that missed it', async () => {
         const activeAt = Date.now() - 6000
         const { alerts, reach } = recordedFrom(
             engineAnswering(
@@ -389,12 +412,65 @@ describe('alerts on a scenario run', () => {
         )
         await reach('resolved')
 
-        const { lines } = await alerts.finish({ startedAt: activeAt }, [], Date.now())
+        const { lines, coverage } = await alerts.finish({ startedAt: activeAt }, [], Date.now())
 
         expect(lines.filter((line) => line.type === 'transition')).toEqual([
             expect.objectContaining({ state: 'firing', at: activeAt }),
-            expect.objectContaining({ state: 'resolved', at: activeAt + 3000 }),
+            expect.objectContaining({ state: 'resolved', at: activeAt + 3000, latest: activeAt + 5350 }),
         ])
+        expect(coverage).toMatchObject({
+            gaps: [
+                {
+                    from: activeAt + 2350,
+                    to: activeAt + 5350,
+                    reason: 'missed evaluations',
+                    rules: ['SyntheticQueueDeep'],
+                },
+            ],
+        })
+    })
+
+    it('closes the old cycle when the same alert comes back with a new activeAt', async () => {
+        const activeAt = Date.now() - 6000
+        const { alerts, reach } = recordedFrom(
+            engineAnswering(
+                [
+                    snapshotOf(activeAt, 1, 0, { state: 'firing', evaluatedAfterMs: 1000, value: '50' }),
+                    snapshotOf(activeAt + 3000, 1, 0, { state: 'firing', evaluatedAfterMs: 0, value: '60' }),
+                ],
+                false
+            )
+        )
+        await reach('resolved')
+
+        const { lines } = await alerts.finish({ startedAt: activeAt }, [], Date.now())
+
+        expect(lines.filter((line) => line.type === 'transition')).toEqual([
+            expect.objectContaining({ state: 'firing', at: activeAt, value: 50 }),
+            expect.objectContaining({ state: 'resolved', at: activeAt + 2000, latest: activeAt + 3000 }),
+            expect.objectContaining({ state: 'firing', at: activeAt + 3000, value: 60 }),
+        ])
+    })
+
+    it('reports the window a failed read left without evidence', async () => {
+        const activeAt = Date.now() - 6000
+        const { alerts, reach } = recordedFrom(
+            engineAnswering(
+                [
+                    snapshotOf(activeAt, 1, 0, { state: 'firing', evaluatedAfterMs: 1000, value: '50' }),
+                    new Error('vmalert restarted'),
+                    snapshotOf(activeAt, 1, 0, { state: 'resolved', evaluatedAfterMs: 3000, value: '' }),
+                ],
+                false
+            )
+        )
+        await reach('resolved')
+
+        const { lines, coverage } = await alerts.finish({ startedAt: activeAt }, [], Date.now())
+
+        const gap = { from: expect.any(Number), to: expect.any(Number), reason: 'vmalert restarted' }
+        expect(coverage).toMatchObject({ gaps: [gap] })
+        expect(lines).toContainEqual({ type: 'gap', ...gap })
     })
 
     it('keeps the transitions it recorded when the final read fails', async () => {

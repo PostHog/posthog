@@ -68,6 +68,8 @@ function alertProperties({ alerts }: RunVerdict): Record<string, Property> {
         alerts_unevaluable_count: alerts.unevaluable.length,
         alerts_excluded: alerts.excluded,
         alerts_excluded_count: alerts.excluded.length,
+        alerts_gaps: alerts.gaps,
+        alerts_gaps_count: alerts.gaps.length,
     }
 }
 
