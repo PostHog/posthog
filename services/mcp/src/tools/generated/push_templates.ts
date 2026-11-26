@@ -16,7 +16,7 @@ import preview_workflowsMakePushTemplateTransactional from '@/tools/workflows/pu
 
 const WorkflowsCreatePushTemplateSchema = () => {
     const MessagingTemplatesCreateBody = orvalSchemas.MessagingTemplatesCreateBody()
-    return MessagingTemplatesCreateBody.omit({ _create_in_folder: true })
+    return MessagingTemplatesCreateBody
 }
 
 const workflowsCreatePushTemplate = (): ToolBase<
