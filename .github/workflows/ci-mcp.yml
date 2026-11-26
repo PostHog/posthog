@@ -790,10 +790,9 @@ jobs:
                   - name: Run ClickHouse migrations
                     run: python manage.py migrate_clickhouse --skip-checks
 
-            # TEMPORARY (remove before review): the `head_ref` clause lets this PR save
-            # the binary so a re-run can measure the hit. It trips WF006 until removed.
+            # Only the hourly lane on master reaches this (the job skips master pushes).
             - name: Save feature-flags binary
-              if: steps.flags-binary.outputs.cache-hit != 'true' && (github.ref == 'refs/heads/master' || github.head_ref == 'claude/ci-superfan-mcp-integration-setup')
+              if: steps.flags-binary.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: rust/target/debug/feature-flags
