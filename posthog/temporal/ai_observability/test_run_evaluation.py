@@ -31,6 +31,7 @@ from posthog.api.capture import CaptureInternalError
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.temporal.ai_observability.judge_attachments import AttachmentPrompt, JudgeAttachments
+from posthog.temporal.ai_observability.model_resolution import ResolvedModel, model_spec
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 from posthog.temporal.common.errors import NonReportableError
@@ -38,6 +39,7 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import (
     RESPONSE_LIMIT_MESSAGE,
@@ -55,7 +57,6 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
     UnsupportedModelError,
 )
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -311,10 +312,13 @@ def test_execution_telemetry_does_not_add_destination_region() -> None:
         client.shutdown()
 
 
-def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
-    """A mocked EvaluationConfig whose active key resolves via DefaultModelSpec (usable, right provider)."""
-    key = MagicMock(provider=provider, state=LLMProviderKey.State.OK)
-    return MagicMock(active_provider_key=key)
+def _resolved_openai_spec() -> MagicMock:
+    """A model spec that resolves to a usable OpenAI key, for tests that don't exercise key resolution."""
+    spec = MagicMock()
+    spec.resolve.return_value = ResolvedModel(
+        "openai", DEFAULT_MODEL_BY_PROVIDER["openai"], MagicMock(provider="openai", state=LLMProviderKey.State.OK)
+    )
+    return spec
 
 
 @pytest.mark.parametrize("judge_method", [None, "llm"])
@@ -1451,17 +1455,21 @@ def setup_data():
 
 
 @pytest.fixture
-def active_key_config(setup_data):
-    """Give the team a healthy active provider key so a null-config judge resolves via DefaultModelSpec."""
-    team = setup_data["team"]
+def pinned_judge_key(setup_data):
+    """Pin a healthy OpenAI key on judges these tests build without a model configuration."""
     key = LLMProviderKey.objects.create(
-        team=team,
+        team=setup_data["team"],
         provider="openai",
         name="openai key",
         state=LLMProviderKey.State.OK,
         encrypted_config={"api_key": "sk-test"},
     )
-    EvaluationConfig.objects.create(team=team, active_provider_key=key)
+    pinned = {"provider": "openai", "model": DEFAULT_MODEL_BY_PROVIDER["openai"], "provider_key_id": str(key.id)}
+    with patch(
+        "posthog.temporal.ai_observability.evaluation_llm_judge.model_spec",
+        side_effect=lambda config: model_spec(config or pinned),
+    ):
+        yield key
 
 
 class TestRunEvaluationWorkflow:
@@ -1611,7 +1619,7 @@ class TestRunEvaluationWorkflow:
             assert result["output_config"] == {"allows_na": False, "true_is_failure": False}
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity(self, setup_data, active_key_config):
+    def test_execute_llm_judge_activity(self, setup_data, pinned_judge_key):
         """Test LLM judge execution with realistic message array format"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -1663,7 +1671,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_attaches_images_when_enabled(
-        self, evaluation_config, attaches_image, setup_data, active_key_config
+        self, evaluation_config, attaches_image, setup_data, pinned_judge_key
     ):
         team = setup_data["team"]
         evaluation = {
@@ -1735,7 +1743,7 @@ class TestRunEvaluationWorkflow:
         ],
     )
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_bounds_oversized_input(self, oversized_input, setup_data, active_key_config):
+    def test_execute_llm_judge_activity_bounds_oversized_input(self, oversized_input, setup_data, pinned_judge_key):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
 
@@ -1782,7 +1790,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_skips_on_context_window_exceeded(
-        self, output_config, expected_verdict, expected_applicable, setup_data, active_key_config
+        self, output_config, expected_verdict, expected_applicable, setup_data, pinned_judge_key
     ):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
@@ -1822,7 +1830,7 @@ class TestRunEvaluationWorkflow:
         mock_client.complete.assert_called_once()
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_skips_on_content_filter(self, setup_data, active_key_config):
+    def test_execute_llm_judge_activity_skips_on_content_filter(self, setup_data, pinned_judge_key):
         team = setup_data["team"]
         evaluation = {
             "id": str(setup_data["evaluation"].id),
@@ -1863,7 +1871,7 @@ class TestRunEvaluationWorkflow:
     @pytest.mark.parametrize("output_type", ["boolean", "numeric", "categorical"])
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_skips_on_output_limit(
-        self, output_config, expected_verdict, expected_applicable, output_type, setup_data, active_key_config
+        self, output_config, expected_verdict, expected_applicable, output_type, setup_data, pinned_judge_key
     ):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
@@ -2944,7 +2952,7 @@ class TestRunEvaluationWorkflow:
         assert result["skip_reason"] == "hog_error"
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data, active_key_config):
+    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data, pinned_judge_key):
         """Test LLM judge execution with allows_na=True when applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -2986,7 +2994,7 @@ class TestRunEvaluationWorkflow:
             assert result["allows_na"] is True
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data, active_key_config):
+    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data, pinned_judge_key):
         """Test LLM judge execution with allows_na=True when not applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -3126,7 +3134,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_does_not_skip_when_not_errored(
-        self, error_props: dict[str, Any], setup_data, active_key_config
+        self, error_props: dict[str, Any], setup_data, pinned_judge_key
     ):
         """Sanity check: traces without `$ai_is_error=true` still flow through to the LLM judge."""
         evaluation_obj = setup_data["evaluation"]
@@ -3377,13 +3385,11 @@ class TestRunEvaluationWorkflow:
         )
 
         with (
-            patch(
-                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
-            ) as mock_get_or_create,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as mock_model_spec,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_increment_errors,
         ):
-            mock_get_or_create.return_value = (_mock_config_with_active_key("openai"), False)
+            mock_model_spec.return_value = _resolved_openai_spec()
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.complete.side_effect = StructuredOutputParseError(
@@ -3426,13 +3432,11 @@ class TestRunEvaluationWorkflow:
         )
 
         with (
-            patch(
-                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
-            ) as mock_get_or_create,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as mock_model_spec,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_increment_errors,
         ):
-            mock_get_or_create.return_value = (_mock_config_with_active_key("openai"), False)
+            mock_model_spec.return_value = _resolved_openai_spec()
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_response = MagicMock()
@@ -3461,7 +3465,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_unhandled_exception_uses_class_name(
-        self, raised_exception: Exception, expected_label: str, setup_data, active_key_config
+        self, raised_exception: Exception, expected_label: str, setup_data, pinned_judge_key
     ):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -3491,7 +3495,7 @@ class TestRunEvaluationWorkflow:
             mock_increment_errors.assert_called_once_with(expected_label, provider="openai")
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_cancellation_is_counted_but_not_logged(self, setup_data, active_key_config):
+    def test_execute_llm_judge_activity_cancellation_is_counted_but_not_logged(self, setup_data, pinned_judge_key):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -3541,7 +3545,7 @@ class TestRunEvaluationWorkflow:
         raised_exception: Exception,
         expected_raised: type[Exception],
         setup_data,
-        active_key_config,
+        pinned_judge_key,
     ):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -4869,12 +4873,10 @@ class TestJudgePromptAssembly:
         )
 
         with (
-            patch(
-                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
-            ) as mock_get_or_create,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as mock_model_spec,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):
-            mock_get_or_create.return_value = (_mock_config_with_active_key("openai"), False)
+            mock_model_spec.return_value = _resolved_openai_spec()
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_response = MagicMock()
@@ -4924,12 +4926,10 @@ class TestJudgePromptAssembly:
         )
 
         with (
-            patch(
-                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
-            ) as mock_get_or_create,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as mock_model_spec,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):
-            mock_get_or_create.return_value = (_mock_config_with_active_key("openai"), False)
+            mock_model_spec.return_value = _resolved_openai_spec()
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_response = MagicMock()

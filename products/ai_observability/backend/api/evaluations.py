@@ -855,10 +855,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         )
 
     def _effective_model_configuration(self, data: dict) -> dict[str, Any] | None:
-        """The explicit model configuration the evaluation will have after this update, or None
-        when it defers to the team default (null config). Payload presence wins because an explicit
-        null is still accepted for legacy null-config evaluations and when switching to a type that
-        does not use a model."""
+        """The model configuration the evaluation will have after this update, or None when it has none.
+        Payload presence wins because an explicit null is still accepted for a disabled draft and when
+        switching to a type that does not use a model."""
         if "model_configuration" in data:
             return data["model_configuration"]
         if self.instance is not None and self.instance.model_configuration is not None:

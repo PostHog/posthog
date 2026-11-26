@@ -7,9 +7,8 @@ from django.db import OperationalError, connection
 from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
-from posthog.temporal.ai_observability.model_resolution import DefaultModelSpec, ExplicitModelSpec, model_spec
+from posthog.temporal.ai_observability.model_resolution import ExplicitModelSpec, UnconfiguredModelSpec, model_spec
 
-from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -51,8 +50,8 @@ class _FailFirstRead:
 
 
 class TestModelSpecFactory:
-    def test_null_config_returns_default_spec(self):
-        assert isinstance(model_spec(None), DefaultModelSpec)
+    def test_null_config_returns_unconfigured_spec(self):
+        assert isinstance(model_spec(None), UnconfiguredModelSpec)
 
     def test_present_config_returns_explicit_spec(self):
         spec = model_spec({"provider": "openai", "model": "gpt-5-mini", "provider_key_id": None})
@@ -113,89 +112,13 @@ class TestExplicitModelSpec:
         assert expected_phrase in exc_info.value.message
         assert "disabled" not in exc_info.value.message
 
-    def test_keyless_requires_provider_key(self, team):
-        # No pinned key: resolution has no PostHog-funded fallback and must ask for a key.
-        with pytest.raises(ApplicationError) as exc_info:
-            ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-        assert _error_type(exc_info) == "provider_key_required"
+    @pytest.mark.parametrize("active_key_provider", [None, "openai", "anthropic"])
+    def test_keyless_requires_provider_key_whatever_the_active_key(self, team, active_key_provider):
+        # A judge runs only on its pinned key; the project's active key is no longer a fallback.
+        if active_key_provider:
+            EvaluationConfig.objects.create(team=team, active_provider_key=_key(team, active_key_provider))
 
-    def test_null_key_falls_back_to_matching_active_key(self, team):
-        # An eval whose model config pinned a model but no key resolves to the team's healthy
-        # active key for that provider.
-        key = _key(team, "openai")
-        EvaluationConfig.objects.create(team=team, active_provider_key=key)
-
-        resolved = ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-
-        assert resolved.provider_key == key
-        assert resolved.is_byok
-
-    def test_null_key_ignores_active_key_of_a_different_provider(self, team):
-        key = _key(team, "anthropic")
-        EvaluationConfig.objects.create(team=team, active_provider_key=key)
-
-        with pytest.raises(ApplicationError) as exc_info:
-            ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-        assert _error_type(exc_info) == "provider_key_required"
-
-
-@pytest.mark.django_db
-class TestDefaultModelSpec:
-    def test_no_active_key_requires_provider_key(self, team):
-        # Null config, no team active key — must bring a key.
-        with pytest.raises(ApplicationError) as exc_info:
-            DefaultModelSpec().resolve(team.id)
-        assert _error_type(exc_info) == "provider_key_required"
-
-    def test_active_key_dereference_recovers_from_transient_operational_error(self, team):
-        # The active_provider_key FK dereference is a second read after the config load. Django
-        # caches the relation only once it resolves, so the retry must re-read the key rather
-        # than hand back whatever the failed dereference left behind.
-        key = _key(team, "anthropic")
-        EvaluationConfig.objects.create(team=team, active_provider_key=key)
-        fail_first = _FailFirstRead(LLMProviderKey._meta.db_table)
-
-        with connection.execute_wrapper(fail_first):
-            resolved = DefaultModelSpec().resolve(team.id)
-
-        assert resolved.provider_key == key
-        assert fail_first.reads == 2
-
-    def test_anthropic_active_key_resolves_to_anthropic_default(self, team):
-        # Regression: a null config with an Anthropic active key used to resolve to openai/gpt-5-mini
-        # and raise ProviderMismatchError on every generation. It must now follow the key's provider.
-        key = _key(team, "anthropic")
-        EvaluationConfig.objects.create(team=team, active_provider_key=key)
-
-        resolved = DefaultModelSpec().resolve(team.id)
-
-        assert resolved.provider == "anthropic"
-        assert resolved.model == DEFAULT_MODEL_BY_PROVIDER["anthropic"]
-        assert resolved.provider_key == key
-        assert resolved.is_byok
-
-    def test_gemini_active_key_resolves_to_gemini_default(self, team):
-        key = _key(team, "gemini")
-        EvaluationConfig.objects.create(team=team, active_provider_key=key)
-
-        resolved = DefaultModelSpec().resolve(team.id)
-
-        assert resolved.provider == "gemini"
-        assert resolved.model == DEFAULT_MODEL_BY_PROVIDER["gemini"]
-        assert resolved.provider_key == key
-
-    def test_active_key_for_provider_without_default_raises_no_default_model(self, team):
-        key = _key(team, "openrouter")
-        EvaluationConfig.objects.create(team=team, active_provider_key=key)
-
-        with pytest.raises(ApplicationError) as exc_info:
-            DefaultModelSpec().resolve(team.id)
-        assert _error_type(exc_info) == "no_default_model"
-
-    def test_invalid_active_key_raises_key_invalid(self, team):
-        key = _key(team, "anthropic", state=LLMProviderKey.State.INVALID)
-        EvaluationConfig.objects.create(team=team, active_provider_key=key)
-
-        with pytest.raises(ApplicationError) as exc_info:
-            DefaultModelSpec().resolve(team.id)
-        assert _error_type(exc_info) == "key_invalid"
+        for spec in (ExplicitModelSpec("openai", "gpt-5-mini", None), UnconfiguredModelSpec()):
+            with pytest.raises(ApplicationError) as exc_info:
+                spec.resolve(team.id)
+            assert _error_type(exc_info) == "provider_key_required"
