@@ -680,6 +680,7 @@ function SearchableChoiceCombobox({
     return (
         <Combobox
             items={choices}
+            disabled={disabled}
             itemToStringValue={(choice: SearchableChoice) => choice.label}
             value={choices.find((choice) => choice.value === value) ?? null}
             onValueChange={(choice: SearchableChoice | null) => onChange(choice ? choice.value : null)}

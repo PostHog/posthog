@@ -131,6 +131,7 @@ function AddPropertyDropdown({
     return (
         <Combobox
             items={available}
+            disabled={loading}
             itemToStringValue={(d: CustomPropertyDefinitionApi) => d.name}
             value={null}
             onValueChange={(d: CustomPropertyDefinitionApi | null) => {

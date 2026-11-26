@@ -106,6 +106,7 @@ function AddDefinitionDropdown({
     return (
         <Combobox
             items={available}
+            disabled={loading}
             itemToStringValue={(d: AccountRelationshipDefinitionApi) => d.name}
             value={null}
             onValueChange={(d: AccountRelationshipDefinitionApi | null) => {
