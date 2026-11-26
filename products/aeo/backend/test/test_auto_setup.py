@@ -22,7 +22,7 @@ from products.aeo.backend import auto_setup, catalog, credits, prompt_limit, run
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.facade.api import create_keywords, list_engine_settings
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, SetupRequest
-from products.aeo.backend.models import AEOBrand, AEOKeyword, AEOPrompt
+from products.aeo.backend.models import AEOBrand, AEOKeyword, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.seeding import prompt_hash
 from products.aeo.backend.suggestions import SUGGESTION_CACHE_ALIAS
 from products.aeo.backend.test.factories import ai_credits_used_up, create_citation_check, create_own_brand
@@ -568,6 +568,23 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         ]
         assert catalog.own_domains(self.team.id) == ["example.org"]
         second_run.assert_called_once()
+
+    def test_a_reset_keeps_a_prompt_a_person_edited_with_its_history(self) -> None:
+        self._run([*_prompt_answers(), _answer(KEYWORDS_ANSWER)])
+        run_stop.clear_run_queued(self.team.id)
+        edited, *untouched = AEOPrompt.objects.for_team(self.team.id).order_by("prompt")
+        prompts_url = f"/api/projects/{self.team.id}/aeo_prompts/"
+        assert (
+            self.client.patch(f"{prompts_url}{edited.id}/", {"prompt": "Reworded?"}, format="json").status_code == 200
+        )
+
+        assert self.client.post(f"{self.url}reset/").status_code == status.HTTP_204_NO_CONTENT
+
+        prompts = AEOPrompt.objects.for_team(self.team.id)
+        assert list(prompts.values_list("id", flat=True)) == [edited.id]
+        assert prompts.get().archived_at is not None
+        assert AEOPromptVersion.objects.for_team(self.team.id).filter(prompt_id=edited.id).count() == 2
+        assert untouched
 
     def test_a_reset_during_a_check_run_stops_it_and_archives_the_prompts_it_writes_against(self) -> None:
         self._run([*_prompt_answers(), _answer(KEYWORDS_ANSWER)])

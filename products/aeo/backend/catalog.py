@@ -309,10 +309,18 @@ def add_suggested_competitors(team_id: int, competitors: tuple[SuggestedCompetit
         for domain, competitor in sorted(wanted.items())
         if domain not in known
     ]
+    # A brand already cataloged as unknown, such as one a reset relabelled, becomes a suggested competitor too.
+    # A person's decision, a confirmed or ignored brand, stays.
+    promoted = (
+        AEOBrand.objects.for_team(team_id, canonical=True)
+        .filter(domain__in=known, kind=BrandKind.UNKNOWN, status=BrandStatus.SUGGESTED)
+        .update(kind=BrandKind.COMPETITOR, updated_at=timezone.now())
+    )
     if new_brands:
         AEOBrand.objects.for_team(team_id, canonical=True).bulk_create(new_brands, ignore_conflicts=True)
+    if new_brands or promoted:
         bump_data_version_on_commit(team_id)
-    return len(new_brands)
+    return len(new_brands) + promoted
 
 
 # Answers to non-branded prompts in the window that name each suggested brand and that cite it, counted from

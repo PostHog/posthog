@@ -65,7 +65,14 @@ from products.aeo.backend.facade.contracts import (
     WebsiteCandidate,
     WebsiteSource,
 )
-from products.aeo.backend.models import AEOBrand, AEOCheckBrand, AEOCitationCheck, AEOKeyword, AEOPrompt
+from products.aeo.backend.models import (
+    AEOBrand,
+    AEOCheckBrand,
+    AEOCitationCheck,
+    AEOKeyword,
+    AEOPrompt,
+    AEOPromptVersion,
+)
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
 from products.aeo.backend.stored_results import bump_data_version_on_commit
 from products.aeo.backend.suggestions import SUGGESTION_CACHE_ALIAS, SUGGESTION_JOB_TTL_SECONDS
@@ -656,12 +663,19 @@ def reset(team_id: int) -> None:
         with transaction.atomic():
             current = AEOPrompt.objects.for_team(team_id).filter(archived_at__isnull=True)
             checked = Exists(AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=OuterRef("id")))
-            # A prompt with answers is archived so they stay in history. One without any is deleted, because an
-            # archived prompt blocks its text from coming back, and setting up the same site again would suggest it.
-            to_archive = current if checks_running else current.filter(checked)
-            to_archive.update(archived_at=now, active=False, updated_at=now)
+            # A version with an author, or a second version, means a person wrote or edited the prompt.
+            edited = Exists(
+                AEOPromptVersion.objects.for_team(team_id)
+                .filter(prompt_id=OuterRef("id"))
+                .filter(Q(created_by__isnull=False) | Q(version__gt=1))
+            )
+            # A prompt with answers or a person's wording is archived, so the answers and the version history with
+            # its authors stay. One setup wrote and nobody touched is deleted, because an archived prompt blocks its
+            # text from coming back, and setting up the same site again would suggest it.
+            keep = current if checks_running else current.filter(checked | edited)
+            keep.update(archived_at=now, active=False, updated_at=now)
             if not checks_running:
-                current.filter(~checked).delete()
+                current.filter(~checked, ~edited).delete()
             AEOKeyword.objects.for_team(team_id).delete()
             referenced = AEOCheckBrand.objects.for_team(team_id).filter(brand_id=OuterRef("id"))
             AEOBrand.objects.for_team(team_id).filter(status=BrandStatus.SUGGESTED).exclude(kind=BrandKind.OWN).exclude(

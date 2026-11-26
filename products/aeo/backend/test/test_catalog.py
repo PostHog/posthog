@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.models.team import Team
 
 from products.aeo.backend.catalog import (
+    add_suggested_competitors,
     competitor_candidates,
     recompute_own_citations,
     registrable_domain,
@@ -20,7 +21,13 @@ from products.aeo.backend.catalog import (
 )
 from products.aeo.backend.engines import MAX_URLS_PER_CHECK, own_domains_key, top_domains
 from products.aeo.backend.facade.api import list_domains_across_teams
-from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, CompetitorCandidate
+from products.aeo.backend.facade.contracts import (
+    BrandKind,
+    BrandSource,
+    BrandStatus,
+    CompetitorCandidate,
+    SuggestedCompetitor,
+)
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
 from products.aeo.backend.test.factories import (
     create_brand,
@@ -327,6 +334,33 @@ class TestCompetitorCandidates(BaseTest):
         return AEOBrand.objects.for_team(self.team.id).create(
             team=self.team, name=name, domain=domain, status=status, source=BrandSource.CITATIONS
         )
+
+    def test_research_promotes_a_cataloged_unknown_brand_and_keeps_peoples_decisions(self) -> None:
+        unknown = self._brand("Lumen", "lumen.example")
+        ignored = self._brand("Glow", "glow.example", status=BrandStatus.IGNORED)
+        confirmed = self._brand("Shade", "shade.example", status=BrandStatus.CONFIRMED)
+
+        added = add_suggested_competitors(
+            self.team.id,
+            tuple(
+                SuggestedCompetitor(name=name, domain=domain)
+                for name, domain in [
+                    ("Lumen", "lumen.example"),
+                    ("Glow", "glow.example"),
+                    ("Shade", "shade.example"),
+                    ("Beam", "beam.example"),
+                ]
+            ),
+        )
+
+        assert added == 2
+        brands = {b.domain: (b.kind, b.status) for b in AEOBrand.objects.for_team(self.team.id).exclude(kind="own")}
+        assert brands == {
+            unknown.domain: (BrandKind.COMPETITOR, BrandStatus.SUGGESTED),
+            ignored.domain: (BrandKind.UNKNOWN, BrandStatus.IGNORED),
+            confirmed.domain: (BrandKind.UNKNOWN, BrandStatus.CONFIRMED),
+            "beam.example": (BrandKind.COMPETITOR, BrandStatus.SUGGESTED),
+        }
 
     def _answer(
         self, text: str, hosts: list[str], *, prompt_text: str = "which lighting tools?", days_ago: int = 0
