@@ -1356,6 +1356,20 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         self.assertEqual(lines, [{"i": 0, "refId": "promql", "error": "Unsupported time expression: 'now-99999999y'."}])
 
+    @parameterized.expand([("success", 200, False), ("rejected", 400, True)])
+    def test_a_logql_item_reports_query_executed(self, _name: str, status_code: int, has_error: bool) -> None:
+        payload = _matrix(0) if status_code == 200 else {"status": "error", "error": "parse error"}
+        with (
+            _snuffle_requests(status_code, payload),
+            patch("products.dashboards.backend.v2.query_batch.report_user_or_team_action") as report,
+        ):
+            self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+
+        (properties,) = [call.args[1] for call in report.call_args_list if call.args[0] == "query executed"]
+        self.assertEqual(properties["query_type"], "LogQLQuery")
+        self.assertEqual(properties["has_error"], has_error)
+        self.assertTrue(properties["query_id"].startswith("dashboard-v2-batch-"))
+
     @parameterized.expand([("no_access", "none", False), ("viewer", "viewer", True)])
     def test_a_member_runs_logql_only_with_logs_access(self, _name: str, access_level: str, runs: bool) -> None:
         self.organization.available_product_features = [

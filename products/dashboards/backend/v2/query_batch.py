@@ -49,6 +49,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import report_user_or_team_action
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.dashboard_v2_batch_scope import DASHBOARD_V2_BATCH_ONLY_KINDS, dashboard_v2_batch_scope
@@ -1184,7 +1185,9 @@ class QueryBatch:
             return _error_line(index, e, team=self._team)
         return _result_line(index, response, hit=False, stale=False, shape=shape, ms=(monotonic() - started) * 1000)
 
-    def _run_logql(self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec]) -> dict[str, Any]:
+    def _run_logql(
+        self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec], query_id: str
+    ) -> dict[str, Any]:
         shape = self._shapes.pop(index, None)
         if self._cancelled or shape is None:
             return {"i": index, "error": _FAILED}
@@ -1202,8 +1205,27 @@ class QueryBatch:
                     cancelled=self._logql_cancelled,
                 )
         except Exception as e:
+            self._report_logql_executed(query_id, started, has_error=True)
             return _error_line(index, e, team=self._team)
+        self._report_logql_executed(query_id, started, has_error=False)
         return _result_line(index, response, hit=False, stale=False, shape=shape, ms=(monotonic() - started) * 1000)
+
+    def _report_logql_executed(self, query_id: str, started: float, *, has_error: bool) -> None:
+        # LogQL has no query runner to send `query executed`, so the batch sends it, with the runner's core fields.
+        report_user_or_team_action(
+            "query executed",
+            {
+                "query_type": "LogQLQuery",
+                "query_id": query_id,
+                "dashboard_id": self._dashboard_id,
+                "cache_hit": False,
+                "has_error": has_error,
+                "response_time_ms": round((monotonic() - started) * 1000),
+            },
+            user=self._user,
+            team=self._team,
+            organization=self._team.organization,
+        )
 
     def _emit(self, line: tuple[int, bytes]) -> None:
         if self._is_cancelled():
@@ -1239,7 +1261,7 @@ class QueryBatch:
                 tags_context(team_id=self._team.pk, client_query_id=query_id, traceparent=self._traceparent),
             ):
                 if isinstance(query, QueryBatchInput):
-                    line = self._run_logql(index, query, self._logql_budget)
+                    line = self._run_logql(index, query, self._logql_budget, query_id)
                 else:
                     line = self._run(index, query, query_id)
                 index, data = line["i"], self._encode(line)
