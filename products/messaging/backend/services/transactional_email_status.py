@@ -4,7 +4,9 @@ The send API writes `queued`, or `scheduled` for a send that waits for its time,
 `complained`. A row's version only grows as an email moves forward, so the row with the highest version is the status.
 """
 
+import re
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid5
@@ -16,8 +18,9 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.event.new_events_schema import events_route_scope
 
-from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus
+from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus, SentMessageMatch
 from products.messaging.backend.models.email_status_sql import (
+    EMAIL_STATUS_EVENTS_TABLE,
     EMAIL_STATUS_RETENTION_DAYS,
     EMAIL_STATUS_SHOWN_REASON,
     EMAIL_STATUS_TABLE,
@@ -150,4 +153,44 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
         created_at=created_at,
         status_at=status_at,
         reason=reason or None,
+    )
+
+
+# SES replaces our Message-ID with `<MessageId@email.amazonses.com>`, or `@<region>.amazonses.com` outside us-east-1,
+# and the sent row keeps only the MessageId its API returned.
+_SES_WIRE_MESSAGE_ID = re.compile(r"<?([^<>@\s]+)@(?:[a-z0-9-]+\.)*amazonses\.com>?", re.IGNORECASE)
+# A reply carries no send time, so this reads every partition the retention keeps and skips granules by the index.
+_SENT_MESSAGE_QUERY = f"""
+SELECT provider_message_id, any(message_id)
+FROM {EMAIL_STATUS_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND provider_message_id IN %(provider_message_ids)s
+GROUP BY provider_message_id
+"""
+
+
+@events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
+def match_sent_message_ids(team_id: int, message_ids: Sequence[str]) -> tuple[SentMessageMatch, ...]:
+    """The sends of this team among these wire Message-IDs, such as a reply's In-Reply-To and References."""
+    wire_ids: dict[str, str] = {}
+    for wire_id in message_ids:
+        if match := _SES_WIRE_MESSAGE_ID.fullmatch(wire_id.strip()):
+            wire_ids.setdefault(match[1], wire_id)
+    if not wire_ids:
+        return ()
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    rows = cast(
+        list,
+        sync_execute(
+            _SENT_MESSAGE_QUERY,
+            {"team_id": team_id, "provider_message_ids": list(wire_ids)},
+            # Without the index this reads every row the team sent in 31 days, so refuse to run rather than scan.
+            settings={"force_data_skipping_indices": "provider_message_id_idx"},
+            # Inbound email processing asks, not a person on screen.
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        ),
+    )
+    return tuple(
+        SentMessageMatch(wire_message_id=wire_ids[provider_id], send_id=str(send_id)) for provider_id, send_id in rows
     )

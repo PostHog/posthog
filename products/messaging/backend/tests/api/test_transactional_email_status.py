@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
@@ -19,7 +19,12 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.uuidt import UUIDT
 
-from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_TABLE
+from products.messaging.backend.facade.transactional_email import SentMessageMatch, match_sent_message_ids
+from products.messaging.backend.models.email_status_sql import (
+    EMAIL_STATUS_DATA_TABLE,
+    EMAIL_STATUS_EVENTS_DATA_TABLE,
+    EMAIL_STATUS_EVENTS_TABLE,
+)
 from products.messaging.backend.services.transactional_email_status import keyed_message_id, message_created_at
 
 # The read only compares versions, so these ranks must keep the writer's order but not its values. A status only
@@ -288,6 +293,52 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(self._url(self.message_id))
 
         assert response.status_code == expected_status
+
+
+class TestMatchSentMessageIds(ClickhouseTestMixin, BaseTest):
+    def _sent_row(self, team: Team, message_id: str, provider_message_id: str) -> None:
+        now = datetime.now(UTC)
+        sync_execute(
+            f"""
+            INSERT INTO {EMAIL_STATUS_EVENTS_DATA_TABLE}
+                (team_id, message_id, status, version, created_at, status_at, provider_message_id,
+                 _timestamp, _offset, _partition)
+            VALUES
+            """,
+            [
+                {
+                    "team_id": team.id,
+                    "message_id": message_id,
+                    "status": "sent",
+                    "version": 0,
+                    "created_at": now,
+                    "status_at": now,
+                    "provider_message_id": provider_message_id,
+                    "_timestamp": now,
+                    "_offset": 0,
+                    "_partition": 0,
+                }
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            ("us_east_1", "<0100018c-ours-000000@email.amazonses.com>", True),
+            ("another_region", "<0100018c-ours-000000@eu-central-1.amazonses.com>", True),
+            ("not_an_ses_domain", "<0100018c-ours-000000@example.com>", False),
+            ("another_teams_send", "<0100018c-theirs-000000@email.amazonses.com>", False),
+            ("never_sent", "<0100018c-unknown-000000@email.amazonses.com>", False),
+        ]
+    )
+    def test_matches_a_wire_message_id_to_this_teams_send(self, _name, wire_message_id, matches):
+        send_id = str(UUIDT())
+        self._sent_row(self.team, send_id, "0100018c-ours-000000")
+        other_team = Team.objects.create(organization=self.organization)
+        self._sent_row(other_team, str(UUIDT()), "0100018c-theirs-000000")
+
+        found = match_sent_message_ids(self.team.id, [wire_message_id])
+
+        assert found == ((SentMessageMatch(wire_message_id=wire_message_id, send_id=send_id),) if matches else ())
 
 
 class TestKeyedMessageId(SimpleTestCase):
