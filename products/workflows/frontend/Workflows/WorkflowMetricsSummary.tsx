@@ -20,6 +20,8 @@ import {
     type EmailMetricRow,
     METRIC_COLORS,
     type PushMetricRow,
+    SANDBOX_EMAIL_METRICS,
+    sumSeries,
     WORKFLOW_EMAIL_METRICS,
     WORKFLOW_SUMMARY_METRICS,
     withDisplayName,
@@ -93,10 +95,12 @@ export function WorkflowMetricsSummary({
     const { getDateRangeAbsolute } = useValues(appMetricsLogic({ logicKey: props.logicKey }))
     const { dateFrom, dateTo } = getDateRangeAbsolute()
 
-    // Sent counts PostHog test sender sends too, like the workflow summary does.
+    // PostHog test sender sends record their own metric names, so each card adds them in.
     const transactionalSeries = (key: EmailMetric, previous = false): ReturnType<typeof getSingleTrendSeries> =>
-        withDisplayName(
-            key === 'email_sent' ? getSentSummarySeries(previous) : getSingleTrendSeries(key, previous),
+        sumSeries(
+            [key, ...Object.keys(SANDBOX_EMAIL_METRICS).filter((name) => SANDBOX_EMAIL_METRICS[name] === key)].map(
+                (name) => getSingleTrendSeries(name, previous)
+            ),
             WORKFLOW_EMAIL_METRICS[key].name
         )
     const transactionalTrends = appMetricsTrends && {

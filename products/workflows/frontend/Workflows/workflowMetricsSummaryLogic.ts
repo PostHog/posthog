@@ -1407,7 +1407,7 @@ export function withDisplayName(
     }
 }
 
-function sumSeries(
+export function sumSeries(
     parts: (AppMetricsTimeSeriesResponse | null)[],
     displayName: string
 ): AppMetricsTimeSeriesResponse | null {
