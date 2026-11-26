@@ -173,7 +173,7 @@ class UserManager(BaseUserManager):
             queryset = queryset.select_related("current_organization")
         return queryset
 
-    def humans(self) -> models.QuerySet["User"]:
+    def humans(self) -> "models.QuerySet[Any]":
         return self.get_queryset().filter(type=UserType.HUMAN)
 
     @contextmanager
