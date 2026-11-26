@@ -643,6 +643,7 @@ export function createRunner(
                     commits: probes.commits,
                     manifest,
                     startedAt: driveStartedAt,
+                    endsAt: driveStartedAt + durationMs(card.drive.for),
                 })
                 const windowOpen = new AbortController()
                 void sleep(Math.max(0, driveStartedAt + durationMs(card.drive.for) - Date.now()), undefined, {

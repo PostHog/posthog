@@ -379,6 +379,24 @@ describe('valves', () => {
         }
     )
 
+    it('never kills when its offset comes due only after the drive was due to end, though no release ran', async () => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf()
+
+        await valves.start([kill({ at: '1m' })], {
+            ...stack.context,
+            startedAt: Date.now() - 60_000,
+            endsAt: Date.now() - 1,
+        })
+        await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+
+        expect(stack.gone()).toEqual([])
+        expect(valves.timeline()).toEqual([
+            expect.objectContaining({ error: 'never applied: released before its offset' }),
+        ])
+        await valves.releaseAll()
+    })
+
     it.each<[string, string | undefined]>([
         ['', undefined],
         [', once armed', '20ms'],

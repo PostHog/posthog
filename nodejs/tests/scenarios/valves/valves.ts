@@ -19,6 +19,7 @@ export type ValveContext = {
     commits: () => readonly WriterSample[]
     manifest?: RunManifest
     startedAt?: number
+    endsAt?: number
 }
 
 export type ValveDefinition = Definition & {
@@ -226,6 +227,8 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             })
         }
 
+        const ended = (): boolean =>
+            released.signal.aborted || (context.endsAt !== undefined && Date.now() >= context.endsAt)
         let armed = entry.at === undefined
         const due = async (): Promise<boolean> => {
             if (entry.at !== undefined) {
@@ -233,7 +236,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                 await sleep(Math.max(0, durationMs(entry.at) - elapsedMs), undefined, {
                     signal: released.signal,
                 }).catch(() => undefined)
-                armed = !released.signal.aborted
+                armed = !ended()
                 if (entry.when === undefined || !armed) {
                     return entry.when === undefined
                 }
@@ -259,7 +262,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             record.error = (error as Error).message
             return false
         })
-        if (!isDue || released.signal.aborted) {
+        if (!isDue || ended()) {
             record.error ??= withProbeFailure(
                 isDue && entry.when?.name === 'edge_accepted'
                     ? 'never applied: the drive ended before the valve applied'
