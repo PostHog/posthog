@@ -227,10 +227,24 @@ class TestRenderSectionHtml(SimpleTestCase):
         link = _make_citation_link(42, citation_map["12345678-1234-1234-1234-123456789abc"])
         self.assertIn(f'<a href="{link}">12345678...</a>', html)
 
-    def test_collapses_links_to_their_label(self):
-        content = "See [docs](https://posthog.com/docs/llm)."
-        self.assertIn("<p>See docs.", _render_section_html("Summary", content, project_id=1, citation_map={}))
-        self.assertIn("\nSee docs.", _render_section_mrkdwn("Summary", content, project_id=1, citation_map={}))
+    def test_links_a_citation_beside_another_link(self):
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
+        link = _make_citation_link(1, citation_map["12345678-1234-1234-1234-123456789abc"])
+        content = "See <https://posthog.com/docs> and `12345678-1234-1234-1234-123456789abc`."
+        html = _render_section_html("Summary", content, project_id=1, citation_map=citation_map)
+        self.assertIn(f'<a href="{link}">', html)
+        self.assertNotIn("<pre>", html)
+
+    def test_keeps_code_that_looks_like_a_link(self):
+        content = '```python\nhandlers["search"](query)\n```'
+        self.assertIn(
+            "handlers[&quot;search&quot;](query)", _render_section_html("S", content, project_id=1, citation_map={})
+        )
+        self.assertIn('handlers["search"](query)', _render_section_mrkdwn("S", content, project_id=1, citation_map={}))
+
+    def test_an_unclosed_fence_does_not_reach_the_next_section(self):
+        _render_section_mrkdwn("First", "```\ncode without a closing fence", project_id=1, citation_map={})
+        self.assertNotIn("**bold**", _render_section_mrkdwn("Second", "**bold**", project_id=1, citation_map={}))
 
     def test_cuts_long_sections_before_rendering(self):
         html = _render_section_html("Summary", "word " * 20_000, project_id=1, citation_map={})

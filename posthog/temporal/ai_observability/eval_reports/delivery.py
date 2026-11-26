@@ -19,7 +19,6 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import defang_urls
-from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.temporal.ai_observability.eval_reports.auto_disable import disable_undeliverable_report
@@ -41,9 +40,8 @@ _LEADING_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*(?:\r?\n|$)")
 
 
 # The agent writes the markdown, but it reads customer trace content, so a prompt injection can steer
-# what it writes. Both renderers make only the citation links clickable: html=False escapes raw HTML,
-# images are off, `strip_external_links_markdown` makes bare external URLs inert, and links render only
-# when they point at a cited trace.
+# what it writes. Both renderers make only the citation links clickable: in email, html=False escapes raw
+# HTML, images are off, links render only when they point at a cited trace, and URL-shaped text is defanged.
 class _CitationLinksMarkdownIt(MarkdownIt):
     def __init__(self, citation_urls: set[str]):
         super().__init__("commonmark", {"html": False})
@@ -67,8 +65,6 @@ class _CitationLinksMarkdownIt(MarkdownIt):
 def _defang(token: Token) -> str:
     return defang_urls(html.escape(token.content))
 
-
-_slack_converter = SlackMarkdownConverter()
 
 _INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=eval_report&utm_medium=slack"
 
@@ -319,22 +315,20 @@ def _render_metrics_slack_blocks(metrics: EvalReportMetrics | None) -> list[dict
     return blocks
 
 
-# The agent writes sections without a length cap, and link stripping and Slack conversion are super-linear on
-# adversarial markdown, so longer text is cut before either runs.
+# The agent writes sections without a length cap, and Slack conversion is super-linear on adversarial markdown, so
+# longer text is cut before it runs.
 _MAX_SECTION_CHARS = 20_000
 
 
-def _strip_section(title: str, content: str, citation_map: CitationMap) -> tuple[str, dict[str, str]]:
-    """Cited IDs become placeholders before anything parses the text, so no later step can split, escape or fence
-    them. Every link the agent wrote collapses to its label, since only citation links render."""
+def _prepare_section(title: str, content: str, citation_map: CitationMap) -> tuple[str, dict[str, str]]:
+    """Cited IDs become placeholders before anything parses the text, so no later step can split or escape them."""
     content = _strip_redundant_leading_heading(content[:_MAX_SECTION_CHARS], title)
-    content, placeholders = _citation_placeholders(content, citation_map)
-    return strip_external_links_markdown(content, keep_links=False), placeholders
+    return _citation_placeholders(content, citation_map)
 
 
 def _render_section_html(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as HTML with clickable trace links."""
-    content = _write_markdown_citation_links(*_strip_section(title, content, citation_map), project_id, citation_map)
+    content = _write_markdown_citation_links(*_prepare_section(title, content, citation_map), project_id, citation_map)
     md = _CitationLinksMarkdownIt({_make_citation_link(project_id, link) for link in citation_map.values()})
     html_content = _inline_email_styles(md.render(content))
     return f"<h2>{defang_urls(html.escape(title))}</h2>\n{html_content}\n"
@@ -342,18 +336,19 @@ def _render_section_html(title: str, content: str, project_id: int, citation_map
 
 def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as Slack mrkdwn with clickable trace links."""
-    content, placeholders = _strip_section(title, content, citation_map)
+    content, placeholders = _prepare_section(title, content, citation_map)
     content = content.replace("&", "&amp;")
     # Whatever syntax the agent used, a live `<!channel>` or `<url|label>` needs a `<`, so every `<` left
     # after conversion is escaped and only citation links are written back.
     # Slack auto-links domain-shaped text too, so it is defanged.
-    mrkdwn_content = defang_urls(_slack_converter.convert(content)).replace("<", "&lt;")
+    # A fresh converter per section, since it keeps code-block state and a section can end inside a fence.
+    mrkdwn_content = defang_urls(SlackMarkdownConverter().convert(content)).replace("<", "&lt;")
     for placeholder, cited_id in placeholders.items():
         link = citation_map[cited_id]
         mrkdwn_content = mrkdwn_content.replace(
             placeholder, f"<{_make_citation_link(project_id, link)}|{_citation_link_label(cited_id, link)}>"
         )
-    return f"*{escape_slack_mrkdwn(defang_urls(strip_external_links_markdown(title[:_MAX_SECTION_CHARS], keep_links=False)))}*\n{mrkdwn_content}"
+    return f"*{escape_slack_mrkdwn(defang_urls(title[:_MAX_SECTION_CHARS]))}*\n{mrkdwn_content}"
 
 
 def _report_url(project_id: int, evaluation_id: str, report_run_id: str) -> str:
