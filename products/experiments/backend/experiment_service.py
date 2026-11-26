@@ -2062,7 +2062,7 @@ class ExperimentService:
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
         self.assert_user_may_run_warehouse_native_sources(experiment)
-        self._reject_deleted_cohorts(experiment, action="launching")
+        self.reject_deleted_cohorts(experiment, action="launching")
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
@@ -2280,7 +2280,7 @@ class ExperimentService:
         """
         if not experiment.archived:
             raise ValidationError("Experiment is not archived.")
-        self._reject_deleted_cohorts(experiment, action="unarchiving")
+        self.reject_deleted_cohorts(experiment, action="unarchiving")
 
         experiment.archived = False
         self._bump_version_and_save(experiment, update_fields=["archived"])
@@ -2291,7 +2291,7 @@ class ExperimentService:
 
         return experiment
 
-    def _reject_deleted_cohorts(
+    def reject_deleted_cohorts(
         self,
         experiment: Experiment,
         *,
@@ -2322,23 +2322,16 @@ class ExperimentService:
         )
         if not ids:
             return
-        cohorts = {
-            cohort.pk: cohort
-            for cohort in Cohort.objects.filter(team__project_id=self.team.project_id, pk__in=ids).only(
-                "pk", "name", "deleted"
+        live_ids = set(
+            Cohort.objects.filter(team__project_id=self.team.project_id, pk__in=ids, deleted=False).values_list(
+                "pk", flat=True
             )
-        }
-        gone = [cohort_id for cohort_id in sorted(ids) if cohort_id not in cohorts or cohorts[cohort_id].deleted]
-        if gone:
-            labels = ", ".join(
-                f"'{cohorts[cohort_id].name}' (ID {cohort_id})"
-                if cohort_id in cohorts and cohorts[cohort_id].name
-                else f"ID {cohort_id}"
-                for cohort_id in gone
-            )
+        )
+        # The error names IDs only, because the caller may not be allowed to read these cohorts.
+        if gone := sorted(ids - live_ids):
             raise ValidationError(
-                f"This experiment filters on deleted or missing cohorts: {labels}. Restore them, or remove them from "
-                f"the exposure criteria and metrics, before {action} the experiment."
+                f"This experiment filters on deleted or missing cohorts: ID {', '.join(map(str, gone))}. Restore "
+                f"them, or remove them from the exposure criteria and metrics, before {action} the experiment."
             )
 
     def _unarchive_linked_feature_flag(
@@ -3919,7 +3912,7 @@ class ExperimentService:
             update_data.get("archived", experiment.archived) or update_data.get("deleted", experiment.deleted)
         )
         if launching or returning:
-            self._reject_deleted_cohorts(
+            self.reject_deleted_cohorts(
                 experiment,
                 action="launching" if launching else "unarchiving" if experiment.archived else "restoring",
                 update_data=update_data,

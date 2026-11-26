@@ -16,7 +16,7 @@ def experiments_using_cohort(*, project_id: int, cohort_id: int) -> tuple[Experi
     criteria, their metrics or a linked shared metric, in id order. HogQL rejects a deleted cohort, so every query of
     such an experiment fails once the cohort is deleted."""
     path_vars = json.dumps({"id": cohort_id, "id_text": str(cohort_id)})
-    live = Experiment.objects.filter(team__project_id=project_id, deleted=False, archived=False)
+    live = Experiment.live_objects.filter(team__project_id=project_id, archived=False)
     ids = set(
         _with_cohort_filter(live, ("exposure_criteria", "metrics", "metrics_secondary"), path_vars).values_list(
             "id", flat=True

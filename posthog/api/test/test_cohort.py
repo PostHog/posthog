@@ -46,6 +46,7 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.property import BehavioralPropertyType, Property
 from posthog.models.team.team import Team
 from posthog.redis import get_client as get_redis_client
@@ -6722,7 +6723,9 @@ email@example.org,
             "Remove the cohort from these flags, or archive the flags, before deleting it.",
         )
 
-    def _create_experiment_on_cohort(self, cohort_value: int | str, place: str, name: str, **state: Any) -> int:
+    def _create_experiment_on_cohort(
+        self, cohort_value: int | str, place: str, name: str, team_id: int | None = None, **state: Any
+    ) -> int:
         cohort_filter = {"key": "id", "type": "cohort", "value": cohort_value, "operator": "in"}
         metric = {
             "kind": "ExperimentMetric",
@@ -6731,7 +6734,7 @@ email@example.org,
         }
         flag = FeatureFlag.objects.create(team=self.team, key=f"flag-{name.lower().replace(' ', '-')}")
         experiment_id = create_experiment(
-            team_id=self.team.id,
+            team_id=team_id or self.team.id,
             feature_flag_id=flag.id,
             name=name,
             exposure_criteria=(
@@ -6784,6 +6787,7 @@ email@example.org,
                 False,
             ),
             ("soft_deleted", "metric", {"deleted": True}, False, False),
+            ("deleted_left_empty", "metric", {"deleted": None}, False, True),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
@@ -6867,8 +6871,9 @@ email@example.org,
 
     @parameterized.expand(
         [
-            ("without_experiment_read", ["cohort:write"], False),
-            ("with_experiment_read", ["cohort:write", "experiment:read"], True),
+            ("without_experiment_read", ["cohort:write"], False, False),
+            ("with_experiment_read", ["cohort:write", "experiment:read"], False, True),
+            ("experiment_outside_the_keys_environment", ["cohort:write", "experiment:read"], True, False),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
@@ -6877,6 +6882,7 @@ email@example.org,
         self,
         _name: str,
         scopes: list[str],
+        in_sibling_environment: bool,
         names_shown: bool,
         patch_calculate_cohort: MagicMock,
         patch_capture: MagicMock,
@@ -6886,8 +6892,16 @@ email@example.org,
             data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
         )
         cohort_id = response.json()["id"]
-        self._create_experiment_on_cohort(cohort_id, "metric", "Checkout test", created_by_id=self.user.id)
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="Staging")
+        self._create_experiment_on_cohort(
+            cohort_id,
+            "metric",
+            "Checkout test",
+            team_id=sibling.id if in_sibling_environment else None,
+            created_by_id=self.user.id,
+        )
         key = self.create_personal_api_key_with_scopes(scopes)
+        PersonalAPIKey.objects.filter(user=self.user).update(scoped_teams=[self.team.id])
         self.client.logout()
 
         response = self.client.patch(

@@ -76,9 +76,13 @@ class ExperimentsConfig(AppConfig):
             assert_experiment_deletable(experiment)
 
         def _pre_restore(context: RestoreContext, experiment: Experiment) -> None:
+            from products.experiments.backend.experiment_service import ExperimentService  # noqa: PLC0415
             from products.experiments.backend.flag_ownership import assert_experiment_restorable  # noqa: PLC0415
 
             assert_experiment_restorable(experiment)
+            ExperimentService(team=experiment.team, user=context.user).reject_deleted_cohorts(
+                experiment, action="restoring"
+            )
 
         def _post_delete(context: DeletionContext, experiment: Experiment) -> None:
             _log_file_system_activity(context, experiment, "deleted")

@@ -104,7 +104,7 @@ from posthog.models.property.property import (
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import get_authenticator_scopes, request_subject
+from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes, request_subject
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
@@ -280,6 +280,10 @@ def _flag_names_suffix(
 def _viewable_experiments(
     request: Request, experiments: tuple[ExperimentCohortReference, ...]
 ) -> list[ExperimentCohortReference]:
+    # The check's subject is the user, so a credential confined to some environments is filtered here.
+    scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
+    if scoped_teams is not None:
+        experiments = tuple(experiment for experiment in experiments if experiment.team_id in scoped_teams)
     if not experiments or not _token_can_read(request, "experiment"):
         return []
     subject = request_subject(request)

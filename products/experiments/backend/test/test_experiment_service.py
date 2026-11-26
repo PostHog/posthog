@@ -24,6 +24,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
+from posthog.api.file_system.deletion import undo_delete
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.exceptions import (
@@ -3623,6 +3624,7 @@ class TestExperimentService(APIBaseTest):
             ("unarchive", "unarchive", "metric", False, True),
             ("unarchive_by_patch_with_id_as_text", "unarchive_by_patch", "exposure_criteria", True, True),
             ("restore_by_patch", "restore_by_patch", "shared_metric", False, True),
+            ("restore_from_file_system", "restore_from_file_system", "metric", False, True),
             ("launch", "launch", "metric", False, True),
             ("launch_by_patch", "launch_by_patch", "secondary_metric", False, True),
             ("live_cohort", "unarchive", "metric", False, False),
@@ -3662,7 +3664,7 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
         if path.startswith("unarchive"):
             service.archive_experiment(experiment)
-        if path == "restore_by_patch":
+        if path.startswith("restore"):
             Experiment.objects.filter(pk=experiment.pk).update(deleted=True)
             experiment.refresh_from_db()
         Cohort.objects.filter(pk=cohort.pk).update(deleted=cohort_deleted)
@@ -3671,6 +3673,13 @@ class TestExperimentService(APIBaseTest):
             "unarchive": lambda: service.unarchive_experiment(experiment),
             "unarchive_by_patch": lambda: service.update_experiment(experiment, {"archived": False}),
             "restore_by_patch": lambda: service.update_experiment(experiment, {"deleted": False}),
+            "restore_from_file_system": lambda: undo_delete(
+                type_string="experiment",
+                ref=str(experiment.id),
+                user=self.user,
+                team=self.team,
+                organization=self.organization,
+            ),
             "launch": lambda: service.launch_experiment(experiment),
             "launch_by_patch": lambda: service.update_experiment(experiment, {"start_date": timezone.now()}),
         }[path]
@@ -3683,8 +3692,8 @@ class TestExperimentService(APIBaseTest):
 
         action = {"unarchive": "unarchiving", "restore": "restoring", "launch": "launching"}[path.split("_")[0]]
         assert ctx.exception.detail == [
-            f"This experiment filters on deleted or missing cohorts: 'Retired cohort' (ID {cohort.id}). Restore them, "
-            f"or remove them from the exposure criteria and metrics, before {action} the experiment."
+            f"This experiment filters on deleted or missing cohorts: ID {cohort.id}. Restore them, or remove them from "
+            f"the exposure criteria and metrics, before {action} the experiment."
         ]
         experiment.refresh_from_db()
         assert (experiment.archived, experiment.deleted, experiment.start_date) == before
