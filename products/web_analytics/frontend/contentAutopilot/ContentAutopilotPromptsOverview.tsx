@@ -26,7 +26,7 @@ import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { POSITION_DESCRIPTION } from './promptReport'
-import { engineTopicGrid } from './promptsOverview'
+import { engineTopicGrid, overviewTiles } from './promptsOverview'
 import { brandedAnswersNote, filtersHeading, segmentPrompts, sortEngines, windowRange } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
@@ -34,7 +34,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
         overview,
         overviewLoading,
         overviewError,
-        overviewKpis,
         hasChecks,
         chartMetric,
         visibilityChart,
@@ -64,7 +63,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     if (wizardStep) {
         return <AiVisibilitySetupWizard step={wizardStep} />
     }
-    if (!setupContext || !overview || !overviewKpis || !visibilityChart || !visibilityQuery || !sourcesQuery) {
+    if (!setupContext || !overview || !visibilityChart || !visibilityQuery || !sourcesQuery) {
         return <ContentAutopilotPromptsOverviewSkeleton />
     }
     const header = (
@@ -117,6 +116,8 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
         return <ContentAutopilotFirstRunCard prompts={paused} paused />
     }
 
+    const tiles = overviewTiles(overview)
+
     // The chart's legend order, so an engine sits in the same place in the chart and the table.
     const engineOrder = sortEngines(overview.engines.map(({ engine }) => engine))
     const engines = overview.engines
@@ -142,28 +143,28 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 <ContentAutopilotKpiStat
                     label="Prompts tracked"
                     description="Paused and archived prompts don't count."
-                    {...overviewKpis.promptsTracked}
+                    value={tiles.prompts}
                     onClick={() => setWorkspaceTab('prompts')}
                     data-attr="content-autopilot-prompts-overview-kpi-prompts"
                 />
                 <ContentAutopilotKpiStat
                     label="Visibility"
                     description="Share of answers that name your brand or link to your site."
-                    {...overviewKpis.mentionRate}
+                    value={tiles.visibility}
                     onClick={() => setChartMetric('mentioned')}
                     data-attr="content-autopilot-prompts-overview-kpi-mentioned"
                 />
                 <ContentAutopilotKpiStat
                     label="Cited as a source"
                     description="Share of answers that link to a page on your site."
-                    {...overviewKpis.citationRate}
+                    value={tiles.cited}
                     onClick={() => setChartMetric('cited')}
                     data-attr="content-autopilot-prompts-overview-kpi-cited"
                 />
                 <ContentAutopilotKpiStat
                     label="Average position"
                     description={POSITION_DESCRIPTION}
-                    {...overviewKpis.position}
+                    value={tiles.position}
                     onClick={() => setChartMetric('position')}
                     data-attr="content-autopilot-prompts-overview-kpi-position"
                 />
