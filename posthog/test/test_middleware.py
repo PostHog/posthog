@@ -2774,6 +2774,34 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         assert (credential.type if credential else None) == expected_type
         assert self.activity_storage.get_credential() is None
 
+    @parameterized.expand(
+        [
+            ("session", "posthog.urls", "/api/users/@me/", "request_finished"),
+            ("personal_api_key", "posthog.urls", "/api/users/@me/", "request_finished"),
+            ("session", __name__, "/api/_raising_probe/", "request_failed"),
+        ]
+    )
+    def test_request_log_names_the_credential(self, credential_type: str, urlconf: str, path: str, event: str) -> None:
+        if credential_type == "personal_api_key":
+            self.client.logout()
+            token = generate_random_token_personal()
+            key = PersonalAPIKey.objects.create(
+                user=self.user, label="Example key", secure_value=hash_key_value(token), scopes=["user:read"]
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            expected_id = key.id
+        else:
+            session_key = self.client.session.session_key
+            assert session_key is not None
+            expected_id = str(session_public_id(session_key))
+
+        self.client.raise_request_exception = False
+        with capture_logs() as logs, override_settings(ROOT_URLCONF=urlconf):
+            self.client.get(path)
+
+        [entry] = [log for log in logs if log["event"] == event]
+        assert (entry["credential_type"], entry["credential_id"]) == (credential_type, expected_id)
+
     def test_captures_x_posthog_client_header(self):
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT="posthog-js/1.234.0")
         request.user = self.user

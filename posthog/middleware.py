@@ -78,7 +78,7 @@ from posthog.models.event.new_events_schema import (
     NEW_EVENTS_SCHEMA_HEADER,
     new_events_schema_for_request,
 )
-from posthog.request_log_signal_handlers import CREDENTIAL_QUERY_PARAMS
+from posthog.request_log_signal_handlers import CREDENTIAL_QUERY_PARAMS, REQUEST_CREDENTIAL_ATTR
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -1711,6 +1711,8 @@ class ActivityLoggingMiddleware:
             response = self.get_response(request)
             _buffer_mcp_intent(request, response)
         finally:
+            # django-structlog writes request_finished above this middleware, after the cleanup below.
+            setattr(request, REQUEST_CREDENTIAL_ATTR, activity_storage.get_credential())
             # Clean up activity storage after request
             activity_storage.clear_all()
 
