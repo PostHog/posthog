@@ -1,8 +1,8 @@
 """Query batch results as chart-ready frames, so a chart draws any target without knowing its language.
 
 A frame is Dash's `DataFrame` (packages/schema/src/frame.ts in PostHog/dash): a name, labels, a time field in epoch
-milliseconds, one or more value fields and meta. Each language's result has one converter here. A result whose kind has
-no frame shape (paths, events tables...) gets None, and its line keeps the raw result.
+milliseconds, one or more value fields and meta. Each language's result has one converter here, and a node kind without
+one of its own becomes a table. A result with no frame shape at all gets None, and its line says so with an error.
 
 The frame types are the cached tiles' (`facade.contracts`), which also have the string, boolean and other fields a table
 needs. The trends and metrics converters are ported from the cached tiles converters in `logic/frames.py`.
@@ -68,11 +68,14 @@ MAX_LEGEND_NAME = 1024
 MAX_PIVOT_SERIES = 1000
 MAX_PIVOT_FIELDS = 20_000
 MAX_PIVOT_LABEL_BYTES = 8 * 1024 * 1024
-# A log table repeats its stream's labels on every line. Above this many label bytes, the result stays raw.
+# A log table repeats its stream's labels on every line. Above this many label bytes, it has no frames.
 MAX_STREAM_LABEL_BYTES = 8 * 1024 * 1024
 # Each Prometheus series becomes a frame of its own, many times the size of the series in the response. Above this
-# many series, the result stays raw.
+# many series, it has no frames.
 MAX_PROMETHEUS_SERIES = 1000
+# A list of records with many distinct keys expands to rows x keys cells, so sparse records are bounded before allocation.
+MAX_RECORD_FIELDS = 1000
+MAX_RECORD_CELLS = 2_000_000
 
 
 def frames_for(
@@ -133,7 +136,14 @@ def _frames(
         return funnels_frames(source, result, timezone)
     if kind == "RetentionQuery":
         return retention_frames(result)
-    return None
+    return table_frames(str(kind), result)
+
+
+def shape_kind(language: QueryBatchLanguage, query: Mapping[str, Any]) -> str:
+    """What a line without frames names as its unsupported shape: the node kind, or the language when there is none."""
+    source = None if language == QueryBatchLanguage.LOGQL else _source(query)
+    kind = source.get("kind") if source else None
+    return str(kind) if kind else language.value
 
 
 def _source(query: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
@@ -553,6 +563,100 @@ def _period_count(cohort: Mapping[str, Any], period: int) -> Optional[float]:
     value = values[period]
     aggregated = value.get("aggregation_value")
     return aggregated if aggregated is not None else value.get("count")
+
+
+# Any other runner: a table with columns, or a list of records.
+
+_WEB_COLUMN_PREFIX = "context.columns."
+
+
+def table_frames(kind: str, result: Mapping[str, Any]) -> Optional[list[Frame]]:
+    """A runner's rows as one table frame, never pivoted: an events list or a web analytics table is not a series."""
+    rows = result.get("results")
+    if not isinstance(rows, list):
+        return None
+    if isinstance(result.get("columns"), list) and all(isinstance(row, list | tuple) for row in rows):
+        table = _web_table(result) if kind.startswith("Web") else result
+        return hogql_frames(table, pivot=False)
+    if all(isinstance(row, Mapping) for row in rows):
+        if not _records_fit(rows):
+            return None
+        return [records_frame(rows, truncated=result.get("hasMore") is True)] if rows else []
+    return None
+
+
+def _records_fit(rows: Sequence[Mapping[str, Any]]) -> bool:
+    names: set[Any] = set()
+    for row in rows:
+        names.update(row)
+        if len(names) > MAX_RECORD_FIELDS or len(names) * len(rows) > MAX_RECORD_CELLS:
+            return False
+    return True
+
+
+def _web_table(result: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Web analytics columns are named `context.columns.<name>`, and a compared number is a `[current, previous]` pair.
+    The pair becomes two number columns, `<name>` and `<name> (previous)`."""
+    columns = [str(column).removeprefix(_WEB_COLUMN_PREFIX) for column in result["columns"]]
+    rows = result["results"]
+    pairs = [
+        column != "breakdown_value" and _is_compared_pair_column(rows, index) for index, column in enumerate(columns)
+    ]
+    types = list(result.get("types") or [])
+    new_columns: list[str] = []
+    new_types: list[Any] = []
+    for index, column in enumerate(columns):
+        if pairs[index]:
+            new_columns.extend([column, f"{column} (previous)"])
+            new_types.extend(["Float64", "Float64"])
+        else:
+            new_columns.append(column)
+            new_types.append(types[index] if index < len(types) else "")
+    new_rows: list[list[Any]] = []
+    for row in rows:
+        new_row: list[Any] = []
+        for index, value in enumerate(row):
+            if index < len(pairs) and pairs[index]:
+                new_row.extend(value if value is not None else [None, None])
+            else:
+                new_row.append(value)
+        new_rows.append(new_row)
+    return {**result, "columns": new_columns, "types": new_types, "results": new_rows}
+
+
+def _is_compared_pair_column(rows: Sequence[Sequence[Any]], index: int) -> bool:
+    """A breakdown dimension can also be a number pair (a viewport is `[width, height]`), so only metric columns split,
+    and only when at least one row actually holds a pair."""
+    values = [row[index] for row in rows if index < len(row) and row[index] is not None]
+    return bool(values) and all(
+        isinstance(value, list | tuple) and len(value) == 2 and _is_number_or_none(value) for value in values
+    )
+
+
+def _is_number_or_none(values: Sequence[Any]) -> bool:
+    return all(value is None or (isinstance(value, int | float) and not isinstance(value, bool)) for value in values)
+
+
+def records_frame(rows: Sequence[Mapping[str, Any]], *, truncated: bool = False) -> Frame:
+    """A list of objects (a web overview, paths' links...) as a table: one field per key, in first-seen order."""
+    names: dict[str, None] = {}
+    for row in rows:
+        names.update(dict.fromkeys(str(key) for key in row))
+    fields: list[FrameField] = []
+    for name in names:
+        values = [row.get(name) for row in rows]
+        sample = next((value for value in values if value is not None), None)
+        field_type: FrameFieldType
+        if isinstance(sample, bool):
+            field_type = "boolean"
+        elif isinstance(sample, int | float):
+            field_type = "number"
+        elif isinstance(sample, str) or sample is None:
+            field_type = "string"
+        else:
+            field_type = "other"
+        fields.append(FrameField(name=name, type=field_type, values=values))
+    return Frame(name=None, labels={}, fields=fields, meta=FrameMeta(truncated=truncated))
 
 
 # Metrics (builder, SQL and PromQL), ported from PR #138426.
