@@ -18,7 +18,7 @@ from posthog.models.team.team_marketing_analytics_config import TeamMarketingAna
 from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import DefinitionListTimedOut, definition_read_db_alias
-from posthog.taxonomy.definition_search import project_definition_scale
+from posthog.taxonomy.definition_search import NAME_ORDER_MIN_DEFINITIONS, project_definition_scale
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.user_permissions import UserPermissions
 
@@ -519,7 +519,7 @@ class ConversionRecommendationService:
         return ConversionRecommendationResults(
             recommendations=recommendations,
             limitations=[
-                "Discovery reads up to 1,000 event definitions in name order and 50 recently updated actions. The catalog sent to AI is size-limited.",
+                f"Discovery reads up to 1,000 event definitions, most recently seen first, and 50 recently updated actions. Projects with more than {NAME_ORDER_MIN_DEFINITIONS:,} event definitions are read in name order. The catalog sent to AI is size-limited.",
                 "Up to 10 sources are selected for review, with up to 50 property names per event. Other sources may be omitted.",
                 "Event definitions last seen before the analysis period are excluded. Definitions without activity dates may be included.",
                 "The event catalog is shared across project environments. Counts and activity in this environment are not verified, and test accounts are not filtered.",
