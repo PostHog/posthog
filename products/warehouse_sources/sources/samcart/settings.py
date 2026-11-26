@@ -74,9 +74,12 @@ SAMCART_ENDPOINTS: dict[str, SamCartEndpointConfig] = {
         incremental_fields=[_created_at_field()],
         default_incremental_field="created_at",
     ),
+    # Products change after they are created (name, SKU, price, archived), and a catalog is small, so
+    # the table is full refresh only.
+    "Products": SamCartEndpointConfig(name="Products", path=f"/{API_VERSION}/products"),
 }
 
-ENDPOINTS = ("Orders", "Charges", "Subscriptions", "Refunds")
+ENDPOINTS = ("Orders", "Charges", "Subscriptions", "Refunds", "Products")
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: SAMCART_ENDPOINTS[name].incremental_fields for name in ENDPOINTS

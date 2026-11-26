@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
@@ -12,10 +13,12 @@ from products.warehouse_sources.sources.samcart.settings import (
     SamCartEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
+    APIKeyAuth,
     ClientConfig,
     JSONResponseCursorPaginator,
     Resource,
     RESTAPIConfig,
+    RESTClient,
     ResumableSourceManager,
     SourceResponse,
     build_dependent_resource,
@@ -27,6 +30,8 @@ from products.warehouse_sources.sources.sdk import (
 # Cheap list endpoint used to confirm the API key. A key reads the whole marketplace, so one probe
 # covers every table.
 PROBE_PATH = f"/{API_VERSION}/charges"
+
+PRODUCTS_PATH = SAMCART_ENDPOINTS["Products"].path
 
 UTM_COLUMNS = {
     "utm_source": "source",
@@ -84,6 +89,51 @@ def add_utm_columns(order: dict[str, Any]) -> dict[str, Any]:
     for column, key in UTM_COLUMNS.items():
         order[column] = enhanced.get(key) or legacy.get(key)
     return order
+
+
+def _product_skus(
+    api_key: str, resumable_source_manager: ResumableSourceManager[SamCartResumeConfig]
+) -> dict[str, Any]:
+    client = RESTClient(
+        base_url=BASE_URL,
+        headers={"Accept": "application/json"},
+        auth=APIKeyAuth(api_key=api_key, name="sc-api"),
+        allow_redirects=False,
+    )
+    skus: dict[str, Any] = {}
+    for page in client.paginate(
+        path=PRODUCTS_PATH,
+        params={"limit": PAGE_SIZE, "sort": SORT},
+        paginator=_cursor_paginator(),
+        data_selector="data",
+    ):
+        skus.update((product["id"], product.get("sku")) for product in page)
+        # No subscription row is read yet, so a hand-off here loses nothing.
+        resumable_source_manager.safe_point()
+    return skus
+
+
+def _with_product_skus(
+    resource: Resource, api_key: str, resumable_source_manager: ResumableSourceManager[SamCartResumeConfig]
+) -> Resource:
+    # The subscription list has no SKU, and the subscription detail endpoint costs one request per
+    # subscription. The product catalog is a few pages, so the SKU comes from there. The products
+    # list leaves out deleted products, so their subscriptions get no SKU.
+    skus: dict[str, Any] = {}
+
+    def add_sku(subscription: dict[str, Any]) -> dict[str, Any]:
+        subscription["sku"] = skus.get(subscription.get("product_id"))
+        return subscription
+
+    mapped = resource.add_map(add_sku)
+
+    def pages() -> Iterator[list[dict[str, Any]]]:
+        skus.update(_product_skus(api_key, resumable_source_manager))
+        yield from mapped
+
+    # The wrapper hands each page on unchanged and holds no rows, so as a `Resource` it keeps the
+    # framework's checkpoints.
+    return Resource(pages, name=resource.name, hints=resource._hints)
 
 
 def _source_response(endpoint: str, config: SamCartEndpointConfig, items: Any) -> SourceResponse:
@@ -212,6 +262,8 @@ def samcart_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    if endpoint == "Subscriptions":
+        return _source_response(endpoint, config, _with_product_skus(resource, api_key, resumable_source_manager))
     return _source_response(endpoint, config, resource)
 
 
