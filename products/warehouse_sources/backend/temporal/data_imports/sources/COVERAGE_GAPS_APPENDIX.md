@@ -6983,17 +6983,17 @@ Note: Used the current documentation index and parsed version 2026-06-15 OpenAPI
 
 ## Harness — **thin**
 
-Today (7): `environments`, `executions`, `infrastructures`, `organizations`, `pipelines`, `projects`, `services`
+Today (11): `approval_instances`, `environments`, `execution_annotations`, `execution_notes`, `executions`, `infrastructures`, `organizations`, `pipelines`, `projects`, `services`, `user_groups`
 
 Diffed against: <https://apidocs.harness.io/_bundle/index.yaml>
 
 - [x] `Projects (GET /ng/api/projects)` — resolve project identifiers on synced resources into project names and organizational context (high)
 - [x] `Organizations (GET /ng/api/organizations)` — resolve organization identifiers on synced resources for named organizational reporting (high)
 - [x] `Infrastructures (GET /ng/api/infrastructures)` — explain infrastructure references and deployment targets within synced pipeline definitions and environments (high)
-- [ ] `Approval instances (GET /v1/orgs/{org}/projects/{project}/approvals/execution/{execution-id})` — measure manual approval bottlenecks and identify approval outcomes within pipeline executions (medium)
-- [ ] `Pipeline execution notes (GET /pipeline/api/pipelines/execution/{planExecutionId}/notes)` — connect execution outcomes with operator comments and explanations (medium)
-- [ ] `Pipeline execution annotations (GET /pipeline/api/pipelines/execution/{planExecutionId}/annotations)` — join execution outcomes with structured annotations and deployment context (medium)
-- [ ] `User groups (GET /ng/api/user-groups)` — analyze project team membership and connect approval responsibilities with named groups (medium)
+- [x] `Approval instances (GET /v1/orgs/{org}/projects/{project}/approvals/execution/{execution-id})` — measure manual approval bottlenecks and identify approval outcomes within pipeline executions (medium) Shipped as `approval_instances`, fanned out over `executions`.
+- [x] `Pipeline execution notes (GET /pipeline/api/pipelines/execution/{planExecutionId}/notes)` — connect execution outcomes with operator comments and explanations (medium) Shipped as `execution_notes`, fanned out over `executions`.
+- [x] `Pipeline execution annotations (GET /pipeline/api/pipelines/execution/{planExecutionId}/annotations)` — join execution outcomes with structured annotations and deployment context (medium) Shipped as `execution_annotations`, fanned out over `executions`.
+- [x] `User groups (GET /ng/api/user-groups)` — analyze project team membership and connect approval responsibilities with named groups (medium) Shipped as `user_groups`.
 - [ ] `Module license usage (GET /ng/api/usage/{module})` — compare module consumption across reporting periods and monitor license usage (medium)
 
 Note: Downloaded the official bundled OpenAPI specification and enumerated GET collections and execution sub-resources across its 2,147 paths. The source currently exposes four static tables from one configured project, including POST-based pipeline and execution lists. Approval instances, notes, and annotations need execution fan-out; organization, project, and usage reads require wider scope. Excluded secrets, connectors, input configuration, health checks, and artifact downloads.
