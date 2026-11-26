@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -161,7 +162,7 @@ class TestScheduledRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
-            ("discovery", lambda test: _discover().candidates, []),
+            ("discovery", lambda test: dataclasses.astuple(_discover()), (12, [])),
             ("exposure_check", lambda test: _check_exposures(test.experiment.id, 12), False),
             ("start", lambda test: _start_recalculation(test.experiment.id, 12).skip_reason, SKIP_RECALCULATION_PAUSED),
         ]

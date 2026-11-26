@@ -405,8 +405,11 @@ class TestRecalculationActivities(BaseTest):
         assert recalc.status == ("in_progress" if started_before_pause else "failed")
         assert recalc.completed_at is None
 
-    def test_discover_while_recalculation_is_paused_fails_the_run_before_reading_it(self):
+    @parameterized.expand([("pending_run", "pending"), ("already_failed_run", "failed")])
+    def test_discover_while_recalculation_is_paused_stops_before_reading_the_run(self, _name: str, status: str):
         recalc = self._recalc(self._experiment(flag_key="discover-paused"))
+        recalc.status = status
+        recalc.save(update_fields=["status"])
 
         with (
             override_instance_config(RECALCULATION_ENABLED_SETTING, False),
@@ -419,7 +422,7 @@ class TestRecalculationActivities(BaseTest):
         assert exc_info.value.type == RECALCULATION_PAUSED_ERROR_TYPE
         assert exc_info.value.non_retryable
         other_queries = [q["sql"] for q in queries.captured_queries if "posthog_instancesetting" not in q["sql"]]
-        assert len(other_queries) == 1 and other_queries[0].startswith("UPDATE")
+        assert [q.split(" ")[0] for q in other_queries] == ["UPDATE"]
         recalc.refresh_from_db()
         assert recalc.status == "failed"
         assert recalc.completed_at is None

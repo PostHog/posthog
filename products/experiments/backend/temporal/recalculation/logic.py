@@ -140,7 +140,8 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
     if not recalculation_enabled():
-        _fail_pending_run_when_paused(recalculation_id)
+        _fail_pending_run(recalculation_id)
+        raise _recalculation_paused_error(recalculation_id)
 
     state = _get_recalc_state(recalculation_id)
     with team_scope(state.team_id, canonical=True):
@@ -234,9 +235,9 @@ def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:
     return experiment_window_end(experiment, latest_query_to)
 
 
-def _fail_pending_run_when_paused(recalculation_id: str) -> None:
+def _fail_pending_run(recalculation_id: str) -> bool:
     # Only a never-started run fails, so calcs in flight finish; an empty completed_at keeps the latest results.
-    failed = (
+    return (
         ExperimentMetricsRecalculation.objects.unscoped()
         .filter(
             id=recalculation_id,
@@ -246,12 +247,14 @@ def _fail_pending_run_when_paused(recalculation_id: str) -> None:
         .update(status=ExperimentMetricsRecalculation.Status.FAILED)
         == 1
     )
-    if failed:
-        raise NonReportableApplicationError(
-            f"recalc {recalculation_id} not started: experiment recalculations are paused",
-            type=RECALCULATION_PAUSED_ERROR_TYPE,
-            non_retryable=True,
-        )
+
+
+def _recalculation_paused_error(recalculation_id: str) -> NonReportableApplicationError:
+    return NonReportableApplicationError(
+        f"recalc {recalculation_id} not started: experiment recalculations are paused",
+        type=RECALCULATION_PAUSED_ERROR_TYPE,
+        non_retryable=True,
+    )
 
 
 @database_sync_to_async_pool
@@ -273,8 +276,8 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
-            if not recalculation_enabled():
-                _fail_pending_run_when_paused(update.recalculation_id)
+            if not recalculation_enabled() and _fail_pending_run(update.recalculation_id):
+                raise _recalculation_paused_error(update.recalculation_id)
             experiment = Experiment.objects.get(id=state.experiment_id)
             proposed_query_to = _resolve_query_to(experiment, state.trigger)
 
