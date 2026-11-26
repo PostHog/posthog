@@ -6,6 +6,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
@@ -122,6 +123,23 @@ class TestProviderImportsAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
         start_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [("member", OrganizationMembership.Level.MEMBER, 403), ("admin", OrganizationMembership.Level.ADMIN, 201)]
+    )
+    def test_only_admins_import_customerio_contacts_with_the_stored_key(
+        self, mock_client_class: MagicMock, start_workflow: MagicMock, _name: str, level: int, expected: int
+    ) -> None:
+        mock_client_class.return_value.get_subscription_topics.return_value = []
+        Integration.objects.create(team=self.team, kind="customerio-app", sensitive_config={"app_api_key": "app-key"})
+        self.organization_membership.level = level
+        self.organization_membership.save(update_fields=["level"])
+        steps = ["categories", "suppressions", "opt_outs", "contacts"]
+
+        with patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=True):
+            response = self.client.post(self._url(), {"provider": "customerio", "steps": steps})
+
+        assert response.status_code == expected, response.json()
 
     def test_lists_a_run_whose_provider_this_deploy_does_not_know(
         self, _mock_client_class: MagicMock, _start_workflow: MagicMock
