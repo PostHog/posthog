@@ -9,7 +9,8 @@ import { pathToFileURL } from 'url'
 
 import { internalFetch } from '~/common/utils/request'
 
-import { ruleOf } from './faults'
+import { heldAnswerRule, ruleOf } from './faults'
+import { FaultHold } from './index'
 import { EdgeProcess, startEdgeProcess } from './process'
 
 const ALICE = 'run-1-1@www.example.com'
@@ -92,6 +93,20 @@ describe('provider edge process', () => {
         await edge.clearFaults()
 
         expect(await send()).toBe('sent')
+    })
+
+    it.each<[string, (held: FaultHold) => Promise<void>]>([
+        ['its valve releases', (held) => held.release()],
+        ['the edge clears its faults', () => edge.clearFaults()],
+    ])('answers a send it holds once %s', async (_path, remove) => {
+        const held = await edge.hold(heldAnswerRule())
+        const accepting = held.accepted!(AbortSignal.timeout(10_000))
+        const answer = send()
+        const accepted = await accepting
+
+        await remove(held)
+
+        expect({ accepted, answer: await answer }).toEqual({ accepted: true, answer: 'sent' })
     })
 
     it('rejects a pending call when the edge process dies', async () => {
