@@ -4,7 +4,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
-import { createServer, request as httpRequest } from 'node:http'
+import http, { ClientRequest, createServer, request as httpRequest } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { register } from 'prom-client'
 import supertest from 'supertest'
@@ -3012,8 +3012,6 @@ describe('EmailService', () => {
                     },
                 }
             }
-            // The send clock moves only when the test moves it, by the row's step at the held call. Timers and
-            // I/O run for real, so time a slow runner spends on them cannot carry a send past its deadline.
             it.each([
                 [
                     'a download answered after 19 s, a small send, whose deadline is 17 s, sends nothing and retries',
@@ -3272,6 +3270,25 @@ describe('EmailService', () => {
             )
 
             it('when SES records the email, answers 500 and its body stalls past the deadline, fails the send without a retry', async () => {
+                const deadlines: AbortController[] = []
+                const heldDeadlines = jest.spyOn(AbortSignal, 'timeout').mockImplementation(() => {
+                    const deadline = new AbortController()
+                    deadlines.push(deadline)
+                    return deadline.signal
+                })
+                const sendRequest = http.request as (...args: unknown[]) => ClientRequest
+                const deadlinePassesOnceThe500Arrives = jest.spyOn(http, 'request').mockImplementation(((
+                    ...args: unknown[]
+                ) =>
+                    sendRequest(...args).on('response', (response) => {
+                        if (response.statusCode === 500) {
+                            setImmediate(() =>
+                                deadlines.forEach((deadline) =>
+                                    deadline.abort(new DOMException('The deadline passed', 'TimeoutError'))
+                                )
+                            )
+                        }
+                    })) as typeof http.request)
                 let timesSesRecordedIt = 0
                 const ses500ThenStall = createServer((request, response) => {
                     request.resume()
@@ -3286,7 +3303,7 @@ describe('EmailService', () => {
                     })
                 })
                 await new Promise<void>((resolve) => ses500ThenStall.listen(0, '127.0.0.1', resolve))
-                const emailService = sender({ attachmentSendDeadlineMs: 1000 })
+                const emailService = sender()
                 emailService.sesTransport = sesTransportFor({
                     endpoint: `http://127.0.0.1:${(ses500ThenStall.address() as AddressInfo).port}`,
                 })
@@ -3306,6 +3323,8 @@ describe('EmailService', () => {
                         timesSesRecordedIt: 1,
                     })
                 } finally {
+                    heldDeadlines.mockRestore()
+                    deadlinePassesOnceThe500Arrives.mockRestore()
                     emailService.sesTransport?.destroy()
                     ses500ThenStall.closeAllConnections()
                     await new Promise<void>((resolve) => ses500ThenStall.close(() => resolve()))

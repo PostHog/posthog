@@ -93,7 +93,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
     afterAll(async () => {
         await admin.end()
-        // RedisV2 exposes no close, so the pool holds one client and the test quits that one.
         await limiterValkey.useClient({ name: 'close-limiter-pool' }, (client) => client.quit())
     })
 

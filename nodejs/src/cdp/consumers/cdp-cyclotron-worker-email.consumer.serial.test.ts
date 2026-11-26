@@ -672,7 +672,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         }
     }
 
-    // waitForExpect sleeps on setTimeout, which the fake clock freezes, so this polls on real time instead.
     async function whileTheClockHolds<T>(check: () => Promise<T>, withinMs = 10_000): Promise<T> {
         const gaveUpAt = performance.now() + withinMs
         for (;;) {
@@ -752,7 +751,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     })
 
     describe('with a send whose SES call never settles, not even on abort', () => {
-        // The 17 s send deadline of a small file, then 3 s for its calls to settle.
         const callsCannotOutlast = 20_000
 
         const stalledSes = (askedForCredentials: () => void = () => undefined): SesTransport =>
