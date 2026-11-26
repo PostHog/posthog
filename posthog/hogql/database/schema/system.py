@@ -2141,6 +2141,10 @@ exports: PostgresTable = PostgresTable(
 file_system: PostgresTable = PostgresTable(
     name="file_system",
     postgres_table_name="posthog_filesystem",
+    # This table cannot check workflow access per row, so it leaves out the types the tree no longer files.
+    # The list matches UNFILED_FILE_SYSTEM_TYPES in posthog/models/file_system/constants.py.
+    predicates=[parse_expr("type NOT IN ('hog_flow', 'message_template')")],
+    push_team_guard_with_predicates=True,
     description="The project's virtual file tree backing the navigation/'products' UI; one row per node (folder or item) addressed by path.",
     fields={
         "id": StringDatabaseField(name="id", description="File-system node UUID."),

@@ -8,8 +8,9 @@ DEFAULT_SURFACE = "web"
 # registration and no page to open. The tree hides them, and a delete removes only the row.
 RETIRED_FILE_SYSTEM_TYPES: frozenset[str] = frozenset({"link"})
 
-# Types the tree no longer files. Their objects live in their own product lists, and with no file system
-# registration a row of one of these types could never be deleted again, so the tree refuses to store one.
+# Types the tree no longer files. Their objects live in their own product lists, so the tree refuses to store
+# one. A row stored before has no file system registration and no access check the tree can apply, so every
+# read hides it and every write and delete refuses it, unlike a retired row, which a delete can still remove.
 UNFILED_FILE_SYSTEM_TYPES: frozenset[str] = frozenset({"hog_flow", "message_template"})
 
 

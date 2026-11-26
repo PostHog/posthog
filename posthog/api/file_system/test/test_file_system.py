@@ -1826,27 +1826,30 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{file_type}_{caller}_{target}", file_type, caller, target, query)
+            (
+                f"{file_type}_{caller}_{target}{'_shortcut' if shortcut else ''}",
+                file_type,
+                caller,
+                target,
+                query,
+                shortcut,
+            )
             for file_type in ("hog_flow", "message_template")
             for caller in ("workflow_viewer", "token_without_workflow_scopes")
-            for target, query in (("file", ""), ("folder", ""), ("folder", "?recursive=false"))
+            for target, query, shortcut in (
+                ("file", "", False),
+                ("file", "", True),
+                ("folder", "", False),
+                ("folder", "", True),
+                ("folder", "?recursive=false", False),
+            )
         ]
     )
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_a_hand_filed_row_of_an_unfiled_type_survives_a_delete_without_workflow_write_access(
-        self, _name: str, file_type: str, caller: str, target: str, query: str, _mock_flag: MagicMock
+        self, _name: str, file_type: str, caller: str, target: str, query: str, shortcut: bool, _mock_flag: MagicMock
     ) -> None:
-        folder = FileSystem.objects.create(
-            team=self.team, path="Hand filed", depth=1, type="folder", created_by=self.other_user
-        )
-        row = FileSystem.objects.create(
-            team=self.team,
-            path="Hand filed/Welcome",
-            depth=2,
-            type=file_type,
-            ref="0190a1b2-0000-7000-8000-000000000002",
-            created_by=self.other_user,
-        )
+        folder, row = self._create_hand_filed_row(file_type, shortcut=shortcut)
         headers: dict[str, str] = {}
         if caller == "workflow_viewer":
             self._create_access_control(resource="hog_flow", resource_id=None, access_level="viewer")
@@ -1858,9 +1861,85 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         target_id = folder.pk if target == "folder" else row.pk
         response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target_id}/{query}", headers=headers)
 
-        expected = status.HTTP_409_CONFLICT if query else status.HTTP_400_BAD_REQUEST
+        if target == "file":
+            expected = status.HTTP_404_NOT_FOUND
+        else:
+            expected = status.HTTP_409_CONFLICT if query else status.HTTP_400_BAD_REQUEST
         self.assertEqual(response.status_code, expected, response.content)
         self.assertTrue(FileSystem.objects.filter(pk=row.pk).exists())
+
+    @parameterized.expand(
+        [
+            (f"{file_type}_{caller}", file_type, caller)
+            for file_type in ("hog_flow", "message_template")
+            for caller in ("member", "member_without_workflow_access")
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_a_hand_filed_row_of_an_unfiled_type_stays_out_of_every_tree_read(
+        self, _name: str, file_type: str, caller: str, _mock_flag: MagicMock
+    ) -> None:
+        folder, row = self._create_hand_filed_row(file_type)
+        if caller == "member_without_workflow_access":
+            self._create_access_control(resource="hog_flow", resource_id=None, access_level="none")
+        base = f"/api/projects/{self.team.id}/file_system"
+
+        reads = {
+            "list_by_type": self.client.get(f"{base}/?type={file_type}"),
+            "list_by_parent": self.client.get(f"{base}/?parent=Hand%20filed"),
+            "search": self.client.get(f"{base}/search/?search=Welcome"),
+            "folder_count": self.client.post(f"{base}/{folder.pk}/count/"),
+        }
+        retrieved = self.client.get(f"{base}/{row.pk}/")
+
+        for name, response in reads.items():
+            self.assertEqual(response.status_code, status.HTTP_200_OK, (name, response.content))
+            self.assertNotIn(str(row.pk), response.content.decode(), name)
+        self.assertEqual(retrieved.status_code, status.HTTP_404_NOT_FOUND, retrieved.content)
+
+    @parameterized.expand(
+        [
+            (f"{file_type}_{write}", file_type, write)
+            for file_type in ("hog_flow", "message_template")
+            for write in ("patch_to_shortcut", "move", "link_file", "link_folder")
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_a_hand_filed_row_of_an_unfiled_type_cannot_be_changed_or_copied_by_a_file_system_token(
+        self, _name: str, file_type: str, write: str, _mock_flag: MagicMock
+    ) -> None:
+        folder, row = self._create_hand_filed_row(file_type)
+        key = self.create_personal_api_key_with_scopes(["file_system:read", "file_system:write"])
+        self.client.logout()
+        headers = {"Authorization": f"Bearer {key}"}
+        base = f"/api/projects/{self.team.id}/file_system"
+
+        if write == "patch_to_shortcut":
+            self.client.patch(f"{base}/{row.pk}/", {"shortcut": True}, format="json", headers=headers)
+        elif write == "move":
+            self.client.post(f"{base}/{row.pk}/move/", {"new_path": "Moved/Welcome"}, format="json", headers=headers)
+        else:
+            source, new_path = (row, "Copied/Welcome") if write == "link_file" else (folder, "Copied")
+            self.client.post(f"{base}/{source.pk}/link/", {"new_path": new_path}, format="json", headers=headers)
+
+        self.assertEqual(list(FileSystem.objects.filter(type=file_type).values_list("pk", flat=True)), [row.pk])
+        self.assertTrue(FileSystem.objects.filter(pk=row.pk, path="Hand filed/Welcome", shortcut=False).exists())
+
+    def _create_hand_filed_row(self, file_type: str, *, shortcut: bool = False) -> tuple[FileSystem, FileSystem]:
+        folder = FileSystem.objects.create(
+            team=self.team, path="Hand filed", depth=1, type="folder", created_by=self.other_user
+        )
+        row = FileSystem.objects.create(
+            team=self.team,
+            path="Hand filed/Welcome",
+            depth=2,
+            type=file_type,
+            ref="0190a1b2-0000-7000-8000-000000000002",
+            shortcut=shortcut,
+            meta={"name": "Welcome"},
+            created_by=self.other_user,
+        )
+        return folder, row
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_frequent_files_filter_access_before_selecting_top_items(self, mock_flag: MagicMock) -> None:

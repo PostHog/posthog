@@ -734,7 +734,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return self._scope_by_project(queryset)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = self._scope_by_project_and_environment(queryset)
+        queryset = self._scope_by_project_and_environment(queryset).exclude(type__in=UNFILED_FILE_SYSTEM_TYPES)
         if self.action in ("list", "retrieve"):
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
 
@@ -1063,7 +1063,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user_id=cast(User, request.user).id,
             surface=self.file_system_surface,
             limit=request.validated_query_data["limit"],
-            exclude_types=[*RETIRED_FILE_SYSTEM_TYPES, "folder", "task"],
+            exclude_types=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES, "folder", "task"],
             file_system_queryset=queryset,
             frequent_on=timezone.now().astimezone(ZoneInfo(self.team.timezone or "UTC")).date(),
         )
@@ -1107,11 +1107,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         not_type_param = request.query_params.get("not_type")
         # Drop retired types before the view-log limit, or their views take slots that hydration then empties.
-        exclude_types = [*RETIRED_FILE_SYSTEM_TYPES, *([not_type_param] if not_type_param else [])]
+        exclude_types = [
+            *RETIRED_FILE_SYSTEM_TYPES,
+            *UNFILED_FILE_SYSTEM_TYPES,
+            *([not_type_param] if not_type_param else []),
+        ]
         search_param = request.query_params.get("search")
 
         base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id).exclude(
-            type__in=RETIRED_FILE_SYSTEM_TYPES
+            type__in=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES]
         )
         base_queryset = self._filter_by_access_control(base_queryset)
         if search_param:
@@ -1220,6 +1224,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # several of them go in this request, the first one carries it, so the object's hooks run once.
         groups: dict[tuple[int, str, str], list[FileSystem]] = {}
         for row in removed:
+            if row.type in UNFILED_FILE_SYSTEM_TYPES:
+                raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{row.type}'."})
             if row.shortcut or row.type == "folder" or row.type in RETIRED_FILE_SYSTEM_TYPES:
                 continue
             if not is_file_system_type_registered(row.type):
@@ -1507,7 +1513,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             with transaction.atomic():
                 qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-                qs = self._scope_by_project_and_environment(qs)
+                qs = self._scope_by_project_and_environment(qs).exclude(type__in=UNFILED_FILE_SYSTEM_TYPES)
                 qs = self._filter_by_access_control(qs)
                 children = self._lock_file_rows(
                     Q(path__startswith=f"{instance.path}/", pk__in=list(qs.values_list("pk", flat=True)))
@@ -1566,7 +1572,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         project_team_ids = list(Team.objects.filter(project_id=self.team.project_id).values_list("id", flat=True))
         queryset = self._scope_by_project_and_environment(FileSystem.objects.select_related("created_by"))
         queryset = queryset.filter(team_id__in=project_team_ids).exclude(
-            type__in=[*RETIRED_FILE_SYSTEM_TYPES, "folder"]
+            type__in=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES, "folder"]
         )
         if filter_tokens:
             queryset = self._apply_search_to_queryset(queryset, " ".join(shlex.quote(t) for t in filter_tokens))
@@ -1664,7 +1670,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user_id=request.user.id,
             surface=self.file_system_surface,
             type=validated.get("type") or None,
-            exclude_types=RETIRED_FILE_SYSTEM_TYPES,
+            exclude_types=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES],
             limit=validated.get("limit"),
         )
 
@@ -1685,7 +1691,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .select_related("created_by")
             .order_by("depth", "path")
         )
-        qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
+        qs = self._scope_by_project_and_environment(qs).exclude(
+            type__in=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES]
+        )
         qs = self._filter_by_access_control(qs)
 
         total_count = qs.count()

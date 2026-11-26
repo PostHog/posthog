@@ -250,15 +250,23 @@ class TestFileSystemShortcutAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("retrieve", "get", status.HTTP_404_NOT_FOUND, True),
-            ("update", "patch", status.HTTP_404_NOT_FOUND, True),
-            ("delete", "delete", status.HTTP_204_NO_CONTENT, False),
+            (f"{name}_{file_type}", file_type, method, expected_status, still_exists)
+            for file_type in ("link", "hog_flow", "message_template")
+            for name, method, expected_status, still_exists in (
+                ("retrieve", "get", status.HTTP_404_NOT_FOUND, True),
+                ("update", "patch", status.HTTP_404_NOT_FOUND, True),
+                ("delete", "delete", status.HTTP_204_NO_CONTENT, False),
+            )
         ]
     )
-    def test_retired_shortcut_is_hidden_except_from_delete(
-        self, _name: str, method: str, expected_status: int, still_exists: bool
+    def test_shortcut_of_a_type_the_tree_no_longer_files_is_hidden_except_from_delete(
+        self, _name: str, file_type: str, method: str, expected_status: int, still_exists: bool
     ) -> None:
-        retired = FileSystemShortcut.objects.create(team=self.team, path="Old link", type="link", user=self.user)
+        retired = FileSystemShortcut.objects.create(
+            team=self.team, path="Old link", type=file_type, ref="0190a1b2-0000-7000-8000-000000000003", user=self.user
+        )
+        listed = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/")
+        self.assertNotIn(str(retired.pk), [row["id"] for row in listed.json()["results"]])
 
         response = getattr(self.client, method)(
             f"/api/projects/{self.team.id}/file_system_shortcut/{retired.pk}/", {"path": "Renamed"}, format="json"

@@ -205,9 +205,9 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = self._scope_by_project_and_environment(queryset).filter(user=self.request.user)
         # A starred row hidden by its product stays hidden here too.
         queryset = apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
-        # Destroy keeps retired rows, so that a user can still remove a shortcut that no other action returns.
+        # Destroy keeps these types, so that a user can still remove a shortcut that no other action returns.
         if self.action != "destroy":
-            queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
+            queryset = queryset.exclude(type__in=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES])
         ordering_param = self.request.GET.get("ordering", "")
         if ordering_param == "-created_at":
             return queryset.order_by("-created_at")
