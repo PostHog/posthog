@@ -123,6 +123,25 @@ tools:
         exclude_params:
             - include_points
         feature_flag: anomalies-search
+    inbox-monitor-pr:
+        operation: signals_monitor_pr_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Monitor PR
+        description: >
+            Start a sandbox agent to inspect a GitHub pull request, identify its key impact metric from this project's
+            data, and create an inbox report assigned to the person calling this tool. Requires a branch pull request in
+            a repository connected to the project's GitHub integrations (fork PRs are not supported). Research starts
+            immediately for open, draft, and recently merged PRs. Monitoring starts after research has produced a
+            measurable check and the PR has merged; open PRs wait for merge. Optionally include a team-visible note to
+            steer what the research agent focuses on, or omit it so the agent chooses the metric. If no meaningful
+            metric is available, the report waits for input. Returns the report link and current status, not the
+            completed research. Safe to retry: the same person and PR in this project return the original report.
+        feature_flag: signals-monitor-pr
+        feature_flag_behavior: enable
     inbox-my-settings-get:
         operation: users_signal_autonomy_retrieve
         enabled: true
@@ -316,12 +335,14 @@ tools:
             work-log entries (code references, commits, task runs, notes), and follow-up check entries (`check_result`
             verdicts, and `check_observation` interim readings during Monitoring). Read this before re-judging a status
             or adding to the log. `ranking_score` entries are compact: each model keeps its scores, lifts, and head
-            readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full.
+            readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full. To read
+            less, pass `type` with comma-separated types, such as `signal_finding` for the evidence or `note` for notes
+            and the `## Verification plan`.
         agent_note: >
-            Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current
-            state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not
-            show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan
-            applies, verify the issue from the report's evidence.
+            Find the newest applicable `## Verification plan`, which is a `note` artefact. Treat it as guidance, not
+            evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or
+            inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and
+            reassess the report. If no plan applies, verify the issue from the report's evidence.
     inbox-report-artefacts-retrieve:
         operation: signals_report_artefacts_retrieve
         enabled: true
@@ -642,7 +663,8 @@ tools:
             need the user, waiting on their input or claimed by them, pass `needs_you=true`, with `sort=personal` to
             keep their personal order.
 
-            Without `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with
+            Without `limit`, a page holds up to 100 reports. Each row carries `summary_lead`, the opening of the
+            report's summary; inbox-reports-retrieve returns the whole summary. Read a report's work log with
             inbox-report-artefacts-list before you act on it.
 
             Each row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and
@@ -684,7 +706,7 @@ tools:
             include:
                 - id
                 - title
-                - summary
+                - summary_lead
                 - metrics
                 - tags
                 - status
@@ -1120,12 +1142,18 @@ tools:
         title: Preview an inbox source filter
         description: >
             Check a filter expression before you save it, and see what it does to the source's records from the last 7
-            days: how many pass, how many it excludes, and the newest records of each with their field values. Use the
-            fields from `inbox-source-filter-catalogs-list`. `status` explains an empty result, for example an invalid
-            expression or a source that has not synced. Records that never become signals, such as Linear issues without
-            a description, are left out of every count. Records that pass can still be skipped later by guidance or
+            days: how many pass, how many it excludes, and the newest records of each with their field values. Each
+            excluded record lists the top-level AND conditions it fails in `failed_conditions`. Use the fields from
+            `inbox-source-filter-catalogs-list`. `status` explains an empty result, for example an invalid expression or
+            a source that has not synced. Records that never become signals, such as Linear issues without a
+            description, are left out of every count. Records that pass can still be skipped later by guidance or
             deduplication. Saves nothing.
         feature_flag: signals-source-filters
+    inbox-source-filter-validate:
+        operation: signals_source_configs_filter_validate_create
+        enabled: false
+        disabled_reason: The filter editor checks expressions as people type. Agents check an expression with
+            inbox-source-filter-preview, which returns the same error fields.
     inbox-steering-instructions-get:
         operation: signals_config_list
         enabled: true
@@ -1383,8 +1411,12 @@ tools:
             emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, so
             a call that timed out is worth sending again. That is not cross-run dedup: use `inbox-reports-search` (or
             `inbox-reports-list` when the search is not available) to find a report from an earlier run and
-            `scout-edit-report` to update it instead of authoring a near-duplicate. Opt-in: only available to scouts
-            that list `emit_report` in their skill's `allowed_tools`.
+            `scout-edit-report` to update it instead of authoring a near-duplicate. The server refuses a second report
+            for a GitHub issue: when an open report already names one of your `source_issues`, no report is created, and
+            the response carries `skipped_reason` `source_issue_already_reported` and that report's `report_id`. Add
+            your findings to that report with `scout-edit-report`. A separate report about the same issue is accepted
+            only with a `follow_up_of`, `part_of`, `depends_on` or `recurrence_of` link to that report. Opt-in: only
+            available to scouts that list `emit_report` in their skill's `allowed_tools`.
         required_when_set:
             priority:
                 - priority_explanation

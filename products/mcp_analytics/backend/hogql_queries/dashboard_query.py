@@ -201,6 +201,7 @@ SELECT {{lab}} AS lab, uniq(distinct_id) AS users
 FROM events
 WHERE {TOOL_CALL_WHERE}
 GROUP BY lab
+ORDER BY users DESC, lab
 """
 
 NAMED_MODEL_USERS_SQL = f"""

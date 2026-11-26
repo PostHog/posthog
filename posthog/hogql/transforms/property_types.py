@@ -7,6 +7,7 @@ from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, is_virtua
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
 from posthog.hogql.database.schema.events_with_flag_calls import (
     EVENT_ROW_TABLES,
@@ -20,9 +21,10 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS, JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
-from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
+from posthog.hogql.property_planner import PropertySourceKind, metadata_constant_type, plan_property_access
+from posthog.hogql.resolver_utils import projecting_select_type
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
-from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
+from posthog.hogql.type_system import least_common_supertype, normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
@@ -35,6 +37,8 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractFloat": ("Float64", 0.0),
     "JSONExtractBool": ("Bool", 0),
 }
+
+_EVENT_PROPERTY_TABLES = (*EVENT_ROW_TABLES, AiEventsTable)
 
 
 def key_json_document(key_read: ast.Expr) -> ast.Call:
@@ -141,7 +145,7 @@ class PropertyFinder(TraversingVisitor):
                     self.person_properties.add(property_name)
                 elif isinstance(resolved_table, EventsGroupSubTable):
                     pass  # group properties are handled above via GroupsTable
-                elif isinstance(resolved_table, EVENT_ROW_TABLES):
+                elif isinstance(resolved_table, _EVENT_PROPERTY_TABLES):
                     self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
@@ -162,17 +166,15 @@ class ToTimeZoneParts:
 
 _PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
 
-# ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
-# toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
-# ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
-# Numeric-typed property in one of these, we must not auto-convert the property
-# to Float, the raw String value has to flow through for the parser to work.
+# These parsers read the stored strings, so property definitions must skip conversion here.
 STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
 
 # These functions return one of their arguments unchanged, so the call around them receives the property itself.
 # A property that the outer call needs as its stored string must stay unconverted through them, as in
 # `JSONExtractArrayRaw(properties.items ?? '[]')`.
-NULL_DEFAULT_FUNCTIONS = frozenset({"ifNull", "coalesce"})
+NULL_DEFAULT_FUNCTIONS = frozenset({"ifnull", "coalesce"})
+_AI_STRING_AGGREGATES = frozenset({"any", "anylast", "argmax", "argmin", "max", "min"})
+_AI_STRING_CONDITIONALS = frozenset({"if", "multiif", "_casewithexpression"})
 
 
 class PropertySwapper(CloningVisitor):
@@ -216,9 +218,11 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
+        self._ai_string_operand: ast.Expr | None = None
         self._string_compared_operand_ids: frozenset[int] = frozenset()
         self.before_lazy_tables = before_lazy_tables
         self._union_scan_depth = 0
+        self._retyped_calls: set[int] = set()
 
     def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
         if not (
@@ -296,6 +300,69 @@ class PropertySwapper(CloningVisitor):
             view_name=node.view_name,
         )
 
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
+        result = super().visit_select_set_query(node)
+        if isinstance(result.type, ast.SelectSetQueryType) and self._has_retyped_projection(result.type):
+            # The resolver imports this module through grouped_clauses during startup.
+            from posthog.hogql.resolver import unify_select_set_columns  # noqa: PLC0415
+
+            # Set operations infer their common type before aliases can adopt the converted property types.
+            columns = unify_select_set_columns(result.type.types, "clickhouse", self.context)
+            if columns != result.type.columns:
+                result.type.columns = columns
+                self.context.cte_database_table_cache.clear()
+        return result
+
+    def _has_retyped_projection(self, select_type: ast.SelectSetQueryType) -> bool:
+        pending: list[ast.Type] = list(select_type.types)
+        seen: set[int] = set()
+        while pending:
+            column = pending.pop()
+            if id(column) in seen:
+                continue
+            seen.add(id(column))
+            if id(column) in self._retyped_calls:
+                return True
+            if isinstance(column, ast.FieldAliasType):
+                if column.constant_type is not None:
+                    return True
+                pending.append(column.type)
+            elif isinstance(column, ast.FieldType):
+                source = projecting_select_type(column.table_type)
+                if isinstance(source, ast.SelectQueryType) and column.name in source.columns:
+                    pending.append(source.columns[column.name])
+                elif isinstance(source, ast.SelectSetQueryType):
+                    pending.append(source)
+            elif isinstance(column, ast.SelectQueryType):
+                pending.extend(column.columns.values())
+            elif isinstance(column, ast.SelectSetQueryType):
+                pending.extend(column.types)
+        return False
+
+    def visit_alias(self, node: ast.Alias) -> ast.Alias:
+        result = super().visit_alias(node)
+        if (
+            isinstance(result.type, ast.FieldAliasType)
+            and isinstance(result.type.type, ast.PropertyType)
+            and result.expr.type is not None
+        ):
+            value_type = result.expr.type
+            if isinstance(value_type, ast.PropertyType) and value_type.joined_subquery is None:
+                inferred_type = metadata_constant_type(value_type, self.context)
+                if inferred_type is None or isinstance(inferred_type, ast.StringType):
+                    return result
+                # A property definition can infer a type the raw projection never converts to.
+                constant_type = ast.StringJSONType(nullable=True)
+            else:
+                constant_type = value_type.resolve_constant_type(self.context)
+                if isinstance(value_type, ast.PropertyType) and isinstance(constant_type, ast.StringType):
+                    return result
+            if result.type.constant_type != constant_type:
+                result.type.constant_type = constant_type
+                # CTE fields cache alias types before property conversion; the updated expression may have another type.
+                self.context.cte_database_table_cache.clear()
+        return result
+
     def _visit_json_function_call(self, node: ast.Call) -> ast.Call:
         # ClickHouse reads the first argument of a JSON function as JSON text and raises ILLEGAL_TYPE_OF_ARGUMENT on
         # any other type, so a typed property in that position keeps its stored string. The other arguments are keys
@@ -317,21 +384,98 @@ class PropertySwapper(CloningVisitor):
         # toFloatOrZero(toString(prop))) correctly reset the flag. A null default
         # passes the property through, so it keeps the flag of the call around it.
         saved_suppress = self._suppress_numeric_conversion
+        name = node.name.lower()
+        is_null_default = name in NULL_DEFAULT_FUNCTIONS
+        result_indices = self._selection_result_indices(name, len(node.args))
         self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS or (
-            saved_suppress and node.name in NULL_DEFAULT_FUNCTIONS
+            saved_suppress and is_null_default
         )
 
         self._inside_call_depth += 1
         try:
             if node.name in JSON_FUNCTIONS and node.args:
                 result = self._visit_json_function_call(node)
+            elif result_indices is not None:
+                result = self._visit_selection_call(node, name, result_indices)
+            elif is_null_default and node is self._ai_string_operand and self._can_keep_ai_string(node):
+                result = self._visit_call_with_ai_strings(node, set(range(len(node.args))))
             else:
                 result = super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
 
+        if is_null_default or result_indices is not None:
+            self._refresh_value_call_type(result, result_indices)
         return self._maybe_extract_exception_string_array(result)
+
+    @staticmethod
+    def _selection_result_indices(name: str, arg_count: int) -> tuple[int, ...] | None:
+        if arg_count and name.removesuffix("if") in _AI_STRING_AGGREGATES:
+            return (0,)
+        if arg_count and name in _AI_STRING_CONDITIONALS:
+            first_result = 2 if name == "_casewithexpression" else 1
+            return (*range(first_result, arg_count - 1, 2), arg_count - 1)
+        return None
+
+    def _visit_selection_call(self, node: ast.Call, name: str, result_indices: tuple[int, ...]) -> ast.Call:
+        if name in _AI_STRING_CONDITIONALS and not all(
+            self._can_keep_ai_string(node.args[index]) for index in result_indices
+        ):
+            return super().visit_call(node)
+
+        # Preserve string ordering for both the result and the sort key of argMin and argMax.
+        source_indices = {0, 1} if name.removesuffix("if") in {"argmin", "argmax"} else set(result_indices)
+        return self._visit_call_with_ai_strings(node, source_indices)
+
+    def _can_keep_ai_string(self, arg: ast.Expr) -> bool:
+        while isinstance(arg, ast.Alias):
+            arg = arg.expr
+        if isinstance(arg, ast.Call) and arg.name.lower() in NULL_DEFAULT_FUNCTIONS:
+            return all(self._can_keep_ai_string(value) for value in arg.args)
+        if isinstance(arg.type, ast.PropertyType):
+            return not self.converts(arg.type, keep_ai_string=True)
+        return arg.type is None or isinstance(
+            arg.type.resolve_constant_type(self.context), (ast.StringType, ast.UnknownType)
+        )
+
+    def _visit_call_with_ai_strings(self, node: ast.Call, source_indices: set[int]) -> ast.Call:
+        args = [
+            self._visit_ai_string_operand(arg) if index in source_indices else self.visit(arg)
+            for index, arg in enumerate(node.args)
+        ]
+        result = super().visit_call(dataclasses.replace(node, args=[]))
+        result.args = args
+        return result
+
+    def _visit_ai_string_operand(self, arg: ast.Expr) -> ast.Expr:
+        saved_operand = self._ai_string_operand
+        operand = arg
+        while isinstance(operand, ast.Alias):
+            operand = operand.expr
+        self._ai_string_operand = operand
+        try:
+            return self.visit(arg)
+        finally:
+            self._ai_string_operand = saved_operand
+
+    def _refresh_value_call_type(self, node: ast.Call, result_indices: tuple[int, ...] | None) -> None:
+        call_type = node.type
+        if not isinstance(call_type, ast.CallType) or len(call_type.arg_types) != len(node.args):
+            return
+        indices = range(len(node.args)) if result_indices is None else result_indices
+        arg_types = call_type.arg_types.copy()
+        for index in indices:
+            arg_type = node.args[index].type
+            if arg_type is not None and not isinstance(arg_type, ast.PropertyType):
+                arg_types[index] = arg_type.resolve_constant_type(self.context)
+        if arg_types != call_type.arg_types:
+            call_type.arg_types = arg_types
+            return_type = least_common_supertype([arg_types[index] for index in indices])
+            if return_type != call_type.return_type:
+                call_type.return_type = return_type
+                self._retyped_calls.add(id(call_type))
+                self.context.cte_database_table_cache.clear()
 
     def _maybe_extract_exception_string_array(self, node: ast.Expr) -> ast.Expr:
         """Wrap a bare exception-array property passed to an array-membership function in
@@ -753,12 +897,14 @@ class PropertySwapper(CloningVisitor):
             # The read is consumed as JSON text, so it keeps the stored value whatever the property's type.
             return node
         if isinstance(type, ast.PropertyType):
-            definition = self._property_definition(type)
+            definition = self._property_definition(type, keep_ai_string=node is self._ai_string_operand)
             if definition is not None:
                 return self._convert_string_property_to_type(node, *definition)
         return node
 
-    def _property_definition(self, type: ast.PropertyType) -> tuple[Literal["event", "person", "group"], str] | None:
+    def _property_definition(
+        self, type: ast.PropertyType, *, keep_ai_string: bool = False
+    ) -> tuple[Literal["event", "person", "group"], str] | None:
         """The metadata entry that applies to this property read, as its kind and key, or None when none does."""
         if type.field_type.name == "properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
@@ -790,7 +936,12 @@ class PropertySwapper(CloningVisitor):
                 if isinstance(resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
                     if property_name in self.person_properties:
                         return ("person", property_name)
-                elif isinstance(resolved_table, EVENT_ROW_TABLES):
+                elif isinstance(resolved_table, _EVENT_PROPERTY_TABLES):
+                    # Detection can misclassify IDs, so native String AI columns keep their schema types.
+                    if isinstance(resolved_table, AiEventsTable) and (
+                        keep_ai_string or resolved_table.maps_to_native_string_column(property_name)
+                    ):
+                        return None
                     if property_name in self.event_properties:
                         return ("event", property_name)
         if type.field_type.name == "person_properties" and len(type.chain) == 1:
@@ -802,10 +953,10 @@ class PropertySwapper(CloningVisitor):
                         return ("person", property_name)
         return None
 
-    def converts(self, type: ast.PropertyType) -> bool:
+    def converts(self, type: ast.PropertyType, *, keep_ai_string: bool = False) -> bool:
         """Whether this pass replaces the property read with a typed conversion, so a caller that serializes the read
         itself knows whether the stored value or the converted value is what a direct read yields."""
-        definition = self._property_definition(type)
+        definition = self._property_definition(type, keep_ai_string=keep_ai_string)
         if definition is None:
             return False
         kind, property_name = definition
@@ -835,9 +986,7 @@ class PropertySwapper(CloningVisitor):
         # Add notice about the property type and materialization status
         self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
 
-        # The user is parsing this property as a string (toFloatOrZero/toIntOrZero/
-        # toFloatOrDefault). Those ClickHouse functions require a String argument, so
-        # leave the raw materialized-column/JSON value in place rather than casting it.
+        # An explicit parser must receive the stored value rather than a conversion chosen from property metadata.
         if self._suppress_numeric_conversion:
             return node
 

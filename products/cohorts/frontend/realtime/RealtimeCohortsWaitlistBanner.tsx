@@ -19,6 +19,7 @@ import { useRealtimeCohortsServing } from './useRealtimeCohortsServing'
 // pinned: localStorage key, because renaming it shows the banner again to everyone who closed it
 const WAITLIST_DISMISS_KEY = 'realtime-cohorts-waitlist'
 const BETA_DISMISS_KEY = 'realtime-cohorts-beta-opt-in'
+const REALTIME_COHORTS_DOCS_URL = 'https://posthog.com/docs/data/realtime-cohorts'
 
 function enrolledInThisBrowser(): boolean {
     const storedPersonProps = posthog.get_property('$stored_person_properties') as Record<string, unknown> | undefined
@@ -86,23 +87,40 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
                             Group people by the actions they took, and keep the group up to date as they take them, so
                             feature flags can target that group. Joining turns on the beta for everyone in this project.
                         </p>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            className="w-fit"
-                            // pinned: data-attr, because autocapture insights find the opt-in click by it
-                            data-attr="realtime-cohorts-beta-opt-in"
-                            // Enrollment turns the flag on in this browser, and realtimeCohortsJoinLogic reacts to
-                            // the flag by joining the project.
-                            onClick={() => {
-                                updateEarlyAccessFeatureEnrollment(feature.flagKey, true, feature.stage)
-                                if (!window.IMPERSONATED_SESSION) {
-                                    lemonToast.success("Realtime cohorts: you've joined the beta.")
-                                }
-                            }}
-                        >
-                            Join the beta
-                        </LemonButton>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                // pinned: data-attr, because autocapture insights find the opt-in click by it
+                                data-attr="realtime-cohorts-beta-opt-in"
+                                // Enrollment turns the flag on in this browser, and realtimeCohortsJoinLogic reacts to
+                                // the flag by joining the project.
+                                onClick={() => {
+                                    updateEarlyAccessFeatureEnrollment(feature.flagKey, true, feature.stage)
+                                    if (!window.IMPERSONATED_SESSION) {
+                                        lemonToast.success("Realtime cohorts: you've joined the beta.", {
+                                            button: {
+                                                label: 'Learn more',
+                                                action: () =>
+                                                    window.open(REALTIME_COHORTS_DOCS_URL, '_blank', 'noopener'),
+                                                dataAttr: 'realtime-cohorts-beta-toast-docs',
+                                            },
+                                        })
+                                    }
+                                }}
+                            >
+                                Join the beta
+                            </LemonButton>
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                to={REALTIME_COHORTS_DOCS_URL}
+                                targetBlank
+                                data-attr="realtime-cohorts-beta-banner-docs"
+                            >
+                                Learn more
+                            </LemonButton>
+                        </div>
                     </div>
                 </LemonBanner>
             </PostHogCaptureOnViewed>

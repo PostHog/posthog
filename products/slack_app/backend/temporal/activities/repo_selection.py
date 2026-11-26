@@ -14,6 +14,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.feature_flags import is_slack_app_jev_needs_repo_enabled
+from products.slack_app.backend.services.channel_settings import channel_default_repository
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
@@ -124,7 +125,9 @@ def cascade_posthog_code_repository_activity(
         if len(all_repos) == 1:
             outcome = PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
         else:
-            outcome = _resolve_explicit_repo(event_text, eligible_messages, all_repos)
+            outcome = _with_channel_repository(
+                integration, inputs, _resolve_explicit_repo(event_text, eligible_messages, all_repos), all_repos
+            )
             if outcome.mode == "agent_needed":
                 outcome = dataclasses.replace(outcome, needs_repo_classified=True)
     elif len(all_repos) == 1:
@@ -133,6 +136,7 @@ def cascade_posthog_code_repository_activity(
         outcome = _resolve_explicit_repo(
             event_text, _messages_at_or_before(thread_messages or [], mention_ts), all_repos
         )
+        outcome = _with_channel_repository(integration, inputs, outcome, all_repos)
         # Logged so the share of mentions each resolution tier saves from the discovery agent is measurable.
         logger.info(
             "posthog_code_cascade_outcome",
@@ -149,6 +153,23 @@ def cascade_posthog_code_repository_activity(
         connected_repo_count=len(all_repos),
     )
     return outcome
+
+
+def _with_channel_repository(
+    integration: WorkspaceIntegration,
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    outcome: PostHogCodeRepoCascadeOutcome,
+    all_repos: list[str],
+) -> PostHogCodeRepoCascadeOutcome:
+    """A repo named in the thread wins. Otherwise the channel's default repo, when the person can use it,
+    replaces the discovery agent."""
+    if outcome.mode != "agent_needed":
+        return outcome
+    repository = channel_default_repository(integration, inputs.event.get("channel"))
+    if repository is None or repository not in all_repos:
+        return outcome
+    # pinned: analytics property value, the repository resolution reason
+    return PostHogCodeRepoCascadeOutcome(mode="auto", repository=repository, reason="channel_default")
 
 
 def _ask_jev_needs_repo(

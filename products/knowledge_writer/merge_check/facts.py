@@ -102,6 +102,7 @@ def extract_facts(
         max_retries=0,
         system=system_with_cached_page_list(FACTS_INSTRUCTIONS, evidence.docs_page_paths),
         content=facts_request(evidence),
+        stage="facts",
         deadline=deadline,
     )
     if isinstance(parsed, Declined):

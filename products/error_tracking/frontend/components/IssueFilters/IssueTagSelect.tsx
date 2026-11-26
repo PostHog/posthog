@@ -55,24 +55,31 @@ function ariaLabel(issueTags: IssueTagsFilter | null, labelOf: (key: string) => 
     return parts.join(', ')
 }
 
+function selectedKeys(issueTags: IssueTagsFilter | null): string[] {
+    return issueTags ? [...issueTags.has, ...issueTags.hasNot] : []
+}
+
 export function IssueTagSelect({
     definitions,
     loading,
     issueTags,
     onTagStateChange,
     onClear,
+    defaultOpen,
 }: {
     definitions: Pick<ErrorTrackingIssueTagDefinitionApi, 'key' | 'label' | 'description'>[]
     loading: boolean
     issueTags: IssueTagsFilter | null
     onTagStateChange: (key: string, state: IssueTagState | null) => void
     onClear: () => void
+    defaultOpen?: boolean
 }): JSX.Element {
     const { searchParams } = useValues(router)
     const [search, setSearch] = useState('')
     // The tags selected when the list opens go to the top. They keep their place while it is open, so a row does not
-    // move away from the pointer when it is clicked.
-    const [topKeys, setTopKeys] = useState<string[]>([])
+    // move away from the pointer when it is clicked. Base UI does not call onOpenChange for the open that defaultOpen
+    // makes, so the start value takes the selected tags too.
+    const [topKeys, setTopKeys] = useState<string[]>(() => selectedKeys(issueTags))
     const labelOf = (key: string): string => definitions.find((definition) => definition.key === key)?.label ?? key
     const query = search.trim().toLowerCase()
     const matchingDefinitions = query
@@ -91,9 +98,10 @@ export function IssueTagSelect({
 
     return (
         <Popover
+            defaultOpen={defaultOpen}
             onOpenChange={(open: boolean) => {
                 if (open) {
-                    setTopKeys(issueTags ? [...issueTags.has, ...issueTags.hasNot] : [])
+                    setTopKeys(selectedKeys(issueTags))
                 }
             }}
             // The popup stays on screen while it fades out, so clearing the search any earlier shows the full list then.

@@ -39,6 +39,7 @@ from products.experiments.backend.health.skips import (
     CheckOutcome,
     CheckRows,
     CheckSkip,
+    CheckValues,
     flag_to_check,
     not_applicable,
     not_checked,
@@ -113,6 +114,23 @@ def changes_to_check(ctx: HealthContext) -> FlagHistory | FlagHistoryNotChecked 
     if isinstance(history, FlagHistoryNotChecked) and history.reason in _HISTORY_NOT_READ:
         return not_checked(f"Couldn't check because {not_checked_because(history.reason)}")
     return history
+
+
+def history_values(ctx: HealthContext) -> CheckValues:
+    history = history_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return {}
+    return {ExperimentHealthValueKey.HISTORY_SINCE_AT: history.start_date.astimezone(UTC).isoformat()}
+
+
+def change_values(ctx: HealthContext, kind: type[FlagChange]) -> CheckValues:
+    history = changes_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return {}
+    return {
+        ExperimentHealthValueKey.HISTORY_SINCE_AT: history.start_date.astimezone(UTC).isoformat(),
+        ExperimentHealthValueKey.CHANGE_COUNT: len(history.of_kind(kind)),
+    }
 
 
 def change_rows(ctx: HealthContext, kind: type[FlagChange]) -> CheckRows:

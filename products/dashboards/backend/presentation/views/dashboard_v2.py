@@ -6,6 +6,7 @@ from django.conf import settings
 from django.http.response import HttpResponseBase
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema_field
+from opentelemetry import trace
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.parsers import JSONParser
 
@@ -29,7 +30,12 @@ from products.dashboards.backend.facade.api import (
     viewable_dashboard_id,
 )
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
-from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage, QueryBatchTargetFormat
+from products.dashboards.backend.facade.enums import (
+    QueryBatchEngine,
+    QueryBatchLanguage,
+    QueryBatchTargetFormat,
+    ResultFormat,
+)
 
 # W3C trace context, version 00: https://www.w3.org/TR/trace-context/#traceparent-header
 _TRACEPARENT = re.compile(r"00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}")
@@ -138,6 +144,15 @@ class QueryBatchRequestSerializer(serializers.Serializer):
         max_length=MAX_QUERIES_PER_BATCH,
         help_text=f"The panels' queries, at most {MAX_QUERIES_PER_BATCH}.",
     )
+    format = serializers.ChoiceField(
+        choices=ResultFormat.choices,
+        required=False,
+        default=ResultFormat.RESULT,
+        help_text=(
+            "`result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, "
+            "PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels."
+        ),
+    )
     dashboard = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -174,9 +189,13 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: OpenApiResponse(
                 description=(
                     "An `application/x-ndjson` stream with one JSON line per query, in the order each finishes: "
-                    "`{i, refId, legend?, format?, result: {result, cache: {key, fetchedAt, stale, hit}, "
-                    "provenance?}, truncated?}` or `{i, refId, legend?, format?, error}`, where `i` is the query's "
-                    "index. `truncated` is true when the result stopped at its row limit. Blank lines are keep-alives."
+                    "`{i, refId, legend?, format?, result: {result | frames, format?, warnings?, canonical, "
+                    "cache: {key, fetchedAt, stale, hit}, provenance: {mode, timeline}}, truncated?}` or "
+                    "`{i, refId, legend?, format?, error}`, where `i` is the query's index. With the request's "
+                    "`format` set to `frames`, `result.format` says whether the line holds `frames` "
+                    "(`{name, labels, fields, meta: {interval, date_from, date_to, end}, hash}`) or the runner's "
+                    "`result`. A `frames` line keeps the runner's `warnings`. `canonical` is the query text that ran. `truncated` is true when the result stopped "
+                    "at its row limit. Blank lines are keep-alives."
                 )
             )
         },
@@ -231,6 +250,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
             for item in request.validated_data["queries"]
         ]
+        server_traceparent = _server_traceparent()
         try:
             stream = query_batch_stream(
                 team=self.team,
@@ -239,14 +259,20 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 dashboard_id=dashboard_id,
                 client_query_id=f"dashboard-v2-batch-{dashboard_id if dashboard_id is not None else 'none'}",
                 asynchronous=settings.SERVER_GATEWAY_INTERFACE == "ASGI",
-                traceparent=_traceparent(request.headers.get("traceparent")),
+                traceparent=server_traceparent or _traceparent(request.headers.get("traceparent")),
+                result_format=ResultFormat(request.validated_data["format"]),
             )
         except QueryBatchBusy:
             raise exceptions.Throttled(wait=5, detail="Too many dashboards are loading at once. Try again shortly.")
         return streaming_response(
             stream,
             content_type="application/x-ndjson",
-            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+                # The ingress strips an inbound `traceparent`, so the browser learns the server's trace from this.
+                **({"traceresponse": server_traceparent} if server_traceparent else {}),
+            },
         )
 
 
@@ -258,6 +284,14 @@ def _language(value: str) -> QueryBatchLanguage:
 def _traceparent(header: str | None) -> str | None:
     # Only a well-formed header reaches the query tags, so a client cannot write arbitrary text into query_log.
     return header if header is not None and _TRACEPARENT.fullmatch(header) else None
+
+
+def _server_traceparent() -> str | None:
+    # https://www.w3.org/TR/trace-context-2/#traceresponse-header uses the traceparent format.
+    context = trace.get_current_span().get_span_context()
+    if not context.is_valid:
+        return None
+    return f"00-{context.trace_id:032x}-{context.span_id:016x}-{context.trace_flags:02x}"
 
 
 def _scoped_node(target: dict[str, Any]) -> object:

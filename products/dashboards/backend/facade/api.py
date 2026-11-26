@@ -13,8 +13,8 @@ Everything that writes runs inside the caller's transaction; each function says 
 matters. Refusals are raised as the error types defined here — the caller decides which HTTP
 response they become.
 
-The sharing publish gate and the template helper are imported at call time. They load the
-subscriptions facade, which loads the exports facade, and the exports facade imports this module.
+The sharing publish gate is imported at call time. It loads the subscriptions facade, which loads
+the exports facade, and the exports facade imports this module.
 """
 
 import re
@@ -26,6 +26,8 @@ from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
 from django.utils.timezone import now
+
+from pydantic import JsonValue
 
 from posthog.caching.insight_result import InsightResult
 from posthog.helpers.full_text_search import to_search_results
@@ -59,7 +61,12 @@ from products.dashboards.backend.facade.contracts import (
     TeamDashboardRef,
     TilePlacement,
 )
-from products.dashboards.backend.facade.enums import DashboardCreationMode, DashboardTemplateScope, DashboardUsageCount
+from products.dashboards.backend.facade.enums import (
+    DashboardCreationMode,
+    DashboardTemplateScope,
+    DashboardUsageCount,
+    ResultFormat,
+)
 from products.dashboards.backend.logic import (
     frames as frames_logic,
     search as search_logic,
@@ -70,6 +77,7 @@ from products.dashboards.backend.logic import (
     usage as usage_logic,
     visibility as visibility_logic,
 )
+from products.dashboards.backend.logic.template_instantiation import create_from_template
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -184,10 +192,56 @@ def create_dashboard_from_tiles(
         created_by=user,
         creation_mode=Dashboard.CreationMode.TEMPLATE,
     )
-    from posthog.helpers.dashboard_templates import create_from_template
-
     create_from_template(dashboard, template, user, user_access_control=UserAccessControl(user=user, team=team))
     return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
+def apply_dashboard_template(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template_key: str,
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    """Fill a new dashboard from the saved or code-defined template named `template_key`.
+
+    Raises AttributeError when the team can see no template with that name. The template writes the
+    dashboard row, so reload a dashboard model read before the call. With a `user_id`, the insights and
+    widgets it adds name that user as their creator. With a `user_access_control`, each widget first
+    checks that user's access to its product. Opens no transaction: wrap the call to roll back the
+    tiles of a template that fails part way.
+    """
+    templates_logic.apply_template_by_key(
+        team_id=team_id,
+        dashboard_id=dashboard_id,
+        template_key=template_key,
+        user_id=user_id,
+        user_access_control=user_access_control,
+    )
+
+
+def apply_dashboard_template_json(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template: Mapping[str, JsonValue],
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    """Fill a new dashboard from a template body in the `create_from_template_json` request shape.
+
+    Raises KeyError when the body has no `template_name`, `dashboard_description`, `dashboard_filters` or
+    `tiles`. What `apply_dashboard_template` says about the dashboard row, the user, the access control
+    and the transaction applies here too.
+    """
+    templates_logic.apply_template_json(
+        team_id=team_id,
+        dashboard_id=dashboard_id,
+        template=template,
+        user_id=user_id,
+        user_access_control=user_access_control,
+    )
 
 
 def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
@@ -958,6 +1012,15 @@ def live_tile_placements(
     return tiles_logic.live_tile_placements(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
 
 
+def live_tile_layouts(dashboard_id: int, *, limit: int) -> list[dict[str, JsonValue]]:
+    """The grid layouts of at most `limit` live tiles of this dashboard, one dict per tile, keyed by breakpoint.
+
+    Live means neither the tile nor its dashboard is soft-deleted. Unscoped: the id comes from the
+    caller's own row.
+    """
+    return tiles_logic.live_tile_layouts(dashboard_id=dashboard_id, limit=limit)
+
+
 def insight_ids_on_template_dashboards(
     *, insight_ids: Collection[int], name_prefix: str, description_prefix: str
 ) -> set[int]:
@@ -1228,6 +1291,8 @@ __all__ = [
     "can_access_dashboard",
     "add_insight_tile",
     "add_insight_to_dashboard",
+    "apply_dashboard_template",
+    "apply_dashboard_template_json",
     "check_insight_tile_limit",
     "create_dashboard",
     "create_dashboard_from_tiles",
@@ -1354,12 +1419,13 @@ def query_batch_stream(
     client_query_id: str,
     asynchronous: bool,
     traceparent: str | None = None,
+    result_format: ResultFormat = ResultFormat.RESULT,
 ) -> Iterator[bytes] | AsyncIterator[bytes]:
     """The `dashboard-v2` query batch as NDJSON: plans every query for `user` and reads the cache before it returns,
     then streams one line per query. Pass a `dashboard_id` the user may view to run its queries as that dashboard's
     tiles, under the dashboard query limits. `client_query_id` is the prefix of each query's id, which adds the tile,
-    the refId and a short uuid. `traceparent` is tagged on every query the batch runs. Raises `QueryBatchBusy` when the
-    batch cannot be admitted."""
+    the refId and a short uuid. `traceparent` is tagged on every query the batch runs. With `result_format` frames, each
+    line carries chart-ready frames where its kind has them. Raises `QueryBatchBusy` when the batch cannot be admitted."""
     batch = v2_query_batch.QueryBatch(
         team=team,
         user=user,
@@ -1367,5 +1433,6 @@ def query_batch_stream(
         dashboard_id=dashboard_id,
         client_query_id=client_query_id,
         traceparent=traceparent,
+        result_format=result_format,
     )
     return batch.astream() if asynchronous else batch.stream()

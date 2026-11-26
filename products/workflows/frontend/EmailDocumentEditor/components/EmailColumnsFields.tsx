@@ -9,6 +9,7 @@ import { EmailFieldRow } from './fields/EmailFieldRow'
 import { EmailNumberField } from './fields/EmailNumberField'
 import { EmailSectionTitle } from './fields/EmailSectionTitle'
 import { EmailSidesField } from './fields/EmailSidesField'
+import { NUMBER_LIMITS } from './fields/numberLimits'
 
 const NO_PADDING: EmailSides = { top: 0, right: 0, bottom: 0, left: 0 }
 const COLUMN_RATIO_PRESETS: Record<number, { label: string; ratios: number[] }[]> = {
@@ -47,7 +48,7 @@ export function EmailColumnsFields({
     return (
         <>
             <EmailSectionTitle>Columns</EmailSectionTitle>
-            <EmailFieldRow label="Number">
+            <EmailFieldRow label="Number" group>
                 <LemonSegmentedButton
                     size="xsmall"
                     fullWidth
@@ -61,7 +62,7 @@ export function EmailColumnsFields({
                 />
             </EmailFieldRow>
             {presets ? (
-                <EmailFieldRow label="Widths">
+                <EmailFieldRow label="Widths" group>
                     <LemonSegmentedButton
                         size="xsmall"
                         fullWidth
@@ -77,6 +78,7 @@ export function EmailColumnsFields({
             ) : null}
             <EmailNumberField
                 label="Gap"
+                limit={NUMBER_LIMITS.gap}
                 value={style.columnGap}
                 placeholder={16}
                 onChange={(columnGap) => setBlockStyle(editor, pos, { columnGap })}
@@ -116,6 +118,7 @@ export function EmailColumnsFields({
                     />
                     <EmailNumberField
                         label="Column border"
+                        limit={NUMBER_LIMITS.border}
                         value={columnStyle.borderWidth}
                         placeholder={0}
                         onChange={(borderWidth) => setBlockStyle(editor, columnPos, { borderWidth })}

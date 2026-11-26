@@ -540,6 +540,36 @@ class TraceListItem(TraceOverview):
     )
 
 
+class SessionListItem(Contract):
+    """A session and its facts. The facts cover every trace of the session that the AI events retention still holds,
+    whatever a list's date range, and at most its 1,000 most recent traces. A session the AI events retention does not
+    hold whole is read from the shared events table instead, over fewer of its most recent traces the more such
+    sessions a list page holds: from a week before a list's date range to its end, or for a single session from 10
+    minutes before its timestamp hint to now."""
+
+    id: str = Field(description="The session id, as sent in `$ai_session_id`.")
+    first_seen: datetime = Field(
+        description="When the session's first turn started. Send it as the timestamp hint of links into the session."
+    )
+    last_seen: datetime = Field(description="When the session's last activity ended.")
+    duration_ms: float | None = Field(description="Milliseconds from the first turn's start to the last answer.")
+    turn_count: int = Field(description="How many traces the session holds, one per turn.")
+    totals: TraceNodeStats = Field(
+        description="The sum of the session's trace totals. Latency is the total time the user waited, summed over the "
+        "turns."
+    )
+    errored_turns: int = Field(description="How many of the session's turns have an error.")
+    totals_partial: bool = Field(
+        description="Whether the session holds more traces than were read, so that the first seen time, duration, "
+        "turn count, totals and errored turns were computed from only its most recent traces."
+    )
+
+
+class SessionList(Contract):
+    items: list[SessionListItem] = Field(description="A page of sessions, by latest activity in range, newest first.")
+    next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
+
+
 class TraceListCounts(Contract):
     total: int = Field(description="How many traces the selection holds, ignoring its quick filter.")
     errors: int = Field(description="How many of them have an error.")
@@ -586,6 +616,55 @@ class TracePreviewList(Contract):
     )
 
 
+class TraceTurnSides(Contract):
+    input: TraceSideContent | None = Field(
+        description="What the trace added to the conversation: the user's message and what followed it, without the "
+        "history earlier turns carry. Null when it could not be read or there is nothing to show."
+    )
+    output: TraceSideContent | None = Field(
+        description="The trace's answer, with the hidden steps that led to it. Null when it could not be read or "
+        "there is nothing to show."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null or cut: `too_large` when part of it is too large to read, `timed_out` when "
+        "the page ran out of time before reading it. Null with a null `input` means there is nothing to show."
+    )
+    output_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when "
+        "the page ran out of time before reading it. Null with a null `output` means there is nothing to show."
+    )
+
+
+class TraceTurn(TraceTurnSides):
+    trace_id: str = Field(description="The trace the turn belongs to.")
+
+
+class SessionTurn(TraceListItem):
+    wait_slow: bool = Field(description="Whether the user waited 10 seconds or more for the turn's answer.")
+    silence_before_ms: int | None = Field(
+        description="Milliseconds from the previous turn's answer to this turn's start, when they are a minute or "
+        "more. Null for a shorter gap and for the session's first turn."
+    )
+
+
+class SessionTurnPage(Contract):
+    items: list[SessionTurn] = Field(
+        description="A page of the session's traces, one per turn, oldest first, each read as the traces list reads "
+        "it. A turn's input and output are read by trace id from the traces' turns."
+    )
+    previous_cursor: str | None = Field(description="The cursor of the page before this one, or null on the first.")
+    next_cursor: str | None = Field(
+        description="The cursor of the next page, or null on the last one. A page read before a cursor always has one."
+    )
+
+
+class TraceTurnList(Contract):
+    items: list[TraceTurn] = Field(
+        description="One turn per requested trace that was found, in the order requested. A trace that is not found "
+        "is left out."
+    )
+
+
 class TracePersonItem(Contract):
     trace_id: str = Field(description="The trace the person belongs to.")
     person: TracePerson | None = Field(
@@ -596,6 +675,41 @@ class TracePersonItem(Contract):
 
 class TracePeopleList(Contract):
     items: list[TracePersonItem] = Field(description="One item per requested trace, in the order requested.")
+
+
+class SessionPreview(Contract):
+    session_id: str = Field(description="The session the title belongs to.")
+    input: str | None = Field(
+        description="The session's title: the user's message its first trace answered, cut at 200 characters. The "
+        "first trace is the one whose first event came earliest, ties broken by trace id. Null when there is nothing "
+        "to show, when the AI events retention no longer holds the session, or when the message could not be read and "
+        "`inputMissingReason` says why."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the "
+        "page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there "
+        "is nothing to show."
+    )
+
+
+class SessionPreviewList(Contract):
+    items: list[SessionPreview] = Field(
+        description="One title per requested session, in the order requested. A session that is not found has a null "
+        "title."
+    )
+
+
+class SessionPersonItem(Contract):
+    session_id: str = Field(description="The session the person belongs to.")
+    person: TracePerson | None = Field(
+        description="The person the session's first trace ran for, labeled by the project's display name properties or "
+        "else by their distinct id. Null when the AI events retention no longer holds the session, or its first trace "
+        "carries no distinct id."
+    )
+
+
+class SessionPeopleList(Contract):
+    items: list[SessionPersonItem] = Field(description="One item per requested session, in the order requested.")
 
 
 TraceSentimentLabel = Literal["positive", "neutral", "negative"]

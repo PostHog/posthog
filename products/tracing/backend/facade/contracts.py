@@ -29,3 +29,6 @@ class ServiceHealthParams:
     span_scope: enums.ServiceHealthSpanScope = enums.ServiceHealthSpanScope.ENTRY
     order_by: enums.ServiceHealthOrderBy = enums.ServiceHealthOrderBy.STATUS
     limit: int = 25
+
+
+TRACING_QUERY_STATUS_LABEL = "tracing-spans"

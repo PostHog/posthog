@@ -142,6 +142,7 @@ env:
     PY_DEPS_SYNC_TIMEOUT: 270s
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     COMPOSE_PROJECT_NAME: posthog
+    TEMPORAL_VERSION_CHECK_DISABLED: 1
     WAIT_FOR_DOCKER_REGISTRY_MIRROR: ${{ vars.DEPOT_PULL_THROUGH_REGISTRY }} mirror.gcr.io
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -361,6 +362,9 @@ jobs:
                         # widening or fixing the script doesn't trigger
                         # tests it controls.
                         - 'products/*/package.json'
+                        # Django reads this file at startup to route each product app to its database,
+                        # so a routing change reaches every test while no Python file changes.
+                        - products/db_routing.yaml
                         # Tests read these MCP manifests from disk. Each one is a turbo input of
                         # its reader (tasks directly, posthog_ai through feature_flags'
                         # backend:mcp-surface task). Add a manifest here only with that wiring.
@@ -487,6 +491,12 @@ jobs:
                         - pytest.ini
                         - conftest.py
                         - .test_quarantine.json
+                        # Every product's tests load these, but no product package owns them, so Turbo
+                        # marks no product affected and discovery would test nothing. Listing them
+                        # here sends them down the same path as a posthog/ edit.
+                        - products/__init__.py
+                        - products/conftest.py
+                        - products/db_routing.yaml
                         # Python reads only the generated products.json, and ci-frontend fails a
                         # manifest.tsx edit that leaves it stale, so manifest.tsx is not listed here.
                         - frontend/src/products.json
@@ -1434,6 +1444,9 @@ jobs:
               shell: bash
               run: echo "::warning::Sharding-plan snapshot unavailable, this re-run reshards from the floating timing cache and may not re-execute tests that failed in earlier attempts"
 
+            - name: Restore Temporal test servers
+              uses: ./.depot/actions/temporal-test-servers
+
             - name: Run product tests
               continue-on-error: true
               id: run-product-tests
@@ -1448,6 +1461,7 @@ jobs:
                   LEGACY_FILTERS: ${{ matrix.filters }}
                   LEGACY_PYTEST_ARGS: ${{ matrix.pytest_args }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   # Person-on-events v2 reads are the production default for every project
                   # created since 2024-06-14, so product tests run with the mode on, as the
                   # Core Django rows do. Without it a product query runner is only ever
@@ -1570,6 +1584,7 @@ jobs:
               timeout-minutes: 15
               env:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   PERSON_ON_EVENTS_V2_ENABLED: 'true'
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
@@ -3825,6 +3840,9 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
+            - name: Restore Temporal test servers
+              id: temporal-test-servers
+              uses: ./.depot/actions/temporal-test-servers
             # Tests
             - name: Set snapshot update flags
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
@@ -3910,6 +3928,7 @@ jobs:
                   # flip from one that predates it.
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   MODE: ${{ needs.turbo-discover.outputs.mode }}
                   CORE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').core_files }}
                   POE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').poe_files }}
@@ -4102,6 +4121,7 @@ jobs:
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   MODE: ${{ needs.turbo-discover.outputs.mode }}
                   TEMPORAL_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').temporal_files }}
               run: |
@@ -4164,6 +4184,42 @@ jobs:
                       exit $exit_code
                   fi
             # Post tests
+            - name: Collect Temporal test servers for the cache
+              id: collect-temporal-test-servers
+              if: ${{ !cancelled() && steps.temporal-test-servers.outputs.key != '' && steps.temporal-test-servers.outputs.cache-hit != 'true' && env.IS_MASTER == 'true' }}
+              continue-on-error: true
+              shell: bash
+              env:
+                  CACHE_DIR: ${{ steps.temporal-test-servers.outputs.dir }}
+                  CHECKSUMS: ${{ steps.temporal-test-servers.outputs.checksums }}
+              run: |
+                  # The file names follow sdk-core's naming for a default-version download. Both must be
+                  # present, because a cache entry saved with one binary would serve every later job without the other.
+                  mkdir -p "$CACHE_DIR"
+                  while read -r _ binary; do
+                      for temp_dir in "${TMPDIR:-/tmp}" /tmp; do
+                          if [ -f "$temp_dir/$binary" ] && [ ! -L "$temp_dir/$binary" ]; then
+                              cp "$temp_dir/$binary" "$CACHE_DIR/"
+                              break
+                          fi
+                      done
+                      if [ ! -f "$CACHE_DIR/$binary" ]; then
+                          echo "::warning::$binary was not found in the temp directory, so the Temporal test server cache was not saved"
+                          exit 0
+                      fi
+                  done < "$CHECKSUMS"
+                  if ! (cd "$CACHE_DIR" && sha256sum --check --strict "$CHECKSUMS"); then
+                      echo "::warning::The downloaded Temporal test servers do not match their pinned digests, so the cache was not saved. Update the digests in the temporal-test-servers action."
+                      exit 0
+                  fi
+                  echo "complete=true" >> "$GITHUB_OUTPUT"
+            - name: Save Temporal test servers to cache
+              if: ${{ !cancelled() && steps.collect-temporal-test-servers.outputs.complete == 'true' }}
+              continue-on-error: true
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.cache/temporal-test-servers
+                  key: ${{ steps.temporal-test-servers.outputs.key }}
             - name: Show docker compose logs on failure
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
@@ -4335,6 +4391,7 @@ jobs:
               env:
                   SEGMENT: ${{ matrix.segment }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   CORE_PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   TEMPORAL_MODAL_TOKEN_ID: ${{ matrix.segment == 'Temporal' && needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   TEMPORAL_MODAL_TOKEN_SECRET: ${{ matrix.segment == 'Temporal' && needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}

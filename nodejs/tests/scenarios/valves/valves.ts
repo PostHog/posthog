@@ -9,8 +9,8 @@ import type { Actuation, Environment } from '../environment/environment'
 import type { Observation } from '../environment/failover'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
-import { SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
-import { ruleOf } from '../provider-edge/faults'
+import { AmbiguousParams, FaultRule, SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
+import { heldAnswerRule, ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
     environment: Pick<Environment, 'actuate'>
@@ -18,7 +18,12 @@ export type ValveContext = {
     teams: number[]
     commits: () => readonly WriterSample[]
     manifest?: RunManifest
+    seed?: number
+    startedAt?: number
+    endsAt?: number
 }
+
+type EntryContext = ValveContext & { pick?: string }
 
 export type ValveDefinition = Definition & {
     target: z.ZodType<string>
@@ -26,7 +31,7 @@ export type ValveDefinition = Definition & {
     roleExitGraceMs?: number
     restarts?: readonly z.infer<typeof CdpRole>[]
     journalsIntent?: true
-    apply(context: ValveContext, target: string, dose: unknown, holdMs: number, signal: AbortSignal): Promise<Actuation>
+    apply(context: EntryContext, target: string, dose: unknown, holdMs: number, signal: AbortSignal): Promise<Actuation>
 }
 
 export type ValveTimelineEntry = {
@@ -44,12 +49,18 @@ export type ValveTimelineEntry = {
     error?: string
 }
 
+export type FiredFault = ValveTimelineEntry & { dose: unknown; unitIds?: string[] }
+
 export interface Valves {
     start(entries: ValveEntry[], context: ValveContext): Promise<void>
     releaseAll(): Promise<void>
     timeline(): ValveTimelineEntry[]
+    fired(): FiredFault[]
     refusal: AbortSignal
 }
+
+const picking = (rule: FaultRule, { pick }: EntryContext): FaultRule =>
+    pick !== undefined && 'share' in rule.dose ? { ...rule, pick } : rule
 
 export const roleKill: ValveDefinition = {
     name: 'role.kill',
@@ -90,10 +101,10 @@ export const destStatus: ValveDefinition = {
     params: DestinationStatus,
     target: z.literal(WEBHOOK_HOST),
     strandsRunningJobs: false,
-    apply: ({ environment }, target, dose) => {
+    apply: (context, target, dose) => {
         const { code, ...amount } = DestinationStatus.parse(dose)
         const rule = ruleOf({ name: 'dest.status', params: { code }, match: { host: target }, dose: amount })
-        return environment.actuate({ kind: 'edge.fault', rule })
+        return context.environment.actuate({ kind: 'edge.fault', rule: picking(rule, context) })
     },
 }
 
@@ -116,12 +127,41 @@ export const sesReject: ValveDefinition = {
     params: SesRejectDose,
     target: z.literal('ses'),
     strandsRunningJobs: false,
-    apply: ({ environment }, _target, dose) => {
+    apply: (context, _target, dose) => {
         const { type, share } = SesRejectDose.parse(dose)
-        return environment.actuate({
+        return context.environment.actuate({
             kind: 'edge.fault',
-            rule: ruleOf({ name: 'ses.reject', params: { type }, dose: { share } }),
+            rule: picking(ruleOf({ name: 'ses.reject', params: { type }, dose: { share } }), context),
         })
+    },
+}
+
+const AmbiguousDose = z.union([
+    z.object({ accepted: AmbiguousParams.shape.accepted, count: z.number().int().min(1) }).strict(),
+    z.object({ accepted: AmbiguousParams.shape.accepted, share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const sesAmbiguous: ValveDefinition = {
+    name: 'ses.ambiguous',
+    params: AmbiguousDose,
+    target: z.literal('ses'),
+    strandsRunningJobs: false,
+    apply: (context, _target, dose) => {
+        const { accepted, ...amount } = AmbiguousDose.parse(dose)
+        const rule = ruleOf({ name: 'ses.ambiguous', params: { accepted }, dose: amount })
+        return context.environment.actuate({ kind: 'edge.fault', rule: picking(rule, context) })
+    },
+}
+
+export const destAmbiguous: ValveDefinition = {
+    name: 'dest.ambiguous',
+    params: AmbiguousDose,
+    target: z.literal(WEBHOOK_HOST),
+    strandsRunningJobs: false,
+    apply: (context, target, dose) => {
+        const { accepted, ...amount } = AmbiguousDose.parse(dose)
+        const rule = ruleOf({ name: 'dest.ambiguous', params: { accepted }, match: { host: target }, dose: amount })
+        return context.environment.actuate({ kind: 'edge.fault', rule: picking(rule, context) })
     },
 }
 
@@ -147,20 +187,33 @@ export const VALVES: ValveDefinition[] = [
     destStatus,
     sesThrottle,
     sesReject,
+    sesAmbiguous,
+    destAmbiguous,
 ]
 
 const POLL_MS = 1000
+
+function neverAppliedOf({ when }: ValveEntry, armed: boolean): string {
+    if (when === undefined || !armed) {
+        return 'never applied: released before its offset'
+    }
+    return when.name === 'edge_accepted'
+        ? `never applied: edge_accepted on ${when.params.channel} did not happen before the drive ended`
+        : `never applied: running_on_queue ${when.params.queue} at least ${when.params.atLeast} did not hold before the drive ended`
+}
 
 const now = (): string => new Date().toISOString()
 
 export function createValves({ pollMs = POLL_MS } = {}): Valves {
     const entries: ValveTimelineEntry[] = []
+    const doses = new Map<ValveTimelineEntry, unknown>()
+    const unitIds = new Map<ValveTimelineEntry, string[]>()
     const running: Promise<void>[] = []
     const released = new AbortController()
     const refusals = new AbortController()
     let releasing: Promise<void> | undefined
 
-    const run = async (entry: ValveEntry, context: ValveContext, record: ValveTimelineEntry): Promise<void> => {
+    const run = async (entry: ValveEntry, context: EntryContext, record: ValveTimelineEntry): Promise<void> => {
         let probeFailure: string | undefined
         const runningJobs = (queue: Queue): Promise<number> =>
             context.probe.runningJobs({ teams: context.teams, queues: [queue] }).then(
@@ -176,10 +229,35 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         const withProbeFailure = (error: string): string =>
             probeFailure === undefined ? error : `${error}; the probe last failed: ${probeFailure}`
 
+        let boundary: Actuation | undefined
+        const releaseBoundary = async (): Promise<void> => {
+            const holding = boundary
+            boundary = undefined
+            await holding?.release().catch((error: unknown) => {
+                record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
+            })
+        }
+
+        const ended = (): boolean =>
+            released.signal.aborted || (context.endsAt !== undefined && Date.now() >= context.endsAt)
+        let armed = entry.at === undefined
         const due = async (): Promise<boolean> => {
             if (entry.at !== undefined) {
-                await sleep(durationMs(entry.at), undefined, { signal: released.signal }).catch(() => undefined)
-                return true
+                const elapsedMs = context.startedAt === undefined ? 0 : Date.now() - context.startedAt
+                await sleep(Math.max(0, durationMs(entry.at) - elapsedMs), undefined, {
+                    signal: released.signal,
+                }).catch(() => undefined)
+                armed = !ended()
+                if (entry.when === undefined || !armed) {
+                    return entry.when === undefined
+                }
+            }
+            if (entry.when!.name === 'edge_accepted') {
+                boundary = await context.environment.actuate({ kind: 'edge.fault', rule: heldAnswerRule() })
+                if (boundary.accepted === undefined) {
+                    throw new Error('the edge cannot say when it accepted a request')
+                }
+                return boundary.accepted(released.signal)
             }
             const { queue, atLeast } = entry.when!.params
             while (!released.signal.aborted) {
@@ -191,12 +269,17 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             return false
         }
 
-        if (!(await due()) || released.signal.aborted) {
-            record.error = entry.when
-                ? withProbeFailure(
-                      `never applied: running_on_queue ${entry.when.params.queue} at least ${entry.when.params.atLeast} did not hold before the drive ended`
-                  )
-                : 'never applied: released before its offset'
+        const isDue = await due().catch((error: unknown) => {
+            record.error = (error as Error).message
+            return false
+        })
+        if (!isDue || ended()) {
+            record.error ??= withProbeFailure(
+                isDue && entry.when?.name === 'edge_accepted'
+                    ? 'never applied: the drive ended before the valve applied'
+                    : neverAppliedOf(entry, armed)
+            )
+            await releaseBoundary()
             return
         }
         const definition = VALVES.find(({ name }) => name === entry.valve)!
@@ -230,7 +313,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                     refusals.abort({ ...record })
                 }
             } else if (
-                entry.when &&
+                entry.when?.name === 'running_on_queue' &&
                 definition.strandsRunningJobs &&
                 (await runningJobs(entry.when.params.queue)) < entry.when.params.atLeast
             ) {
@@ -246,6 +329,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         } catch (error) {
             record.error = (error as Error).message
         } finally {
+            await releaseBoundary()
             if (actuation) {
                 try {
                     await actuation.release()
@@ -254,16 +338,32 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                 } catch (error) {
                     record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
                 }
+                try {
+                    const hits = await actuation.hits?.()
+                    if (hits) {
+                        unitIds.set(record, hits)
+                    }
+                } catch (error) {
+                    record.error = [
+                        record.error,
+                        `unit ids unreadable: ${error instanceof Error ? error.message : String(error)}`,
+                    ]
+                        .filter(Boolean)
+                        .join('; ')
+                }
             }
         }
     }
 
     return {
         start(valveEntries, context) {
-            for (const entry of valveEntries) {
+            for (const [index, entry] of valveEntries.entries()) {
                 const record: ValveTimelineEntry = { valve: entry.valve, target: entry.target, requestedAt: now() }
                 entries.push(record)
-                running.push(run(entry, context, record))
+                const definition = VALVES.find(({ name }) => name === entry.valve)
+                doses.set(record, definition?.params.safeParse(entry.dose).data ?? entry.dose)
+                const pick = context.seed === undefined ? undefined : `${context.seed}:${index}`
+                running.push(run(entry, { ...context, pick }, record))
             }
             return Promise.resolve()
         },
@@ -275,6 +375,15 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             })()),
 
         timeline: () => entries.map((entry) => ({ ...entry })),
+
+        fired: () =>
+            entries
+                .filter(({ intentAt, appliedAt }) => intentAt !== undefined || appliedAt !== undefined)
+                .map((entry) => {
+                    const { valve, target, ...record } = entry
+                    const hits = unitIds.get(entry)
+                    return { valve, target, dose: doses.get(entry), ...record, ...(hits && { unitIds: hits }) }
+                }),
 
         refusal: refusals.signal,
     }

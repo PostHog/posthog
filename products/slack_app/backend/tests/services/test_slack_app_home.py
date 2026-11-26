@@ -12,7 +12,6 @@ from __future__ import annotations
 import sys
 import json
 import importlib
-from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from types import ModuleType
 from typing import Any
@@ -238,39 +237,21 @@ def _stub_picker_facade():
     fake.validate_model_selection = fake_validate_selection
     fake.REASONING_EFFORTS = public_efforts
 
-    @dataclass(frozen=True)
-    class _GatewayModel:
-        id: str
-        owned_by: str
-        context_window: int = 200_000
-
-    gateway_models = (
-        _GatewayModel(id="claude-opus-4-7", owned_by="anthropic"),
-        _GatewayModel(id="claude-sonnet-4-6", owned_by="anthropic"),
-        _GatewayModel(id="gpt-5", owned_by="openai"),
-        _GatewayModel(id="gpt-5.5", owned_by="openai"),
-    )
     # The catalogue reads the run-config internals directly rather than through the facade,
     # so those lookups are replaced one at a time. Standing the facade stub in for the whole
     # module would blank every other name on it — the GitHub helpers `facade.api` defers to
     # among them.
     utils_name = "products.tasks.backend.temporal.process_task.utils"
-    model_catalogue = importlib.import_module("products.tasks.backend.logic.services.model_catalogue")
 
     saved_facade = sys.modules.get(facade_name)
     sys.modules[facade_name] = fake
-    # The provider → adapter map is cached for the process, so the fake only governs once
-    # the cache is dropped on the way in and back out.
-    model_catalogue._runtime_adapter_by_provider.cache_clear()
     try:
         with (
             patch(f"{utils_name}.get_supported_reasoning_efforts", fake_get_supported),
             patch(f"{utils_name}.get_provider_for_runtime_adapter", fake_get_provider),
-            patch.object(model_catalogue, "list_gateway_models", return_value=gateway_models),
         ):
             yield
     finally:
-        model_catalogue._runtime_adapter_by_provider.cache_clear()
         if saved_facade is None:
             sys.modules.pop(facade_name, None)
         else:
@@ -829,6 +810,54 @@ class TestDailyFocusControls:
         row = SlackDailyFocus.objects.unscoped().get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
         assert row.at == time(14, 30)
         assert row.next_run_at == expected_next_run
+
+    @pytest.mark.parametrize(
+        "scopes, turned_off_before, expected_next_run",
+        [
+            ("search:read.public", False, datetime(2026, 11, 10, 8, 0, tzinfo=UTC)),
+            ("search:read.public", True, None),
+            ("users:read", False, None),
+        ],
+        ids=["never chose", "turned it off", "link cannot search"],
+    )
+    def test_opening_home_turns_it_on_only_for_a_person_who_never_chose(
+        self,
+        slack_integration,
+        mock_slack_client,
+        flag_on,
+        link_user,
+        scopes,
+        turned_off_before,
+        expected_next_run,
+    ):
+        self._link(slack_integration, link_user, scopes)
+        if turned_off_before:
+            SlackDailyFocus.objects.for_team(slack_integration.team_id).create(
+                team_id=slack_integration.team_id,
+                slack_workspace_id=SLACK_WORKSPACE_ID,
+                slack_user_id="U001",
+                integration_id=slack_integration.id,
+                next_run_at=None,
+            )
+
+        with (
+            time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False),
+            patch("products.slack_app.backend.logic.daily_focus.capture_slack_event") as captured,
+        ):
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        row = (
+            SlackDailyFocus.objects.unscoped()
+            .filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+            .first()
+        )
+        assert (row.next_run_at if row else None) == expected_next_run
+        assert (captured.call_args.kwargs.get("source") if captured.called else None) == (
+            "home_default" if expected_next_run else None
+        )
+        # The checkbox shows what runs.
+        state = _resolve_daily_focus_state(slack_integration, "U001")
+        assert state is not None and state.enabled is bool(expected_next_run)
 
     def _link(self, slack_integration, link_user, scopes: str) -> None:
         user = User.objects.create_and_join(slack_integration.team.organization, "daily@example.com", None)
@@ -1558,6 +1587,25 @@ class TestHandleAppHomeOpened:
         view = mock_slack_client.views_publish.call_args.kwargs["view"]
         assert ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)
         assert "ChatGPT plan" not in _all_text(view)
+
+    @pytest.mark.parametrize("web_settings_enabled", [True, False])
+    def test_settings_link_shows_only_behind_the_web_settings_flag(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, settings, web_settings_enabled
+    ):
+        settings.SITE_URL = "https://app.example.com"
+        opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
+
+        with patch(
+            "products.slack_app.backend.services.slack_app_home.is_slack_app_web_settings_enabled",
+            return_value=web_settings_enabled,
+        ):
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        view = mock_slack_client.views_publish.call_args.kwargs["view"]
+        urls = [block["accessory"].get("url") for block in view["blocks"] if "accessory" in block]
+        settings_url = f"https://app.example.com/project/{slack_integration.team_id}/settings/environment-slack-app"
+        assert (settings_url in urls) is web_settings_enabled
 
     def _github_row(self, user: User, login: str) -> UserIntegration:
         return UserIntegration.objects.create(

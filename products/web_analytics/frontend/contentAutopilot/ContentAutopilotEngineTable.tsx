@@ -30,7 +30,7 @@ export const ContentAutopilotEngineTable = ({ engines }: { engines: EngineRow[] 
                 render: (_, { engine }) => <ContentAutopilotEngineLabel engine={engine} />,
             },
             {
-                title: 'Mentioned',
+                title: 'Visibility',
                 key: 'mention_rate',
                 align: 'right',
                 render: (_, { mention_rate }) => rateCell(mention_rate),

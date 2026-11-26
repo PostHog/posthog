@@ -34,9 +34,7 @@ PURCHASE_COUNT = EventsNode(event="purchase")
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentRatioMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest):
     def _build_lazy_computation_builder(self, experiment, feature_flag, metric) -> ExperimentQueryBuilder:
-        exposure_params = get_exposure_config_params_for_builder(
-            experiment.exposure_criteria, experiment.team, experiment.start_date
-        )
+        exposure_params = get_exposure_config_params_for_builder(experiment.exposure_criteria, experiment.start_date)
         as_of = datetime.now(UTC)
         date_range = experiment_window(experiment, self.team, as_of)
         return ExperimentQueryBuilder(

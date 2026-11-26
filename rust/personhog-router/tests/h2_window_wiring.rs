@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{
-    h2_frame, read_h2_frame, H2Frame, TestLeaderService, H2_FRAME_SETTINGS, H2_FRAME_WINDOW_UPDATE,
-    H2_PREFACE,
+    h2_frame, read_h2_frame, try_read_h2_frame, H2Frame, TestLeaderService, H2_FLAG_ACK,
+    H2_FRAME_PING, H2_FRAME_SETTINGS, H2_FRAME_WINDOW_UPDATE, H2_PREFACE,
 };
 use personhog_coordination::changelog::LiveChangelog;
 use personhog_coordination::types::ChangelogConfig;
@@ -105,15 +105,19 @@ fn retry_config() -> RetryConfig {
     }
 }
 
-fn dns_channel(addr: SocketAddr, http2_windows: Http2Windows) -> Channel {
+fn dns_channel(
+    addr: SocketAddr,
+    http2_windows: Http2Windows,
+    keepalive: Option<Duration>,
+) -> Channel {
     ChannelBackend::new_dns(
         "replica",
         DnsBackendConfig {
             url: format!("http://{addr}"),
             timeout: Duration::from_secs(5),
             retry_config: retry_config(),
-            keepalive_interval: None,
-            keepalive_timeout: None,
+            keepalive_interval: keepalive,
+            keepalive_timeout: keepalive,
             http2_windows,
             num_channels: 1,
         },
@@ -121,21 +125,29 @@ fn dns_channel(addr: SocketAddr, http2_windows: Http2Windows) -> Channel {
     .channel()
 }
 
-fn discovered_channel(addr: SocketAddr, http2_windows: Http2Windows) -> Channel {
+fn discovered_channel(
+    addr: SocketAddr,
+    http2_windows: Http2Windows,
+    keepalive: Option<Duration>,
+) -> Channel {
     build_discovered_endpoint(
         addr,
         &EndpointConfig {
             timeout: Duration::from_secs(5),
             connect_timeout: Duration::from_secs(5),
-            keepalive_interval: None,
-            keepalive_timeout: None,
+            keepalive_interval: keepalive,
+            keepalive_timeout: keepalive,
             http2_windows,
         },
     )
     .connect_lazy()
 }
 
-async fn leader_channel(addr: SocketAddr, http2_windows: Http2Windows) -> Channel {
+async fn leader_channel(
+    addr: SocketAddr,
+    http2_windows: Http2Windows,
+    keepalive: Option<Duration>,
+) -> Channel {
     let mut routing = HashMap::new();
     routing.insert(0, "leader-0".to_string());
     let changelog = LiveChangelog::new(ChangelogConfig::new("personhog_updates", 1));
@@ -145,12 +157,27 @@ async fn leader_channel(addr: SocketAddr, http2_windows: Http2Windows) -> Channe
         LeaderBackendConfig {
             changelog: changelog.clone(),
             timeout: Duration::from_secs(5),
+            keepalive_interval: keepalive,
+            keepalive_timeout: keepalive,
             num_channels: 1,
             http2_windows,
         },
         StashTable::with_bounds(usize::MAX, usize::MAX, changelog),
     );
     backend.resolve_leader_channel(0).await.unwrap()
+}
+
+async fn channel_for(
+    builder: &str,
+    addr: SocketAddr,
+    http2_windows: Http2Windows,
+    keepalive: Option<Duration>,
+) -> Channel {
+    match builder {
+        "dns" => dns_channel(addr, http2_windows, keepalive),
+        "discovery" => discovered_channel(addr, http2_windows, keepalive),
+        _ => leader_channel(addr, http2_windows, keepalive).await,
+    }
 }
 
 fn drive(mut channel: Channel) {
@@ -174,12 +201,7 @@ async fn every_outbound_channel_builder_advertises_the_configured_windows() {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let http2_windows = windows(configured);
-            let channel = match builder {
-                "dns" => dns_channel(addr, http2_windows),
-                "discovery" => discovered_channel(addr, http2_windows),
-                _ => leader_channel(addr, http2_windows).await,
-            };
-            drive(channel);
+            drive(channel_for(builder, addr, http2_windows, None).await);
 
             let (mut peer, _) = listener.accept().await.unwrap();
             let mut preface = [0u8; H2_PREFACE.len()];
@@ -200,6 +222,35 @@ async fn every_outbound_channel_builder_advertises_the_configured_windows() {
                 "{builder} configured={configured}"
             );
         }
+    }
+}
+
+#[tokio::test]
+async fn every_outbound_channel_builder_closes_a_connection_that_stops_answering_pings() {
+    for builder in ["dns", "discovery", "leader"] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let keepalive = Some(Duration::from_millis(50));
+        drive(channel_for(builder, addr, Http2Windows::default(), keepalive).await);
+
+        let (mut peer, _) = listener.accept().await.unwrap();
+        let mut preface = [0u8; H2_PREFACE.len()];
+        peer.read_exact(&mut preface).await.unwrap();
+        peer.write_all(&h2_frame(H2_FRAME_SETTINGS, 0, 0, &[]))
+            .await
+            .unwrap();
+
+        let read_until_closed = async {
+            let mut pinged = false;
+            while let Ok(frame) = try_read_h2_frame(&mut peer).await {
+                pinged |= frame.frame_type == H2_FRAME_PING && frame.flags & H2_FLAG_ACK == 0;
+            }
+            pinged
+        };
+        let pinged = tokio::time::timeout(Duration::from_secs(2), read_until_closed)
+            .await
+            .unwrap_or_else(|_| panic!("{builder} kept the unanswered connection open"));
+        assert!(pinged, "{builder} closed the connection without pinging");
     }
 }
 
