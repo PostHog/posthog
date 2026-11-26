@@ -5,7 +5,7 @@ import { AddressInfo } from 'net'
 import os from 'os'
 import path from 'path'
 
-import { githubOrigin } from './origin'
+import { OriginIo, githubOrigin } from './origin'
 
 const COMPARED: Record<string, string> = {
     ['a'.repeat(40)]: 'identical',
@@ -14,12 +14,55 @@ const COMPARED: Record<string, string> = {
     ['d'.repeat(40)]: 'diverged',
 }
 
+type Answer = { status: number; headers?: Record<string, string>; message?: string }
+
+const NOW_S = 1_767_225_600
+const COMMIT = 'a'.repeat(40)
+const RATE_LIMITED: Answer = {
+    status: 403,
+    headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(NOW_S + 5) },
+    message: 'API rate limit exceeded for 192.0.2.1.',
+}
+
 describe('githubOrigin', () => {
     let server: http.Server
     let api: string
+    let answers: Answer[]
+    let authorizations: (string | undefined)[]
+
+    const scripted = (token?: string): { io: OriginIo; waits: number[]; warned: string[] } => {
+        const waits: number[] = []
+        const warned: string[] = []
+        return {
+            io: {
+                token,
+                now: () => NOW_S * 1000,
+                sleep: (ms) => {
+                    waits.push(ms)
+                    return Promise.resolve()
+                },
+                warn: (line) => warned.push(line),
+            },
+            waits,
+            warned,
+        }
+    }
+
+    beforeEach(() => {
+        answers = []
+        authorizations = []
+    })
 
     beforeAll(async () => {
         server = http.createServer((request, response) => {
+            authorizations.push(request.headers.authorization)
+            const answer = answers.shift()
+            if (answer) {
+                response
+                    .writeHead(answer.status, { 'content-type': 'application/json', ...answer.headers })
+                    .end(JSON.stringify(answer.status === 200 ? { status: 'identical' } : { message: answer.message }))
+                return
+            }
             const commit = /^\/repos\/PostHog\/posthog\/compare\/master\.\.\.([0-9a-f]{40})$/.exec(
                 request.url ?? ''
             )?.[1]
@@ -47,6 +90,44 @@ describe('githubOrigin', () => {
         ['0'.repeat(40), 'GitHub does not know', false],
     ])('answers whether commit %s, which %s, is on master', async (commit, _, onMaster) => {
         await expect(githubOrigin(api).onMaster(commit)).resolves.toBe(onMaster)
+    })
+
+    it.each([
+        ['a reset 5 s away', RATE_LIMITED.headers, 5_000],
+        ['a reset an hour away', { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(NOW_S + 3600) }, 60_000],
+        ['a retry-after of 3 s', { 'retry-after': '3' }, 3_000],
+        ['no rate-limit headers', {}, 60_000],
+    ])(
+        'retries once after a rate-limited answer with %s, waiting at most a minute',
+        async (_story, headers, waited) => {
+            answers = [{ ...RATE_LIMITED, status: 429, headers }, { status: 200 }]
+            const { io, waits, warned } = scripted()
+
+            await expect(githubOrigin(api, __dirname, io).onMaster(COMMIT)).resolves.toBe(true)
+            expect({ waits, warned: warned.join('\n') }).toEqual({
+                waits: [waited],
+                warned: expect.stringContaining('API rate limit exceeded for 192.0.2.1.'),
+            })
+        }
+    )
+
+    it("throws with GitHub's message and rate-limit headers when the retry is refused too", async () => {
+        answers = [RATE_LIMITED, RATE_LIMITED]
+        const { io, warned } = scripted()
+
+        await expect(githubOrigin(api, __dirname, io).onMaster(COMMIT)).rejects.toThrow(
+            `GitHub answered 403 comparing commit ${COMMIT} with master: API rate limit exceeded for 192.0.2.1. (x-ratelimit-remaining: 0, x-ratelimit-reset: ${NOW_S + 5})`
+        )
+        expect(warned.join('\n')).toContain(`x-ratelimit-remaining: 0, x-ratelimit-reset: ${NOW_S + 5}`)
+    })
+
+    it.each([
+        ['sends the token the environment sets', 'example-token', 'Bearer example-token'],
+        ['sends no authorization without a token', undefined, undefined],
+    ])('%s', async (_story, token, authorization) => {
+        await githubOrigin(api, __dirname, scripted(token).io).onMaster(COMMIT)
+
+        expect(authorizations).toEqual([authorization])
     })
 
     it('reads a card as the commit holds it, never as the working tree holds it', () => {
