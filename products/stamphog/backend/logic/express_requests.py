@@ -618,6 +618,10 @@ def _refresh_locked(request: ExpressRequest, *, decided_head_sha: str, using: st
     if delivery is None or delivery.state != ExpressRequestDelivery.State.POSTED or delivery.integration_id is None:
         _post_if_open(request, pr, state, lookers, head_sha, using=using)
         return
+    # Turning Express off, or moving it to another channel, stops PR data from reaching the old card's audience.
+    if not repo_config.express_enabled or repo_config.express_slack_channel_id != delivery.channel_id:
+        logger.info("stamphog_express_request_card_frozen", express_request_id=str(request.id))
+        return
 
     card = _card(
         request,

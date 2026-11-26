@@ -4762,6 +4762,42 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
     assert _refresh(request).status == ExpressRequestStatus.MERGED
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "express_enabled, channel_id",
+    [
+        pytest.param(False, "", id="turned_off"),
+        pytest.param(True, "C0OTHER", id="moved_to_another_channel"),
+    ],
+)
+def test_a_card_stops_following_the_pull_request_once_express_leaves_its_channel(
+    team, stamphog_chain: StamphogChain, express_enabled: bool, channel_id: str
+) -> None:
+    repo_config = _express_repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 173, _silent_review_pr(173, "sha173a"), _pr_files())
+    request = _ask_people(team.id, 173, fakes.make_fake_sandbox_class(_refused_engine_output()))
+    assert len(_cards()) == 1
+    repo_config.express_enabled = express_enabled
+    repo_config.express_slack_channel_id = channel_id
+    repo_config.save()
+    fakes.FakeSlackIntegration.updated_messages.clear()
+
+    recorder.pr_reviews[(REPO, 173)] = [
+        {
+            "user": {"login": "maintainer", "type": "User"},
+            "author_association": "MEMBER",
+            "state": "APPROVED",
+            "commit_id": "sha173a",
+        }
+    ]
+    request = _refresh(request)
+
+    assert request.status == ExpressRequestStatus.APPROVED
+    assert fakes.FakeSlackIntegration.updated_messages == []
+    assert len(_cards()) == 1
+
+
 @pytest.mark.parametrize(
     "review_mode, expect_status, expect_cards",
     [
