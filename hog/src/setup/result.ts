@@ -20,8 +20,6 @@ export interface SetupInput {
 // what it asks or tells the person and which command it runs itself.
 export type NextAction =
     | { kind: 'run'; command: string; instructions: string }
-    // A question for the person. The agent turns the answer into the options of `command`.
-    | { kind: 'ask_user'; ask: string; command: string; instructions: string }
     | { kind: 'read'; read: string[]; command: string; instructions: string }
     | { kind: 'wait'; command: string; url: string; code: string | null; expiresAt: string; instructions: string }
     | { kind: 'done'; instructions: string }
