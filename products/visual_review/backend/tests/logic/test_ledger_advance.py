@@ -828,6 +828,41 @@ class TestReconcileOpenApprovals:
         assert _state(closed) == (BaselineApprovalState.ABANDONED, ledger_advance.DETAIL_CLOSED_WITHOUT_MERGE)
         assert _state(unreadable)[0] == BaselineApprovalState.OPEN
 
+    @pytest.mark.parametrize(
+        ("pull_request_state", "parent_state"),
+        [
+            pytest.param("closed", BaselineApprovalState.ABANDONED, id="parent_closed"),
+            pytest.param("merged", BaselineApprovalState.VOIDED, id="parent_merged_without_rendering_it"),
+        ],
+    )
+    def test_a_closed_approval_publishes_again_for_approvals_made_over_it_and_not_for_its_own_pull_request(
+        self, repo, github, mocker, django_capture_on_commit_callbacks, pull_request_state, parent_state
+    ) -> None:
+        set_baseline_mode(repo, BaselineMode.LEDGER)
+        github.push("s1", "chore: no pull request named")
+        ledger_advance.advance(repo)
+        parent = approve(repo, 1, "Button", "b1", commit_sha="old-1")
+        _pull_request_run(
+            repo, 1, "head-1", metadata={METADATA_KEY: make_record(candidate_approval_ids=(parent.id,)).to_json()}
+        )
+        approve(repo, 2, "Button", "b2", effective_base_hash="b1", base_approval=parent)
+        # The child's current run counted its own approval by itself, so its record does not name the parent.
+        _pull_request_run(repo, 2, "head-2", minute=1, metadata={METADATA_KEY: make_record().to_json()})
+        if pull_request_state == "merged":
+            github.mark_merged(1, "s1")
+        else:
+            github.pull_requests[1] = github_api.PullRequestState(
+                state="closed", merged=False, merge_commit_sha=None, base_ref="master", head_sha="head-1"
+            )
+        github.open_pull_request(2)
+        publish = mocker.patch.object(tasks.publish_visual_review_commit_status, "delay")
+
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            ledger_advance.reconcile_open_approvals(repo)
+
+        assert _state(parent)[0] == parent_state
+        assert publish.call_args_list == [mocker.call(repo.team_id, str(repo.id), "head-2", RunType.STORYBOOK)]
+
     def test_late_landings_apply_in_ledger_position_order(self, repo, github) -> None:
         github.push("s1", "chore: no pull request named")
         github.push("s2", "chore: no pull request named")

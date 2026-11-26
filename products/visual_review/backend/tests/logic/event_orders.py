@@ -288,6 +288,7 @@ CLOSE_SCENARIOS = (
             "approve C": ("run C",),
             "close P": ("approve P",),
             "push C": ("close P", "approve C"),
+            "approve C again": ("push C",),
         },
     ),
 )

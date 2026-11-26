@@ -249,6 +249,7 @@ class TestRecordApprovals:
         }
         new = BaselineApproval.objects.get(repo=repo, state=BaselineApprovalState.OPEN)
         assert (new.ledger_base_hash, new.effective_base_hash, new.commit_sha) == ("b0", "b1", "p8b")
+        assert new.base_approval_id == earlier_button.id
         assert {earlier_button.id, earlier_card.id}.isdisjoint({new.id})
 
     @pytest.mark.parametrize(
@@ -355,7 +356,7 @@ def _overlay_of(approval: BaselineApproval) -> BaselineRecord:
     return make_record(overlay=overlay, candidate_approval_ids=(approval.id,))
 
 
-def _passes_unchanged_on(repo: Repo, commit_sha: str, approval: BaselineApproval) -> Run:
+def _passes_unchanged_on(repo: Repo, approval: BaselineApproval, commit_sha: str = "p8a") -> Run:
     return _run(
         repo,
         commit_sha,
@@ -366,43 +367,59 @@ def _passes_unchanged_on(repo: Repo, commit_sha: str, approval: BaselineApproval
     )
 
 
-def _child_approved_over_the_parent(repo: Repo, parent: BaselineApproval) -> tuple[Run, BaselineApproval]:
-    child_run = _run(
+def _approved_over(
+    repo: Repo, lower: BaselineApproval, commit_sha: str, content_hash: str, **fields
+) -> tuple[Run, BaselineApproval]:
+    approving_run = _run(
         repo,
-        "p8a",
-        {"Button": ("changed", "b2", parent.content_hash)},
-        record=_overlay_of(parent),
+        commit_sha,
+        {"Button": ("changed", content_hash, lower.content_hash)},
+        record=_overlay_of(lower),
         purpose=RunPurpose.REVIEW,
         pr_number=8,
     )
-    Run.objects.filter(id=child_run.id).update(approved=True)
-    child_run.refresh_from_db()
-    child = approve(repo, 8, "Button", "b2", effective_base_hash=parent.content_hash, source_run=child_run)
-    return child_run, child
+    Run.objects.filter(id=approving_run.id).update(approved=True)
+    approving_run.refresh_from_db()
+    BaselineApproval.objects.filter(pr_number=8, state=BaselineApprovalState.OPEN).update(
+        state=BaselineApprovalState.SUPERSEDED
+    )
+    approval = approve(
+        repo, 8, "Button", content_hash, effective_base_hash=lower.content_hash, source_run=approving_run, **fields
+    )
+    return approving_run, approval
 
 
-def _stack_child_passes_on_the_parent(repo: Repo, parent: BaselineApproval) -> Run:
-    return _passes_unchanged_on(repo, "p8a", parent)
+def _run_again_after(repo: Repo, old_run: Run, approval: BaselineApproval) -> Run:
+    # A branch allows one unsuperseded run, so the old run points at itself until the new run exists.
+    Run.objects.filter(id=old_run.id).update(superseded_by=old_run)
+    rerun = _passes_unchanged_on(repo, approval, "p8z")
+    Run.objects.filter(id=old_run.id).update(superseded_by=rerun)
+    return rerun
 
 
-def _same_pull_request_passes_again(repo: Repo, parent: BaselineApproval) -> Run:
-    BaselineApproval.objects.filter(id=parent.id).update(pr_number=8)
-    parent.refresh_from_db()
-    return _passes_unchanged_on(repo, "p8b", parent)
-
-
-def _child_approved_over_the_parent_run(repo: Repo, parent: BaselineApproval) -> Run:
-    child_run, _child = _child_approved_over_the_parent(repo, parent)
+def _child_approved_over_the_parent(repo: Repo, parent: BaselineApproval) -> Run:
+    child_run, _child = _approved_over(repo, parent, "p8a", "b2")
     return child_run
 
 
 def _child_runs_again_on_its_own_approval(repo: Repo, parent: BaselineApproval) -> Run:
-    child_run, child = _child_approved_over_the_parent(repo, parent)
-    # A branch allows one unsuperseded run, so the old run points at itself until the new run exists.
-    Run.objects.filter(id=child_run.id).update(superseded_by=child_run)
-    rerun = _passes_unchanged_on(repo, "p8b", child)
-    Run.objects.filter(id=child_run.id).update(superseded_by=rerun)
+    child_run, child = _approved_over(repo, parent, "p8a", "b2")
+    return _run_again_after(repo, child_run, child)
+
+
+def _child_runs_again_after_retention_deleted_the_approving_run(repo: Repo, parent: BaselineApproval) -> Run:
+    child_run, child = _approved_over(repo, parent, "p8a", "b2", base_approval=parent)
+    rerun = _run_again_after(repo, child_run, child)
+    child_run.delete()
     return rerun
+
+
+def _child_approves_again_over_its_own_approval(repo: Repo, parent: BaselineApproval) -> Run:
+    first_run, first = _approved_over(repo, parent, "p8a", "b2")
+    Run.objects.filter(id=first_run.id).update(superseded_by=first_run)
+    second_run, _second = _approved_over(repo, first, "p8b", "b3")
+    Run.objects.filter(id=first_run.id).update(superseded_by=second_run)
+    return second_run
 
 
 class TestIsStale:
@@ -472,12 +489,18 @@ class TestStaleApprovals:
         assert [approval.id for approval in baseline_approvals.stale_approvals(run)] == ([top.id] if stale else [])
 
     @pytest.mark.parametrize(
-        "make_run",
+        ("parent_pr_number", "make_run"),
         [
-            pytest.param(_stack_child_passes_on_the_parent, id="stack_child_overlay"),
-            pytest.param(_same_pull_request_passes_again, id="later_run_of_the_same_pull_request"),
-            pytest.param(_child_approved_over_the_parent_run, id="child_approved_over_the_parent"),
-            pytest.param(_child_runs_again_on_its_own_approval, id="child_runs_again_on_its_own_approval"),
+            pytest.param(7, _passes_unchanged_on, id="stack_child_overlay"),
+            pytest.param(8, _passes_unchanged_on, id="later_run_of_the_same_pull_request"),
+            pytest.param(7, _child_approved_over_the_parent, id="child_approved_over_the_parent"),
+            pytest.param(7, _child_runs_again_on_its_own_approval, id="child_runs_again_on_its_own_approval"),
+            pytest.param(
+                7,
+                _child_runs_again_after_retention_deleted_the_approving_run,
+                id="child_runs_again_after_retention_deleted_the_approving_run",
+            ),
+            pytest.param(7, _child_approves_again_over_its_own_approval, id="child_approves_again_over_its_own"),
         ],
     )
     @pytest.mark.parametrize(
@@ -491,13 +514,68 @@ class TestStaleApprovals:
             pytest.param(BaselineApprovalState.ABANDONED, True, id="abandoned"),
         ],
     )
-    def test_an_applied_approval_that_closed_without_a_ledger_entry(self, repo, make_run, parent_state, stale) -> None:
-        parent = approve(repo, 7, "Button", "b1")
+    def test_an_applied_approval_that_closed_without_a_ledger_entry(
+        self, repo, parent_pr_number, make_run, parent_state, stale
+    ) -> None:
+        parent = approve(repo, parent_pr_number, "Button", "b1")
         run = make_run(repo, parent)
         # The ledger still holds b0, so the moved-base rule alone finds nothing stale.
         BaselineApproval.objects.filter(id=parent.id).update(state=parent_state)
 
         assert [approval.id for approval in baseline_approvals.stale_approvals(run)] == ([parent.id] if stale else [])
+
+    def test_an_approval_over_a_lower_layer_that_nothing_names_any_more_is_stale(self, repo) -> None:
+        parent = approve(repo, 7, "Button", "b1")
+        # Written before approvals named their base approval, so only the approving run's overlay names the parent.
+        child_run, child = _approved_over(repo, parent, "p8a", "b2")
+        rerun = _run_again_after(repo, child_run, child)
+        child_run.delete()
+
+        assert [approval.id for approval in baseline_approvals.stale_approvals(rerun)] == [child.id]
+
+    def test_the_walk_stops_at_a_promoted_layer(self, repo) -> None:
+        bottom = approve(repo, 6, "Button", "b1", state=BaselineApprovalState.ABANDONED)
+        middle = approve(
+            repo,
+            7,
+            "Button",
+            "b2",
+            effective_base_hash="b1",
+            base_approval=bottom,
+            state=BaselineApprovalState.PROMOTED,
+        )
+        top_run, _top = _approved_over(repo, middle, "p8a", "b3", base_approval=middle)
+
+        assert baseline_approvals.stale_approvals(top_run) == []
+
+    @pytest.mark.parametrize(
+        "cover",
+        ["back_to_baseline", "same_picture_approved_again", "ledger_holds_the_picture", "ledger_holds_the_child_base"],
+    )
+    def test_a_closed_approval_whose_picture_is_still_covered_is_not_stale(self, repo, cover) -> None:
+        parent = approve(repo, 7, "Button", "b1")
+        if cover == "back_to_baseline":
+            run = _run(
+                repo,
+                "p8a",
+                {"Button": ("changed", "b0", "b1")},
+                record=_overlay_of(parent),
+                purpose=RunPurpose.REVIEW,
+                pr_number=8,
+            )
+            Run.objects.filter(id=run.id).update(approved=True)
+            run.refresh_from_db()
+        elif cover == "ledger_holds_the_child_base":
+            run = _child_runs_again_on_its_own_approval(repo, parent)
+        else:
+            run = _passes_unchanged_on(repo, parent)
+        BaselineApproval.objects.filter(id=parent.id).update(state=BaselineApprovalState.SUPERSEDED)
+        if cover == "same_picture_approved_again":
+            approve(repo, 7, "Button", "b1")
+        if cover in ("ledger_holds_the_picture", "ledger_holds_the_child_base"):
+            move_ledger(repo, "Button", "b1")
+
+        assert baseline_approvals.stale_approvals(run) == []
 
     def test_nothing_is_stale_without_a_record(self, repo) -> None:
         run = _made_on_the_run(repo, approve(repo, 8, "Button", "b1"))
@@ -521,6 +599,39 @@ class TestStaleApprovals:
             assert baseline_approvals.stale_approvals(run) == []
 
         assert len(queries) == 0
+
+    def test_a_run_with_its_own_approval_over_an_open_parent_reads_no_run(self, repo) -> None:
+        parent = approve(repo, 7, "Button", "b1")
+        child_run, _child = _approved_over(repo, parent, "p8a", "b2")
+
+        with CaptureQueriesContext(connections[WRITER_DB]) as queries:
+            assert baseline_approvals.stale_approvals(child_run) == []
+
+        assert [query["sql"] for query in queries if 'FROM "visual_review_run"' in query["sql"]] == []
+        assert len(queries) == 4
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestWithoutClosedLowerLayers:
+    @pytest.mark.parametrize(
+        ("parent_state", "ledger_hash", "child_counts"),
+        [
+            pytest.param(BaselineApprovalState.OPEN, "b0", True, id="parent_open"),
+            pytest.param(BaselineApprovalState.PROMOTED, "b0", True, id="parent_promoted"),
+            pytest.param(BaselineApprovalState.ABANDONED, "b0", False, id="parent_abandoned"),
+            pytest.param(BaselineApprovalState.VOIDED, "b0", False, id="parent_voided"),
+            pytest.param(BaselineApprovalState.VOIDED, "b1", True, id="parent_voided_but_its_picture_landed"),
+        ],
+    )
+    def test_a_child_approved_over_a_closed_parent_stops_counting(
+        self, repo, parent_state, ledger_hash, child_counts
+    ) -> None:
+        parent = approve(repo, 7, "Button", "b1", state=parent_state)
+        child = approve(repo, 8, "Button", "b2", effective_base_hash="b1", base_approval=parent)
+
+        kept = baseline_approvals.without_closed_lower_layers([parent, child], {"Button": ledger_hash})
+
+        assert [approval.id for approval in kept] == [parent.id, *([child.id] if child_counts else [])]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

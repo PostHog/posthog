@@ -71,6 +71,10 @@ GUARANTEE_NO_CLOSED_APPROVAL = (
     "An open pull request head whose last gate status is success does not rest on an approval that closed without "
     "a ledger entry: not for the picture it renders, and not for the picture a layer of its stack approved over"
 )
+GUARANTEE_REVIEW_REACHES_GREEN = (
+    "A pull request that reviews its newest run again shows success, so a closed lower layer never leaves it red "
+    "with nothing to review"
+)
 
 REASON_APPROVED = "every picture it renders was approved"
 REASON_NOBODY_APPROVED = "it renders a picture that no pull request in the batch approved"
@@ -184,6 +188,7 @@ class OrderPlayer:
         self.workflows: dict[str, list[Workflow]] = {layer.name: [] for layer in scenario.layers}
         self.green_head_breaks: list[str] = []
         self.closed_approval_breaks: list[str] = []
+        self.review_breaks: list[str] = []
         self.closed: set[str] = set()
         self.master_changes: frozenset[str] = frozenset()
         self.heads: dict[str, str] = {}
@@ -473,6 +478,14 @@ class OrderPlayer:
                     f"and shows '{description}', closed layers {sorted(self.closed)}"
                 )
 
+    def check_review_reaches_green(self, event: str, name: str) -> None:
+        state, description = self.gate(self.heads[name])
+        if state != "success":
+            self.review_breaks.append(
+                f"{GUARANTEE_REVIEW_REACHES_GREEN}: after '{event}', {name} head {self.heads[name]} shows {state} "
+                f"'{description}'"
+            )
+
     def _expect_after_restack(self, layer: Layer) -> tuple[bool, str]:
         if layer.name not in self.approved_over:
             return False, REASON_RESTACK_NOT_APPROVED_YET
@@ -628,6 +641,8 @@ class OrderPlayer:
             outcome = self.update(names[0])
         elif verb == "approve":
             outcome = self.approve(names[0])
+            if names[1:] == ["again"]:
+                self.check_review_reaches_green(event, names[0])
         elif verb == "queue":
             outcome = self.queue(tuple(names))
         elif verb == "land":
@@ -642,7 +657,7 @@ class OrderPlayer:
 
 
 def broken_guarantees(player: OrderPlayer) -> list[str]:
-    broken = [*player.green_head_breaks, *player.closed_approval_breaks]
+    broken = [*player.green_head_breaks, *player.closed_approval_breaks, *player.review_breaks]
     for attempt in player.attempts:
         if attempt.passed != attempt.expected.gets_through:
             broken.append(
