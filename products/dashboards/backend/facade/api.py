@@ -84,6 +84,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingCachedEvent
 from products.dashboards.backend.v2 import (
     board_stream as v2_board_stream,
+    boards as v2_boards,
     cached_tiles as v2_cached_tiles,
     first_load as v2_first_load,
     query_batch as v2_query_batch,
@@ -1436,3 +1437,39 @@ def query_batch_stream(
         result_format=result_format,
     )
     return batch.astream() if asynchronous else batch.stream()
+
+
+# `dashboard-v2` boards. Each is one row that holds the whole version 2 document.
+
+
+def list_boards(
+    team_id: int, page: PageRequest, access: contracts.BoardListAccess | None
+) -> Page[contracts.BoardSummary]:
+    """List a team's live boards the viewer may see, the most recently saved first. `None` access lists them all."""
+    return v2_boards.list_boards(team_id, page, access)
+
+
+def get_board(team_id: int, uid: str) -> contracts.BoardDetail:
+    """Read one live board. Raises `BoardNotFound` for a uid of another team or a deleted board."""
+    return v2_boards.get_board(team_id, uid)
+
+
+def create_board(team_id: int, user_id: int, spec: dict[str, JsonValue]) -> contracts.BoardDetail:
+    """Save a document as a new native board at version 1, upgraded to the current schema. Raises `BoardSpecInvalid`."""
+    return v2_boards.create_board(team_id, user_id, spec)
+
+
+def update_board(
+    team_id: int, uid: str, user_id: int, spec: dict[str, JsonValue], base_version: int | None
+) -> contracts.BoardDetail:
+    """Replace a board's document and add 1 to its version.
+
+    Raises `BoardVersionConflict` when `base_version` is given and the board is at another version, and
+    `BoardReadOnly` for a board that is not native.
+    """
+    return v2_boards.update_board(team_id, uid, user_id, spec, base_version)
+
+
+def delete_board(team_id: int, uid: str) -> None:
+    """Soft-delete a native board, which frees its uid. Raises `BoardReadOnly` for any other board."""
+    v2_boards.delete_board(team_id, uid)
