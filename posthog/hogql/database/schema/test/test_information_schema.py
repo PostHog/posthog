@@ -71,9 +71,6 @@ class TestDeniedTableMatcher(SimpleTestCase):
             ("empty_denial", [], ["orders"], False),
             ("empty_references", ["orders"], [], False),
             ("missing_references", ["orders"], None, False),
-            ("product_table_denial", ["posthog.trace_spans"], ["posthog.trace_spans"], True),
-            ("product_table_leaf_is_not_shared", ["posthog.trace_spans"], ["stripe.trace_spans"], False),
-            ("saved_view_named_like_a_product_table", ["posthog.private_view"], ["models.posthog.private_view"], True),
         ]
     )
     def test_repeated_matches_preserve_existing_denial_rules(

@@ -1066,15 +1066,8 @@ _RELATIONSHIP_PROPOSALS_DESCRIPTION = (
 
 class DeniedTableMatcher:
     def __init__(self, denied: Iterable[str]) -> None:
-        # Deferred: database.py imports this module.
-        from posthog.hogql.database.database import access_controlled_posthog_tables  # noqa: PLC0415
-
         normalized_names = {name.lower() for name in denied}
-        # Built-in `posthog.*` product tables have no bare alias, so their leaf would only hide unrelated
-        # tables. Any other dotted name, such as a saved view named `posthog.x`, keeps its leaf match.
-        product_tables = {name.lower() for name in access_controlled_posthog_tables()}
-        leaves = {name.rsplit(".", 1)[-1] for name in normalized_names if name not in product_tables}
-        self._denied_names = frozenset(normalized_names | leaves)
+        self._denied_names = frozenset(normalized_names | {name.rsplit(".", 1)[-1] for name in normalized_names})
 
     def matches(self, referenced_table_names: Iterable[str] | None) -> bool:
         if not self._denied_names or referenced_table_names is None:
