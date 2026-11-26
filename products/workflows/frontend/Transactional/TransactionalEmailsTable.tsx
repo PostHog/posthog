@@ -196,6 +196,15 @@ export function TransactionalEmailsTable(): JSX.Element {
                                     title={
                                         <span className="flex flex-wrap items-center gap-1">
                                             {row.name || 'Unnamed template'}
+                                            {row.template.type === 'push' && (
+                                                <LemonTag
+                                                    type="highlight"
+                                                    size="small"
+                                                    data-attr="transactional-push-tag"
+                                                >
+                                                    Push
+                                                </LemonTag>
+                                            )}
                                             {sensitive}
                                             {row.template.has_draft && (
                                                 <LemonTag type="warning" size="small">
@@ -255,31 +264,55 @@ export function TransactionalEmailsTable(): JSX.Element {
                             if (!row.hog_flow_id) {
                                 return null
                             }
-                            const sparkline = (
-                                <AppMetricsSparkline
-                                    logicKey={`transactional-${row.id}`}
-                                    // Lines, not stacked bars: a delivered or failed email was also counted as sent.
-                                    type="line"
-                                    metricLabels={{
-                                        email_sent: 'Sent',
-                                        email_delivered: 'Delivered',
-                                        email_failed: 'Failed',
-                                    }}
-                                    metricColors={{
-                                        email_sent: 'blue',
-                                        email_delivered: 'success',
-                                        email_failed: 'danger',
-                                    }}
-                                    forceParams={{
-                                        appSource: 'hog_flow',
-                                        appSourceId: row.hog_flow_id,
-                                        metricName: ['email_sent', 'email_delivered', 'email_failed'],
-                                        breakdownBy: 'metric_name',
-                                        interval: 'day',
-                                        dateFrom: '-7d',
-                                    }}
-                                />
-                            )
+                            const sparkline =
+                                row.source === 'posthog' && row.template.type === 'push' ? (
+                                    <AppMetricsSparkline
+                                        logicKey={`transactional-${row.id}`}
+                                        type="line"
+                                        metricLabels={{
+                                            push_sent: 'Sent',
+                                            push_skipped: 'Skipped',
+                                            push_failed: 'Failed',
+                                        }}
+                                        metricColors={{
+                                            push_sent: 'blue',
+                                            push_skipped: 'warning',
+                                            push_failed: 'danger',
+                                        }}
+                                        forceParams={{
+                                            appSource: 'hog_flow',
+                                            appSourceId: row.hog_flow_id,
+                                            metricName: ['push_sent', 'push_skipped', 'push_failed'],
+                                            breakdownBy: 'metric_name',
+                                            interval: 'day',
+                                            dateFrom: '-7d',
+                                        }}
+                                    />
+                                ) : (
+                                    <AppMetricsSparkline
+                                        logicKey={`transactional-${row.id}`}
+                                        // Lines, not stacked bars: a delivered or failed email was also counted as sent.
+                                        type="line"
+                                        metricLabels={{
+                                            email_sent: 'Sent',
+                                            email_delivered: 'Delivered',
+                                            email_failed: 'Failed',
+                                        }}
+                                        metricColors={{
+                                            email_sent: 'blue',
+                                            email_delivered: 'success',
+                                            email_failed: 'danger',
+                                        }}
+                                        forceParams={{
+                                            appSource: 'hog_flow',
+                                            appSourceId: row.hog_flow_id,
+                                            metricName: ['email_sent', 'email_delivered', 'email_failed'],
+                                            breakdownBy: 'metric_name',
+                                            interval: 'day',
+                                            dateFrom: '-7d',
+                                        }}
+                                    />
+                                )
                             return (
                                 <Link
                                     to={
