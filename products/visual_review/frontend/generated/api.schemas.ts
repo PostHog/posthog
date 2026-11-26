@@ -1330,8 +1330,8 @@ export type VisualReviewRunsSnapshotsListParams = {
      *
      * * `pending` - pending
      * * `approved` - approved
-     * * `rejected` - rejected
      * * `tolerated` - tolerated
+     * * `rejected` - rejected
      * @minLength 1
      */
     review_state?: VisualReviewRunsSnapshotsListReviewState
@@ -1347,8 +1347,8 @@ export type VisualReviewRunsSnapshotsListReviewState =
 export const VisualReviewRunsSnapshotsListReviewState = {
     Pending: 'pending',
     Approved: 'approved',
-    Rejected: 'rejected',
     Tolerated: 'tolerated',
+    Rejected: 'rejected',
 } as const
 
 export type VisualReviewRunsToleratedHashesListParams = {

@@ -156320,8 +156320,8 @@ export namespace Schemas {
      *
      * * `pending` - pending
      * * `approved` - approved
-     * * `rejected` - rejected
      * * `tolerated` - tolerated
+     * * `rejected` - rejected
      * @minLength 1
      */
     review_state?: VisualReviewRunsSnapshotsListReviewState;
@@ -156337,8 +156337,8 @@ export namespace Schemas {
     export const VisualReviewRunsSnapshotsListReviewState = {
       Pending: 'pending',
       Approved: 'approved',
-      Rejected: 'rejected',
       Tolerated: 'tolerated',
+      Rejected: 'rejected',
     } as const;
 
     export type VisualReviewRunsToleratedHashesListParams = {

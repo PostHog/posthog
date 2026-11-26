@@ -1132,12 +1132,7 @@ class RunSnapshotsQuerySerializer(serializers.Serializer):
         ),
     )
     review_state = serializers.ChoiceField(
-        choices=[
-            ReviewState.PENDING.value,
-            ReviewState.APPROVED.value,
-            ReviewState.REJECTED.value,
-            ReviewState.TOLERATED.value,
-        ],
+        choices=ReviewState.choices,
         required=False,
         help_text=(
             "Only snapshots in this review state on the run, after decisions made on other runs of the pull "

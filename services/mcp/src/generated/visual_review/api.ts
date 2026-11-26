@@ -683,10 +683,10 @@ export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
             "Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for. This uses the quarantines active now, not each snapshot's `is_quarantined` flag, so on an older run it misses stories whose quarantine has ended since."
         ),
     review_state: zod
-        .enum(['pending', 'approved', 'rejected', 'tolerated'])
+        .enum(['pending', 'approved', 'tolerated', 'rejected'])
         .optional()
         .describe(
-            'Only snapshots in this review state on the run, after decisions made on other runs of the pull request. `pending` with `exclude_unchanged=true` lists what still needs a decision.\n\n\* `pending` - pending\n\* `approved` - approved\n\* `rejected` - rejected\n\* `tolerated` - tolerated'
+            'Only snapshots in this review state on the run, after decisions made on other runs of the pull request. `pending` with `exclude_unchanged=true` lists what still needs a decision.\n\n\* `pending` - pending\n\* `approved` - approved\n\* `tolerated` - tolerated\n\* `rejected` - rejected'
         ),
     snapshot_id: zod
         .string()

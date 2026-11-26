@@ -58,7 +58,7 @@ class ReviewDecision(StrEnum):
     REJECTED = "rejected"  # Passive annotation — no system effect in MVP
 
 
-class ReviewState(StrEnum):
+class ReviewState(LabeledStrEnum):
     """
     Human review state for a snapshot.
 
@@ -66,10 +66,10 @@ class ReviewState(StrEnum):
     ReviewState tracks the human decision and can change between runs.
     """
 
-    PENDING = "pending"  # Not yet reviewed
-    APPROVED = "approved"  # Accepted the change — updates baseline
-    TOLERATED = "tolerated"  # Acknowledged as rendering noise — does not update baseline
-    REJECTED = "rejected"  # Explicitly rejected
+    PENDING = "pending", "pending"  # Not yet reviewed
+    APPROVED = "approved", "approved"  # Accepted the change — updates baseline
+    TOLERATED = "tolerated", "tolerated"  # Acknowledged as rendering noise — does not update baseline
+    REJECTED = "rejected", "rejected"  # Explicitly rejected
 
 
 class ClassificationReason(StrEnum):
