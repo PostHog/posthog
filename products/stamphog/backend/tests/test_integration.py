@@ -22,6 +22,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
+from posthog.slack.block_actions import block_action_handler_for
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.models import SignalReport
@@ -4600,6 +4601,59 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
     assert request.status == HumanRequestStatus.MERGED
     assert "Merged." in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
     assert len(_cards()) == 1
+
+
+def _click(
+    card: dict, action_id: str, *, workspace: str = "T0CARD", user_workspace: str = "T0CARD", ts: str = ""
+) -> None:
+    (actions,) = [block for block in card["blocks"] if block["type"] == "actions"]
+    action = {"action_id": action_id, "value": actions["elements"][0]["value"]}
+    payload = {
+        "type": "block_actions",
+        "team": {"id": workspace},
+        "user": {"id": "U0LOOKER", "name": "lou", "team_id": user_workspace},
+        "channel": {"id": card["channel"]},
+        "message": {"ts": ts or card["ts"]},
+        "actions": [action],
+    }
+    handler = block_action_handler_for(action_id)
+    assert handler is not None
+    handler(payload, action)
+
+
+@pytest.mark.parametrize(
+    "click, looking",
+    [
+        pytest.param({}, True, id="workspace_member"),
+        # A person from another workspace in a Slack Connect channel sees the card, but the request is not theirs.
+        pytest.param({"user_workspace": "T0GUEST"}, False, id="slack_connect_guest"),
+        pytest.param({"workspace": "T0OTHER", "user_workspace": "T0OTHER"}, False, id="other_workspace"),
+        # A button value copied into another message must not act on the request.
+        pytest.param({"ts": "9999.0001"}, False, id="copied_to_another_message"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_click_on_the_card_marks_who_is_looking(
+    team, stamphog_chain: StamphogChain, click: dict, looking: bool
+) -> None:
+    _human_repo_config(team.id)
+    Integration.objects.filter(team_id=team.id, kind="slack").update(integration_id="T0CARD")
+    stamphog_chain.recorder.register_pr(REPO, 175, _silent_review_pr(175, "sha175a"), _pr_files())
+    request = _ask_people(team.id, 175, fakes.make_fake_sandbox_class(_refused_engine_output()))
+    (card,) = _cards()
+    updates_before = len(fakes.FakeSlackIntegration.updated_messages)
+
+    _click(card, "stamphog_human.look", **click)
+
+    participants = HumanRequestParticipant.objects.for_team(team.id).filter(human_request=request)
+    assert [(p.slack_user_id, p.looking) for p in participants] == ([("U0LOOKER", True)] if looking else [])
+    updates = fakes.FakeSlackIntegration.updated_messages[updates_before:]
+    assert len(updates) == int(looking)
+    if looking:
+        assert "<@U0LOOKER> is looking" in _rendered(updates[0]["blocks"])
+        _click(card, "stamphog_human.stop_looking", **click)
+        assert [p.looking for p in participants.all()] == [False]
+        assert "is looking" not in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
 
 
 @pytest.mark.parametrize(

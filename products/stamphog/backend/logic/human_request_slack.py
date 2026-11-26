@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import re
 import json
-from collections.abc import Sequence
+import uuid
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import structlog
@@ -218,6 +219,73 @@ def card_text(card: HumanRequestCard) -> str:
     return clip_text(
         escape_slack_mrkdwn(f"Review requested: {card.repository}#{card.pr_number} {title}"), MAX_TEXT_CHARS
     )
+
+
+@frozen
+class LookClick:
+    """A click on a card's look or stop-looking button, as Slack describes it."""
+
+    team_id: int
+    human_request_id: str
+    integration_id: int
+    # The workspace the click came from, and the clicker's own workspace. They differ for a person from
+    # another workspace in a Slack Connect channel.
+    slack_team_id: str
+    slack_user_team_id: str
+    channel_id: str
+    message_ts: str
+    slack_user_id: str
+    display_name: str
+    looking: bool
+
+
+def parse_look_click(payload: Mapping[str, Any], action: Mapping[str, Any]) -> LookClick | None:
+    """Read a click on the card's buttons, or None when it is not one or a field is missing or malformed."""
+    action_id = action.get("action_id")
+    if action_id not in (LOOK_ACTION_ID, STOP_LOOKING_ACTION_ID):
+        return None
+    try:
+        value = json.loads(action.get("value") or "")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    integration_id, team_id, request_id = value.get("integration_id"), value.get("team_id"), value.get("request_id")
+    if not isinstance(integration_id, int) or not isinstance(team_id, int) or not isinstance(request_id, str):
+        return None
+    try:
+        uuid.UUID(request_id)
+    except ValueError:
+        return None
+    user = payload.get("user") or {}
+    slack_team_id = (payload.get("team") or {}).get("id") or ""
+    container = payload.get("container") or {}
+    channel_id = (payload.get("channel") or {}).get("id") or container.get("channel_id") or ""
+    message_ts = (payload.get("message") or {}).get("ts") or container.get("message_ts") or ""
+    slack_user_id = user.get("id") or ""
+    if not (slack_team_id and channel_id and message_ts and slack_user_id):
+        return None
+    return LookClick(
+        team_id=team_id,
+        human_request_id=request_id,
+        integration_id=integration_id,
+        slack_team_id=slack_team_id,
+        # Slack leaves the clicker's team out of some payloads, and then the clicker is in the click's workspace.
+        slack_user_team_id=user.get("team_id") or slack_team_id,
+        channel_id=channel_id,
+        message_ts=message_ts,
+        slack_user_id=slack_user_id,
+        display_name=clip_text(user.get("name") or user.get("username") or "", 255),
+        looking=action_id == LOOK_ACTION_ID,
+    )
+
+
+def card_workspace(team_id: int, integration_id: int) -> str | None:
+    """The Slack workspace id of the integration that posted a card, or None when the integration is gone."""
+    try:
+        return IntegrationManager.slack.oauth.get(team_id, integration_id).integration_id
+    except IntegrationNotFound:
+        return None
 
 
 def find_card_integration(team_id: int) -> int | None:

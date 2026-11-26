@@ -34,6 +34,8 @@ from .human_request_slack import (
     CardLooker,
     HumanRequestCard,
     HumanRequestSlackError,
+    LookClick,
+    card_workspace,
     find_card_integration,
     ping_lookers,
     post_card,
@@ -46,6 +48,7 @@ from .scrubbing import neutralize_active_markdown, scrub_credentials
 logger = structlog.get_logger(__name__)
 
 CARD_POSTED_EVENT = "stamphog_human_request_card_posted"
+LOOK_CLICKED_EVENT = "stamphog_human_request_look_clicked"
 
 # The outcomes that send a pull request to people. A WAIT is absent because stamphog reviews the head again.
 _NOT_APPROVED_VERDICTS = frozenset({ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE})
@@ -429,3 +432,85 @@ def refresh(team_id: int, human_request_id: str) -> None:
         ping_lookers(
             card, delivery.channel_id, delivery.message_ts, reviewing=state.status == HumanRequestStatus.PENDING
         )
+
+
+def _capture_look(request: HumanRequest, looking: bool) -> None:
+    repo_config = request.pull_request.repo_config
+    try:
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=repo_config.repository,
+                event=LOOK_CLICKED_EVENT,
+                properties={
+                    "stamphog_repo": repo_config.repository,
+                    "stamphog_team_id": request.team_id,
+                    "stamphog_human_request_id": str(request.id),
+                    "stamphog_human_request_looking": looking,
+                },
+            )
+    except Exception:
+        logger.exception("stamphog_human_request_capture_failed", human_request_id=str(request.id))
+
+
+def record_look(click: LookClick) -> bool:
+    """Mark the person who clicked a card as looking at its pull request, or as no longer looking.
+
+    Returns True when the card must be refreshed. The click counts only on the card that the request
+    posted, and only from a person in the workspace that the card was posted in, because a button value
+    can be copied into another message. Slack expects an answer in 3 seconds, so the refresh is queued
+    by the caller.
+    """
+    db = router.db_for_write(HumanRequest)
+    request = (
+        HumanRequest.objects.for_team(click.team_id)
+        .using(db)
+        .select_related("pull_request__repo_config")
+        .filter(id=click.human_request_id, status__in=_REVIEWABLE_STATUSES)
+        .first()
+    )
+    if request is None:
+        return False
+    on_card = (
+        HumanRequestDelivery.objects.for_team(click.team_id)
+        .using(db)
+        .filter(
+            human_request=request,
+            kind=HumanRequestDeliveryKind.SLACK_MESSAGE,
+            state=HumanRequestDelivery.State.POSTED,
+            integration_id=click.integration_id,
+            channel_id=click.channel_id,
+            message_ts=click.message_ts,
+        )
+        .exists()
+    )
+    if not on_card:
+        return False
+    workspace = card_workspace(click.team_id, click.integration_id)
+    if not workspace or workspace != click.slack_team_id or click.slack_user_team_id != workspace:
+        logger.info("stamphog_human_request_click_from_another_workspace", human_request_id=str(request.id))
+        return False
+
+    participants = HumanRequestParticipant.objects.for_team(click.team_id).using(db)
+    if click.looking:
+        participant, created = participants.get_or_create(
+            team_id=click.team_id,
+            human_request=request,
+            slack_user_id=click.slack_user_id,
+            defaults={"display_name": click.display_name, "looking": True},
+        )
+        changed = created or bool(
+            participants.filter(id=participant.id, looking=False).update(
+                looking=True,
+                display_name=click.display_name or participant.display_name,
+                updated_at=timezone.now(),
+            )
+        )
+    else:
+        changed = bool(
+            participants.filter(human_request=request, slack_user_id=click.slack_user_id, looking=True).update(
+                looking=False, updated_at=timezone.now()
+            )
+        )
+    if changed:
+        _capture_look(request, click.looking)
+    return changed
