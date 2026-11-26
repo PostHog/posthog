@@ -1,3 +1,4 @@
+import json
 import urllib.parse
 from typing import Any, cast
 
@@ -8,10 +9,12 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.egress.vercel import vercel_request
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import BillingServiceAuthentication, BillingServiceUser
+from ee.vercel.client import InstallationTokenError, get_installation_access_token
 
 logger = structlog.get_logger(__name__)
 
@@ -59,11 +62,12 @@ class VercelProxyRequestSerializer(serializers.Serializer):
         return normalized
 
 
-def _extract_access_token(integration: OrganizationIntegration) -> str:
-    token = integration.sensitive_config.get("credentials", {}).get("access_token")
-    if not token:
-        raise ValueError(f"No access token found for integration {integration.integration_id}")
-    return token
+def proxy_endpoint_label(path: str) -> str:
+    if path in ALLOWED_VERCEL_PATHS:
+        return f"/v1/installations/{{id}}{path}"
+    # The billing service chooses the path after an allowlisted prefix, so only the prefix goes into the label.
+    prefix = next((prefix for prefix in ALLOWED_VERCEL_PATH_PREFIXES if path.startswith(prefix)), "/")
+    return f"/v1/installations/{{id}}{prefix}{{id}}/*"
 
 
 def forward_to_vercel(config_id: str, access_token: str, path: str, method: str, body: dict) -> requests.Response:
@@ -74,11 +78,14 @@ def forward_to_vercel(config_id: str, access_token: str, path: str, method: str,
         "Content-Type": "application/json",
     }
 
-    return requests.request(
-        method=method,
-        url=url,
+    return vercel_request(
+        method,
+        url,
+        source="billing_proxy",
+        installation_id=config_id,
+        endpoint=proxy_endpoint_label(path),
         headers=headers,
-        json=body if body else None,
+        data=json.dumps(body) if body else None,
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
@@ -143,12 +150,14 @@ class VercelProxyViewSet(viewsets.ViewSet):
             return None
 
     def _get_access_token(self, integration: OrganizationIntegration, organization_id: str) -> str | None:
+        if not integration.integration_id:
+            return None
         try:
-            return _extract_access_token(integration)
-        except ValueError as e:
+            return get_installation_access_token(integration.integration_id)
+        except InstallationTokenError as e:
             capture_exception(e, {"organization_id": organization_id, "config_id": integration.integration_id})
             logger.exception(
-                "Failed to extract Vercel access token",
+                "Failed to get Vercel access token",
                 organization_id=organization_id,
                 config_id=integration.integration_id,
             )

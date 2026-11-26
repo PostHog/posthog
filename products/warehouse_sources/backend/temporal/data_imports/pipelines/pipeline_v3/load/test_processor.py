@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import pytest
+import time_machine
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.test import override_settings
@@ -14,12 +15,14 @@ import pyarrow as pa
 from asgiref.sync import async_to_sync
 from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
+from prometheus_client import REGISTRY, Histogram
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
+    CDC_TIMESTAMP_COLUMN,
     HISTORY_NAMING,
     HISTORY_PARTITION_COLUMN,
     LEGACY_HISTORY_NAMING,
@@ -43,6 +46,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.pos
     SUMMARY_EVENT,
     post_load_phase,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    CDC_BATCH_ROWS,
+    CDC_FRESHNESS_SECONDS,
+    CDC_MERGE_DURATION_SECONDS,
+    CDC_TABLE_FILE_COUNT,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     INCOMPLETE_RUN_ERROR,
     IncompleteRunError,
@@ -53,14 +62,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _finalize_run,
     _get_write_type,
     _mark_job_completed,
+    _oldest_cdc_commit_time,
     _partial_data_loading_applies,
     _promote_loaded_prefixes,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
     _rebuild_compaction_due,
+    _record_cdc_load_metrics,
     _refuse_incomplete_run,
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
+    _sync_frequency_label,
     _trigger_post_import_workflow,
     process_message,
     process_messages,
@@ -830,6 +842,198 @@ class TestPostWriteHandleReads:
         written = [call for call in mock_logger.debug.call_args_list if call.args[0] == "batch_written_to_delta_lake"]
         assert len(written) == 1
         assert written[0].kwargs["file_count"] == expected_file_count
+
+
+def _observation_count(histogram: Histogram) -> float:
+    return sum(
+        sample.value for metric in histogram.collect() for sample in metric.samples if sample.name.endswith("_count")
+    )
+
+
+class _CdcMetricsCase(NamedTuple):
+    sync_type: str
+    cdc_write_mode: str | None
+    stored_table_mode: str = "both"
+    timestamp_commit_times: bool = True
+    table_mode_label: str = "both"
+    observations: tuple[int, int, int, int] = (1, 1, 1, 1)
+    sums: tuple[int, int, int] = (600, 2, 2)
+
+
+class TestCdcLoadMetrics:
+    _NOW = dt.datetime(2026, 11, 23, 12, 0, tzinfo=dt.UTC)
+
+    @parameterized.expand(
+        [
+            ("cdc_batch", _CdcMetricsCase("cdc", "incremental_merge")),
+            (
+                "cdc_batch_with_unknown_table_mode",
+                _CdcMetricsCase("cdc", "incremental_merge", stored_table_mode="x" * 200, table_mode_label="unknown"),
+            ),
+            (
+                "cdc_batch_with_string_commit_times",
+                _CdcMetricsCase(
+                    "cdc", "incremental_merge", timestamp_commit_times=False, observations=(0, 1, 1, 1), sums=(0, 2, 2)
+                ),
+            ),
+            ("incremental_batch", _CdcMetricsCase("incremental", None, observations=(0, 0, 0, 0), sums=(0, 0, 0))),
+            (
+                "incremental_history_batch_in_scd2_append_mode",
+                _CdcMetricsCase("incremental", "scd2_append", observations=(0, 0, 0, 0), sums=(0, 0, 0)),
+            ),
+        ]
+    )
+    @time_machine.travel(_NOW, tick=False)
+    @patch(f"{_PROCESSOR}.stage_history_batch", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._handle_partial_data_loading", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.read_parquet")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_only_a_cdc_batch_records_the_cdc_load_metrics(
+        self,
+        _name: str,
+        case: _CdcMetricsCase,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        mock_read: MagicMock,
+        _partial: AsyncMock,
+        _mark: MagicMock,
+        _analytics: MagicMock,
+        mock_stage_history: AsyncMock,
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_PROVENANCE
+
+        # Resolution drops key 1's older row, which is the oldest change in the batch.
+        commit_times = [self._NOW - dt.timedelta(seconds=s) for s in (600, 300, 60)]
+        mock_read.return_value = pa.table(
+            {
+                "id": pa.array([1, 2, 1], pa.int64()),
+                CDC_OP_COLUMN: ["U", "I", "U"],
+                CDC_TIMESTAMP_COLUMN: pa.array(commit_times, pa.timestamp("us", tz="UTC"))
+                if case.timestamp_commit_times
+                else pa.array([t.isoformat() for t in commit_times]),
+            }
+        ).append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array([1, 2, 3], pa.int64())
+        )
+        written = MagicMock()
+        written.schema.return_value = pa.schema([_COL_ID])
+        written.version.return_value = 7
+        written.file_uris.return_value = ["a", "b"]
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=None)
+        helper.latest_known_version.return_value = 7
+        mock_writer_cls.return_value.write = AsyncMock(return_value=written)
+        mock_writer_cls.return_value.deltalite_file_count_change = None
+        mock_stage_history.return_value = written
+        job = MagicMock()
+        job.schema.table = None
+        job.schema.cdc_table_mode = case.stored_table_mode
+        job.schema.sync_frequency_interval = dt.timedelta(minutes=5)
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = job
+        labels = {"table_mode": case.table_mode_label, "write_mode": "incremental_merge", "sync_frequency": "5min"}
+        sum_names = ("freshness_seconds", "table_file_count", "batch_rows")
+        sums_before = [REGISTRY.get_sample_value(f"warehouse_load_cdc_{name}_sum", labels) or 0.0 for name in sum_names]
+        histograms = (CDC_FRESHNESS_SECONDS, CDC_MERGE_DURATION_SECONDS, CDC_TABLE_FILE_COUNT, CDC_BATCH_ROWS)
+        counts_before = [_observation_count(histogram) for histogram in histograms]
+
+        process_message(
+            _message(
+                batch_index=0, sync_type=case.sync_type, cdc_write_mode=case.cdc_write_mode, is_first_ever_sync=False
+            )
+        )
+
+        counts_after = [_observation_count(histogram) for histogram in histograms]
+        assert mock_writer_cls.return_value.write.await_count + mock_stage_history.await_count == 1
+        assert [after - before for before, after in zip(counts_before, counts_after)] == list(case.observations)
+        sums_after = [REGISTRY.get_sample_value(f"warehouse_load_cdc_{name}_sum", labels) or 0.0 for name in sum_names]
+        assert [after - before for before, after in zip(sums_before, sums_after)] == list(case.sums)
+
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch(f"{_PROCESSOR}._record_cdc_load_metrics", side_effect=RuntimeError("metrics broke"))
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._handle_partial_data_loading", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_a_metrics_error_does_not_fail_the_load(
+        self,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        _read: MagicMock,
+        _partial: AsyncMock,
+        _mark: MagicMock,
+        _analytics: MagicMock,
+        _record: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        written = MagicMock()
+        written.schema.return_value = pa.schema([_COL_ID])
+        mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=None)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=written)
+        job = MagicMock()
+        job.schema.table = None
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = job
+
+        process_message(_message(sync_type="cdc", cdc_write_mode="incremental_merge"))
+
+        assert str(mock_capture.call_args.args[0]) == "metrics broke"
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_a_source_clock_ahead_of_ours_records_zero_freshness(self) -> None:
+        labels = {"table_mode": "consolidated", "write_mode": "incremental_merge", "sync_frequency": "never"}
+        sum_before = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels) or 0.0
+        count_before = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_count", labels) or 0.0
+
+        _record_cdc_load_metrics(
+            schema=MagicMock(cdc_table_mode="consolidated", sync_frequency_interval=None),
+            cdc_write_mode="incremental_merge",
+            rows=1,
+            write_seconds=None,
+            file_count=None,
+            oldest_commit_time=self._NOW + dt.timedelta(seconds=30),
+        )
+
+        assert REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels) == sum_before
+        assert REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_count", labels) == count_before + 1
+
+    @parameterized.expand(
+        [
+            (
+                "naive_timestamps_read_as_utc",
+                pa.array([dt.datetime(2026, 11, 23, 11, 59), dt.datetime(2026, 11, 23, 11, 58)]),
+                dt.datetime(2026, 11, 23, 11, 58, tzinfo=dt.UTC),
+            ),
+            ("all_null", pa.array([None], pa.timestamp("us", tz="UTC")), None),
+            ("string_commit_times", pa.array(["2026-11-23T11:50:00+00:00"]), None),
+            ("no_commit_time_column", None, None),
+        ]
+    )
+    def test_oldest_commit_time(self, _case: str, commit_times: pa.Array | None, expected: dt.datetime | None) -> None:
+        table = pa.table({"id": [1]}) if commit_times is None else pa.table({CDC_TIMESTAMP_COLUMN: commit_times})
+
+        assert _oldest_cdc_commit_time(table) == expected
+
+    @parameterized.expand(
+        [
+            ("ui_choice", dt.timedelta(hours=6), "6hour"),
+            ("sync_off", None, "never"),
+            ("custom_interval", dt.timedelta(minutes=7), "other"),
+        ]
+    )
+    def test_sync_frequency_label(self, _case: str, interval: dt.timedelta | None, expected: str) -> None:
+        assert _sync_frequency_label(interval) == expected
 
 
 class TestFileCountAfterWrite:

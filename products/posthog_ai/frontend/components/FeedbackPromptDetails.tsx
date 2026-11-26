@@ -11,7 +11,8 @@ import { userLogic } from 'scenes/userLogic'
 import { FeedbackPromptLogicProps, feedbackPromptLogic } from '../logics/feedbackPromptLogic'
 import { runStreamLogic } from '../logics/runStreamLogic'
 import { MessageTemplate } from '../messages/MessageTemplate'
-import { FeedbackSessionKind, appendTicketMetadata } from '../utils/ticketMetadata'
+import type { RunRef } from '../utils/feedbackEvents'
+import { FeedbackSessionKind, appendTicketMetadata, feedbackContextUrl } from '../utils/ticketMetadata'
 
 /**
  * The detailed form shown after a "Bad" rating on the periodic prompt: free-text feedback, or escalation
@@ -21,7 +22,8 @@ export const FeedbackPromptDetails = memo(function FeedbackPromptDetails({
     sessionId,
     sessionKind,
     streamKey,
-}: FeedbackPromptLogicProps & { sessionKind: FeedbackSessionKind }): JSX.Element {
+    run,
+}: FeedbackPromptLogicProps & { sessionKind: FeedbackSessionKind; run: RunRef }): JSX.Element {
     const logicProps = { sessionId, streamKey }
     const { submitDetailedFeedback, completeDetailedFeedback } = useActions(feedbackPromptLogic(logicProps))
     const { latestTurnTraceId: traceId } = useValues(runStreamLogic)
@@ -83,6 +85,7 @@ export const FeedbackPromptDetails = memo(function FeedbackPromptDetails({
             message: feedbackText,
             ai_conversation_id: sessionId,
             ai_trace_id: traceId,
+            ai_context_url: feedbackContextUrl({ sessionId, sessionKind, traceId, run }),
             ai_feedback_rating: 'bad',
         })
         setIsSupportModalOpen(true)
@@ -92,7 +95,7 @@ export const FeedbackPromptDetails = memo(function FeedbackPromptDetails({
         if (submitInFlightRef.current || hasSubmittedTicket) {
             return
         }
-        const finalMessage = appendTicketMetadata(sendSupportRequest.message, { sessionId, sessionKind, traceId })
+        const finalMessage = appendTicketMetadata(sendSupportRequest.message, { sessionId, sessionKind, traceId, run })
         if (!finalMessage) {
             lemonToast.error('Please add a description before creating a ticket.')
             return

@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import replace
 
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES, resolve_scopes, scout_scope_posture
@@ -110,6 +111,40 @@ RESEARCH = replace(
 
 RESEARCH_WITHOUT_REPORT = replace(RESEARCH, key="signals.research_without_report", source_kind=None)
 
+PR_MONITORING_DATA_SCOPES: tuple[str, ...] = (
+    "query:read",
+    "event_definition:read",
+    "property_definition:read",
+    "action:read",
+    "cohort:read",
+)
+PR_MONITORING_RUNTIME_SCOPES: tuple[str, ...] = ("user:read", "task:read", "internal_run:write")
+PR_MONITORING_MCP_SCOPES: list[str] = [*PR_MONITORING_DATA_SCOPES, *PR_MONITORING_RUNTIME_SCOPES]
+
+
+def pr_monitoring_data_scopes(token_scopes: Sequence[str] | None) -> tuple[str, ...]:
+    if token_scopes is None or "*" in token_scopes:
+        return PR_MONITORING_DATA_SCOPES
+    granted = set(token_scopes)
+    return tuple(
+        scope
+        for scope in PR_MONITORING_DATA_SCOPES
+        if scope in granted or scope.removesuffix(":read") + ":write" in granted
+    )
+
+
+def pr_monitoring_mcp_scopes(token_scopes: Sequence[str] | None) -> list[str]:
+    return [*pr_monitoring_data_scopes(token_scopes), *PR_MONITORING_RUNTIME_SCOPES]
+
+
+PR_MONITORING = replace(
+    RESEARCH,
+    key="signals.pr_monitoring",
+    mcp_scopes=PR_MONITORING_MCP_SCOPES,
+    mcp_store_servers=False,
+    network=NetworkPolicy(levels=(NetworkAccess.CUSTOM,), allowed_domains=tuple(GITHUB_ONLY_DOMAINS)),
+)
+
 MONITORING_ASSESSMENT = replace(RESEARCH, key="signals.monitoring_assessment", mcp_scopes="signals_assessment")
 
 REPO_SELECTION = replace(
@@ -208,6 +243,7 @@ PROFILES = (
     IMPLEMENTATION,
     RESEARCH,
     RESEARCH_WITHOUT_REPORT,
+    PR_MONITORING,
     MONITORING_ASSESSMENT,
     REPO_SELECTION,
     REPO_SELECTION_WITHOUT_REPORT,

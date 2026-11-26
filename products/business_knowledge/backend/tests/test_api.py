@@ -875,7 +875,7 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
         self.organization.save()
         gateway = MagicMock()
 
-        with patch("products.business_knowledge.backend.logic.build_ai_gateway_anthropic_client", return_value=gateway):
+        with patch("products.business_knowledge.backend.logic.build_anthropic_client", return_value=gateway):
             response = self.client.get(self.url, {"query": "lorem", "rerank": "true"})
 
         assert response.status_code == status.HTTP_200_OK, response.content

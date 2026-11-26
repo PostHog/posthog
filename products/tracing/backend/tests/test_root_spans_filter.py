@@ -1,7 +1,9 @@
 import base64
 import datetime as dt
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -10,7 +12,12 @@ from posthog.schema import DateRange, TraceSpansQuery
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
+from posthog.hogql_queries.dashboard_v2_batch_scope import dashboard_v2_batch_scope
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.tracing.backend.logic import TraceSpansQueryRunner
 
 DATE_FROM = "2026-06-02T07:00:00Z"
@@ -101,7 +108,7 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             prefetchSpans=prefetch,
             serviceNames=service_names,
         )
-        return TraceSpansQueryRunner(query, self.team).run().results
+        return TraceSpansQueryRunner(query, self.team).calculate().results
 
     @parameterized.expand(
         [
@@ -161,5 +168,36 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             **query_fields,
         )
         trace_hex = (trace).to_bytes(16, "big").hex().upper()
-        results = TraceSpansQueryRunner(query, self.team).run().results
+        results = TraceSpansQueryRunner(query, self.team).calculate().results
         self.assertEqual({r["name"] for r in results if r["trace_id"] == trace_hex}, expected)
+
+    def test_the_generic_query_path_holds_span_lists_to_the_tracing_api_caps(self):
+        with dashboard_v2_batch_scope():
+            runner = get_query_runner(
+                {"kind": "TraceSpansQuery", "limit": 10_000_000, "prefetchSpans": 1_000_000}, self.team
+            )
+        assert isinstance(runner, TraceSpansQueryRunner)
+        assert (runner.query.limit, runner.query.prefetchSpans) == (1000, 100)
+
+    @parameterized.expand([("share_link",), ("signed_in",), ("no_user",)])
+    def test_the_generic_query_path_refuses_span_queries_outside_a_dashboard_batch(self, principal: str):
+        users: dict[str, Any] = {
+            "share_link": SharedLinkUser(SharingConfiguration.objects.create(team=self.team, enabled=True)),
+            "signed_in": self.user,
+            "no_user": None,
+        }
+        query = {"kind": "TraceSpansQuery", "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO}, "limit": 100}
+
+        with (
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture") as capture,
+            self.assertRaises(UserAccessControlError),
+        ):
+            get_query_runner(query, self.team, user=users[principal]).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        # A signed-in denial keeps the audit event that run() records for other denied runners.
+        denials = [
+            call.kwargs for call in capture.call_args_list if call.kwargs["event"] == "query access control error"
+        ]
+        assert [(d["distinct_id"], d["properties"]["resource"]) for d in denials] == (
+            [(self.user.distinct_id, "tracing")] if principal == "signed_in" else []
+        )

@@ -859,6 +859,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal
+        environment:
+            - TEMPORAL_VERSION_CHECK_DISABLED=1
         ports:
             - 7233:7233
         volumes:

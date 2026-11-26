@@ -234,7 +234,7 @@ def test_the_judge_grades_the_review_calls_on_the_team_model(
 
 @parameterized.expand(
     [
-        ("anthropic", call_review, "build_ai_gateway_anthropic_client"),
+        ("anthropic", call_review, "build_anthropic_client"),
         ("openai", judge_calibration, "build_openai_client"),
         ("gemini", judge_calibration, "build_gemini_client"),
     ]

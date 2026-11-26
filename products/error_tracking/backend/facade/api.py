@@ -3,6 +3,7 @@
 This is the ONLY module other apps are allowed to import.
 """
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -15,6 +16,7 @@ import posthoganalytics
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.event_usage import AnalyticsProps, groups
+from posthog.ingress.contracts import DeliveryOwnership
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
@@ -28,6 +30,7 @@ from ..logic import (
     built_in_filters,
     external_references,
     github_external_references,
+    linear_external_references,
     rules,
     sentry_migration,
     team_flags,
@@ -43,6 +46,7 @@ from ..logic.sentry_migration import (
     client as sentry_client,
     errors as sentry_migration_errors,
 )
+from ..logic.team_purge import delete_stack_frames_and_symbol_sets_for_team as _delete_frames_and_symbol_sets
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -355,7 +359,7 @@ def _to_spike_event(event) -> contracts.ErrorTrackingSpikeEvent:
 def list_spike_events(
     *,
     team_id: int,
-    issue_ids: list[str] | None = None,
+    issue_ids: list[UUID] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     order_by: str | None = None,
@@ -927,6 +931,22 @@ def link_github_external_reference(job: contracts.GitHubExternalReferenceJob) ->
     return github_external_references.link_reference(job)
 
 
+def prepare_linear_external_reference_jobs(payload: dict[str, Any]) -> list[contracts.LinearExternalReferenceJob]:
+    return linear_external_references.prepare_jobs(payload)
+
+
+def link_linear_external_reference(job: contracts.LinearExternalReferenceJob) -> bool:
+    return linear_external_references.link_reference(job)
+
+
+def link_linear_external_references(jobs: list[contracts.LinearExternalReferenceJob]) -> list[bool]:
+    return linear_external_references.link_references(jobs)
+
+
+def linear_external_reference_delivery_ownership(payload: dict[str, Any]) -> DeliveryOwnership:
+    return linear_external_references.delivery_ownership(payload)
+
+
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:
     return logic.get_issue_values(team_id=team_id, key=key, value=value)
 
@@ -1027,3 +1047,11 @@ def document_embedding_tables() -> list[DocumentEmbeddingTable]:
 def document_embeddings_buffer_table() -> str:
     """The sharded buffer that holds every new document, in each model, until its TTL drops it."""
     return DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE
+
+
+def delete_stack_frames_and_symbol_sets_for_team(team_id: int, should_stop: Callable[[], bool] | None = None) -> bool:
+    """Batch-delete the team's stack frames and symbol sets. Called from team deletion, before the Team cascade.
+
+    Return False when ``should_stop`` ended the purge before it finished.
+    """
+    return _delete_frames_and_symbol_sets(team_id, should_stop=should_stop)

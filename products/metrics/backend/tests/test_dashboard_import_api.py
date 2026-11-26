@@ -197,7 +197,7 @@ class TestDashboardImportAPI(APIBaseTest):
         assert task.profile == "metrics.dashboard_import"
         assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == AGENT_MCP_SCOPES
         assert "docs-search" in run.state["mcp_exclude_tools"]
-        assert {artifact["name"] for artifact in run.artifacts} == {"brief.json", "grafana-dashboard.json"}
+        assert {artifact["name"] for artifact in run.artifacts} == {"brief.json"}
         assert run.state["pending_user_artifact_ids"] == [artifact["id"] for artifact in run.artifacts]
         brief = json.loads(self.storage.write.call_args_list[0].args[1])
         assert [panel["key"] for panel in brief["panels_to_convert"]] == ["p3"]
@@ -208,10 +208,11 @@ class TestDashboardImportAPI(APIBaseTest):
         assert [verdict["key"] for verdict in (task.state or {})[IMPORT_STATE_KEY]["resolved"]] == ["p1", "p2"]
 
     def test_builds_the_dashboard_once_from_the_agent_answer(self) -> None:
-        started = self._start(
-            source="grafana",
-            grafana_json=_grafana("sum(rate(orders_total[5m]))", "rate(payments_total[5m])", "rate(refunds_total[5m])"),
+        grafana = json.loads(
+            _grafana("sum(rate(orders_total[5m]))", "rate(payments_total[5m])", "rate(refunds_total[5m])")
         )
+        grafana["panels"][3]["gridPos"] = {"x": 12, "y": 16, "w": 12, "h": 8}
+        started = self._start(source="grafana", grafana_json=json.dumps(grafana))
         answer = {
             "dashboard_name": "Orders",
             "panels": [
@@ -248,14 +249,17 @@ class TestDashboardImportAPI(APIBaseTest):
         assert [(panel["key"], panel["outcome"]) for panel in first["panels"]] == [
             ("p1", "imported"),
             ("p2", "imported"),
-            ("p3", "approximated"),
             ("p4", "failed"),
+            ("p3", "approximated"),
         ]
-        assert "refunds_total" in first["panels"][3]["reason"]
+        assert "refunds_total" in first["panels"][2]["reason"]
         assert second["dashboard_id"] == first["dashboard_id"]
         assert Dashboard.objects.filter(team=self.team).count() == 1
         assert Dashboard.objects.get(id=first["dashboard_id"]).description == ""
-        assert DashboardTile.objects.filter(dashboard_id=first["dashboard_id"]).count() == 3
+        tiles = DashboardTile.objects.filter(dashboard_id=first["dashboard_id"])
+        assert tiles.count() == 3
+        # The failed p4 sat beside p2, so p2 takes the whole row.
+        assert tiles.get(insight__name="Panel 2").layouts["sm"] == {"x": 0, "y": 1, "w": 12, "h": 3}
         self.storage.delete.assert_called()
 
     def test_an_agent_panel_without_variable_references_says_so(self) -> None:

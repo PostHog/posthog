@@ -1,6 +1,6 @@
 import type { TodayRailPane } from './todayShellLogic'
 
-export type TodayIntroPane = Exclude<TodayRailPane, 'home'>
+export type TodayIntroPane = TodayRailPane
 
 export interface TodayPaneIntroCopy {
     title: string
@@ -8,6 +8,10 @@ export interface TodayPaneIntroCopy {
 }
 
 export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
+    home: {
+        title: 'See what needs you today',
+        description: 'What you care about, what you should care about, and what’s happening.',
+    },
     spaces: {
         title: 'Work with PostHog AI',
         description: 'Ask questions, run tasks and pick up past chats.',

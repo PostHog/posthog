@@ -176,6 +176,10 @@ class TestPagination:
             ("note_targets", "noteTargets"),
             ("task_targets", "taskTargets"),
             ("workspace_members", "workspaceMembers"),
+            ("messages", "messages"),
+            ("message_participants", "messageParticipants"),
+            ("message_threads", "messageThreads"),
+            ("calendar_events", "calendarEvents"),
         ],
     )
     def test_paginates_via_cursor(self, endpoint, object_name):
