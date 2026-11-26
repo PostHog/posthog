@@ -45,7 +45,10 @@ export type BoardConflict = {
 }
 
 function dashboardOf(board: Board): Dashboard {
-    return settleDashboard(loadDashboard(board.spec), sizeOf)
+    // Anyone who saves the board writes its spec, so an access level in it is not this viewer's. Dropping it here
+    // also keeps it out of every save.
+    const { user_access_level: _, ...spec } = board.spec
+    return settleDashboard(loadDashboard(spec), sizeOf)
 }
 
 function unavailableReason(error: unknown): UnavailableReason {

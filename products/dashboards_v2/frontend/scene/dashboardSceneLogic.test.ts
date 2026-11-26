@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import type { DashboardDocument } from '../dashboard/document/dashboardTypes'
 import type { Board } from './boardApi'
@@ -52,7 +53,10 @@ describe('dashboardSceneLogic', () => {
     afterEach(() => logic?.unmount())
 
     const useBoard = (respond: (save: Save) => [number, unknown]): void => {
-        let stored = board(1, 'Mine')
+        let stored: Board = {
+            ...board(1, 'Mine'),
+            spec: { ...spec('Mine'), user_access_level: AccessControlLevel.Viewer },
+        }
         useMocks({
             get: { [BOARD_URL]: () => stored },
             put: {
@@ -84,6 +88,7 @@ describe('dashboardSceneLogic', () => {
             [1, 'First'],
             [2, 'Second'],
         ])
+        expect(saves.some((save) => 'user_access_level' in save.spec)).toBe(false)
         expect(logic.values.saveState).toBe('saved')
     })
 
