@@ -35,7 +35,7 @@ env:
     # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml so schema cache keys match.
     SCHEMA_CACHE_EPOCH: v2
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
-    # Shared by the integration-tests build and warm-feature-flags-binary, and part of the binary's cache key.
+    # Shared by the integration-tests build and warm-feature-flags-binary, and part of the binary's key.
     FEATURE_FLAGS_RUST_TOOLCHAIN: '1.91.1'
     # Debug assertions off: debug_assert! checks intentionally panic on data invariant
     # violations, which would crash the service mid-test-run.
@@ -138,6 +138,7 @@ jobs:
                         - '.github/actions/commit-snapshots/**'
                         - '.github/actions/setup-protoc/**'
                         - '.github/actions/feature-flags-binary-key/**'
+                        - '.github/actions/find-feature-flags-binary/**'
                         # hogli db setup (db:restore-test-db). Scoped to the
                         # modules that command actually imports — framework,
                         # manifest, boot modules, db_schema — so unrelated hogli
@@ -372,21 +373,29 @@ jobs:
                   retention-days: 1
                   if-no-files-found: ignore
 
-    # Depot runners read Depot Cache, which the hourly lane (GitHub-hosted) never writes,
-    # so pull request and merge-queue runs get the feature-flags binary from here.
-    # Runs on master pushes only: Depot Cache has no branch isolation. A hit is a lookup.
+    # Builds the feature-flags binary that Integration Tests runs, once per change to its
+    # sources, and uploads it as an artifact named by its key. Only jobs of this master push
+    # run can add artifacts to it, so a pull request cannot supply the binary other runs execute.
+    # GitHub-hosted on purpose: GitHub's cache is ref-isolated, so the Rust dependency cache
+    # and protoc this build restores were written by master, while Depot Cache has no branch
+    # isolation. The key includes ImageOS, which Depot's ubuntu 24.04 runners share.
     warm-feature-flags-binary:
-        name: Warm feature-flags binary cache
-        if: github.event_name == 'push' && github.repository == 'PostHog/posthog'
-        runs-on: depot-ubuntu-24.04-4
+        name: Warm feature-flags binary
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
+        permissions:
+            contents: read
+            actions: read
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  persist-credentials: false
                   sparse-checkout: |
                       rust
                       proto
                       .github/actions/feature-flags-binary-key
+                      .github/actions/find-feature-flags-binary
                       .github/actions/setup-protoc
                   sparse-checkout-cone-mode: false
 
@@ -399,26 +408,25 @@ jobs:
 
             - name: Look up feature-flags binary
               id: flags-binary
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              if: steps.flags-binary-key.outputs.key != ''
+              uses: ./.github/actions/find-feature-flags-binary
               with:
-                  path: rust/target/debug/feature-flags
                   key: ${{ steps.flags-binary-key.outputs.key }}
-                  lookup-only: true
+                  github-token: ${{ github.token }}
 
             - name: Install Rust
-              if: steps.flags-binary.outputs.cache-hit != 'true'
+              if: steps.flags-binary-key.outputs.key != '' && steps.flags-binary.outputs.run-id == ''
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: ${{ env.FEATURE_FLAGS_RUST_TOOLCHAIN }}
                   components: cargo
 
             - name: Install protoc
-              if: steps.flags-binary.outputs.cache-hit != 'true'
+              if: steps.flags-binary-key.outputs.key != '' && steps.flags-binary.outputs.run-id == ''
               uses: ./.github/actions/setup-protoc
 
-            # Same shared key as integration-tests, so its cache misses start warm too.
             - name: Cache Rust dependencies
-              if: steps.flags-binary.outputs.cache-hit != 'true'
+              if: steps.flags-binary-key.outputs.key != '' && steps.flags-binary.outputs.run-id == ''
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-mcp'
@@ -426,18 +434,21 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Build feature-flags
-              if: steps.flags-binary.outputs.cache-hit != 'true'
+              if: steps.flags-binary-key.outputs.key != '' && steps.flags-binary.outputs.run-id == ''
               working-directory: rust
               env:
                   RUSTFLAGS: ${{ env.FEATURE_FLAGS_RUSTFLAGS }}
               run: cargo build -p feature-flags
 
-            - name: Save feature-flags binary
-              if: steps.flags-binary.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+            - name: Upload feature-flags binary
+              if: steps.flags-binary-key.outputs.key != '' && steps.flags-binary.outputs.run-id == ''
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
+                  name: ${{ steps.flags-binary-key.outputs.key }}
                   path: rust/target/debug/feature-flags
-                  key: ${{ steps.flags-binary-key.outputs.key }}
+                  # A key whose artifact expires is rebuilt by the next master push.
+                  retention-days: 14
+                  if-no-files-found: error
 
     integration-tests:
         name: Integration Tests
@@ -446,6 +457,11 @@ jobs:
         needs: changes
         # Sized for a schema-cache miss (full migrate from scratch), not just a hit.
         timeout-minutes: 45
+        # actions: read lets find-feature-flags-binary list master's artifacts and download one.
+        permissions:
+            contents: read
+            pull-requests: read
+            actions: read
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
         # non-pytest Python change, so they're the expensive half of this workflow.
         # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
@@ -455,8 +471,6 @@ jobs:
             needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
             && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         env:
-            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
             OPT_OUT_CAPTURE: 1
             MCP_CATALOG_SYNC_ON_WORKER_READY: 0
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
@@ -559,16 +573,44 @@ jobs:
                   rustflags: ${{ env.FEATURE_FLAGS_RUSTFLAGS }}
 
             # A hit skips the Rust toolchain, protoc, the dependency cache and the build.
-            # Saved by the hourly lane and by warm-feature-flags-binary on master pushes.
-            - name: Restore feature-flags binary
-              id: flags-binary
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+            # The binary comes only from an artifact of a master push run of this workflow
+            # (warm-feature-flags-binary), never from a cache a pull request can write.
+            - name: Find master-built feature-flags binary
+              id: flags-binary-source
+              if: steps.flags-binary-key.outputs.key != ''
+              uses: ./.github/actions/find-feature-flags-binary
               with:
-                  path: rust/target/debug/feature-flags
                   key: ${{ steps.flags-binary-key.outputs.key }}
+                  github-token: ${{ github.token }}
+
+            - name: Download feature-flags binary
+              id: flags-binary-download
+              if: steps.flags-binary-source.outputs.run-id != ''
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: ${{ steps.flags-binary-key.outputs.key }}
+                  path: rust/target/debug
+                  run-id: ${{ steps.flags-binary-source.outputs.run-id }}
+                  github-token: ${{ github.token }}
+
+            - name: Check feature-flags binary
+              id: flags-binary
+              env:
+                  DOWNLOAD: ${{ steps.flags-binary-download.outcome }}
+              run: |
+                  bin=rust/target/debug/feature-flags
+                  # Artifacts do not keep the executable bit.
+                  if [ "$DOWNLOAD" = success ] && [ -f "$bin" ] && [ ! -L "$bin" ]; then
+                      chmod +x "$bin"
+                      echo "hit=true" >> "$GITHUB_OUTPUT"
+                  else
+                      rm -f "$bin"
+                      echo "No master-built feature-flags binary, building from source"
+                  fi
 
             - name: Install Rust
-              if: steps.flags-binary.outputs.cache-hit != 'true'
+              if: steps.flags-binary.outputs.hit != 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: ${{ env.FEATURE_FLAGS_RUST_TOOLCHAIN }}
@@ -577,11 +619,11 @@ jobs:
             # feature-flags depends on usage-ingestion-proto, whose build script
             # compiles .proto files and needs protoc on PATH.
             - name: Install protoc
-              if: steps.flags-binary.outputs.cache-hit != 'true'
+              if: steps.flags-binary.outputs.hit != 'true'
               uses: ./.github/actions/setup-protoc
 
             - name: Cache Rust dependencies
-              if: steps.flags-binary.outputs.cache-hit != 'true'
+              if: steps.flags-binary.outputs.hit != 'true'
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-mcp'
@@ -594,9 +636,21 @@ jobs:
             - name: Download MaxMind Database
               run: ./bin/download-mmdb
 
+            # The token stays out of the job env, so no other step's processes see it.
+            # Fork runs get no secrets and skip the login.
+            - name: Check for Docker Hub credentials
+              id: dockerhub
+              env:
+                  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+                  DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+              run: |
+                  if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  fi
+
             - name: Log in to Docker Hub
               continue-on-error: true
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: steps.dockerhub.outputs.available == 'true'
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
@@ -768,10 +822,10 @@ jobs:
                     working-directory: rust
                     env:
                         RUSTFLAGS: ${{ env.FEATURE_FLAGS_RUSTFLAGS }}
-                        BINARY_CACHE_HIT: ${{ steps.flags-binary.outputs.cache-hit }}
+                        BINARY_HIT: ${{ steps.flags-binary.outputs.hit }}
                     run: |
-                        if [ "$BINARY_CACHE_HIT" = "true" ]; then
-                            echo "feature-flags binary restored from cache, skipping the build"
+                        if [ "$BINARY_HIT" = "true" ]; then
+                            echo "feature-flags binary downloaded from master, skipping the build"
                         else
                             cargo build -p feature-flags
                         fi
@@ -786,14 +840,6 @@ jobs:
 
                   - name: Run ClickHouse migrations
                     run: python manage.py migrate_clickhouse --skip-checks
-
-            # Only the hourly lane on master reaches this (the job skips master pushes).
-            - name: Save feature-flags binary
-              if: steps.flags-binary.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: rust/target/debug/feature-flags
-                  key: ${{ steps.flags-binary-key.outputs.key }}
 
             - name: Start Rust flags service
               working-directory: rust

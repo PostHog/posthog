@@ -1,0 +1,65 @@
+name: Find master feature-flags binary
+description: |
+    Finds the newest unexpired `feature-flags` binary artifact for a key that a master
+    push of the calling workflow uploaded, and outputs that run's id for
+    actions/download-artifact. Any failure is a miss, and the caller builds from source.
+    Needs `actions: read` on the token.
+
+inputs:
+    key:
+        description: 'Key from ./.github/actions/feature-flags-binary-key, which is also the artifact name'
+        required: true
+    github-token:
+        description: 'Token with actions: read'
+        required: true
+
+outputs:
+    run-id:
+        description: 'Id of the master push run that uploaded the binary, empty on a miss'
+        value: ${{ steps.find.outputs.run-id }}
+
+runs:
+    using: composite
+    steps:
+        - name: Find master-built feature-flags binary
+          id: find
+          shell: bash
+          env:
+              KEY: ${{ inputs.key }}
+              GH_TOKEN: ${{ inputs.github-token }}
+          run: |
+              set -uo pipefail
+              if ! [[ "$KEY" =~ ^feature-flags-debug-v[0-9]+-[A-Za-z0-9._-]+$ ]]; then
+                  echo "No usable feature-flags binary key, building from source"
+                  exit 0
+              fi
+              # Artifacts belong to the run that uploaded them, and only that run's own jobs
+              # can add to it. Any run can upload an artifact under this name, though, so only
+              # one from a push to this repository's master by this same workflow counts.
+              workflow_path=${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY/"}
+              workflow_path=${workflow_path%%@*}
+              api() {
+                  local attempt
+                  for attempt in 1 2 3; do
+                      gh api "$@" && return 0
+                      sleep $((attempt * 3))
+                  done
+                  return 1
+              }
+              if ! run_ids=$(api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$KEY&per_page=20" \
+                  --jq '.artifacts[] | select((.expired | not) and .workflow_run.head_repository_id == .workflow_run.repository_id) | .workflow_run.id'); then
+                  echo "::warning::Could not list feature-flags binary artifacts, building from source"
+                  exit 0
+              fi
+              for run_id in $run_ids; do
+                  [[ "$run_id" =~ ^[0-9]+$ ]] || continue
+                  origin=$(api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+                      --jq '[.event, .head_branch, .path, .head_repository.full_name] | join(" ")') || continue
+                  if [ "$origin" = "push master $workflow_path $GITHUB_REPOSITORY" ]; then
+                      echo "Using the feature-flags binary from master run $run_id"
+                      echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  echo "Ignoring artifact from run $run_id ($origin)"
+              done
+              echo "No master-built feature-flags binary for $KEY, building from source"
