@@ -127,11 +127,13 @@ def _readable(
         source_kind__in=list(source_kinds)
     )
     if reader is not None:
-        rows = rows.filter(_viewable_objects(team_id, source_kinds, reader))
+        rows = rows.filter(_viewable_objects(rows, team_id, source_kinds, reader))
     return rows.prefetch_related(Prefetch("alerts", queryset=instances)).order_by("-created_at", "-id")
 
 
-def _viewable_objects(team_id: int, source_kinds: Sequence[str], reader: PlatformAlertReader) -> Q:
+def _viewable_objects(
+    rows: QuerySet[PlatformAlertConfiguration], team_id: int, source_kinds: Sequence[str], reader: PlatformAlertReader
+) -> Q:
     viewable = Q()
     for source_kind in source_kinds:
         registered = source_configs.spec(SourceKind(source_kind))
@@ -139,11 +141,7 @@ def _viewable_objects(team_id: int, source_kinds: Sequence[str], reader: Platfor
         if access is None:
             continue
         key = f"source_config__{access.source_config_key}"
-        watched = set(
-            PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
-            .filter(source_kind=source_kind)
-            .values_list(key, flat=True)
-        )
+        watched = set(rows.filter(source_kind=source_kind).values_list(key, flat=True))
         allowed = access.viewable(team_id=team_id, object_ids=watched, reader=reader)
         # nosemgrep: orm-field-injection -- source_config_key is a constant in the source spec registered in code, not user input
         viewable &= ~Q(source_kind=source_kind) | Q(**{f"{key}__in": list(allowed)})

@@ -136,6 +136,8 @@ def viewable_alert_insights(
     from products.authorization.backend.presentation.querysets import filter_queryset  # noqa: PLC0415
     from products.product_analytics.backend.facade.models import Insight  # noqa: PLC0415
 
+    if not object_ids:
+        return set()
     insights = filter_queryset(
         Insight.objects.filter(team_id=team_id, id__in=list(object_ids)),
         resource=Resource(type=ResourceType.INSIGHT, project_id=team_id),
