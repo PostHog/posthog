@@ -2825,12 +2825,9 @@ presentation-uses-facade	products.dashboards.backend.presentation.views.dashboar
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.models.dashboard_tile	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.models.dashboard_widget	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_access	1
-presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_availability	1
-presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_catalog	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_create	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_layouts	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_registry	1
-presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_specs.configs	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.product_analytics.backend.presentation.insight	1
 presentation-uses-facade	products.data_warehouse.backend.presentation.views.data_warehouse	products.data_quality.backend.presentation.serializers	1
 presentation-uses-facade	products.data_warehouse.backend.presentation.views.data_warehouse	products.data_quality.backend.presentation.views	1

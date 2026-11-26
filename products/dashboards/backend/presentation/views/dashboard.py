@@ -8,6 +8,7 @@ import contextvars
 from collections.abc import AsyncGenerator, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
+from dataclasses import asdict
 from datetime import timedelta
 from enum import StrEnum
 from functools import partial
@@ -179,6 +180,12 @@ from products.dashboards.backend.facade.query_sharing import (
     DashboardQuerySharingStream,
     DashboardQuerySharingStreamEvent,
 )
+from products.dashboards.backend.facade.widgets import (
+    EXPECTED_WIDGET_TYPES,
+    public_widget_config,
+    widget_catalog,
+    widget_feature_enabled,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -222,24 +229,21 @@ from products.dashboards.backend.presentation.widget_openapi_serializers import 
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.presentation.widget_query_throttle import get_dashboard_widget_query_throttle_error
+from products.dashboards.backend.presentation.widgets import parse_widget_type_filter
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
     get_widget_product_access_error,
 )
-from products.dashboards.backend.widget_availability import get_widget_feature_enabled
-from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
 from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
 from products.dashboards.backend.widget_registry import (
-    EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     count_active_widget_filters,
     extract_widget_filters,
     get_widget_registry_entry,
     validate_widget_config,
 )
-from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
 from products.mcp_analytics.backend.facade import api as mcp_analytics_api
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -1206,13 +1210,7 @@ class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(DashboardWidgetConfigField(required=False))
     def get_config(self, widget: DashboardWidget) -> dict[str, Any]:
-        # Rows of a retired widget type can still exist, and nothing says which of their config keys are public.
-        if widget.widget_type not in EXPECTED_WIDGET_TYPES:
-            return {}
-        config = dict(widget.config)
-        if widget.widget_type == CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE:
-            config.pop("search", None)
-        return config
+        return public_widget_config(widget_type=widget.widget_type, config=widget.config)
 
 
 class DashboardTileSerializer(serializers.ModelSerializer):
@@ -1913,7 +1911,7 @@ def _report_dashboard_tile_added(
         "dashboard_id": dashboard.id,
         "dashboard_widget_count": _count_active_widget_tiles(dashboard),
     }
-    feature_enabled = get_widget_feature_enabled(widget_type, dashboard.team)
+    feature_enabled = widget_feature_enabled(widget_type=widget_type, team=dashboard.team)
     if feature_enabled is not None:
         # False means the user lands on the widget's setup/custom view rather than real data.
         widget_properties["feature_enabled"] = feature_enabled
@@ -4781,7 +4779,7 @@ class DashboardsViewSet(
     def widget_catalog(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List registered dashboard widget types and per-type config_schema documentation for agents."""
         widget_types = parse_widget_type_filter(request.query_params.getlist("widget_type"))
-        return Response({"results": get_widget_catalog_entries(widget_types)})
+        return Response({"results": [asdict(entry) for entry in widget_catalog(widget_types)]})
 
     @extend_schema(
         request=AddDashboardWidgetsBatchRequestOpenApiSerializer,
