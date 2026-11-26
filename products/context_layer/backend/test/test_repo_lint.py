@@ -222,6 +222,20 @@ class TestRepoLint(SimpleTestCase):
         assert "[[projects/1/slack-channels/index|Slack channels]]" in indexes["projects/1/index.md"]
         assert "[[projects/1/slack-channels/C0456EFGH]] — Replay team" in indexes["projects/1/slack-channels/index.md"]
 
+    def test_deleting_the_last_slack_channel_page_empties_its_index(self) -> None:
+        overview = self.root / "projects" / "1" / "overview.md"
+        overview.parent.mkdir(parents=True)
+        overview.write_text("---\nsummary: Project\nstatus: active\n---\n# Project 1\n")
+        _write_slack_channel_page(self.root, "C0456EFGH.md", SLACK_CHANNEL_PAGE_HEAD)
+        for path, content in generate_project_indexes(self.root).items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text(content)
+
+        (self.root / "projects" / "1" / "slack-channels" / "C0456EFGH.md").unlink()
+        indexes = generate_project_indexes(self.root)
+
+        assert indexes["projects/1/slack-channels/index.md"] == "# Slack channels in Project 1\n"
+
     def test_report_findings_do_not_fail_lint(self) -> None:
         _oversized_page(self.root)
         assert lint_repo(self.root) == []
@@ -259,6 +273,8 @@ class TestRepoLint(SimpleTestCase):
             ),
             ("slack_channel_page_named_by_slug", _slack_channel_page("replay-team.md", SLACK_CHANNEL_PAGE_HEAD)),
             ("slack_channel_page_named_by_reserved_word", _slack_channel_page("AGENTS.md", SLACK_CHANNEL_PAGE_HEAD)),
+            ("slack_channel_page_named_claude", _slack_channel_page("CLAUDE.md", SLACK_CHANNEL_PAGE_HEAD)),
+            ("slack_channel_page_named_gemini", _slack_channel_page("GEMINI.md", SLACK_CHANNEL_PAGE_HEAD)),
             ("slack_channel_page_nested", _slack_channel_page("archive/C0456EFGH.md", SLACK_CHANNEL_PAGE_HEAD)),
             ("slack_channel_page_without_workspace_id", _slack_channel_page("C0456EFGH.md", "team_id: 1")),
             (

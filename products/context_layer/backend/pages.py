@@ -213,6 +213,8 @@ def proposed_channel_page_path(organization_id: uuid.UUID | str, channel_id: uui
 
 def slack_channel_page_path(team_id: int, slack_channel_id: str) -> str:
     """Where a Slack channel's page lives. The id names the file because channel names change."""
+    if isinstance(team_id, bool) or not isinstance(team_id, int) or team_id <= 0:
+        raise InvalidPagePathError(f"{team_id!r} is not a project id")
     if not repo_lint.SLACK_CHANNEL_ID_RE.fullmatch(slack_channel_id):
         raise InvalidPagePathError(f"{slack_channel_id!r} is not a Slack channel id")
     return f"projects/{team_id}/{repo_lint.SLACK_CHANNELS_DIRECTORY}/{slack_channel_id}.md"

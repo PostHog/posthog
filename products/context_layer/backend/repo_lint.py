@@ -35,9 +35,10 @@ SINGLE_QUOTED_RE = re.compile(r"'((?:[^']|'')*)'")
 ALLOWED_STATUSES = {"active", "superseded", "historical"}
 SLACK_CHANNELS_DIRECTORY = "slack-channels"
 # A Slack channel id starts with C (public) or G (older private), a workspace id with T, or E for an Enterprise
-# Grid org. The channel id is also the page's file name, so nothing else may reach the path.
-SLACK_CHANNEL_ID_RE = re.compile(r"[CG][A-Z0-9]{2,31}")
-SLACK_WORKSPACE_ID_RE = re.compile(r"[TE][A-Z0-9]{2,31}")
+# Grid org, and Slack ids are at least 9 characters long. The channel id is also the page's file name, so the
+# length floor keeps instruction file names such as CLAUDE.md and GEMINI.md out of the path.
+SLACK_CHANNEL_ID_RE = re.compile(r"[CG][A-Z0-9]{8,30}")
+SLACK_WORKSPACE_ID_RE = re.compile(r"[TE][A-Z0-9]{8,30}")
 # Pages under projects/<team_id>/<kind>/ that belong to that project and must say so in `team_id`.
 PROJECT_PAGE_KIND_LABELS = {"spaces": "Space", SLACK_CHANNELS_DIRECTORY: "Slack channel"}
 REQUIRED_AGENTS_FRAGMENTS = (

@@ -51,13 +51,18 @@ class TestSlackChannelPagePath(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("traversal", "../../areas/x"),
-            ("lowercase", "c0456efgh"),
-            ("empty", ""),
-            ("reserved_word", "AGENTS"),
-            ("workspace_id", "T0123ABCD"),
+            ("traversal", 7, "../../areas/x"),
+            ("lowercase", 7, "c0456efgh"),
+            ("empty", 7, ""),
+            ("reserved_word", 7, "AGENTS"),
+            ("instruction_file", 7, "CLAUDE"),
+            ("workspace_id", 7, "T0123ABCD"),
+            ("team_id_with_a_path", "1/spaces", "C0456EFGH"),
+            ("team_id_zero", 0, "C0456EFGH"),
         ]
     )
-    def test_rejects_ids_that_are_not_slack_channel_ids(self, _name: str, slack_channel_id: str) -> None:
+    def test_rejects_ids_that_are_not_project_and_slack_channel_ids(
+        self, _name: str, team_id: object, slack_channel_id: str
+    ) -> None:
         with self.assertRaises(facade.InvalidPagePathError):
-            facade.slack_channel_page_path(7, slack_channel_id)
+            facade.slack_channel_page_path(team_id, slack_channel_id)  # type: ignore[arg-type]

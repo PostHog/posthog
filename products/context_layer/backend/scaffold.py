@@ -208,15 +208,18 @@ def generate_project_indexes(root: Path) -> dict[str, str]:
             spaces_index = [f"# Spaces in {project_label}", "", *space_links]
             generated[f"projects/{project_dir.name}/spaces/index.md"] = "\n".join(spaces_index).rstrip() + "\n"
         slack_dir = project_dir / repo_lint.SLACK_CHANNELS_DIRECTORY
-        slack_links = [
-            f"- [[{page.relative_to(root).as_posix().removesuffix('.md')}]] — {summary}"
-            for page in (sorted(slack_dir.glob("*.md")) if slack_dir.is_dir() and not slack_dir.is_symlink() else [])
-            if page.name != "index.md" and (summary := repo_lint._frontmatter(page).get("summary"))
-        ]
-        if slack_links:
+        # The index is rewritten while the directory exists, even with no pages left, because landing only
+        # overwrites the indexes returned here and a stale one would keep a deleted page's summary.
+        has_slack_index = slack_dir.is_dir() and not slack_dir.is_symlink()
+        if has_slack_index:
+            slack_links = [
+                f"- [[{page.relative_to(root).as_posix().removesuffix('.md')}]] — {summary}"
+                for page in sorted(slack_dir.glob("*.md"))
+                if page.name != "index.md" and (summary := repo_lint._frontmatter(page).get("summary"))
+            ]
             slack_index = [f"# Slack channels in {project_label}", "", *slack_links]
             generated[f"projects/{project_dir.name}/{repo_lint.SLACK_CHANNELS_DIRECTORY}/index.md"] = (
-                "\n".join(slack_index) + "\n"
+                "\n".join(slack_index).rstrip() + "\n"
             )
         generated[f"projects/{project_dir.name}/index.md"] = "\n".join(
             [
@@ -228,7 +231,7 @@ def generate_project_indexes(root: Path) -> dict[str, str]:
                 f"- [[projects/{project_dir.name}/spaces/index|Spaces]]",
                 *(
                     [f"- [[projects/{project_dir.name}/{repo_lint.SLACK_CHANNELS_DIRECTORY}/index|Slack channels]]"]
-                    if slack_links
+                    if has_slack_index
                     else []
                 ),
                 "",
