@@ -1,5 +1,7 @@
-from collections.abc import Callable
-from datetime import UTC, datetime
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -17,7 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
@@ -52,6 +54,7 @@ from posthog.hogql_queries.sql_freshness.classifier import (
 from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
+from posthog.utils import relative_date_parse
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
@@ -64,6 +67,26 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
 API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
+
+_range_freshness: ContextVar[bool] = ContextVar("hogql_range_freshness", default=False)
+
+# A relative range is as fresh as the interval Trends would chart it at, by the range's length:
+# up to an hour by minute (5 min), up to two days by hour (1 h), up to 90 days by day (6 h), longer by week (1 day).
+_RANGE_FRESHNESS_INTERVALS: tuple[tuple[timedelta, str], ...] = (
+    (timedelta(hours=1), "minute"),
+    (timedelta(days=2), "hour"),
+    (timedelta(days=90), "day"),
+)
+
+
+@contextmanager
+def range_based_freshness() -> Iterator[None]:
+    """HogQL runners built inside this block take their staleness from `filters.dateRange` when it is relative."""
+    token = _range_freshness.set(True)
+    try:
+        yield
+    finally:
+        _range_freshness.reset(token)
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -86,6 +109,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         self._raw_query_on_organization_grant = False
         self._trino_canary = False
+        # Read at construction: the runner can be planned in one thread and run or read in another.
+        self._range_freshness_requested = _range_freshness.get()
         super().__init__(*args, **kwargs)
 
     def _reads_events_route(self) -> bool:
@@ -103,6 +128,32 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return expiry
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
+    def range_target_age(self, last_refresh: datetime, lazy: bool = False) -> Optional[datetime]:
+        """When the entry goes stale under the range rule. Kept out of `cache_target_age`, which is stored with the
+        entry and read by callers that share its cache key without opting in."""
+        if self.range_freshness_interval is None or self._api_sql_freshness_applies:
+            return self.cache_target_age(last_refresh, lazy=lazy)
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return last_refresh + staleness_threshold_map[mode][self.range_freshness_interval]
+
+    @cached_property
+    def range_freshness_interval(self) -> Optional[str]:
+        """The interval whose staleness rule applies, when built under `range_based_freshness` with a relative range."""
+        if not self._range_freshness_requested or self.query.filters is None or self.query.filters.dateRange is None:
+            return None
+        date_from, date_to = self.query.filters.dateRange.date_from, self.query.filters.dateRange.date_to
+        if not date_from or not date_from.startswith("-") or (date_to and not date_to.startswith("-")):
+            return None
+        now = datetime.now(UTC)
+        timezone_info = self.team.timezone_info
+        try:
+            start = relative_date_parse(date_from, timezone_info, now=now)
+            end = relative_date_parse(date_to, timezone_info, now=now) if date_to else now
+        except (ValueError, OverflowError):
+            return None
+        span = end - start
+        return next((interval for limit, interval in _RANGE_FRESHNESS_INTERVALS if span <= limit), "week")
+
     @cached_property
     def _api_sql_freshness_enabled(self) -> bool:
         return (
@@ -111,8 +162,19 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             and self._team_flag_enabled_locally(API_SQL_WINDOW_CACHE_AGE_FLAG)
         )
 
+    @property
+    def _api_sql_freshness_applies(self) -> bool:
+        return self._sql_classification is not None and self._api_sql_freshness_enabled
+
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         freshness = self._sql_classification
+        if (
+            self.range_freshness_interval is not None
+            and last_refresh is not None
+            and not self._api_sql_freshness_applies
+        ):
+            target_age = self.range_target_age(last_refresh, lazy=lazy)
+            return target_age is None or datetime.now(UTC) > target_age
         default_stale = super()._is_stale(last_refresh, lazy=lazy)
         if isinstance(freshness, SqlFreshness) and last_refresh is not None and self._api_sql_freshness_enabled:
             return default_stale and datetime.now(UTC) > freshness.fresh_until
@@ -354,19 +416,24 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return self.to_query()
 
     def single_flight_variant(self) -> str:
-        # The query service cap and custom settings change the execution time without reaching the cache key.
+        # The API key cap and custom settings change the execution time without reaching the cache key.
         max_execution_time: Optional[int] = (
             self.QUERY_SERVICE_MAX_EXECUTION_TIME
-            if self._capped_for_query_service()
+            if self._capped_for_api_key()
             else (self.settings.max_execution_time if self.settings else None)
         )
         return f"{super().single_flight_variant()}:max_execution_time={max_execution_time}"
 
-    def _capped_for_query_service(self) -> bool:
+    def _capped_for_api_key(self) -> bool:
         return bool(
-            self.is_query_service
+            (self.is_query_service or self._is_api_key_run_without_extended_time())
             and app_settings.API_QUERIES_LEGACY_TEAM_LIST
             and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
+        )
+
+    def _is_api_key_run_without_extended_time(self) -> bool:
+        return self.limit_context == LimitContext.QUERY and is_api_key_access_method(
+            get_query_tag_value("access_method")
         )
 
     def _build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -379,7 +446,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def _calculate(self) -> HogQLQueryResponse:
         tag_contains_user_hogql()
         self._sql_classification = None
-        if self._capped_for_query_service():
+        if self._capped_for_api_key():
             assert self.settings is not None
             # p95 threads is 102, limiting to 60 (below global max_threads of 64)
             self.settings.max_threads = 60
@@ -430,7 +497,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             validate_user_query(query, team=self.team, requested_offset=self.query.offset)
 
         paginator = HogQLHasMorePaginator.for_hogql_query(
-            query, limit_context=self.limit_context, offset=self.query.offset
+            query, limit_context=self.limit_context, offset=self.query.offset, limit=self.query.limit
         )
         func = cast(
             Callable[..., HogQLQueryResponse],

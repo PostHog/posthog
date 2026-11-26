@@ -2,6 +2,7 @@ import type { App } from '@modelcontextprotocol/ext-apps'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
+import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME } from '../../tools/exec-names'
 import { APP_DATA_META_KEY } from '../types'
 
 interface RenderUiDataResult {
@@ -21,7 +22,7 @@ export function renderUiDataRequest(
     appKey: UiAppKey
 ): RenderUiDataRequest {
     return appKey === 'query-results'
-        ? { name: 'exec', arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` } }
+        ? { name: EXEC_READ_TOOL_NAME, arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` } }
         : { name: toolName, arguments: input }
 }
 
@@ -48,5 +49,14 @@ export async function loadRenderUiData(
     if (preloaded !== undefined && preloaded !== null) {
         return { structuredContent: preloaded }
     }
-    return readRenderUiData(await app.callServerTool(renderUiDataRequest(toolName, input, appKey)), appKey)
+    const request = renderUiDataRequest(toolName, input, appKey)
+    try {
+        return readRenderUiData(await app.callServerTool(request), appKey)
+    } catch (error) {
+        if (request.name !== EXEC_READ_TOOL_NAME) {
+            throw error
+        }
+        // A connection without the split lists only `exec`, and a host may refuse a tool it never listed.
+        return readRenderUiData(await app.callServerTool({ ...request, name: EXEC_TOOL_NAME }), appKey)
+    }
 }

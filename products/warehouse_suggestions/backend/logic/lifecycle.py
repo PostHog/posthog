@@ -27,7 +27,14 @@ from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
 from .reads import Subject
 from .rules import LifecycleRules, kind_position
-from .suggestions import ALLOWED_TRANSITIONS, Transitions, transition_to, upsert_suggestions
+from .suggestions import (
+    ALLOWED_TRANSITIONS,
+    DeprecateChoice,
+    Transitions,
+    deprecate_choice,
+    transition_to,
+    upsert_suggestions,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -72,6 +79,7 @@ def apply_run(
         (SuggestionOutcome.AUTO_RESOLVED, auto_resolved),
         (SuggestionOutcome.EXPIRED, expired),
         (SuggestionOutcome.SURFACED, surfaced),
+        (SuggestionOutcome.ASSET_OUTCOME_CHANGED, assets_reconciled),
     )
     transaction.on_commit(partial(_report_all, outcomes, team))
     transaction.on_commit(partial(notify_surfaced, team, assigned, context.run_id))
@@ -82,7 +90,7 @@ def apply_run(
         auto_resolved=len(auto_resolved),
         expired=len(expired),
         surfaced=len(surfaced),
-        assets_reconciled=assets_reconciled,
+        assets_reconciled=len(assets_reconciled),
     )
 
 
@@ -137,14 +145,13 @@ def _accepted_then_flipped_back(
 ) -> list[WarehouseSuggestion]:
     """Accepted materialize and unmaterialize suggestions drafted again, so their view flipped back, past the cooldown."""
     cooled_down_before = now - timedelta(days=context.rules.lifecycle.flip_cooldown_days)
-    return list(
-        WarehouseSuggestion.objects.for_team(context.team_id).filter(
-            fingerprint__in=drafts_by_fingerprint,
-            status=WarehouseSuggestionStatus.ACCEPTED,
-            kind__in=FLIP_KINDS,
-            reviewed_at__lte=cooled_down_before,
-        )
+    accepted = WarehouseSuggestion.objects.for_team(context.team_id).filter(
+        fingerprint__in=drafts_by_fingerprint,
+        status=WarehouseSuggestionStatus.ACCEPTED,
+        kind__in=[*FLIP_KINDS, WarehouseSuggestionKind.DEPRECATE],
+        reviewed_at__lte=cooled_down_before,
     )
+    return [row for row in accepted if _asset_kind(row) in FLIP_KINDS]
 
 
 def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: LifecycleRules) -> bool:
@@ -275,15 +282,16 @@ def _pick_in_turns(
     return chosen
 
 
-def _reconcile_assets(context: CandidateContext) -> int:
+def _reconcile_assets(context: CandidateContext) -> list[WarehouseSuggestion]:
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
-    changed = 0
+    changed_ids: list[UUID] = []
     for row in suggestions.filter(status=WarehouseSuggestionStatus.ACCEPTED).only(
         "id",
         "kind",
         "subject_kind",
         "subject_id",
         "reviewed_at",
+        "created_asset",
         "score_inputs",
         "asset_outcome",
         "realized_seconds_saved_per_month",
@@ -291,12 +299,13 @@ def _reconcile_assets(context: CandidateContext) -> int:
     ):
         updates = _asset_updates(context, row)
         if any(getattr(row, field) != value for field, value in updates.items()):
-            changed += suggestions.filter(id=row.id).update(**updates)
-    return changed
+            suggestions.filter(id=row.id).update(**updates)
+            changed_ids.append(row.id)
+    return list(suggestions.filter(id__in=changed_ids)) if changed_ids else []
 
 
 def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[str, object]:
-    candidate = CANDIDATES[WarehouseSuggestionKind(row.kind)]
+    candidate = CANDIDATES[_asset_kind(row)]
     subject = _subject(row)
     savings = (
         candidate.realized_savings(context, subject, row.score_inputs)
@@ -308,6 +317,12 @@ def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[
         "realized_seconds_saved_per_month": savings.seconds if savings else None,
         "realized_bytes_saved_per_month": savings.read_bytes if savings else None,
     }
+
+
+def _asset_kind(row: WarehouseSuggestion) -> WarehouseSuggestionKind:
+    if deprecate_choice(row.kind, row.created_asset) == DeprecateChoice.ONLY_STOP_REFRESHES:
+        return WarehouseSuggestionKind.UNMATERIALIZE
+    return WarehouseSuggestionKind(row.kind)
 
 
 def _window_starts_after(context: CandidateContext, accepted_at: datetime | None) -> bool:

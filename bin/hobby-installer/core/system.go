@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha512"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -19,6 +20,16 @@ func GenerateSecret() (string, error) {
 	}
 	hash := sha512.Sum384(b)
 	return hex.EncodeToString(hash[:]), nil
+}
+
+// GenerateSealKey returns a Fernet key for CDP_SEALED_STATE_KEYS. The node service reads its 32 characters
+// as bytes, so base64 of 24 random bytes keeps every byte random, unlike 32 hex characters.
+func GenerateSealKey() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 func GenerateEncryptionKey() (string, error) {

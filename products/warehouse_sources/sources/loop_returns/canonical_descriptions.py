@@ -192,4 +192,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "tags": "Tags associated with the customer.",
         },
     },
+    "locations": {
+        "description": "Locations of your shop, such as warehouses and stores.",
+        "docs_url": "https://docs.loopreturns.com/api-reference/latest/locations/list-locations",
+        "columns": {
+            "id": "Unique identifier for the location, created by Loop.",
+            "external_id": "Identifier of the location in the external commerce platform.",
+            "sales_channel": "Name of the sales channel.",
+            "name": "Name of the location.",
+            "status": "Status of the location: active or inactive.",
+            "address": "Address of the location.",
+        },
+    },
+    "inventories": {
+        "description": "Available stock of each product variant at each location.",
+        "docs_url": "https://docs.loopreturns.com/api-reference/latest/inventories/list-inventories",
+        "columns": {
+            "product_variant_id": "Identifier of the product variant, created by Loop.",
+            "location_id": "Identifier of the location, created by Loop.",
+            "available_count": "Number of units of the product variant available at the location.",
+            "product_variant": "Details of the product variant.",
+            "location": "Details of the location.",
+        },
+    },
 }

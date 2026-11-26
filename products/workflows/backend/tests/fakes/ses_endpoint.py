@@ -13,6 +13,9 @@ from botocore.compat import HTTPHeaders
 from posthog.dataclasses import frozen
 
 REPUTATION_ENTITY_PATH = "/v2/email/reputation/entities/RESOURCE/"
+METRICS_BATCH_PATH = "/v2/email/metrics/batch"
+METRICS_BATCH_MAX_QUERIES = 10
+SECONDS_PER_DAY = 24 * 60 * 60
 
 
 @frozen
@@ -43,6 +46,10 @@ class FakeSesEndpoint:
         self.requests: list[SesRequest] = []
         self.tenants: dict[str, dict[str, str]] = {}
         self.reputation_aggregates: dict[str, str] = {}
+        # Account-wide VDM totals per metric, answered for queries that carry no dimension.
+        self.account_metrics: dict[str, int] = {}
+        self.failing_metrics: set[str] = set()
+        self.rejects_metric_batches = False
         self.denied = False
 
     @contextmanager
@@ -81,11 +88,42 @@ class FakeSesEndpoint:
             if aggregate is None:
                 return _not_found("Reputation entity")
             return _Reply(status=200, body={"ReputationEntity": {"SendingStatusAggregate": aggregate}})
+        if (method, path) == ("POST", METRICS_BATCH_PATH):
+            return self._metrics_batch(json.loads(body)["Queries"])
+        return _bad_request(f"FakeSesEndpoint does not serve {method} {path}")
+
+    def _metrics_batch(self, queries: list[dict[str, Any]]) -> _Reply:
+        if self.rejects_metric_batches:
+            return _bad_request("Virtual Deliverability Manager is not enabled for this account")
+        if len(queries) > METRICS_BATCH_MAX_QUERIES:
+            return _bad_request(f"At most {METRICS_BATCH_MAX_QUERIES} queries per request")
+        if any(query["Namespace"] != "VDM" for query in queries):
+            return _bad_request("Namespace must be VDM")
+        if any(query[bound] % SECONDS_PER_DAY for query in queries for bound in ("StartDate", "EndDate")):
+            return _bad_request("StartDate and EndDate must be whole UTC days")
         return _Reply(
-            status=400,
-            body={"message": f"FakeSesEndpoint does not serve {method} {path}"},
-            error_type="BadRequestException",
+            status=200,
+            body={
+                "Results": [
+                    {
+                        "Id": query["Id"],
+                        "Timestamps": [query["StartDate"]],
+                        "Values": [0 if query.get("Dimensions") else self.account_metrics.get(query["Metric"], 0)],
+                    }
+                    for query in queries
+                    if query["Metric"] not in self.failing_metrics
+                ],
+                "Errors": [
+                    {"Id": query["Id"], "Code": "INTERNAL_FAILURE", "Message": "Internal failure"}
+                    for query in queries
+                    if query["Metric"] in self.failing_metrics
+                ],
+            },
         )
+
+
+def _bad_request(message: str) -> _Reply:
+    return _Reply(status=400, body={"message": message}, error_type="BadRequestException")
 
 
 def _not_found(resource: str) -> _Reply:

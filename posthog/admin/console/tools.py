@@ -37,6 +37,41 @@ class GroupRow:
 
 
 @frozen
+class ProgressPart:
+    count: int
+    tone: Tone
+
+
+@frozen
+class Progress:
+    """How much of a known total is done, as a bar above a table. `parts` fill it in order, then `moving` pulses.
+
+    Count in `moving` only what can still finish, so the bar does not pulse for a part that will never fill.
+    """
+
+    text: str
+    total: int
+    parts: tuple[ProgressPart, ...]
+    moving: int = 0
+
+    def __post_init__(self) -> None:
+        counts = [*(part.count for part in self.parts), self.moving]
+        if self.total <= 0 or min(counts) < 0 or sum(counts) > self.total:
+            raise ValueError(f"Progress parts {counts} do not fit a total of {self.total}")
+
+    @property
+    def filled(self) -> int:
+        return sum(part.count for part in self.parts)
+
+    # Strings, because a template would write a float with a decimal comma in some locales.
+    def bars(self) -> list[tuple[Tone, str]]:
+        return [(part.tone, f"{part.count / self.total * 100:.3f}") for part in self.parts if part.count]
+
+    def moving_percent(self) -> str:
+        return f"{self.moving / self.total * 100:.3f}"
+
+
+@frozen
 class Table:
     kind: ClassVar[str] = "table"
     columns: tuple[str, ...]
@@ -46,6 +81,7 @@ class Table:
     numeric_columns: tuple[int, ...] = ()
     # For a long table above something staff must reach. It scrolls inside its card instead of growing the page.
     scrolls: bool = False
+    progress: Progress | None = None
 
 
 @frozen
@@ -121,6 +157,8 @@ class Links:
 class FieldGroup:
     title: str
     field_names: tuple[str, ...]
+    # Lays the fields out side by side on a wide screen, for a group of short inputs.
+    inline: bool = False
 
 
 @frozen
@@ -135,6 +173,9 @@ class Filters:
     groups: tuple[FieldGroup, ...]
     submit_label: str
     pending_label: str = ""
+    # Puts every field and the button on one line without the group cards, for a few short filters above a page
+    # that needs the room.
+    compact: bool = False
 
     def __post_init__(self) -> None:
         grouped = [name for group in self.groups for name in group.field_names]
@@ -143,8 +184,8 @@ class Filters:
         if sorted(grouped) != sorted(expected):
             raise ValueError(f"Filter groups must name each form field once. Fields: {expected}, groups: {grouped}")
 
-    def bound_groups(self) -> list[tuple[str, list["BoundField"]]]:
-        return [(group.title, [self.form[name] for name in group.field_names]) for group in self.groups]
+    def bound_groups(self) -> list[tuple[FieldGroup, list["BoundField"]]]:
+        return [(group, [self.form[name] for name in group.field_names]) for group in self.groups]
 
 
 @frozen
@@ -186,7 +227,58 @@ class Secret:
     note: str = "Copy it now. It is not shown again."
 
 
-Block = Notice | Table | Paging | Output | Stats | Links | Filters | Live | Secret
+@frozen
+class Choice:
+    label: str
+    value: str
+    # SUCCESS makes the button the primary one, and DESTRUCTIVE gives it a red outline.
+    tone: Tone | None = None
+    # The key that presses the button, as KeyboardEvent.key names it, for example ArrowRight.
+    key: str = ""
+
+
+@frozen
+class Decision:
+    """One item that staff decide on, such as a card to label, with a button per choice that runs a tool operation
+    at once, without its form page.
+
+    A button posts the form of the operation `operation_key`: `values` as hidden fields, the choice's value in the
+    field `field`, and what staff typed in the field `note_field` when it is set. The post keeps `query`, and the
+    console returns to the tool page with it, so `query` can point the page at the next item. Only a tool page holds
+    a Decision, for an operation the tool offers that has a form and no danger.
+    """
+
+    kind: ClassVar[str] = "decision"
+    title: str
+    text: str
+    operation_key: str
+    field: str
+    choices: tuple[Choice, ...]
+    values: dict[str, str] = dataclasses.field(default_factory=dict)
+    # One muted line above the title, for example where the item comes from.
+    detail: str = ""
+    note_field: str = ""
+    note_label: str = ""
+    note: str = ""
+    query: str = ""
+    # A link to the next item without a decision. `skip_key` presses it, like `Choice.key`.
+    skip_href: str | None = None
+    skip_key: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.choices:
+            raise ValueError(f"Decision {self.title!r} needs at least one choice")
+        # The buttons and the note set these fields, so a hidden value with the same name would be posted twice.
+        clashes = {self.field, self.note_field} & set(self.values)
+        if clashes:
+            raise ValueError(f"Decision values must not set {sorted(clashes)}, which the buttons and note set")
+        if self.query.startswith("?"):
+            raise ValueError("Decision query is the query string without its leading ?")
+        if self.skip_href is not None and not is_internal_path(self.skip_href):
+            raise ValueError(f"Decision skip link {self.skip_href!r} must be a path that starts with /")
+
+
+Block = Notice | Table | Paging | Output | Stats | Links | Filters | Live | Secret | Decision
 INNER_BLOCKS = Notice | Table | Output | Stats
 
 
@@ -208,6 +300,21 @@ class Page:
             inner = block.block if isinstance(block, Live) else block
             if isinstance(inner, Table):
                 _check_table(inner)
+
+    def check_decisions(self, operations: "list[ToolOperation]") -> "Page":
+        """Refuses a Decision whose buttons would post to an operation the tool does not offer, or to one that needs
+        a reason and a confirm page, which a single click skips."""
+        offered = {operation.key: operation for operation in operations}
+        for block in self.blocks:
+            if not isinstance(block, Decision):
+                continue
+            operation = offered.get(block.operation_key)
+            if operation is None or operation.form_class is None or operation.danger:
+                raise ValueError(
+                    f"Decision {block.title!r} runs {block.operation_key!r}, which the tool must offer with a form "
+                    "and without danger"
+                )
+        return self
 
     def refuse_secrets(self, where: str) -> "Page":
         if any(isinstance(block, Secret) for block in self.blocks):
@@ -267,6 +374,8 @@ class ToolOperation:
     preview: PreviewHandler | None = None
     # The run button shows this until the next page loads, for an operation that takes a while.
     pending_label: str = ""
+    # False for an operation that a Decision block runs, so the Actions card does not offer its form as well.
+    listed: bool = True
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
@@ -285,12 +394,18 @@ class ConsoleTool:
 
     key: ClassVar[str]
     title: ClassVar[str]
-    owner: ClassVar[Owner]
+    # None when no team owns the data behind the tool. The console then shows no owner badge.
+    owner: ClassVar[Owner | None]
     group: ClassVar[str]
     description: ClassVar[str] = ""
 
     def page(self, request: "HttpRequest") -> Page:
         raise NotImplementedError
+
+    def app_page(self, request: "HttpRequest") -> "HttpResponse | None":
+        """A page the product renders itself, such as a React app that blocks cannot express. The console serves it
+        in place of `page` and `operations`, for GET and HEAD only. None for a tool built from blocks."""
+        return None
 
     def operations(self, request: "HttpRequest") -> list[ToolOperation]:
         """The actions the tool page offers. The console runs them; `page` stays read-only."""

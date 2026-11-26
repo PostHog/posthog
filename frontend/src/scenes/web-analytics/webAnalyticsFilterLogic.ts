@@ -130,12 +130,12 @@ export interface webAnalyticsFilterLogicActions {
         key: string
         tabChange:
             | {
-                  activeHoursTab?: string | undefined
-                  deviceTab?: string | undefined
-                  geographyTab?: string | undefined
-                  graphsTab?: string | undefined
-                  pathTab?: string | undefined
-                  sourceTab?: string | undefined
+                  activeHoursTab?: string
+                  deviceTab?: string
+                  geographyTab?: string
+                  graphsTab?: string
+                  pathTab?: string
+                  sourceTab?: string
               }
             | undefined
         type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session

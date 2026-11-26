@@ -19,6 +19,7 @@ from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.contracts import AgentSource, ChartSource, ProposedMetric, SurfaceSource, UncoveredGroup
 from .query_complexity import Complexity, query_complexity
+from .usage_priority import priority
 
 MAX_CHART_SOURCES = 5
 # A read drops the charts its reader may not open, so the scan stores more than the tab shows.
@@ -37,6 +38,7 @@ _HASH_BATCH = 50_000
 @frozen
 class MeasureEvidence:
     people: frozenset[str]
+    viewers: frozenset[str]
     shape_hashes: frozenset[int]
     agent_people: frozenset[str]
     agent_sessions: frozenset[str]
@@ -199,7 +201,8 @@ def build_proposed_metrics(
     names: Mapping[int, ChartName],
     people_of: Mapping[int, str],
 ) -> list[ProposedMetric]:
-    """One proposal per draft, ranked by complexity, then the people who built it, then built count, then views. Groups that share a draft are one measure written several ways."""
+    """One proposal per draft, ranked by priority, then complexity, then the people who built it, built count and views.
+    Groups that share a draft are one measure written several ways."""
     # Two merge keys can get the same name from the drafter, so the definition keeps them apart.
     by_draft: dict[tuple[str, str], list[UncoveredGroup]] = defaultdict(list)
     for group in drafted:
@@ -220,16 +223,20 @@ def build_proposed_metrics(
         definition = groups[0].draft_definition or ""
         # The draft is the measure alone, so it rates what a canonical definition would hold.
         rated = query_complexity(definition) if definition else Complexity.UNKNOWN
+        complexity = rated if rated != Complexity.UNKNOWN else max(group.complexity for group in groups)
+        people = frozenset().union(*(item.people for item in items))
+        viewers = frozenset().union(*(item.viewers for item in items))
         proposals.append(
             ProposedMetric(
                 name=name,
                 description=groups[0].draft_description or "",
                 definition=definition,
                 measures=len(groups),
-                people=len(frozenset().union(*(item.people for item in items))),
+                people=len(people),
                 built=max(group.built for group in groups),
                 views=max(group.views for group in groups),
-                complexity=rated if rated != Complexity.UNKNOWN else max(group.complexity for group in groups),
+                complexity=complexity,
+                priority=priority(complexity=complexity, reach=len(people | viewers), measures=len(groups)),
                 charts=charts[:STORED_CHART_SOURCES],
                 other_charts=max(0, len(charts) - STORED_CHART_SOURCES),
                 surfaces=_surface_sources(shape_rows, people_of),
@@ -247,6 +254,7 @@ def build_proposed_metrics(
         )
     proposals.sort(
         key=lambda proposal: (
+            -proposal.priority,
             -proposal.complexity,
             -proposal.people,
             -proposal.built,

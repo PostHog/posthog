@@ -22,6 +22,14 @@ class OrganizationAITermsForm(forms.ModelForm):
         fields = ["is_ai_data_processing_approved"]
         labels = {"is_ai_data_processing_approved": "In-app AI data processing approved"}
 
+    def clean_is_ai_data_processing_approved(self) -> bool | None:
+        value = self.cleaned_data.get("is_ai_data_processing_approved")
+        if value and self.instance.is_ai_data_processing_locked:
+            raise forms.ValidationError(
+                "AI data processing is locked for this organization. Remove the lock in the organization admin first."
+            )
+        return value
+
 
 @admin.register(OrganizationAITerms)
 class OrganizationAITermsAdmin(admin.ModelAdmin):

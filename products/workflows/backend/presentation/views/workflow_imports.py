@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -20,8 +21,8 @@ from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.workflows.backend.facade.contracts import ImportOptions, WorkflowImportRecord
 from products.workflows.backend.facade.enums import (
     WorkflowImportNoteLevel,
+    WorkflowImportRequestSource,
     WorkflowImportSegmentCohortStatus,
-    WorkflowImportSource,
     WorkflowImportStatus,
 )
 from products.workflows.backend.facade.workflow_imports import import_for_workflow
@@ -100,7 +101,7 @@ class CustomerioSegmentSerializer(serializers.Serializer):
 
 class WorkflowImportRequestSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=WorkflowImportSource.choices,
+        choices=WorkflowImportRequestSource.choices,
         help_text="The tool the automations come from.",
     )
     campaigns = CustomerioCampaignSerializer(
@@ -238,6 +239,8 @@ class WorkflowImportRecordSerializer(serializers.Serializer):
 
 
 class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    permission_classes = [CDPPropertyAccessPermission]
+
     scope_object = "hog_flow"
     serializer_class = WorkflowImportRequestSerializer
     scope_object_read_actions = ["for_workflow"]

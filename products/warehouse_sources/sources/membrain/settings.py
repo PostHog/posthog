@@ -12,10 +12,10 @@ class MembrainEndpointConfig:
     # the rest return a bare JSON array in one response.
     paged: bool = False
     # Whether the endpoint's reference documents `SortBy` ('CreatedDate ASC' etc). Only
-    # companies, contacts and activities do; the other paged endpoints don't document it, so we
-    # don't send it there and their page order follows the API's default. Also gates cross-run
-    # offset resume in membrain.py: without an explicit stable sort, `From=N` resume is not
-    # provably safe against reordering between runs.
+    # companies, contacts, activities, orders and quotes do; the other paged endpoints don't
+    # document it, so we don't send it there and their page order follows the API's default.
+    # Also gates cross-run offset resume in membrain.py: without an explicit stable sort,
+    # `From=N` resume is not provably safe against reordering between runs.
     supports_sort_by: bool = False
     # Documented query params sent on every request (e.g. IncludeDeleted, so deletions reach the
     # warehouse instead of rows silently disappearing from the sync).
@@ -67,6 +67,43 @@ MEMBRAIN_ENDPOINTS: dict[str, MembrainEndpointConfig] = {
         paged=True,
         partition_key="CreatedDate",
     ),
+    # Stakeholders and contacts connected to a prospect, sales project, account growth project,
+    # ticket or flow, with their role, attitude and influence.
+    "process_container_contacts": MembrainEndpointConfig(
+        name="process_container_contacts",
+        path="/processContainerContacts/",
+        paged=True,
+        partition_key="CreatedDate",
+    ),
+    "orders": MembrainEndpointConfig(
+        name="orders",
+        path="/orders/",
+        paged=True,
+        supports_sort_by=True,
+        partition_key="CreatedDate",
+    ),
+    # Line items of orders, linked to their order through DocumentId.
+    "order_rows": MembrainEndpointConfig(
+        name="order_rows",
+        path="/orderRows/",
+        paged=True,
+        partition_key="CreatedDate",
+    ),
+    # Quotes attached to companies or sales projects; the quote-side match for orders.
+    "quotes": MembrainEndpointConfig(
+        name="quotes",
+        path="/quotes/",
+        paged=True,
+        supports_sort_by=True,
+        partition_key="CreatedDate",
+    ),
+    # Line items of quotes, linked to their quote through DocumentId.
+    "quote_rows": MembrainEndpointConfig(
+        name="quote_rows",
+        path="/quoteRows/",
+        paged=True,
+        partition_key="CreatedDate",
+    ),
     "account_growth_items": MembrainEndpointConfig(
         name="account_growth_items",
         path="/accountGrowthItems/",
@@ -79,6 +116,14 @@ MEMBRAIN_ENDPOINTS: dict[str, MembrainEndpointConfig] = {
         paged=True,
         partition_key="CreatedDate",
     ),
+    # Flow records, Membrain's fifth process type next to prospects, sales projects, account
+    # growth projects and tickets.
+    "flows": MembrainEndpointConfig(
+        name="flows",
+        path="/flows/",
+        paged=True,
+        partition_key="CreatedDate",
+    ),
     "activities": MembrainEndpointConfig(
         name="activities",
         path="/activities/",
@@ -88,6 +133,7 @@ MEMBRAIN_ENDPOINTS: dict[str, MembrainEndpointConfig] = {
     ),
     "users": MembrainEndpointConfig(name="users", path="/users/"),
     "roles": MembrainEndpointConfig(name="roles", path="/roles/"),
+    "sales_teams": MembrainEndpointConfig(name="sales_teams", path="/salesTeams/"),
     # `/customFields/` returns one object holding a per-entity array of field definitions
     # (companyCustomFields, contactCustomFields, ...); the transport flattens it into one row per
     # definition with an `EntityType` column, so the composite key covers a definition that
@@ -109,6 +155,7 @@ MEMBRAIN_ENDPOINTS: dict[str, MembrainEndpointConfig] = {
     "account_growth_processes": MembrainEndpointConfig(
         name="account_growth_processes", path="/accountGrowthProcesses/"
     ),
+    "flow_processes": MembrainEndpointConfig(name="flow_processes", path="/flowProcesses/"),
 }
 
 ENDPOINTS = tuple(MEMBRAIN_ENDPOINTS.keys())
@@ -116,9 +163,9 @@ ENDPOINTS = tuple(MEMBRAIN_ENDPOINTS.keys())
 # All endpoints are full refresh only for now. The main list endpoints do document server-side
 # ChangedFromDate/ChangedToDate and CreatedFromDate/CreatedToDate range filters (both ends of a
 # range must be provided together), but the reference is the only evidence available: the filters
-# could not be verified against a live instance here (no credentials), and five of the paged
-# endpoints (prospects, opportunities, opportunityProducts, accountGrowthItems, tickets) document
-# no SortBy, so row order inside a window is unknown. Enabling incremental is a matter of
+# could not be verified against a live instance here (no credentials), and most of the paged
+# endpoints (prospects, opportunities, opportunityProducts, accountGrowthItems, tickets,
+# processContainerContacts, orderRows, quoteRows, flows) document no SortBy, so row order inside a window is unknown. Enabling incremental is a matter of
 # populating this dict, mapping the user's cursor into the range params in `membrain.py`, and
 # passing an explicit upper bound, once the filters are verified live.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

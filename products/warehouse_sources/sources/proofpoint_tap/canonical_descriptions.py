@@ -60,6 +60,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "query_end_time": "End of the SIEM query interval that first returned this threat in a sync, added by PostHog.",
         },
     },
+    "forensics": {
+        "description": "Aggregate forensic evidence and indicators of compromise for the threats that SIEM events reference.",
+        "docs_url": f"{DOCS_ROOT}/Forensics_API",
+        "columns": {
+            "id": "Threat identifier that the forensics were requested for, added by PostHog.",
+            "generated": "Time when Proofpoint generated the forensics report.",
+            "reports": "Forensics reports for the threat. Each report has a name, scope, type, ID and a list of evidence objects with their type, display string, maliciousness, details and platforms.",
+            "query_end_time": "End of the SIEM query interval that first returned this threat in a sync, added by PostHog.",
+        },
+    },
     "campaigns": {
         "description": "Campaigns updated in the queried interval, with their threats, actors and malware.",
         "docs_url": f"{DOCS_ROOT}/Campaign_API",

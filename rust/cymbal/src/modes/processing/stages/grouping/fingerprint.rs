@@ -5,7 +5,7 @@ use sha2::{Digest, Sha512};
 use uuid::Uuid;
 
 use crate::{
-    error::UnhandledError,
+    error::{contain_failure, UnhandledError},
     fingerprinting::{Fingerprint, FingerprintVersion},
     issue_resolution::IssueFingerprintOverride,
     metric_consts::{FINGERPRINT_GENERATOR_OPERATOR, FINGERPRINT_LEGACY_VERSION_USED},
@@ -31,7 +31,7 @@ impl FingerprintGenerator {
     ) -> Result<PipelineItem<Fingerprinted>, UnhandledError> {
         match item {
             Err(error) => Ok(Err(error)),
-            Ok(event) => self.generate(event, ctx).await.map(Ok),
+            Ok(event) => contain_failure(self.name(), self.generate(event, ctx).await),
         }
     }
 
@@ -92,12 +92,14 @@ impl FingerprintGenerator {
 }
 
 fn manual_fingerprint(value: &str) -> SelectedFingerprint {
+    // Hash the raw value so a long fingerprint keeps the key of its existing issue. A short
+    // fingerprint is bound as Postgres text, which rejects NUL, so only that branch replaces it.
     let value = if value.len() > 64 {
         let mut hasher = Sha512::default();
         hasher.update(value);
         format!("{:x}", hasher.finalize())
     } else {
-        value.to_string()
+        value.replace('\u{0000}', "\u{FFFD}")
     };
     SelectedFingerprint::manual(value)
 }
@@ -172,4 +174,17 @@ async fn select_automatic_fingerprint(
     }
 
     Ok(newest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hashes_long_client_fingerprints_before_replacing_null_bytes() {
+        let raw = format!("{}\u{0000}", "a".repeat(64));
+        let expected = format!("{:x}", Sha512::digest(raw.as_bytes()));
+
+        assert_eq!(manual_fingerprint(&raw).value(), expected);
+    }
 }

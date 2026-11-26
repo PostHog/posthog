@@ -17,7 +17,7 @@ from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import QuerySet, Sum
+from django.db.models import Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -44,6 +44,7 @@ from .facade.contracts import (
     DevToken,
     DevTokenActivity,
     DevTokenRefused,
+    DevTokenRequest,
     DevTokenUsage,
     DevUserUsage,
     MintedDevToken,
@@ -64,8 +65,11 @@ DEV_PRODUCT = "dev"
 STAFF_EMAIL_DOMAIN = "@posthog.com"
 GATEWAY_TIMEOUT_SECONDS = 5
 TOKEN_CAP_MIN_USD = Decimal("5")
+TOKEN_TTL_MIN_SECONDS = 60 * 60
 CLI_CODE_TTL_SECONDS = 120
-_CLI_CODE_CACHE_PREFIX = "ai_gateway_dev_cli_code:"
+# Versioned with the grant's shape, so a worker that cannot enforce an approved cap and TTL finds no
+# grant instead of minting its defaults.
+_CLI_CODE_CACHE_PREFIX = "ai_gateway_dev_cli_code:v2:"
 
 
 def configured() -> bool:
@@ -76,8 +80,38 @@ def gateway_base_url() -> str:
     return (settings.DEV_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
 
 
+def token_max_cap_usd() -> Decimal:
+    return Decimal(settings.DEV_GATEWAY_TOKEN_MAX_CAP_USD)
+
+
+def token_max_ttl_seconds() -> int:
+    return int(settings.DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS)
+
+
+# Defaults never exceed the maxima, so lowering a maximum also bounds requests that pick nothing.
 def token_cap_usd() -> Decimal:
-    return Decimal(settings.DEV_GATEWAY_TOKEN_CAP_USD)
+    return min(Decimal(settings.DEV_GATEWAY_TOKEN_CAP_USD), token_max_cap_usd())
+
+
+def token_ttl_seconds() -> int:
+    return min(int(settings.DEV_GATEWAY_TOKEN_TTL_SECONDS), token_max_ttl_seconds())
+
+
+def _validate_request(request: DevTokenRequest) -> None:
+    max_cap = token_max_cap_usd()
+    if request.cap_usd is not None and not (TOKEN_CAP_MIN_USD <= request.cap_usd <= max_cap):
+        raise DevTokenRefused(
+            "invalid_request",
+            f"cap_usd must be between {TOKEN_CAP_MIN_USD:.2f} and {max_cap:.2f}, got {request.cap_usd}",
+            400,
+        )
+    max_ttl = token_max_ttl_seconds()
+    if request.ttl_seconds is not None and not (TOKEN_TTL_MIN_SECONDS <= request.ttl_seconds <= max_ttl):
+        raise DevTokenRefused(
+            "invalid_request",
+            f"ttl_seconds must be between {TOKEN_TTL_MIN_SECONDS} and {max_ttl}, got {request.ttl_seconds}",
+            400,
+        )
 
 
 def daily_cap_usd() -> Decimal:
@@ -100,12 +134,21 @@ def eligibility_refusal(user: User) -> DevTokenRefused | None:
     return None
 
 
-def _window_start() -> datetime:
-    return timezone.now() - timedelta(days=1)
+def _counted_q(now: datetime) -> Q:
+    # A token outliving the 24h window counts until it expires, even once revoked, so a revoke returns only
+    # what the token did not spend.
+    return Q(created_at__gte=now - timedelta(days=1)) | Q(expires_at__gt=now)
 
 
-def _window_tokens(user_id: int) -> QuerySet[DevGatewayToken]:
-    return DevGatewayToken.objects.filter(user_id=user_id, created_at__gte=_window_start())
+def _counted_tokens(user_id: int) -> QuerySet[DevGatewayToken]:
+    return DevGatewayToken.objects.filter(_counted_q(timezone.now()), user_id=user_id)
+
+
+def _frees_at(row: DevGatewayToken) -> datetime:
+    day_after_mint = row.created_at + timedelta(days=1)
+    if row.expires_at is not None and row.expires_at > day_after_mint:
+        return row.expires_at
+    return day_after_mint
 
 
 def _counted_usd(row: DevGatewayToken) -> Decimal:
@@ -117,7 +160,7 @@ def _cents_up(amount: Decimal) -> Decimal:
 
 
 def _used_usd(user_id: int) -> Decimal:
-    used = _window_tokens(user_id).aggregate(total=Sum(Coalesce("spent_usd", "cap_usd")))["total"]
+    used = _counted_tokens(user_id).aggregate(total=Sum(Coalesce("spent_usd", "cap_usd")))["total"]
     return used or Decimal("0")
 
 
@@ -142,17 +185,17 @@ def _to_dto(row: DevGatewayToken, remaining: dict[str, Decimal] | None = None) -
 
 
 def _available_at(user_id: int, left: Decimal) -> datetime:
-    for row in _window_tokens(user_id).order_by("created_at"):
+    for row in sorted(_counted_tokens(user_id), key=_frees_at):
         left += _counted_usd(row)
         if left >= TOKEN_CAP_MIN_USD:
-            return row.created_at + timedelta(days=1)
+            return _frees_at(row)
     return timezone.now()
 
 
 def _daily_limit_refusal(user_id: int, used: Decimal, left: Decimal) -> DevTokenRefused:
     available_at = _available_at(user_id, left)
     has_live_token = (
-        _window_tokens(user_id)
+        _counted_tokens(user_id)
         .filter(token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now())
         .exists()
     )
@@ -161,14 +204,14 @@ def _daily_limit_refusal(user_id: int, used: Decimal, left: Decimal) -> DevToken
     )
     return DevTokenRefused(
         "daily_limit",
-        f"You've used ${_cents_up(used):.2f} of your ${daily_cap_usd():.2f} limit for the last 24 hours, "
-        f"and a new token needs ${TOKEN_CAP_MIN_USD:.2f} left. "
+        f"You've used ${_cents_up(used):.2f} of your ${daily_cap_usd():.2f} limit, which counts tokens from the "
+        f"last 24 hours and older tokens that have not expired, and a new token needs ${TOKEN_CAP_MIN_USD:.2f} left. "
         f"{next_step} another token at {available_at:%Y-%m-%d %H:%M} UTC.",
         429,
     )
 
 
-def _reserve(user: User, client: DevTokenClient) -> DevGatewayToken:
+def _reserve(user: User, client: DevTokenClient, requested_cap: Decimal | None) -> DevGatewayToken:
     with transaction.atomic():
         # Serializes one user's mints so two concurrent requests cannot both fit under the cap.
         User.objects.select_for_update().filter(pk=user.pk).first()
@@ -176,7 +219,18 @@ def _reserve(user: User, client: DevTokenClient) -> DevGatewayToken:
         left = daily_cap_usd() - used
         if left < TOKEN_CAP_MIN_USD:
             raise _daily_limit_refusal(user.pk, used, left)
-        cap = min(token_cap_usd(), left.quantize(Decimal("0.01"), rounding=ROUND_DOWN))
+        left_cents = left.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        if requested_cap is None:
+            # An older client that picks nothing gets the default, trimmed to what is left.
+            cap = min(token_cap_usd(), left_cents)
+        elif requested_cap > left_cents:
+            raise DevTokenRefused(
+                "daily_limit",
+                f"cap_usd is {requested_cap:.2f}, but ${left_cents:.2f} of your ${daily_cap_usd():.2f} limit is left.",
+                429,
+            )
+        else:
+            cap = requested_cap.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
         return DevGatewayToken.objects.create(
             team_id=settings.DEV_GATEWAY_TEAM_ID, user=user, client=client.value, cap_usd=cap
         )
@@ -196,10 +250,10 @@ class _UnreadableMint(DevTokenRefused):
     """The gateway answered 201, so it may have minted a token PostHog can't read."""
 
 
-def _call_mint(user: User, cap: Decimal) -> dict:
+def _call_mint(user: User, cap: Decimal, ttl_seconds: int) -> dict:
     body = {
         "cap_usd": str(cap),
-        "ttl_seconds": settings.DEV_GATEWAY_TOKEN_TTL_SECONDS,
+        "ttl_seconds": ttl_seconds,
         "product": DEV_PRODUCT,
         "user": user.distinct_id,
     }
@@ -220,16 +274,17 @@ def _call_mint(user: User, cap: Decimal) -> dict:
     return minted
 
 
-def _log(user: User, row: DevGatewayToken, activity: str, changes: list[Change]) -> None:
+def _log(actor: User | None, owner: User, row: DevGatewayToken, activity: str, changes: list[Change]) -> None:
+    """A None actor is the system, such as an offboarding revoke."""
     log_activity(
         organization_id=Team.objects.only("organization_id").get(pk=row.team_id).organization_id,
         team_id=row.team_id,
-        user=user,
+        user=actor,
         was_impersonated=False,
         item_id=row.id,
         scope="DevGatewayToken",
         activity=activity,
-        detail=Detail(name=f"Developer mode token for {user.email}", changes=changes),
+        detail=Detail(name=f"Developer mode token for {owner.email}", changes=changes),
     )
 
 
@@ -242,11 +297,14 @@ def _never_sent(error: requests.RequestException) -> bool:
     return isinstance(getattr(error.args[0] if error.args else None, "reason", None), NewConnectionError)
 
 
-def mint(user: User, client: DevTokenClient) -> MintedDevToken:
+def mint(user: User, client: DevTokenClient, request: DevTokenRequest | None = None) -> MintedDevToken:
+    request = request or DevTokenRequest()
+    _validate_request(request)
+    ttl_seconds = request.ttl_seconds if request.ttl_seconds is not None else token_ttl_seconds()
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
-        row = _reserve(user, client)
+        row = _reserve(user, client, request.cap_usd)
         try:
-            minted = _call_mint(user, row.cap_usd)
+            minted = _call_mint(user, row.cap_usd, ttl_seconds)
         except requests.RequestException as e:
             logger.warning("ai_gateway_dev_mint_unreachable", token_id=str(row.id), exc_info=True)
             # A read timeout or dropped response may follow a successful mint, so that reservation keeps counting.
@@ -266,6 +324,7 @@ def mint(user: User, client: DevTokenClient) -> MintedDevToken:
         row.refresh_from_db(fields=["expires_at"])
         _log(
             user,
+            user,
             row,
             "minted",
             [
@@ -274,6 +333,11 @@ def mint(user: User, client: DevTokenClient) -> MintedDevToken:
                 Change(type="DevGatewayToken", action="created", field="expires_at", after=row.expires_at.isoformat()),
             ],
         )
+        # A deactivation that lands while the gateway call is in flight finds no hash to revoke, so the
+        # mint checks again now that the hash is stored.
+        if ineligible_owner(user.pk) is not None:
+            revoke(user, str(row.id), by_system=True)
+            raise DevTokenRefused("not_staff", "Developer mode is only available to PostHog staff.", 403)
     logger.info("ai_gateway_dev_token_minted", user_id=user.pk, token_id=str(row.id), client=client.value)
     assert row.expires_at is not None
     return MintedDevToken(
@@ -314,10 +378,8 @@ def _remaining_by_hash(hashes: list[str]) -> dict[str, Decimal]:
 
 def usage(user: User) -> DevTokenUsage:
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
-        # Every token that counts against the daily limit, including revoked and expired ones.
-        recent = DevGatewayToken.objects.filter(
-            user_id=user.pk, token_hash__isnull=False, created_at__gte=_window_start()
-        ).order_by("-created_at")
+        # Every token that counts against the limit, so each live one stays listed and revocable.
+        recent = _counted_tokens(user.pk).filter(token_hash__isnull=False).order_by("-created_at")
         live_hashes = [
             row.token_hash
             for row in recent
@@ -329,9 +391,12 @@ def usage(user: User) -> DevTokenUsage:
     return DevTokenUsage(
         daily_cap_usd=daily_cap_usd(),
         used_usd=_cents_up(used),
-        token_cap_usd=token_cap_usd(),
+        token_cap_usd=token_max_cap_usd(),
         token_cap_min_usd=TOKEN_CAP_MIN_USD,
-        ttl_seconds=settings.DEV_GATEWAY_TOKEN_TTL_SECONDS,
+        default_cap_usd=token_cap_usd(),
+        ttl_seconds=token_ttl_seconds(),
+        ttl_min_seconds=TOKEN_TTL_MIN_SECONDS,
+        ttl_max_seconds=token_max_ttl_seconds(),
         tokens=tokens,
     )
 
@@ -457,7 +522,14 @@ def team_usage(viewer: User) -> DevTeamUsage:
                 tokens_minted_30d=len(mine),
                 live_tokens=sum(1 for row in mine if not row.revoked_at and row.expires_at and row.expires_at > now),
                 revoked_30d=sum(1 for row in mine if row.revoked_at),
-                reserved_usd_24h=sum((_counted_usd(row) for row in mine if row.created_at >= day_ago), Decimal("0")),
+                reserved_usd_24h=sum(
+                    (
+                        _counted_usd(row)
+                        for row in mine
+                        if row.created_at >= day_ago or (row.expires_at and row.expires_at > now)
+                    ),
+                    Decimal("0"),
+                ),
                 spend_usd_24h=spent.day,
                 spend_usd_7d=spent.week,
                 spend_usd_30d=spent.month,
@@ -501,8 +573,80 @@ def _spent_usd(row: DevGatewayToken, remaining: dict[str, Decimal]) -> Decimal |
     return max(Decimal("0"), row.cap_usd - left)
 
 
-def revoke(user: User, token_id: str | None) -> int:
+def ineligible_owner(user_id: int) -> User | None:
+    """The user, read from the primary, when they no longer qualify to hold tokens."""
+    user = User.objects.using("default").filter(pk=user_id).first()
+    if user is None:
+        return None
+    refusal = eligibility_refusal(user)
+    return user if refusal is not None and refusal.code == "not_staff" else None
+
+
+def revoke_for_ineligible_owner(user_id: int) -> int:
+    """Revokes every live token of a user who no longer qualifies, logged as a system action.
+    Raises DevTokenRefused when the gateway fails, so the caller can retry."""
+    if not configured():
+        return 0
+    user = ineligible_owner(user_id)
+    return 0 if user is None else revoke(user, None, by_system=True)
+
+
+def live_token_hashes(user_id: int) -> list[str]:
+    # Unconfigured instances have no paying team to scope to, and every user delete calls this.
+    if not configured():
+        return []
+    with team_scope(settings.DEV_GATEWAY_TEAM_ID):
+        return [
+            token_hash
+            for token_hash in DevGatewayToken.objects.filter(
+                user_id=user_id, token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now()
+            ).values_list("token_hash", flat=True)
+            if token_hash
+        ]
+
+
+def revoke_hashes(token_hashes: list[str]) -> None:
+    """Revokes tokens whose rows are gone, such as a deleted user's. Raises DevTokenRefused so the caller can retry."""
+    if not token_hashes or not configured():
+        return
+    try:
+        response = _gateway_post("/v1/tokens/revoke", {"token_hashes": token_hashes})
+    except requests.RequestException as e:
+        logger.warning("ai_gateway_dev_revoke_hashes_unreachable", exc_info=True)
+        raise DevTokenRefused("revoke_failed", "Couldn't reach the AI gateway.", 503) from e
+    if response.status_code != 200:
+        logger.warning("ai_gateway_dev_revoke_hashes_refused", status=response.status_code)
+        raise DevTokenRefused(
+            "revoke_failed", f"The AI gateway rejected the revoke (HTTP {response.status_code}).", 503
+        )
+    logger.info("ai_gateway_dev_token_hashes_revoked", count=len(token_hashes))
+
+
+def sweep_ineligible_owners() -> int:
+    """Backstop for revokes the user save hook missed: a lost broker message, a race, or an email moved off
+    the staff domain. Returns how many owners it revoked for."""
+    if not configured():
+        return 0
+    with team_scope(settings.DEV_GATEWAY_TEAM_ID):
+        owner_ids = set(
+            DevGatewayToken.objects.filter(
+                token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now()
+            ).values_list("user_id", flat=True)
+        )
+    revoked_for = 0
+    for owner_id in owner_ids:
+        try:
+            if revoke_for_ineligible_owner(owner_id):
+                revoked_for += 1
+        except DevTokenRefused:
+            logger.warning("ai_gateway_dev_sweep_revoke_failed", user_id=owner_id)
+    return revoked_for
+
+
+def revoke(user: User, token_id: str | None, *, by_system: bool = False) -> int:
     """Returns the gateway's revoked count. Rows are marked revoked only after the gateway confirms."""
+    if not configured():
+        raise DevTokenRefused("unconfigured", "Developer mode is not configured on this instance.", 503)
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
         rows = DevGatewayToken.objects.filter(
             user_id=user.pk, token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now()
@@ -550,6 +694,7 @@ def revoke(user: User, token_id: str | None) -> int:
         # The queryset update skips save(), so each revoke is logged by hand.
         for row in updated_rows:
             _log(
+                None if by_system else user,
                 user,
                 row,
                 "revoked",
@@ -563,7 +708,7 @@ def revoke(user: User, token_id: str | None) -> int:
                     ),
                 ],
             )
-    logger.info("ai_gateway_dev_tokens_revoked", user_id=user.pk, count=len(targets))
+    logger.info("ai_gateway_dev_tokens_revoked", user_id=user.pk, count=len(targets), by_system=by_system)
     return revoked_count
 
 
@@ -575,14 +720,21 @@ def _code_key(code: str) -> str:
     return _CLI_CODE_CACHE_PREFIX + hashlib.sha256(code.encode()).hexdigest()
 
 
-def authorize_cli(user: User, code_challenge: str) -> str:
+def authorize_cli(user: User, code_challenge: str, request: DevTokenRequest | None = None) -> str:
     """Issues a one-time code the browser hands to the CLI's loopback listener. Only the
-    holder of the PKCE verifier behind `code_challenge` can exchange it."""
+    holder of the PKCE verifier behind `code_challenge` can exchange it. The token gets the
+    cap and lifetime approved in the browser; the exchange cannot change them."""
+    request = request or DevTokenRequest()
+    _validate_request(request)
     code = secrets.token_urlsafe(32)
+    grant = {
+        "user_id": user.pk,
+        "challenge": code_challenge,
+        "cap_usd": None if request.cap_usd is None else str(request.cap_usd),
+        "ttl_seconds": request.ttl_seconds,
+    }
     # The plain client talks to the primary, so the exchange can't miss a grant on a lagging replica.
-    get_client().set(
-        _code_key(code), json.dumps({"user_id": user.pk, "challenge": code_challenge}), ex=CLI_CODE_TTL_SECONDS
-    )
+    get_client().set(_code_key(code), json.dumps(grant), ex=CLI_CODE_TTL_SECONDS)
     return code
 
 
@@ -603,7 +755,12 @@ def exchange_cli_code(code: str, code_verifier: str) -> MintedDevToken:
     refusal = eligibility_refusal(user)
     if refusal is not None:
         raise refusal
-    return mint(user, DevTokenClient.CLI)
+    cap = grant.get("cap_usd")
+    return mint(
+        user,
+        DevTokenClient.CLI,
+        DevTokenRequest(cap_usd=None if cap is None else Decimal(cap), ttl_seconds=grant.get("ttl_seconds")),
+    )
 
 
 # Upper bound on a single staff top-up, to catch fat-fingered amounts.
@@ -655,7 +812,9 @@ def add_team_credit(
     # replaying the earlier top-up, while a double submit of the same form reuses it.
     idempotency_key = hashlib.sha256(f"{form_nonce}:{amount_usd}:{reason}".encode()).hexdigest()
     try:
-        result = gateway_internal_client.add_credit(team.id, str(amount_usd), reason, idempotency_key)
+        result = gateway_internal_client.add_credit(
+            team.id, str(team.organization_id), str(amount_usd), reason, idempotency_key
+        )
     except gateway_internal_client.AIGatewayInternalError as exc:
         logger.warning(
             "ai_gateway_team_credit_failed",

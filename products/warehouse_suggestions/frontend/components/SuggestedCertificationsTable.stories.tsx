@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
-import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { DeprecateAction, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { QuillDeprecateSuggestionModal } from './QuillDeprecateSuggestionModal'
 import { SuggestedCertificationsTable } from './SuggestedCertificationsTable'
 
@@ -73,7 +73,7 @@ interface TableStoryProps {
     reviewOpen?: boolean
     confirmSuggestionId?: string
     catalogDialogs?: boolean
-    deleteView?: boolean
+    deprecateAction?: DeprecateAction
 }
 
 function TableStory({
@@ -82,7 +82,7 @@ function TableStory({
     reviewOpen = false,
     confirmSuggestionId,
     catalogDialogs,
-    deleteView = false,
+    deprecateAction = 'deprecate',
 }: TableStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
@@ -101,9 +101,9 @@ function TableStory({
         }
         if (confirmSuggestionId) {
             logic.actions.openAcceptConfirm(confirmSuggestionId)
-            logic.actions.setDeleteView(deleteView)
+            logic.actions.setDeprecateAction(deprecateAction)
         }
-    }, [reviewOpen, confirmSuggestionId, deleteView, catalogDialogs, stripState, logic])
+    }, [reviewOpen, confirmSuggestionId, deprecateAction, catalogDialogs, stripState, logic])
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
             {catalogDialogs ? (
@@ -187,7 +187,7 @@ export const DeprecateDialog: Story = {
 export const DeleteDialog: Story = {
     args: {
         confirmSuggestionId: '3',
-        deleteView: true,
+        deprecateAction: 'delete',
         results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
     },
     parameters: dialogSnapshot(1300),
@@ -212,7 +212,7 @@ export const CatalogDeleteDialog: Story = {
     args: {
         catalogDialogs: true,
         confirmSuggestionId: '3',
-        deleteView: true,
+        deprecateAction: 'delete',
         results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
     },
     parameters: catalogDialogSnapshot(1300),

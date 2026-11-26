@@ -1,10 +1,10 @@
 import { IconBolt } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { CohortRealtimeReadinessApi, CohortRealtimeStateEnumApi } from '../generated/api.schemas'
+import { dailyReasonSentence, unpreparableExplanation } from './realtimeReadiness'
 
 type TagContent = { label: string; icon?: JSX.Element; explanation: string }
 
@@ -38,11 +38,26 @@ const TAG_BY_STATE: Partial<Record<CohortRealtimeStateEnumApi, TagContent>> = {
         label: 'Realtime · unavailable',
         explanation: "A realtime cohort that feature flags can't target yet. Open the cohort for details.",
     },
+    off: {
+        label: 'Realtime off',
+        explanation: "Realtime is off for this cohort, so feature flags can't target it until it's turned on.",
+    },
     daily: {
         label: 'No flag targeting',
         explanation:
             "Feature flags can't target this cohort. Its criteria are matched in the once-a-day calculation, which feature flags can't read.",
     },
+}
+
+function reasonExplanation(realtime: CohortRealtimeReadinessApi): string | null {
+    switch (realtime.state) {
+        case 'daily': {
+            const sentence = dailyReasonSentence(realtime)
+            return sentence ? `Feature flags can't target this cohort. ${sentence}` : null
+        }
+        default:
+            return unpreparableExplanation(realtime)
+    }
 }
 
 /** What feature flags can do with a cohort, for list and picker rows where a sentence is too much. */
@@ -51,15 +66,16 @@ export function CohortRealtimeTag({
 }: {
     realtime: CohortRealtimeReadinessApi | null | undefined
 }): JSX.Element | null {
-    const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
     // A state this bundle predates reads as unknown, not as a state it happens to resemble.
     const content = realtime ? TAG_BY_STATE[realtime.state] : undefined
-    if (!realtimeTargetingEnabled || !content) {
+    if (!content) {
         return null
     }
 
+    const explanation = (realtime && reasonExplanation(realtime)) ?? content.explanation
+
     return (
-        <Tooltip title={content.explanation}>
+        <Tooltip title={explanation}>
             <LemonTag type="muted" size="small" icon={content.icon} data-attr="cohort-realtime-tag">
                 {content.label}
             </LemonTag>

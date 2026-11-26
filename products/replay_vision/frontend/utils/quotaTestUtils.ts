@@ -15,6 +15,7 @@ export function makeQuota(overrides: Partial<VisionQuotaApi> = {}): VisionQuotaA
         scanners_monthly_credits: 0,
         backfills_committed_credits: 0,
         free_monthly_credits: 2500,
+        awaiting_billing_sync: false,
         period_start: daysFromNow(-10),
         period_end: daysFromNow(20),
         scanners_period_credits: 0,

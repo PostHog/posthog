@@ -36,6 +36,8 @@ describe('actionsTabLogic form submission', () => {
             .build({
                 apiURL: 'http://localhost',
                 accessToken: 'test-token',
+                teamId: 2,
+                projectId: 1,
                 refreshToken: 'test-refresh',
                 clientId: 'test-client',
             })
@@ -64,7 +66,7 @@ describe('actionsTabLogic form submission', () => {
             .toDispatchActions(['submitActionForm', 'submitActionFormSuccess'])
 
         expect(global.fetch).toHaveBeenCalledWith(
-            expect.stringContaining('/api/projects/@current/actions/'),
+            expect.stringContaining('/api/projects/1/actions/'),
             expect.objectContaining({ method: 'POST' })
         )
     })
@@ -87,7 +89,7 @@ describe('actionsTabLogic form submission', () => {
             .toDispatchActions(['submitActionForm', 'submitActionFormSuccess'])
 
         expect(global.fetch).toHaveBeenCalledWith(
-            expect.stringContaining('/api/projects/@current/actions/42/'),
+            expect.stringContaining('/api/projects/1/actions/42/'),
             expect.objectContaining({ method: 'PATCH' })
         )
     })

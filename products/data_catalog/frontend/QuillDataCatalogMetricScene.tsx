@@ -115,6 +115,7 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
                 <SceneTitleSection
                     name={metric.display_name || metric.name}
                     description={metric.description}
+                    descriptionAlwaysVisible
                     resourceType={{ type: 'data_warehouse' }}
                     canEdit
                     onNameChange={(value) => updateMetric({ display_name: value })}

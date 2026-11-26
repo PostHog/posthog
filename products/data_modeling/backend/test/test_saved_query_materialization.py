@@ -3,7 +3,10 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, User
@@ -17,6 +20,7 @@ from products.data_modeling.backend.facade.contracts import (
     UnsatisfiableFrequencyError,
 )
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
+from products.data_modeling.backend.logic.read_access import assert_user_can_read_saved_query
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
@@ -26,7 +30,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
-READ_ACCESS_CHECK = "products.data_modeling.backend.logic.saved_query_materialization.assert_user_can_read_query"
+READ_ACCESS_CHECK = "products.data_modeling.backend.logic.saved_query_materialization.assert_user_can_read_saved_query"
 DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
 TIMESTAMP_COLUMN = {"timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"}}
 HOSTILE_KEY = IncrementalConfig(incremental_key='day"; DROP TABLE events; --', unique_key=("day",))
@@ -277,3 +281,12 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         schedule_materialization.assert_not_called()
         assert self.saved_query.is_materialized is False
         assert self.saved_query.incremental_config is None
+
+
+class TestReadAccessCheckOnAnIncompleteQuery(SimpleTestCase):
+    @parameterized.expand([("no_query_key", {"kind": "HogQLQuery"}), ("empty_query", {}), ("not_a_dict", None)])
+    def test_a_saved_query_without_sql_is_a_validation_error(self, _name, query):
+        saved_query = DataWarehouseSavedQuery(team_id=1, name="incomplete", query=query)
+
+        with self.assertRaises(ValidationError):
+            assert_user_can_read_saved_query(saved_query, User())

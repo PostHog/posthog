@@ -45,7 +45,7 @@ from posthog.models.integration import posthog_connect_base_url
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
 from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
-from posthog.scopes import scopes_covered_by_legacy_fallback
+from posthog.scopes.checks import scopes_covered_by_legacy_fallback
 
 logger = structlog.get_logger(__name__)
 
@@ -371,6 +371,10 @@ class PostHogConnectionTargetSerializer(serializers.Serializer):
     organization_name = serializers.CharField(help_text="Name of the organization the connected project belongs to.")
     region = serializers.CharField(help_text="Cloud region the connected project lives in, e.g. `US` or `EU`.")
     base_url = serializers.CharField(help_text="Base URL requests through this connection are sent to.")
+    granted_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="API scopes the user granted to this connection, e.g. `insight:read`. Empty when they are not known.",
+    )
 
 
 class PostHogConnectionTargetErrorSerializer(serializers.Serializer):
@@ -519,6 +523,7 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "organization_name": project.organization_name,
             "region": (integration.config.get("region") or "").upper(),
             "base_url": base_url,
+            "granted_scopes": sorted(integration.config.get("granted_scopes") or []),
         }
         try:
             cache.set(cache_key, payload, timeout=CONNECTION_TARGET_CACHE_SECONDS)

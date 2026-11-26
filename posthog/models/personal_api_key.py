@@ -1,6 +1,6 @@
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField
@@ -33,6 +33,9 @@ LEGACY_HASH_PREFIX = f"{PBKDF2PasswordHasher.algorithm}$"
 
 DEFAULT_MAX_PERSONAL_API_KEYS = 10
 
+# The scopes that the feature flag definitions route in `rust/feature-flags` accepts.
+FEATURE_FLAG_DEFINITIONS_SCOPES = ("*", "feature_flag:read", "feature_flag:write")
+
 PERSONAL_API_KEY_AUTH_COUNTER = Counter(
     "personal_api_key_hash_mode_total",
     "Successful personal API key authentications by hash mode",
@@ -59,6 +62,20 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), default=list)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+    # Set only by the provisioning mint. The partner's rotate, remove, and revoke paths find the
+    # keys it minted through this column, so the personal API key API must never write it.
+    provisioned_by = models.ForeignKey(
+        "posthog.OAuthApplication",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="provisioned_personal_api_keys",
+        # Migration 1455 adds the constraint NOT VALID and 1457 builds the index concurrently, so no
+        # migration scans this table while it holds a lock that blocks writes.
+        db_constraint=False,
+        db_index=False,
+    )
 
     # DEPRECATED: value is no longer persisted; use secure_value for hash of value
     value = deprecate_field(models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True))
@@ -70,6 +87,22 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
         null=True,
         blank=True,
     )
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["provisioned_by"],
+                condition=Q(provisioned_by__isnull=False),
+                name="personalapikey_provisioned_by",
+            ),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Without force_update, Django turns the update of a deleted row into an insert. An edit
+        # that loaded the key before a revocation deleted it would then bring the key back to life.
+        if not self._state.adding and not kwargs.get("force_insert"):
+            kwargs.setdefault("force_update", True)
+        super().save(*args, **kwargs)
 
     @property
     def is_expired(self) -> bool:
@@ -160,7 +193,8 @@ def get_organization_personal_api_keys(organization: "Organization") -> QuerySet
     The scope filters are the SQL form of `get_organization_ids_in_key_scope`. The other filters drop
     expired keys, keys without scopes, keys of inactive users, and member keys that the organization blocks.
     `APIScopePermission` applies that block only while the organization has the security settings feature,
-    so this filter has the same condition.
+    so this filter has the same condition. The feature flag definitions route in `rust/feature-flags` does not
+    check the block, so a blocked member key with a scope that route accepts stays listed.
     """
     # organization.py imports this module, so a module-level import is circular.
     from posthog.models.organization import OrganizationMembership
@@ -169,7 +203,12 @@ def get_organization_personal_api_keys(organization: "Organization") -> QuerySet
     if not organization.members_can_use_personal_api_keys and organization.is_feature_available(
         AvailableFeature.ORGANIZATION_SECURITY_SETTINGS
     ):
-        membership &= Q(user__organization_membership__level__gte=OrganizationMembership.Level.ADMIN)
+        admin_user_ids = (
+            OrganizationMembership.objects.with_effective_level()
+            .filter(organization=organization, resolved_level__gte=OrganizationMembership.Level.ADMIN)
+            .values("user_id")
+        )
+        membership &= Q(user_id__in=admin_user_ids) | Q(scopes__overlap=list(FEATURE_FLAG_DEFINITIONS_SCOPES))
     team_ids = list(organization.teams.values_list("id", flat=True))
     return (
         PersonalAPIKey.objects.filter(membership, user__is_active=True)

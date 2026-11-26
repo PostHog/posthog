@@ -22,13 +22,13 @@ import {
 
 import { toolbarLogic } from '~/toolbar/shared/bar/toolbarLogic'
 import { toolbarApi } from '~/toolbar/shared/toolbarApi'
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarAppUrl, toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { ToolbarRequestError, isToolbarRequestError } from '~/toolbar/shared/toolbarRequestError'
 import { ElementRect } from '~/toolbar/shared/types'
 import { urls } from '~/toolbar/shared/urls'
-import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/shared/utils'
+import { TOOLBAR_ID, elementToActionStep, getRectForElement } from '~/toolbar/shared/utils'
 import { captureAndUploadElementScreenshot } from '~/toolbar/shared/utils/screenshot'
 import { ProductTour, ProductTourStep, ProductTourStepType } from '~/types'
 
@@ -817,7 +817,7 @@ export const productToursLogic = kea<productToursLogicType>([
             }
         },
         saveTour: async () => {
-            const { tourForm, tours, uiHost, launchedFromMainApp } = values
+            const { tourForm, tours, launchedFromMainApp } = values
             if (!tourForm?.name) {
                 return
             }
@@ -835,7 +835,7 @@ export const productToursLogic = kea<productToursLogicType>([
             if (!result.ok) {
                 return
             }
-            const editUrl = joinWithUiHost(uiHost, urls.productTour(result.data.id, 'edit=true'))
+            const editUrl = toolbarAppUrl(urls.productTour(result.data.id, 'edit=true'))
             if (launchedFromMainApp) {
                 window.close()
             } else {

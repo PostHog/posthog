@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ErrorTrackingIssueFilter,
-    ErrorTrackingIssueTagFilter,
+    ErrorTrackingIssueTagsFilter,
     ErrorTrackingQuery,
     FilterLogicalOperator,
     HogQLFilters,
@@ -20,7 +20,7 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.models.team.team import Team
 
-from products.error_tracking.backend.hogql_queries.applied_issue_tags import issue_tag_filter_expr
+from products.error_tracking.backend.hogql_queries.applied_issue_tags import issue_tags_filter_exprs
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
     extract_aggregations,
     extract_event,
@@ -237,16 +237,16 @@ class ErrorTrackingQueryBuilder:
         date_from: datetime.datetime,
         date_to: datetime.datetime,
         include_recent_issue_state: bool = False,
-        issue_tag_filter: ErrorTrackingIssueTagFilter | None = None,
+        issue_tags_filter: ErrorTrackingIssueTagsFilter | None = None,
     ):
         self.query = query
         self.team = team
         self.date_from = date_from
         self.date_to = date_to
         self.include_recent_issue_state = include_recent_issue_state
-        # The runner passes the tag filter only while the tag is enabled for the team, so the builder does not
-        # read the query's own `issueTag`.
-        self.issue_tag_filter = issue_tag_filter
+        # The runner passes only the tags that are enabled for the team, so the builder does not read the query's own
+        # `issueTag` or `issueTags`.
+        self.issue_tags_filter = issue_tags_filter
 
     def build_query(self) -> ast.SelectQuery:
         if self._needs_legacy_shape():
@@ -461,8 +461,8 @@ class ErrorTrackingQueryBuilder:
                     )
                 )
 
-        if self.issue_tag_filter is not None:
-            exprs.append(issue_tag_filter_expr(state_expr("issue_id"), self.issue_tag_filter))
+        if self.issue_tags_filter is not None:
+            exprs.extend(issue_tags_filter_exprs(state_expr("issue_id"), self.issue_tags_filter))
 
         return exprs
 

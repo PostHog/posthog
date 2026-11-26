@@ -243,7 +243,6 @@ class TestDesktopFeedback(APIBaseTest):
         get_client.assert_called_once_with(
             "EU",
             sync_mode=True,
-            capture_mode="v1",
             timeout=5,
             max_retries=2,
         )

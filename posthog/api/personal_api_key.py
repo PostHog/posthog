@@ -14,6 +14,7 @@ from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
+from posthog.helpers.two_factor_session import enforce_credential_two_factor
 from posthog.ip_restrictions import enforce_credential_ip_restrictions
 from posthog.models import PersonalAPIKey, User
 from posthog.models.oauth import has_live_third_party_oauth_access
@@ -21,7 +22,8 @@ from posthog.models.personal_api_key import LEGACY_HASH_PREFIX, max_personal_api
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
-from posthog.scopes import API_SCOPE_ACTIONS, GRANTABLE_API_SCOPE_OBJECTS
+from posthog.scopes.catalog import API_SCOPE_ACTIONS, translate_renamed_scopes
+from posthog.scopes.exposure import GRANTABLE_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
 SCOPED_TEAMS_ACCESS_ERROR = "You must be a member of all teams that you are scoping the key to."
@@ -145,6 +147,15 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     current_team_id = serializers.SerializerMethodField(
         help_text="ID of the project the key's owner last had open in the app. Null if they have none."
     )
+    provisioned_by_name = serializers.CharField(
+        source="provisioned_by.name",
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Name of the partner application that created this key while provisioning a project for the "
+            "owner. Null for keys the owner created."
+        ),
+    )
 
     class Meta:
         model = PersonalAPIKey
@@ -167,6 +178,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "user_distinct_id",
             "current_organization_id",
             "current_team_id",
+            "provisioned_by_name",
         ]
         read_only_fields = [
             "id",
@@ -181,6 +193,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "user_distinct_id",
             "current_organization_id",
             "current_team_id",
+            "provisioned_by_name",
         ]
 
     def _owner(self, obj: PersonalAPIKey) -> User:
@@ -226,8 +239,8 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def validate_scopes(self, scopes):
         requesting_user = self.context["request"].user
-        existing_scopes = list(self.instance.scopes or []) if self.instance is not None else None
-        scopes = _drop_retired_scopes(scopes, existing_scopes)
+        existing_scopes = translate_renamed_scopes(self.instance.scopes or []) if self.instance is not None else None
+        scopes = _drop_retired_scopes(translate_renamed_scopes(scopes), existing_scopes)
         validate_personal_api_key_scopes(scopes, requesting_user, existing_scopes=existing_scopes)
 
         return scopes
@@ -249,7 +262,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             organization_uuids = [uuid.UUID(organization_id) for organization_id in scoped_organizations]
 
             for organization_id in organization_uuids:
-                if organization_id not in org_memberships or not org_memberships[organization_id].level:
+                if organization_id not in org_memberships or not org_memberships[organization_id].effective_level:
                     raise serializers.ValidationError(
                         f"You must be a member of all organizations that you are scoping the key to."
                     )
@@ -269,6 +282,9 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             )
         try:
             enforce_credential_ip_restrictions(
+                request, validated_data.get("scoped_organizations"), validated_data.get("scoped_teams")
+            )
+            enforce_credential_two_factor(
                 request, validated_data.get("scoped_organizations"), validated_data.get("scoped_teams")
             )
             minted = mint_personal_api_key(
@@ -310,6 +326,11 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     def update(self, instance: PersonalAPIKey, validated_data: dict) -> PersonalAPIKey:
         if {"scopes", "scoped_teams", "scoped_organizations", "expires_at"}.intersection(validated_data):
             enforce_credential_ip_restrictions(
+                self.context["request"],
+                validated_data.get("scoped_organizations", instance.scoped_organizations),
+                validated_data.get("scoped_teams", instance.scoped_teams),
+            )
+            enforce_credential_two_factor(
                 self.context["request"],
                 validated_data.get("scoped_organizations", instance.scoped_organizations),
                 validated_data.get("scoped_teams", instance.scoped_teams),
@@ -370,7 +391,11 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     queryset = PersonalAPIKey.objects.none()
 
     def get_queryset(self):
-        return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
+        return (
+            PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id)
+            .select_related("provisioned_by")
+            .order_by("-created_at")
+        )
 
     def get_object(self) -> PersonalAPIKey:
         lookup_value = self.kwargs[self.lookup_field]
@@ -390,6 +415,7 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     def roll(self, request, *args, **kwargs):
         instance = self.get_object()
         enforce_credential_ip_restrictions(request, instance.scoped_organizations, instance.scoped_teams)
+        enforce_credential_two_factor(request, instance.scoped_organizations, instance.scoped_teams)
         roll_serializer = PersonalAPIKeyRollSerializer(data=request.data)
         roll_serializer.is_valid(raise_exception=True)
         serializer = cast(PersonalAPIKeySerializer, self.get_serializer(instance))

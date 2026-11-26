@@ -71,6 +71,9 @@ TAGGABLE_MODELS: tuple[TaggableModel, ...] = (
     ),
     TaggableModel(model_label="conversations.Ticket", legacy_field="ticket", object_field=OBJECT_UUID),
     TaggableModel(model_label="customer_analytics.Account", legacy_field="account", object_field=OBJECT_UUID),
+    TaggableModel(
+        model_label="customer_analytics.CustomerTask", legacy_field="customer_task", object_field=OBJECT_UUID
+    ),
     TaggableModel(model_label="endpoints.Endpoint", legacy_field="endpoint", object_field=OBJECT_UUID),
     TaggableModel(model_label="replay_vision.ReplayScanner", legacy_field="replay_scanner", object_field=OBJECT_UUID),
     TaggableModel(model_label="posthog.Project", legacy_field="project", object_field=OBJECT_ID),

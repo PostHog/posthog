@@ -19,7 +19,7 @@ from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery

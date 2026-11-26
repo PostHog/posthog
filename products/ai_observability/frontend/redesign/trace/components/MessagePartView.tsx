@@ -12,7 +12,8 @@ export interface MessagePartViewProps {
 export function MessagePartView({ part, highlightQuery = null }: MessagePartViewProps): JSX.Element {
     switch (part.kind) {
         case 'text':
-            return <MessageMarkdown text={part.text} />
+            // Message text is the customer's prompt or answer, so autocapture must not record it.
+            return <MessageMarkdown text={part.text} className="ph-no-capture" />
         case 'thinking':
             return <ThinkingPart text={part.text} />
         case 'toolCall':

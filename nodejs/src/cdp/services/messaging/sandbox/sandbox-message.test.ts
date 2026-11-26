@@ -1,7 +1,7 @@
 import { SandboxRenderedEmail, buildSandboxMessage } from './sandbox-message'
 
 const organizationId = '00000000-0000-0000-0000-000000000001'
-const footer = `This email was sent by Example organization via PostHog with the PostHog sandbox sender. Organization ID: ${organizationId}.`
+const footer = `This email was sent by Example organization via PostHog with the PostHog test sender. Organization ID: ${organizationId}.`
 
 const build = (email: Partial<SandboxRenderedEmail>, organizationName = 'Example organization') =>
     buildSandboxMessage({

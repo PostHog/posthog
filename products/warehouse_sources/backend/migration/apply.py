@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     build_default_schemas,
     build_default_sync_settings,
+    lacks_merge_key,
 )
 from products.warehouse_sources.backend.migration.fivetran.planner import plan_table_restrictions
 from products.warehouse_sources.backend.migration.types import (
@@ -101,6 +102,8 @@ class PlannedSchemas:
     planned: tuple[str, ...]
     # Planned tables that skip columns PostHog would still read, so they stay off.
     kept_off: tuple[str, ...] = ()
+    # Planned tables that could sync incrementally but have no key to merge on, so they sync in full.
+    keyless: tuple[str, ...] = ()
 
 
 def build_planned_schemas(
@@ -109,6 +112,7 @@ def build_planned_schemas(
     """Turn the plan into a create payload: PostHog defaults per table, narrowed to what Fivetran synced."""
     if proposal.schemas is None:
         defaults = build_default_schemas(source_schemas, permission_errors=permission_errors)
+        enabled = {schema["name"] for schema in defaults if schema["should_sync"]}
         if proposal.start_paused:
             defaults = [{**schema, "should_sync": False} for schema in defaults]
         return PlannedSchemas(
@@ -116,6 +120,7 @@ def build_planned_schemas(
             unavailable=(),
             webhook_only=(),
             planned=tuple(schema.name for schema in source_schemas) if not proposal.start_paused else (),
+            keyless=tuple(schema.name for schema in source_schemas if schema.name in enabled and _keyless(schema)),
         )
 
     discovered = {source_schema.name: source_schema for source_schema in source_schemas}
@@ -132,6 +137,7 @@ def build_planned_schemas(
     payload: list[dict[str, Any]] = []
     webhook_only: list[str] = []
     kept_off: list[str] = []
+    keyless: list[str] = []
     for source_schema in source_schemas:
         table_plan = plans.get(source_schema.name)
         if table_plan is None or source_schema.webhook_only:
@@ -172,6 +178,8 @@ def build_planned_schemas(
                 continue
         if table_plan.row_filters:
             entry["row_filters"] = [_row_filter_payload(row_filter) for row_filter in table_plan.row_filters]
+        if _keyless(source_schema):
+            keyless.append(source_schema.name)
         payload.append(_with_schedule(entry, proposal))
 
     return PlannedSchemas(
@@ -180,6 +188,16 @@ def build_planned_schemas(
         webhook_only=tuple(webhook_only),
         planned=tuple(plans) if not proposal.start_paused else (),
         kept_off=tuple(kept_off),
+        keyless=tuple(keyless),
+    )
+
+
+def _keyless(source_schema: SourceSchema) -> bool:
+    return (
+        source_schema.supports_incremental
+        and bool(source_schema.incremental_fields)
+        and not source_schema.prefers_full_refresh
+        and lacks_merge_key(source_schema)
     )
 
 

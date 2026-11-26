@@ -26,6 +26,8 @@ class Release(TeamScopedRootMixin):
     broadcast_ids = ArrayField(models.UUIDField(), default=list, blank=True, db_default=[])
     survey_ids = ArrayField(models.UUIDField(), default=list, blank=True, db_default=[])
     insight_ids = ArrayField(models.IntegerField(), default=list, blank=True, db_default=[])
+    metric_insight_ids = ArrayField(models.IntegerField(), default=list, blank=True, db_default=[])
+    metric_goals = models.JSONField(default=list, blank=True, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -35,6 +35,7 @@ import { GENERATED_TOOLS as error_tracking_alerts } from './error_tracking_alert
 import { GENERATED_TOOLS as experiments } from './experiments'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
 import { GENERATED_TOOLS as field_notes } from './field_notes'
+import { GENERATED_TOOLS as groups } from './groups'
 import { GENERATED_TOOLS as health_issues } from './health_issues'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
@@ -51,6 +52,7 @@ import { GENERATED_TOOLS as posthog_ai } from './posthog_ai'
 import { GENERATED_TOOLS as product_analytics } from './product_analytics'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
+import { GENERATED_TOOLS as release } from './release'
 import { GENERATED_TOOLS as reminders } from './reminders'
 import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as replay_vision } from './replay_vision'
@@ -72,6 +74,7 @@ import { GENERATED_TOOLS as warehouse_sources } from './warehouse_sources'
 import { GENERATED_TOOLS as warehouse_suggestions } from './warehouse_suggestions'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as wizard } from './wizard'
+import { GENERATED_TOOLS as workflow_email_log } from './workflow_email_log'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -109,6 +112,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...experiments,
     ...feature_flags,
     ...field_notes,
+    ...groups,
     ...health_issues,
     ...integrations,
     ...logs,
@@ -125,6 +129,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...product_analytics,
     ...proxyRecords,
     ...queryWrappers,
+    ...release,
     ...reminders,
     ...replay,
     ...replay_vision,
@@ -146,5 +151,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...warehouse_suggestions,
     ...web_analytics,
     ...wizard,
+    ...workflow_email_log,
     ...workflows,
 }

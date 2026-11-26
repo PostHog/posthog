@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 import httpx
+import numpy as np
 from parameterized import parameterized
 
 from posthog.schema import AlertCalculationInterval
@@ -17,12 +18,14 @@ from posthog.models.user import User
 from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
 from products.alerts.backend.forecast.rules import EXPECTED_ZERO_REASON, compare, forecast_rule
+from products.alerts.backend.forecast.scorer import RollingForecast, score_every_point
 from products.alerts.backend.judge.contract import (
     FORECAST_DETECTOR_NOT_CONFIGURED_ERROR_CODE,
     FORECAST_DETECTOR_PAUSED_ERROR_CODE,
     FORECAST_DETECTOR_REJECTED_ERROR_CODE,
     FORECAST_DETECTOR_UNAVAILABLE_ERROR_CODE,
     ForecastDetectorUnavailableError,
+    JudgeAttribution,
     LLMDetectorError,
     LLMDetectorPausedError,
 )
@@ -99,6 +102,32 @@ def _evaluate(
     return result, sent
 
 
+def _preview(
+    series: list[list[float]], *, send: Any, rolled_out: bool | None = True
+) -> tuple[RollingForecast, MagicMock]:
+    mock = {"side_effect": send} if callable(send) or isinstance(send, Exception) else {"return_value": send}
+    with (
+        override_settings(**GATEWAY),
+        patch("posthoganalytics.feature_enabled", return_value=rolled_out),
+        patch("ee.hogai.utils.feature_flags.is_privacy_mode_enabled", return_value=True),
+        patch.object(httpx.Client, "send", **mock) as sent,
+    ):
+        rolling = score_every_point(
+            [np.array(values) for values in series],
+            {"type": "forecast"},
+            attribution=JudgeAttribution(team=FAKE_TEAM, user=FAKE_USER, evaluation_id=None, is_agent_billable=True),
+        )
+    return rolling, sent
+
+
+def _sent_inputs(sent: MagicMock) -> dict[str, list[float]]:
+    return {
+        item["item_id"]: item["target"]
+        for call in sent.call_args_list
+        for item in json.loads(call.args[0].content)["inputs"]
+    }
+
+
 class TestCompare(SimpleTestCase):
     # The forecast is 100 expected, with 80 and 120 at the rule's lower and upper quantiles.
     @parameterized.expand(
@@ -149,11 +178,11 @@ class TestCompare(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("default", {}, [0.05, 0.5, 0.95]),
+            ("default", {}, [0.01, 0.5, 0.99]),
             ("both_quantiles", {"above": {"quantile": 0.99}, "below": {"quantile": 0.2}}, [0.2, 0.5, 0.99]),
             # A side with no quantile, or an ignored side, shows the default end of the range.
-            ("one_side_no_quantile", {"above": {"min_absolute_change": 5}}, [0.05, 0.5, 0.95]),
-            ("one_side_quantile", {"below": {"quantile": 0.01}}, [0.01, 0.5, 0.95]),
+            ("one_side_no_quantile", {"above": {"min_absolute_change": 5}}, [0.01, 0.5, 0.99]),
+            ("one_side_quantile", {"below": {"quantile": 0.2}}, [0.2, 0.5, 0.99]),
         ]
     )
     def test_requests_the_expected_value_and_the_shown_range(
@@ -173,7 +202,7 @@ class TestForecastCheck(SimpleTestCase):
         body = json.loads(request.content)
         # At most 512 points of history, and the checked point is never part of its own history.
         assert body["inputs"][0]["target"] == [100.0] * 512
-        assert body["parameters"]["quantile_levels"] == [0.05, 0.5, 0.95]
+        assert body["parameters"]["quantile_levels"] == [0.01, 0.5, 0.99]
         assert result.breaches == [
             "Anomaly detected in signed_up: value 180.00 using forecast detector: expected about 100 (80 to 120), got 180"
         ]
@@ -187,8 +216,8 @@ class TestForecastCheck(SimpleTestCase):
             "lower": 80.0,
             "upper": 120.0,
             "actual": 180.0,
-            "lower_quantile": 0.05,
-            "upper_quantile": 0.95,
+            "lower_quantile": 0.01,
+            "upper_quantile": 0.99,
             "side": "above",
         }
 
@@ -274,6 +303,56 @@ class TestForecastCheck(SimpleTestCase):
 
         sent.assert_not_called()
         assert raised.value.error_code == FORECAST_DETECTOR_NOT_CONFIGURED_ERROR_CODE
+
+
+class TestForecastPreview(SimpleTestCase):
+    def test_each_point_is_forecast_from_only_the_points_before_it(self) -> None:
+        spiky = [100.0] * 45
+        spiky[40], spiky[42] = 200.0, 10.0
+        too_short = [100.0] * 30
+
+        rolling, sent = _preview([spiky, too_short], send=_forecast_answer())
+
+        sent.assert_called_once()
+        assert _sent_inputs(sent) == {f"0:{index}": spiky[:index] for index in range(30, 45)}
+        scored, unscored = rolling.comparisons
+        assert scored[:30] == (None,) * 30
+        assert [
+            (index, comparison.side) for index, comparison in enumerate(scored) if comparison and comparison.fires
+        ] == [
+            (40, "above"),
+            (42, "below"),
+        ]
+        latest = scored[44]
+        assert latest is not None
+        assert (latest.expected, latest.lower, latest.upper) == (100.0, 80.0, 120.0)
+        assert unscored == (None,) * 30
+
+    def test_a_long_preview_scores_the_latest_points_in_batched_requests(self) -> None:
+        rolling, sent = _preview([[100.0] * 600] * 3, send=_forecast_answer())
+
+        # 500 points shared by 3 series is 166 each. A request holds 240 inputs of 512 points.
+        assert sent.call_count == 3
+        assert set(_sent_inputs(sent)) == {f"{series}:{index}" for series in range(3) for index in range(434, 600)}
+        for comparisons in rolling.comparisons:
+            assert comparisons[:434] == (None,) * 434
+            assert all(comparison is not None for comparison in comparisons[434:])
+
+    @parameterized.expand(
+        [
+            ("unreachable", httpx.ConnectError("refused"), True, ForecastDetectorUnavailableError, ""),
+            ("out_of_credits", httpx.Response(402), True, LLMDetectorPausedError, "not accepting previews"),
+            ("invalid_request", httpx.Response(400), True, LLMDetectorPausedError, "refused this preview"),
+            ("rollout_off", _forecast_answer(), False, LLMDetectorPausedError, "not enabled for your account"),
+        ]
+    )
+    def test_a_failed_preview_errors_with_a_message_about_the_preview(
+        self, _name: str, send: Any, rolled_out: bool, error: type[LLMDetectorError], message: str
+    ) -> None:
+        with pytest.raises(error, match=message) as raised:
+            _preview([[100.0] * 40], send=send, rolled_out=rolled_out)
+
+        assert "alert is still on" not in str(raised.value)
 
 
 class TestForecastAlertWrite(SimpleTestCase):

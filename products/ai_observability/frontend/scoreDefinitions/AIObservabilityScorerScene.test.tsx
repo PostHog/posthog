@@ -48,6 +48,8 @@ const source: ScoreDefinitionApi = {
     created_by: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_by: null,
+    created_by_project_key_id: null,
+    updated_by_project_key_id: null,
     updated_at: null,
 }
 
@@ -59,8 +61,7 @@ describe.each([false, true])('scorer scene duplication with Today navigation: %s
             ...window.POSTHOG_APP_CONTEXT!.resource_access_control,
             llm_analytics: AccessControlLevel.Editor,
         }
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS], {
-            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
+        featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav,
         })
         const emptyPage = { results: [], count: 0, next: null, previous: null }

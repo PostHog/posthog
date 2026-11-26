@@ -307,8 +307,8 @@ hear "syncs are running" while the push channel is still unregistered.
 Only needed when at least one schema on the source has `sync_type: "webhook"` and `should_sync: true`. Currently only
 Stripe implements this flow; for everything else skip this step.
 
-Before calling create-webhook, check `external-data-sources-webhook-info-retrieve({id})`. If it already returns
-`exists: true`, do NOT call create-webhook again — each successful call registers a new external endpoint and would
+Before calling external-data-sources-create-webhook-create, check `external-data-sources-webhook-info-retrieve({id})`. If it already returns
+`exists: true`, do NOT call external-data-sources-create-webhook-create again — each successful call registers a new external endpoint and would
 result in duplicate deliveries.
 
 1. Call `external-data-sources-create-webhook-create({id})`. PostHog:
@@ -363,8 +363,9 @@ lag thresholds. `external-data-sources-disable-cdc-create` turns CDC off and res
 
 ## Sending a source to the user's own warehouse (optional, when requested)
 
-Only do this when the user asks for their data in their own Snowflake, BigQuery, Postgres, Redshift, Databricks, S3 or
-Azure Blob storage. These tools exist only when the feature is on for the project.
+Only do this when the user asks for their data in their own Snowflake, BigQuery, Postgres, Redshift, Databricks, S3,
+Azure Blob storage or MotherDuck. These tools exist only when the feature is on for the project. MotherDuck also needs its
+own feature flag, so creating one can fail with a 400 on `type` while that flag is off.
 
 1. Call `external-data-destinations-list` first. If a destination for that target already exists, reuse it, but only
    when its `status` is `healthy`. A `failing` or `paused` one needs fixing first (see the end of this section).
@@ -424,7 +425,7 @@ fixes the problem and saves it on the warehouse destinations page.
   (An already-connected OAuth integration can also be passed directly via its id key, e.g.
   `{"hubspot_integration_id": 123}`.)
 - **Webhooks are a separate step after create.** Setting `sync_type: "webhook"` on a schema doesn't register the
-  webhook — the `create-webhook` call does. Always follow create → create-webhook → webhook-info for webhook-type
+  webhook — the `external-data-sources-create-webhook-create` call does. Always follow create → external-data-sources-create-webhook-create → external-data-sources-webhook-info-retrieve for webhook-type
   schemas, and never leave a webhook schema dangling without registration (it just won't receive events).
 - **Webhook support is source-specific and sparse.** Currently only Stripe implements `WebhookSource`. Don't promise
   webhooks for Hubspot, Salesforce, or Postgres — they'll use polling sync.

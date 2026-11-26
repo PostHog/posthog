@@ -309,6 +309,35 @@ describe('buildBulkEnablePayloads', () => {
             { id: 'unconfigured', should_sync: true, apply_sync_defaults: true },
         ])
     })
+
+    it('gives pending migrated tables the frequency picked in the confirm dialog, and only them', () => {
+        const payloads = buildBulkEnablePayloads(
+            [
+                makeSchema({
+                    id: 'migrated',
+                    should_sync: false,
+                    sync_type: 'full_refresh',
+                    sync_frequency: '6hour',
+                    pending_self_managed_table: true,
+                }),
+                makeSchema({
+                    id: 'migrated-unconfigured',
+                    should_sync: false,
+                    sync_type: null,
+                    pending_self_managed_table: true,
+                }),
+                makeSchema({ id: 'regular', should_sync: false, sync_type: 'full_refresh', sync_frequency: '6hour' }),
+            ],
+            '24hour'
+        )
+        // Without the frequency the migrated table keeps the 6 hour default nobody chose, and each
+        // full refresh bills every row again.
+        expect(payloads).toEqual([
+            { id: 'migrated', should_sync: true, sync_frequency: '24hour' },
+            { id: 'migrated-unconfigured', should_sync: true, apply_sync_defaults: true, sync_frequency: '24hour' },
+            { id: 'regular', should_sync: true },
+        ])
+    })
 })
 
 describe('runBulkSchemaAction', () => {

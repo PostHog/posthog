@@ -61,9 +61,11 @@ class ProvisioningConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
+    # Every partner gate checks `active`. Staff change it, and `disabled`, by accepting or blocking
+    # the partner in PostHog Admin, which keeps the two consistent.
     active: bool = False
-    # Kill switch for a misbehaving partner. Checked separately from `active` so re-running the
-    # self-serve defaults cannot turn a partner an admin switched off back on.
+    # Set with `active` off when staff block a partner. Separate from `active` so re-running the
+    # self-serve defaults on a new registration cannot turn a blocked partner back on.
     disabled: bool = False
 
     can_create_accounts: bool = False

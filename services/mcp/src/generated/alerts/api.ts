@@ -1274,6 +1274,12 @@ export const AlertsCreateBody = () => zod.object({
                             .describe(
                                 'What counts as unusual or interesting for this metric, in your own words. Optional.'
                             ),
+                        model: zod
+                            .union([zod.enum(['claude-haiku-5-5', 'gpt-6-luna']), zod.null()])
+                            .optional()
+                            .describe(
+                                'The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5.'
+                            ),
                         type: zod.enum(['llm']).default(alertsCreateBodyDetectorConfigOneOnefourTypeDefault),
                     }),
                     zod.object({
@@ -2707,6 +2713,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             .describe(
                                 'What counts as unusual or interesting for this metric, in your own words. Optional.'
                             ),
+                        model: zod
+                            .union([zod.enum(['claude-haiku-5-5', 'gpt-6-luna']), zod.null()])
+                            .optional()
+                            .describe(
+                                'The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5.'
+                            ),
                         type: zod.enum(['llm']).default(alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault),
                     }),
                     zod.object({
@@ -2857,7 +2869,7 @@ export const AlertsDestroyParams = () => zod.object({
 })
 
 /**
- * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.
+ * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned `id` identifies the destination.
  */
 export const AlertsDestinationsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
@@ -2912,11 +2924,13 @@ export const AlertsDestinationsDeleteCreateBody = () => zod.object({
         .array(zod.string())
         .max(alertsDestinationsDeleteCreateBodyDestinationIdsMax)
         .optional()
-        .describe('Destination IDs from the destinations list, to delete with their HogFunctions.'),
+        .describe(
+            'Destination IDs from the destinations list or from creating the destination, to delete with their HogFunctions.'
+        ),
 })
 
 /**
- * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
+ * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI and forecast detectors make real model calls, so those modes need the 'alert:write' scope. The forecast detector scores every point with a one-step forecast from the points before it.
  */
 export const AlertsSimulateCreateParams = () => zod.object({
     project_id: zod
@@ -3986,6 +4000,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     ])
                     .optional()
                     .describe('What counts as unusual or interesting for this metric, in your own words. Optional.'),
+                model: zod
+                    .union([zod.enum(['claude-haiku-5-5', 'gpt-6-luna']), zod.null()])
+                    .optional()
+                    .describe(
+                        'The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5.'
+                    ),
                 type: zod.enum(['llm']).default(alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault),
             }),
             zod.object({

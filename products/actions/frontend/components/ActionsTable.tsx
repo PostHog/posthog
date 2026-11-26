@@ -8,6 +8,7 @@ import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiple
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -17,50 +18,35 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ActionType,
-    ChartDisplayType,
-    FilterLogicalOperator,
-} from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, ActionType } from '~/types'
 
 import { ACTIONS_PER_PAGE, actionsLogic } from '../logics/actionsLogic'
+import { actionRecordingsFilters } from '../utils/actionRecordingsFilters'
 import { ActionStepConditions, ActionStepSummary } from '../utils/actionStepDescription'
+import { actionTrendsInsightUrl } from '../utils/actionTrendsInsightUrl'
 import { deleteActionWithWarning } from '../utils/deleteAction'
 import { EventHealthWarning } from './EventHealthWarning'
+import { QuillActionsTable } from './QuillActionsTable'
 
 export function ActionsTable(): JSX.Element {
     const { actionsList, actionCount, actionsResponseLoading, page, filters, searchTerm } = useValues(actionsLogic)
     const { setSearchTerm, setFilters, setPage, pinAction, unpinAction, loadActions } = useActions(actionsLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { currentProjectId } = useValues(projectLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillActionsTable />
+    }
 
     const sorting: Sorting | null = filters.ordering
         ? { columnKey: filters.ordering.replace(/^-/, ''), order: filters.ordering.startsWith('-') ? -1 : 1 }
         : null
-
-    const tryInInsightsUrl = (action: ActionType): string => {
-        const query: InsightVizNode = {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        id: action.id,
-                        name: action.name || undefined,
-                        kind: NodeKind.ActionsNode,
-                    },
-                ],
-                interval: 'day',
-                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-            },
-        }
-        return urls.insightNew({ query })
-    }
 
     const columns: LemonTableColumns<ActionType> = [
         {
@@ -149,24 +135,7 @@ export function ActionsTable(): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <ViewRecordingsPlaylistButton
-                                    filters={{
-                                        filter_group: {
-                                            type: FilterLogicalOperator.And,
-                                            values: [
-                                                {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [
-                                                        {
-                                                            id: action.id,
-                                                            type: 'actions',
-                                                            order: 0,
-                                                            name: action.name,
-                                                        },
-                                                    ],
-                                                },
-                                            ],
-                                        },
-                                    }}
+                                    filters={actionRecordingsFilters(action)}
                                     onClick={() => {
                                         addProductIntentForCrossSell({
                                             from: ProductKey.ACTIONS,
@@ -177,7 +146,7 @@ export function ActionsTable(): JSX.Element {
                                     fullWidth
                                     data-attr="action-table-view-recordings"
                                 />
-                                <LemonButton to={tryInInsightsUrl(action)} fullWidth targetBlank>
+                                <LemonButton to={actionTrendsInsightUrl(action)} fullWidth targetBlank>
                                     Try out in Insights
                                 </LemonButton>
                                 <LemonDivider />
@@ -189,7 +158,10 @@ export function ActionsTable(): JSX.Element {
                                     <LemonButton
                                         status="danger"
                                         onClick={() => {
-                                            void deleteActionWithWarning(action, loadActions)
+                                            if (currentProjectId === null) {
+                                                return
+                                            }
+                                            void deleteActionWithWarning(currentProjectId, action, loadActions)
                                         }}
                                         fullWidth
                                     >
@@ -229,6 +201,7 @@ export function ActionsTable(): JSX.Element {
                 data-attr="actions-table"
                 dataSource={actionsList}
                 sorting={sorting}
+                useURLForSorting={false}
                 onSort={(newSorting) =>
                     setFilters({
                         ordering: newSorting

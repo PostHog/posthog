@@ -80,7 +80,6 @@ workflows:
     '.github/workflows/ci-livestream-tui.yml':
         - 'actions/checkout@v6.0.2'
         - 'actions/setup-go@v6.4.0'
-        - 'golangci/golangci-lint-action@v9.2.0'
     '.github/workflows/ci-livestream.yml':
         - 'actions/checkout@v6.0.2'
         - 'actions/setup-go@v6.2.0'
@@ -264,7 +263,6 @@ workflows:
         - 'actions/create-github-app-token@v3.1.1'
         - 'planetscale/ghcommit-action@v0.2.20'
     '.github/workflows/update-sandbox-agent-version.yml':
-        - 'actions/cache@v5.0.3'
         - 'actions/checkout@v6.0.2'
         - 'actions/create-github-app-token@v3.1.1'
         - 'docker/login-action@v4.1.0'

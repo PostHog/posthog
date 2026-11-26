@@ -943,7 +943,7 @@ def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
 
 
 _UNATTENDED_SCHEDULE = (("14d", "full"), ("7d", "deps,build"))
-# .flox/env/on-activate.sh checks this file's mtime before it spawns hogli.
+# `hogli watch` (watch.py) checks this file's mtime before it runs the unattended clean.
 _UNATTENDED_LOCK = Path.home() / ".config" / "posthog" / "worktrees-clean.lock"
 _PRUNE_LOCK_TIMEOUT_SECONDS = 300.0
 

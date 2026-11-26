@@ -119,6 +119,16 @@ export function parsePrUrlParts(prUrl: string): ParsedPrUrlParts | null {
     }
 }
 
+export interface ReportPullRequestRef {
+    prUrl: string
+    prRef: ParsedPrUrlParts
+}
+
+/** Point a PR URL at its diff/files tab, without double-appending if it's already there. */
+export function prFilesUrl(prUrl: string): string {
+    return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
+}
+
 /** Parse a GitHub PR URL into its repo slug, e.g. `posthog/posthog`. */
 export function parsePrRepoSlug(prUrl: string): string | null {
     return parsePrUrlParts(prUrl)?.repoSlug ?? null

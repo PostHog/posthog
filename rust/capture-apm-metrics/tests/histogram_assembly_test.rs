@@ -645,6 +645,25 @@ fn normalizes_le_and_quantile_labels_and_refreshes_fingerprints() {
 }
 
 #[test]
+fn user_label_named_like_the_legacy_timestamp_attribute_stays_in_the_fingerprint() {
+    let timestamp = now_ms();
+    let user_label = &[("$originalTimestamp", "user-value")];
+    let rows = fold(WriteRequest {
+        timeseries: vec![bucket("d", user_label, "1.0", vec![sample(2.0, timestamp)])],
+        metadata: vec![],
+    });
+    let (canonical_rows, _) = write_request_to_kafka_rows(WriteRequest {
+        timeseries: vec![bucket("d", user_label, "1", vec![sample(2.0, timestamp)])],
+        metadata: vec![],
+    });
+
+    assert_eq!(
+        rows[0].series_fingerprint,
+        canonical_rows[0].series_fingerprint
+    );
+}
+
+#[test]
 fn float_label_normalization_matches_go_shortest_formatting() {
     for (input, want) in [
         ("0.005", "0.005"),

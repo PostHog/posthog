@@ -24,6 +24,7 @@ from posthog.models.user import User
 
 from products.actions.backend.facade.enums import ACTIONS_ARRAY_JSONPATH
 from products.cdp.backend.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
+from products.cdp.backend.internal_events import register_alert_destination_edit_gate
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions import HogFunction
 
@@ -39,6 +40,7 @@ __all__ = [
     "has_enabled_hog_function_for_warehouse_table",
     "hog_functions_referencing_action",
     "is_hog_function_template_available",
+    "register_alert_destination_edit_gate",
     "warehouse_tables_with_enabled_hog_functions",
 ]
 
@@ -54,21 +56,22 @@ def create_hog_functions(
     payloads: Sequence[dict[str, Any]],
     *,
     team_id: int,
-    created_by_id: int,
+    created_by_id: int | None,
     allow_managed_alert_destination: bool,
 ) -> list[UUID]:
     """Create one hog function per payload and return their ids in the order given.
 
     Callers outside this product have no DRF request to take an acting user from, so the
-    acting user comes in as an id. The team and the acting user are resolved once for the
-    whole batch, so a caller writing several functions still pays two point lookups.
+    acting user comes in as an id, or None for a write no person made. The team and the acting
+    user are resolved once for the whole batch, so a caller writing several functions still pays
+    two point lookups.
     """
     # Same reason as _LAZY below: the serializer drags DRF, so it stays off this module's
     # import path.
     from products.cdp.backend.api.hog_function import HogFunctionSerializer  # noqa: PLC0415
 
     team = Team.objects.get(id=team_id)
-    created_by = User.objects.get(id=created_by_id)
+    created_by = User.objects.get(id=created_by_id) if created_by_id is not None else None
     created_ids: list[UUID] = []
     for payload in payloads:
         serializer = HogFunctionSerializer(

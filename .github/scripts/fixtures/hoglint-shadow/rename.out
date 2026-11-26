@@ -1,0 +1,101 @@
+hoglint: this commit is blocked: 11 new findings, 4 other problems.
+New findings by rule:
+    11  prod-imports-test
+Fix each finding, or stop and tell the person. Do not edit hoglint.ledger, hoglint.exceptions.toml, hoglint.toml or a preset to make this check pass.
+contracts-no-django: each of these 8 places names something that hoglint cannot find.
+  at posthog/api/authentication.py:115: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/api/oauth/views.py:135: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/api/signup.py:77: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/auth.py:92: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at products/slack_app/backend/api.py:48: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/temporal/oauth.py:24: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/api/project_secret_api_key.py:33: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/api/wizard/http.py:52: import 'products.security.backend.facade.api.access_refused' did not resolve
+  why: This commit adds code that hoglint cannot judge, so the commit cannot pass.
+  fix (safe): If the name is wrong, correct it.
+  needs a person: If the name is right, stop and tell the person. The config declares external packages.
+  see: hoglint explain contracts-no-django
+no-new-package-cycles: each of these 3 places names something that hoglint cannot find.
+  at products/slack_app/backend/api.py:48: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at products/tasks/backend/presentation/views/desktop_access.py:28: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at products/wizard/backend/presentation/security.py:12: import 'products.security.backend.facade.api.access_refused' did not resolve
+  why: This commit adds code that hoglint cannot judge, so the commit cannot pass.
+  fix (safe): If the name is wrong, correct it.
+  needs a person: If the name is right, stop and tell the person. The config declares external packages.
+  see: hoglint explain no-new-package-cycles
+wiring-watched: each of these 9 places names something that hoglint cannot find.
+  at posthog/auth.py:92: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/temporal/oauth.py:24: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/api/oauth/views.py:135: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/auth.py:92: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/api/oauth/views.py:135: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/temporal/oauth.py:24: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/api/oauth/views.py:135: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/auth.py:92: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  at posthog/temporal/oauth.py:24: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  why: This commit adds code that hoglint cannot judge, so the commit cannot pass.
+  fix (safe): If the name is wrong, correct it.
+  needs a person: If the name is right, stop and tell the person. The config declares external packages.
+  see: hoglint explain wiring-watched
+hoglint.ledger records 1 finding that the code no longer has.
+  stale  level:isolated wizard  1 -> 0
+  why: the ledger must equal the scan, so a fixed finding leaves the ledger.
+  fix (safe): run `hoglint ledger shrink`, then stage hoglint.ledger. It removes stale lines and never adds one.
+new findings (11)
+  prod-imports-test: posthog.api.authentication imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at posthog/api/authentication.py:115
+    note: hoglint cannot tell part of this case. If a name in it is wrong, correct the name.
+    why: Test code does not ship. A production import of test code fails in production, or loads test code there.
+    fix (needs care): Move the shared code out of the test tree. Import it from its new place in the test and in the production code.
+    needs a person: If the module is dev tooling that never ships, stop and tell the person. The preset marks dev tooling as test code.
+    see: hoglint explain prod-imports-test
+  prod-imports-test: posthog.api.oauth.views imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at posthog/api/oauth/views.py:135  [team-growth]
+  prod-imports-test: posthog.api.project_secret_api_key imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at posthog/api/project_secret_api_key.py:33
+  prod-imports-test: posthog.api.signup imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at posthog/api/signup.py:77
+  prod-imports-test: posthog.api.wizard.http imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at posthog/api/wizard/http.py:52
+  prod-imports-test: posthog.auth imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at posthog/auth.py:92
+  prod-imports-test: posthog.github.requesters imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at posthog/github/requesters.py:40  [team-devex]
+  prod-imports-test: posthog.temporal.oauth imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at posthog/temporal/oauth.py:24
+  prod-imports-test: products.slack_app.backend.api imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at products/slack_app/backend/api.py:48  [team-surfaces]
+  prod-imports-test: products.tasks.backend.presentation.views.desktop_access imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at products/tasks/backend/presentation/views/desktop_access.py:28  [team-agent-infrastructure]
+  prod-imports-test: products.wizard.backend.presentation.security imports 'products.security.backend.facade.api.access_refused', which hoglint cannot find
+    at products/wizard/backend/presentation/security.py:12  [team-growth]
+advisory rows (895)
+  request-path: ee.settings reaches products.actions.backend.facade.api.find_action_team_id: ee.settings -> posthog.middleware.AuthenticationMiddleware -> products.actions.backend.facade.api.find_action_team_id
+    at ee/settings.py:64
+unknowns (157)
+  contracts-no-django [introduced, unresolved] posthog/api/authentication.py:115: import 'products.security.backend.facade.api.access_refused' did not resolve
+  contracts-no-django [introduced, unresolved] posthog/api/oauth/views.py:135: import 'products.security.backend.facade.api.access_refused' did not resolve
+  contracts-no-django [introduced, unresolved] posthog/api/signup.py:77: import 'products.security.backend.facade.api.access_refused' did not resolve
+  contracts-no-django [introduced, unresolved] posthog/auth.py:92: import 'products.security.backend.facade.api.access_refused' did not resolve
+  contracts-no-django [introduced, unresolved] products/slack_app/backend/api.py:48: import 'products.security.backend.facade.api.access_refused' did not resolve
+  contracts-no-django [introduced, unresolved] posthog/temporal/oauth.py:24: import 'products.security.backend.facade.api.access_refused' did not resolve
+  contracts-no-django [introduced, unresolved] posthog/api/project_secret_api_key.py:33: import 'products.security.backend.facade.api.access_refused' did not resolve
+  contracts-no-django [introduced, unresolved] posthog/api/wizard/http.py:52: import 'products.security.backend.facade.api.access_refused' did not resolve
+  get-model [inherited, not-modelled] posthog/admin/console/organization_deletion_panels.py:64: model-label 'apps.get_model' did not resolve
+  get-model [inherited, not-modelled] posthog/api/file_system/access_levels.py:134: model-label 'apps.get_model' did not resolve
+  no-new-package-cycles [introduced, unresolved] products/slack_app/backend/api.py:48: import 'products.security.backend.facade.api.access_refused' did not resolve
+  no-new-package-cycles [introduced, unresolved] products/tasks/backend/presentation/views/desktop_access.py:28: import 'products.security.backend.facade.api.access_refused' did not resolve
+  no-new-package-cycles [introduced, unresolved] products/wizard/backend/presentation/security.py:12: import 'products.security.backend.facade.api.access_refused' did not resolve
+  wiring-watched [introduced, unresolved] posthog/auth.py:92: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  wiring-watched [introduced, unresolved] posthog/temporal/oauth.py:24: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  wiring-watched [introduced, unresolved] posthog/api/oauth/views.py:135: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  wiring-watched [introduced, unresolved] posthog/auth.py:92: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  wiring-watched [introduced, unresolved] posthog/api/oauth/views.py:135: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  wiring-watched [introduced, unresolved] posthog/temporal/oauth.py:24: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  wiring-watched [introduced, unresolved] posthog/api/oauth/views.py:135: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  wiring-watched [introduced, unresolved] posthog/auth.py:92: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+  wiring-watched [introduced, unresolved] posthog/temporal/oauth.py:24: rule request-path cannot tell: import 'products.security.backend.facade.api.access_refused' did not resolve
+unknowns attributed against HEAD (tree d18f99d3d3d4, stored summary): 20 introduced, 0 ambiguous, 137 inherited
+level isolated: 24 pass, 75 fail
+10145 findings accepted by the ledger
+What the hook checks and what to do: hoglint help hook.

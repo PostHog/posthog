@@ -74,6 +74,13 @@ class MetricAggregation(StrEnum):
 
     QUANTILE and HISTOGRAM_QUANTILE require the clause's `quantile` field.
 
+    COUNT_RATE and COUNT_INCREASE are RATE and INCREASE over the `count`
+    column instead of `value`, summed across series. On a histogram or
+    summary row, `value` holds the running sum of the observations and
+    `count` the number of observations, so these give requests per second
+    (or per bucket) from a latency histogram, like PromQL `rate(x_count)`.
+    They accept only histogram and summary series and take no range function.
+
     NONE combines nothing: the clause returns one series per physical series,
     capped at 100 series.
     """
@@ -88,6 +95,8 @@ class MetricAggregation(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile"
+    COUNT_RATE = "count_rate"
+    COUNT_INCREASE = "count_increase"
 
     @property
     def is_raw(self) -> bool:
@@ -99,7 +108,12 @@ class MetricAggregation(StrEnum):
 
     @property
     def is_counter_function(self) -> bool:
-        return self in (MetricAggregation.RATE, MetricAggregation.INCREASE)
+        return self in (
+            MetricAggregation.RATE,
+            MetricAggregation.INCREASE,
+            MetricAggregation.COUNT_RATE,
+            MetricAggregation.COUNT_INCREASE,
+        )
 
 
 class MetricRangeFunction(LabeledStrEnum):
@@ -163,6 +177,21 @@ class PanelProgressState(LabeledStrEnum):
     SKIPPED = "skipped"
 
 
+class AgentActivityKind(LabeledStrEnum):
+    """What the import agent does now, read from its latest tool call. THINKING is the time between tool calls."""
+
+    SEARCHING_METRICS = "searching_metrics"
+    READING_LABELS = "reading_labels"
+    READING_LABEL_VALUES = "reading_label_values"
+    RUNNING_QUERY = "running_query"
+    CHECKING_PANELS = "checking_panels"
+    EXPLORING_LOGS = "exploring_logs"
+    EXPLORING_TRACES = "exploring_traces"
+    READING_DASHBOARD = "reading_dashboard"
+    THINKING = "thinking"
+    WORKING = "working"
+
+
 class PanelBuilderAggregation(LabeledStrEnum):
     """The aggregations of a builder clause that the dashboard import checks. They match the metrics query API."""
 
@@ -199,3 +228,33 @@ class DashboardTemplateStatus(LabeledStrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     FAILED = "failed"
+
+
+class PrecomputedMetricKind(LabeledStrEnum):
+    """What a precomputed metric stores for each hour and kept label set.
+
+    INCREASE and COUNT_INCREASE store the summed increase of the `value` or `count` column, which answers
+    increase and rate clauses. HISTOGRAM stores the summed bucket counts, which answers histogram quantiles.
+
+    SUM_OVER_TIME and BUCKET_INCREASE answer PromQL tiles and are filled through Snuffle, so they match what a
+    PromQL query reads: `sum_over_time` of any metric type, and `increase` of a histogram's `_bucket` series,
+    which always keeps `le`.
+    """
+
+    INCREASE = "increase", "increase"
+    COUNT_INCREASE = "count_increase", "count_increase"
+    HISTOGRAM = "histogram", "histogram"
+    SUM_OVER_TIME = "sum_over_time", "sum_over_time"
+    BUCKET_INCREASE = "bucket_increase", "bucket_increase"
+
+
+class MetricQueryProvenanceMode(StrEnum):
+    """Where a query's buckets came from.
+
+    PRECOMPUTED: every bucket from precomputed metrics. MIXED: stored buckets for the history and raw samples
+    for the rest, such as the newest buckets or a clause that can't be precomputed. RAW: every bucket from raw samples.
+    """
+
+    PRECOMPUTED = "precomputed"
+    MIXED = "mixed"
+    RAW = "raw"

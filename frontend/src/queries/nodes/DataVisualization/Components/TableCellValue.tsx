@@ -36,6 +36,7 @@ export function TableCellValue({
                 />
             </span>
             <LemonModal
+                className="ph-no-capture"
                 isOpen={expandedValue !== null}
                 onClose={() => setExpandedValue(null)}
                 title={title}

@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import requests
@@ -9,6 +9,7 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 from products.warehouse_sources.sources.appfollow.settings import (
     APPFOLLOW_V2,
     APPFOLLOW_V3,
+    DATED_FANOUT_LOOKBACK_DAYS,
     DEFAULT_START_DATE,
     AppfollowEndpointConfig,
     endpoints_for_version,
@@ -57,6 +58,8 @@ class AppfollowResumeConfig:
     # v3 reviews fan out over workspaces and page with an opaque cursor, so they bookmark here instead.
     collection_id: int | None = None
     page_cursor: str | None = None
+    # "dated_fanout" bookmarks the first day of the next date slice, so a moved watermark cannot shift it.
+    slice_start: str | None = None
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -526,6 +529,133 @@ def _get_app_fanout(
             manager.save_state(AppfollowResumeConfig(ext_id=remaining[i + 1].ext_id, cursor=1))
 
 
+def _extract_dated_fanout_rows(data: Any, config: AppfollowEndpointConfig) -> list[dict[str, Any]]:
+    if config.row_shape == "list":
+        return _extract_rows(data, config.data_key)
+    keys = (config.data_key,) if isinstance(config.data_key, str) else (config.data_key or ())
+    value = next((data[key] for key in keys if isinstance(data, dict) and isinstance(data.get(key), dict)), None)
+    if value is None:
+        return []
+    if config.row_shape == "object":
+        return [value]
+    group_field = config.group_field or "group"
+    return [
+        {**row, group_field: group}
+        for group, rows in value.items()
+        if isinstance(rows, list)
+        for row in rows
+        if isinstance(row, dict)
+    ]
+
+
+def _dated_fanout_start(
+    config: AppfollowEndpointConfig,
+    today: date,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> date:
+    if should_use_incremental_field and db_incremental_field_last_value:
+        watermark = _to_date_str(_clamp_future_value_to_now(db_incremental_field_last_value))
+        if watermark:
+            start = date.fromisoformat(watermark) - timedelta(days=DATED_FANOUT_LOOKBACK_DAYS)
+            # The watermark stops moving while an app has no rows, so cap the scan at the backfill window.
+            if config.backfill_days is not None:
+                start = max(start, today - timedelta(days=config.backfill_days))
+            return start
+    if config.backfill_days is not None:
+        return today - timedelta(days=config.backfill_days)
+    return date.fromisoformat(DEFAULT_START_DATE)
+
+
+@frozen
+class _DateSlice:
+    start: date
+    end: date
+
+
+def _date_slices(config: AppfollowEndpointConfig, start: date, end: date) -> list[_DateSlice]:
+    if config.time_mode == "daily":
+        span = 1
+    elif config.max_window_days:
+        span = config.max_window_days
+    else:
+        return [_DateSlice(start=start, end=end)] if start <= end else []
+    slices: list[_DateSlice] = []
+    current = start
+    while current <= end:
+        stop = min(current + timedelta(days=span - 1), end)
+        slices.append(_DateSlice(start=current, end=stop))
+        current = stop + timedelta(days=1)
+    return slices
+
+
+def _get_dated_fanout(
+    session: requests.Session,
+    config: AppfollowEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppfollowResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    targets = _iter_app_targets(session, logger, dedupe_by_store=False)
+
+    resume = manager.load_state() if manager.can_resume() else None
+    remaining = targets
+    resume_from: date | None = None
+    if resume is not None and resume.ext_id is not None:
+        index = next((i for i, t in enumerate(targets) if t.ext_id == resume.ext_id), None)
+        if index is not None:
+            remaining = targets[index:]
+            resume_from = date.fromisoformat(resume.slice_start) if resume.slice_start else None
+
+    today = datetime.now(UTC).date()
+    start = _dated_fanout_start(config, today, should_use_incremental_field, db_incremental_field_last_value)
+
+    for i, target in enumerate(remaining):
+        first_day = max(start, resume_from) if i == 0 and resume_from else start
+        slices = _date_slices(config, first_day, today)
+        for j, date_slice in enumerate(slices):
+            params: dict[str, Any] = {"ext_id": target.ext_id, **dict(config.extra_params)}
+            if config.time_mode == "daily":
+                params["date"] = date_slice.start.isoformat()
+            else:
+                params["from"] = date_slice.start.isoformat()
+                params["to"] = date_slice.end.isoformat()
+
+            skip_app = False
+            try:
+                data = _fetch(session, f"{APPFOLLOW_BASE_URL}{config.path}", params, logger)
+            except requests.HTTPError as error:
+                status = error.response.status_code if error.response is not None else None
+                if status not in config.skip_app_statuses:
+                    raise
+                logger.warning(
+                    f"AppFollow {config.name}: skipping ext_id={target.ext_id}, the endpoint returned {status}"
+                )
+                data, skip_app = None, True
+            rows = [] if skip_app else _extract_dated_fanout_rows(data, config)
+
+            if j + 1 < len(slices) and not skip_app:
+                manager.save_state(
+                    AppfollowResumeConfig(ext_id=target.ext_id, slice_start=slices[j + 1].start.isoformat())
+                )
+            elif i + 1 < len(remaining):
+                manager.save_state(AppfollowResumeConfig(ext_id=remaining[i + 1].ext_id))
+
+            if skip_app:
+                manager.safe_point()
+                break
+
+            if not rows:
+                manager.safe_point()
+                continue
+            for row in rows:
+                row.setdefault("ext_id", target.ext_id)
+                if config.time_mode == "daily":
+                    row.setdefault("date", date_slice.start.isoformat())
+            yield rows
+
+
 def _iter_workspaces(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
     """Yield v3 workspaces in creation order.
 
@@ -681,6 +811,15 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    elif config.kind == "dated_fanout":
+        yield from _get_dated_fanout(
+            session,
+            config,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
     elif config.kind == "reviews":
         yield from _get_reviews(
             session,
@@ -732,5 +871,6 @@ def appfollow_source(
         # We re-open the full incremental window each run (reviews filter on `last_modified`, ratings on
         # `from`) and rely on merge to dedupe, so every in-window row is written regardless of the order
         # AppFollow returns pages in — "asc" simply lets the watermark checkpoint after each batch.
-        sort_mode="asc",
+        # A dated fan-out restarts its date walk for every app, so its rows are not one ordered series.
+        sort_mode=None if config.kind == "dated_fanout" else "asc",
     )

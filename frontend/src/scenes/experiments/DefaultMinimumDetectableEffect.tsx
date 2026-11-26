@@ -3,6 +3,9 @@ import { useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import { NumberFieldGroup, NumberFieldInput, NumberFieldRoot, Skeleton, Slider, Text } from '@posthog/quill'
+
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { RestrictionScope, useRestrictedArea } from '~/lib/components/RestrictedArea'
 import { TeamMembershipLevel } from '~/lib/constants'
@@ -20,6 +23,7 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
     })
 
     const [localValue, setLocalValue] = useState<number | null>(null)
+    const todayRailNav = useQuillSurface()
 
     const debouncedUpdate = useDebouncedCallback((value: number) => {
         updateExperimentsConfig({ default_minimum_detectable_effect: value })
@@ -27,7 +31,7 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
     }, 500)
 
     if (!experimentsConfig) {
-        return <LemonSkeleton className="h-10 w-full" />
+        return todayRailNav ? <Skeleton className="h-8 w-full max-w-165" /> : <LemonSkeleton className="h-10 w-full" />
     }
 
     const handleChange = (value: number): void => {
@@ -37,6 +41,41 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
     }
 
     const displayValue = localValue ?? defaultMinimumDetectableEffect
+    const disabledReason = restrictionReason || (experimentsConfigLoading ? 'Loading...' : undefined)
+
+    if (todayRailNav) {
+        return (
+            <div className="flex items-center gap-3 max-w-165">
+                <Slider
+                    className="flex-3"
+                    value={displayValue}
+                    onValueChange={(value) => handleChange(Array.isArray(value) ? value[0] : value)}
+                    min={1}
+                    max={100}
+                    step={1}
+                    disabledReason={disabledReason}
+                />
+                <div className="flex-1 flex items-center gap-1">
+                    <NumberFieldRoot
+                        className="w-16"
+                        value={displayValue}
+                        onValueChange={(value: number | null) => handleChange(value || 1)}
+                        min={1}
+                        max={100}
+                        step={1}
+                        disabledReason={disabledReason}
+                    >
+                        <NumberFieldGroup>
+                            <NumberFieldInput />
+                        </NumberFieldGroup>
+                    </NumberFieldRoot>
+                    <Text size="xs" variant="muted" render={<span />}>
+                        %
+                    </Text>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="flex items-center gap-3 max-w-165">
@@ -47,7 +86,7 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
                     min={1}
                     max={100}
                     step={1}
-                    disabledReason={restrictionReason || (experimentsConfigLoading ? 'Loading...' : undefined)}
+                    disabledReason={disabledReason}
                 />
             </div>
             <div className="flex-1 flex items-center gap-1">
@@ -59,7 +98,7 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
                     max={100}
                     step={1}
                     className="w-16"
-                    disabledReason={restrictionReason || (experimentsConfigLoading ? 'Loading...' : undefined)}
+                    disabledReason={disabledReason}
                 />
                 <span className="text-muted">%</span>
             </div>

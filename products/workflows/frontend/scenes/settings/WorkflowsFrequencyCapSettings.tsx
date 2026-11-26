@@ -1,8 +1,11 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { Button } from '@posthog/quill'
+
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -18,6 +21,7 @@ import {
     frequencyCapHoldError,
     toFrequencyCapInputValue,
 } from './frequencyCap'
+import { QuillFrequencyCapField } from './QuillFrequencyCapField'
 import { unsavedSettingsLogic } from './unsavedSettingsLogic'
 
 export function WorkflowsFrequencyCapSettings(): JSX.Element {
@@ -34,6 +38,7 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const savedMaxMessages = toFrequencyCapInputValue(
         currentTeam?.workflows_config?.marketing_frequency_cap_max_messages
@@ -59,6 +64,78 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
     useEffect(() => {
         setHasUnsavedChanges(!unchanged)
     }, [unchanged, setHasUnsavedChanges])
+
+    const handleSave = (): void =>
+        updateCurrentTeam({
+            workflows_config: {
+                marketing_frequency_cap_max_messages: maxMessages,
+                marketing_frequency_cap_window_days: windowDays,
+                marketing_frequency_cap_hold_hours: holdHours,
+            },
+        })
+    const saveDisabledReason =
+        restrictedReason ??
+        (maxMessagesError || windowDaysError || holdHoursError
+            ? 'Fix the fields above to save'
+            : unchanged
+              ? 'No changes to save'
+              : currentTeamLoading
+                ? 'Saving'
+                : undefined)
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap gap-4">
+                    <QuillFrequencyCapField
+                        id="workflows-frequency-cap-max-messages"
+                        label="Messages per person"
+                        value={maxMessages}
+                        onChange={setMaxMessages}
+                        max={MAX_FREQUENCY_CAP_MESSAGES}
+                        placeholder="No cap"
+                        error={maxMessagesError}
+                        disabledReason={restrictedReason}
+                        dataAttr="workflows-frequency-cap-max-messages"
+                    />
+                    <QuillFrequencyCapField
+                        id="workflows-frequency-cap-window-days"
+                        label="Within this many days"
+                        value={windowDays}
+                        onChange={setWindowDays}
+                        max={MAX_FREQUENCY_CAP_WINDOW_DAYS}
+                        placeholder="No cap"
+                        error={windowDaysError}
+                        disabledReason={restrictedReason}
+                        dataAttr="workflows-frequency-cap-window-days"
+                    />
+                    <QuillFrequencyCapField
+                        id="workflows-frequency-cap-hold-hours"
+                        label="Hold capped messages for up to (hours)"
+                        value={holdHours}
+                        onChange={setHoldHours}
+                        max={MAX_FREQUENCY_CAP_HOLD_HOURS}
+                        placeholder="Don't hold"
+                        error={holdHoursError}
+                        descriptions={[FREQUENCY_CAP_HOLD_INFO, FREQUENCY_CAP_HOLD_HELP]}
+                        disabledReason={restrictedReason}
+                        dataAttr="workflows-frequency-cap-hold-hours"
+                    />
+                </div>
+                <div>
+                    <Button
+                        variant="primary"
+                        loading={currentTeamLoading}
+                        onClick={handleSave}
+                        disabledReason={saveDisabledReason}
+                        data-attr="workflows-frequency-cap-save"
+                    >
+                        Save
+                    </Button>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="@container">
@@ -124,27 +201,8 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
                 <LemonButton
                     type="primary"
                     loading={currentTeamLoading}
-                    onClick={() =>
-                        updateCurrentTeam({
-                            workflows_config: {
-                                capture_workflows_engagement_events:
-                                    currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
-                                marketing_frequency_cap_max_messages: maxMessages,
-                                marketing_frequency_cap_window_days: windowDays,
-                                marketing_frequency_cap_hold_hours: holdHours,
-                            },
-                        })
-                    }
-                    disabledReason={
-                        restrictedReason ??
-                        (maxMessagesError || windowDaysError || holdHoursError
-                            ? 'Fix the fields above to save'
-                            : unchanged
-                              ? 'No changes to save'
-                              : currentTeamLoading
-                                ? 'Saving'
-                                : undefined)
-                    }
+                    onClick={handleSave}
+                    disabledReason={saveDisabledReason}
                     data-attr="workflows-frequency-cap-save"
                 >
                     Save

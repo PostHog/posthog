@@ -20,6 +20,7 @@ from rest_framework.throttling import BaseThrottle
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import ImageSizeSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.event_usage import EventSource, get_event_source, groups
@@ -185,6 +186,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         export_context = data.get("export_context") or {}
+        self._validate_image_size(export_context, data["export_format"])
         for internal_key in ("limit_context", "execution_mode", "kind"):
             if internal_key in export_context:
                 raise ValidationError({"export_context": [f"{internal_key} is not supported for exports."]})
@@ -262,6 +264,16 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
         data["team_id"] = self.context["team_id"]
         return data
+
+    def _validate_image_size(self, export_context: dict, export_format: str) -> None:
+        if "image_size" not in export_context:
+            return
+        if export_format != ExportedAsset.ExportFormat.PNG:
+            raise ValidationError({"export_context": ["Image size is only supported for PNG exports."]})
+        size = ImageSizeSerializer(data=export_context["image_size"])
+        if not size.is_valid():
+            raise ValidationError({"export_context": {"image_size": size.errors}})
+        export_context["image_size"] = size.validated_data
 
     def _validate_heatmap_url(self, export_context: dict) -> None:
         get_team = self.context.get("get_team")

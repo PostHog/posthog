@@ -15,6 +15,7 @@
         "@babel/runtime": "^7.29.10",
         "@jest/globals": "^30.0.5",
         "@jest/test-sequencer": "^30.0.5",
+        "@modelcontextprotocol/ext-apps": "^1.7.5",
         "@posthog/frontend": "workspace:*",
         "@storybook/addon-a11y": "^10.6.1",
         "@storybook/addon-docs": "^10.6.1",
@@ -29,7 +30,7 @@
         "history": "^5.0.1",
         "jest-image-snapshot": "^6.5.2",
         "mockdate": "^3.0.5",
-        "posthog-js-lite": "4.13.3",
+        "posthog-js-lite": "4.14.0",
         "sass": "^1.107.1",
         "storybook": "catalog:",
         "vite": "catalog:"

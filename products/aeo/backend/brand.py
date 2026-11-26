@@ -46,13 +46,19 @@ def brand_pattern(target_domains: list[str]) -> re.Pattern[str] | None:
     return re.compile(r"\b(" + "|".join(re.escape(name) for name in names) + r")\b", re.IGNORECASE)
 
 
-def mention_filter(target_domains: list[str]) -> Q:
+def names_brand(answer_text: str | None, target_domains: list[str]) -> bool:
+    """Whether an answer names one of the brands. Stored on each check as `names_brand`, so reads
+    do not have to scan the answer text."""
+    pattern = brand_pattern(target_domains)
+    return bool(answer_text and pattern and pattern.search(answer_text))
+
+
+def mention_filter() -> Q:
     """Checks whose answer names the brand. A cited answer counts as a mention even when the
-    text only carries the URL, so the mention rate is never below the citation rate."""
-    mention = Q(cited=True)
-    if regex := brand_regex(target_domains):
-        mention |= Q(answer_text__iregex=regex)
-    return mention
+    text only carries the URL, so the mention rate is never below the citation rate.
+
+    It reads stored columns only, so a count over a window never loads the answer text."""
+    return Q(cited=True) | Q(names_brand=True)
 
 
 def branded_filter(target_domains: list[str], *, field: PromptField = "prompt_text") -> Q:
@@ -69,10 +75,18 @@ def segment_filter(segment: BrandedSegment, target_domains: list[str], *, field:
     return branded if segment == BrandedSegment.BRANDED else ~branded
 
 
-# `segment_filter` for raw SQL over `posthog_aeo_citation_check AS check_row`, with the parameters
-# from `segment_sql_params`. A null regex (no brand) never matches, so no check reads as branded.
-SEGMENT_SQL = "(%s = 'all' OR coalesce(check_row.prompt_text ~* %s, false) = (%s = 'branded'))"
+def check_segment_filter(segment: BrandedSegment) -> Q:
+    """Checks on one side of the branded split, from the stored `prompt_branded`, so a count over a
+    window never loads the prompt text."""
+    if segment == BrandedSegment.ALL:
+        return Q()
+    return Q(prompt_branded=segment == BrandedSegment.BRANDED)
 
 
-def segment_sql_params(segment: BrandedSegment, target_domains: list[str]) -> list[str | None]:
-    return [segment.value, brand_regex(target_domains), segment.value]
+# `check_segment_filter` for raw SQL over `posthog_aeo_citation_check AS check_row`, with the
+# parameters from `segment_sql_params`.
+SEGMENT_SQL = "(%s = 'all' OR check_row.prompt_branded = (%s = 'branded'))"
+
+
+def segment_sql_params(segment: BrandedSegment) -> list[str]:
+    return [segment.value, segment.value]

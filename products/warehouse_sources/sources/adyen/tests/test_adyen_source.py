@@ -33,7 +33,12 @@ class TestAdyenSource:
 
     @parameterized.expand(
         [
-            ("both_identifiers", "BP123", "ACME", set(ENDPOINTS) - {"LegalEntities"}),
+            (
+                "both_identifiers",
+                "BP123",
+                "ACME",
+                set(ENDPOINTS) - {"LegalEntities", "Grants", "PayoutScheduleExecutions", "Terminals"},
+            ),
             (
                 "platform_only",
                 "BP123",

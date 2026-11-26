@@ -31,7 +31,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.quota import QuotaState, compute_scanner_budget, quota_state
+from products.replay_vision.backend.quota import BillingSyncPending, QuotaState, compute_scanner_budget, quota_state
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -70,6 +70,8 @@ def check_observation_quota(organization_id: UUID, observation_credits: int) -> 
     Returns the org's spend, so a free-only scanner's check can reuse it instead of reading the ledger again.
     """
     snapshot = quota_state(organization_id=organization_id)
+    if snapshot.awaiting_billing_sync:
+        raise BillingSyncPending()
     if snapshot.would_exceed(observation_credits):
         # would_exceed is only ever true when a limit is set, so credit_limit is non-None here.
         assert snapshot.credit_limit is not None

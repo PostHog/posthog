@@ -154,7 +154,7 @@ def validate_credentials(
     # The campaign and People APIs allow 50 requests a day, so a SIEM request checks the credentials.
     if endpoint is None or endpoint.kind in ("campaigns", "people"):
         path = ENDPOINTS["clicks_blocked"].path
-    elif endpoint.kind == "threats":
+    elif endpoint.kind in ("threats", "forensics"):
         path = SIEM_ALL_PATH
     else:
         path = endpoint.path
@@ -278,6 +278,23 @@ def campaign_ids(
     return list_window
 
 
+def fetch_detail(
+    config: ProofpointTapSourceConfig, inputs: SourceInputs, settings: TapEndpoint, item_id: str, api_version: str
+) -> dict[str, Any] | None:
+    # An ID that SIEM events still reference can be gone from the lookup API.
+    if settings.kind == "forensics":
+        payload = fetch_payload(
+            config, inputs, settings.path, {"threatId": item_id}, api_version, ignore_not_found=True
+        )
+        if payload is None:
+            return None
+        reports = dict_rows(payload.get(settings.selector) or [])
+        return {"id": item_id, "generated": payload.get("generated"), settings.selector: reports}
+    return fetch_payload(
+        config, inputs, settings.path.format(id=quote(item_id, safe="")), {}, api_version, ignore_not_found=True
+    )
+
+
 def lookup_items(
     config: ProofpointTapSourceConfig,
     inputs: SourceInputs,
@@ -305,10 +322,7 @@ def lookup_items(
             if item_id in seen:
                 continue
             seen.add(item_id)
-            # An ID that SIEM events still reference can be gone from the lookup API.
-            detail = fetch_payload(
-                config, inputs, settings.path.format(id=quote(item_id, safe="")), {}, api_version, ignore_not_found=True
-            )
+            detail = fetch_detail(config, inputs, settings, item_id, api_version)
             if detail is not None and detail.get("id") != item_id:
                 raise ValueError("Proofpoint TAP returned details for a different item. Retry the sync.")
             done.append(item_id)
@@ -377,7 +391,7 @@ def proofpoint_tap_source(
     def items() -> Iterator[list[dict[str, Any]]]:
         if settings.kind == "siem":
             yield from siem_items(config, inputs, settings, manager, cursor_manager, api_version)
-        elif settings.kind == "threats":
+        elif settings.kind in ("threats", "forensics"):
             list_window = siem_threat_ids(config, inputs, api_version)
             yield from lookup_items(config, inputs, settings, manager, cursor_manager, api_version, WINDOW, list_window)
         elif settings.kind == "campaigns":

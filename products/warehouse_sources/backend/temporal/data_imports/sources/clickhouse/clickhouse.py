@@ -16,7 +16,7 @@ import structlog
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import httputil
 from clickhouse_connect.driver.client import Client as ClickHouseClient
-from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError
+from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError, StreamFailureError
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 from urllib3 import PoolManager
@@ -103,9 +103,15 @@ class ClickHouseConnectionError(Exception):
 # that isn't a ClickHouse response — a proxy/load-balancer landing page, or a
 # different service listening on the host/port — splits into a different shape, so
 # the driver raises a bare `ValueError` ("too many values to unpack") before we ever
-# run a query. The endpoint isn't serving the ClickHouse HTTP interface, so a retry
-# replays the identical failure; we surface it as a connection error rather than
-# leaking the cryptic ValueError.
+# A body that is a single integer line, or an empty body, is not a
+# sequence at all, so the same unpack raises `TypeError` ("'int' object is not
+# iterable") instead. The endpoint isn't serving the ClickHouse HTTP interface, so a
+# retry replays the identical failure; we surface it as a connection error rather
+# than leaking the cryptic driver error.
+#
+# The same probe can also fail by running out of response bytes mid-parse. For example, the body
+# can be JSON from another service instead of the ClickHouse wire format. clickhouse-connect
+# raises `StreamFailureError` in this case, so it needs the same treatment.
 NOT_A_CLICKHOUSE_HTTP_RESPONSE = (
     "The host answered but did not return a valid ClickHouse response, so it isn't serving the "
     "ClickHouse HTTP interface on that host/port. Check the host, port, and HTTPS setting "
@@ -410,7 +416,7 @@ def _get_client(
                 time.sleep(wait)
                 continue
             raise ClickHouseConnectionError(message) from e
-        except ValueError as e:
+        except (ValueError, TypeError, StreamFailureError) as e:
             # The construction-time server probe got a response it couldn't parse as a
             # ClickHouse handshake (see NOT_A_CLICKHOUSE_HTTP_RESPONSE). Deterministic, so
             # never retryable — don't spend the transient-retry budget on it.
@@ -658,6 +664,9 @@ def get_clickhouse_row_count(
         mv_inner_lookups: dict[str, str] = {}  # mv_name -> uuid (for .inner_id.<uuid>)
 
         for row in result.result_rows:
+            # Some ClickHouse-compatible servers return system.tables rows narrower than the select.
+            if len(row) < 5:
+                continue
             name, total_rows, engine, uuid_val, create_query = row[0], row[1], row[2], row[3], row[4]
             if total_rows is not None:
                 counts[name] = int(total_rows)
@@ -1265,7 +1274,7 @@ def _get_partition_settings(
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None
 
-    if not result.result_rows:
+    if not result.result_rows or len(result.result_rows[0]) != 2:
         return None
 
     total_rows, total_bytes = result.result_rows[0]
@@ -1566,6 +1575,13 @@ def _is_arrow_format_rejected(message: str) -> bool:
     return _ARROW_FORMAT_REJECTED_SUBSTRING in message
 
 
+# ClickHouse sends a completely empty HTTP body for an ArrowStream query that matches zero rows,
+# instead of a stream that opens with a schema message and no record batches. pyarrow's reader
+# needs that schema message just to open the stream, so it raises rather than yielding nothing.
+# An empty body is exactly what a zero-row match looks like, so we treat it as one.
+_EMPTY_ARROW_RESPONSE_MESSAGE = "Tried reading schema message, was null or length 0"
+
+
 # Per-query caps some hosts enforce and a user can't raise. Tinybird caps each result at 500 MiB and
 # each query's memory, and fails the query before it sends any row.
 _QUERY_LIMIT_EXCEEDED_SUBSTRINGS: tuple[str, ...] = ("TOO_MANY_ROWS_OR_BYTES", "MEMORY_LIMIT_EXCEEDED")
@@ -1651,6 +1667,10 @@ def _stream_record_batches(
     """
     try:
         arrow_stream = client.query_arrow_stream(query, parameters=parameters)
+    except pa.ArrowInvalid as e:
+        if _EMPTY_ARROW_RESPONSE_MESSAGE not in str(e):
+            raise
+        return
     except ClickHouseError as e:
         if not _is_arrow_format_rejected(str(e)):
             raise

@@ -12,9 +12,11 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -252,9 +254,30 @@ class TestOrganizationOffboarding(APIBaseTest):
             team=self.team, insight=insight, created_by=self.user, name="Other"
         )
         kept.subscribed_users.add(self.user)
+        with team_scope(self.team.id):
+            native = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="No insight row",
+                source_kind="insight",
+                source_config={"insight_id": insight.id},
+                check_interval_minutes=1440,
+                owner="platform",
+                legacy_configuration_id=None,
+                created_by=self.departing,
+            )
+            platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="On a deleted insight",
+                source_kind="insight",
+                source_config={"insight_id": Insight.objects.create(team=self.team, deleted=True).id},
+                check_interval_minutes=1440,
+                owner="platform",
+                legacy_configuration_id=None,
+                created_by=self.departing,
+            )
         response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
-        assert [item["id"] for item in response.json()] == [f"alert:{kept.pk}"]
+        assert sorted(item["id"] for item in response.json()) == sorted([f"alert:{kept.pk}", f"alert:{native.id}"])
         assert response.json()[0]["kind"] == "alert"
         assert self.client.delete(self.url).status_code == 204
         kept.refresh_from_db()

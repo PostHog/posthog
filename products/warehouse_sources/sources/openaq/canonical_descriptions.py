@@ -195,6 +195,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "coordinates": "Latitude/longitude of the reading.",
         },
     },
+    "parameter_latest": {
+        "description": "Most recent reading of every sensor that measures each parameter, across the whole network.",
+        "docs_url": "https://docs.openaq.org/resources/latest",
+        "columns": {
+            "parameter_id": "Identifier of the measured parameter.",
+            "sensor_id": "Identifier of the sensor that produced the reading.",
+            "location_id": "Identifier of the location the sensor belongs to.",
+            "datetime": "UTC timestamp of the reading.",
+            "datetime_local": "Timestamp of the reading in the location's local timezone.",
+            "value": "Most recent measured value, in the parameter's units.",
+            "coordinates": "Latitude/longitude of the reading.",
+        },
+    },
     "location_flags": {
         "description": "Data-quality flags raised on a location for a period of time.",
         "docs_url": "https://docs.openaq.org/api/operations/location_flags_get_v3_locations__locations_id__flags_get",

@@ -88,11 +88,9 @@ class TestGeneratePolicyYaml(TestCase):
         for domain in INFRASTRUCTURE_DOMAINS:
             self.assertIn(domain, allow_rule["domains"])
 
-    def test_always_includes_gateway_domains(self):
-        policy = yaml.safe_load(generate_policy_yaml([]))
-        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
-        self.assertIn("gateway.us.posthog.com", allow_rule["domains"])
-        self.assertIn("gateway.eu.posthog.com", allow_rule["domains"])
+    def test_infrastructure_domains_omit_legacy_python_gateway_hosts(self):
+        self.assertNotIn("gateway.us.posthog.com", INFRASTRUCTURE_DOMAINS)
+        self.assertNotIn("gateway.eu.posthog.com", INFRASTRUCTURE_DOMAINS)
 
     def test_default_deny_at_end(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
@@ -158,8 +156,7 @@ class TestGeneratePolicyYaml(TestCase):
             self.assertIn(key, policy["env_policy"]["allow"])
 
     def test_go_gateway_hosts_reachable(self):
-        # The Go gateway is a different hostname from the Python one; without an
-        # allow-domains entry every sandbox model call is denied at the syscall layer.
+        # Without an allow-domains entry every sandbox model call is denied at the syscall layer.
         policy = yaml.safe_load(generate_policy_yaml([]))
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
         self.assertIn("ai-gateway.us.posthog.com", allow_rule["domains"])
@@ -610,6 +607,27 @@ class TestModalSandboxAgentShWrapping(TestCase):
             self.assertIn("--autoPublish true", cmd)
         else:
             self.assertNotIn("--autoPublish", cmd)
+
+    @parameterized.expand([("modal",), ("docker",)])
+    def test_command_passes_the_run_policy_to_the_agent(self, provider):
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+
+        sandbox: ModalSandbox | DockerSandbox
+        if provider == "modal":
+            sandbox = ModalSandbox.__new__(ModalSandbox)
+        else:
+            sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox.id = "sb-test"
+        cmd = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=True,
+            run_policy='{"finish_tool":true}',
+        )
+        self.assertIn("""POSTHOG_TASK_RUN_POLICY='{"finish_tool":true}'""", cmd)
 
     @parameterized.expand(
         [

@@ -9,6 +9,10 @@ use futures::stream::{self, StreamExt};
 use metrics::{counter, histogram};
 use rand::Rng;
 use replay_core_v4::fetch_history::{UrlHistory, UrlJob};
+use replay_core_v4::fetched_image::{fetched_url_ref, FetchedRef};
+use replay_core_v4::refs::UrlAsset;
+
+use crate::index::ImageIndexRow;
 
 pub const DYNAMODB_BATCH_GET_KEY_LIMIT: usize = 100;
 const READS_IN_FLIGHT: usize = 16;
@@ -151,18 +155,27 @@ fn backoff(attempt: u32) -> Duration {
     Duration::from_millis(rand::thread_rng().gen_range(ceiling / 2..=ceiling))
 }
 
-/// Reads each reference that `sent_urls` does not hold for `day` once, and marks the ones the fetcher would still drop
-/// when `day` ends. So each day that a block references an image, either a job goes out or the stored copy is younger
-/// than the refresh interval, which the `images-v4` lifecycle allows for.
-pub async fn mark_fresh<'a>(
+#[derive(Debug, Default, PartialEq)]
+pub struct Fresh {
+    pub references: HashSet<String>,
+    /// A reader looks up a packed image in the index of the blocks' write day, so a copy packed earlier needs a row.
+    pub rows: Vec<ImageIndexRow>,
+}
+
+/// Reads each reference that `sent_urls` does not hold for `day` once, and returns the ones the fetcher would still
+/// drop when `day` ends. So each day that a block references an image, either a job goes out or the stored copy is
+/// younger than the refresh interval, which the `images-v4` lifecycle allows for. The caller marks a reference with a
+/// row in `sent_urls` once the row reaches the topic, and one without a row once the flush has written its blocks, so
+/// a later flush sends a lost row again.
+pub async fn fresh_urls<'a>(
     history: &dyn FetchHistory,
     sent_urls: &moka::sync::Cache<(String, String), ()>,
     references: impl IntoIterator<Item = &'a String>,
     day: &str,
     deadline: tokio::time::Instant,
-) {
+) -> Fresh {
     let Some(day_end_ms) = day_end_ms(day) else {
-        return;
+        return Fresh::default();
     };
     let unsent: Vec<String> = {
         let mut seen = HashSet::new();
@@ -175,9 +188,28 @@ pub async fn mark_fresh<'a>(
             .cloned()
             .collect()
     };
-    for reference in fresh_references(history, &unsent, day_end_ms, deadline).await {
-        sent_urls.insert((day.to_owned(), reference), ());
-    }
+    fresh_references(history, &unsent, day_end_ms, deadline).await
+}
+
+fn packed_row(reference: &str, entry: &UrlHistory) -> Option<ImageIndexRow> {
+    let pack = entry.pack.as_ref()?;
+    let Some(FetchedRef::Team {
+        asset: UrlAsset::Image,
+        parsed,
+    }) = fetched_url_ref(reference)
+    else {
+        return None;
+    };
+    Some(ImageIndexRow {
+        team_id: parsed.team_id,
+        key_month: parsed.key_month.to_owned(),
+        image_ref: reference.to_owned(),
+        pack_s3_key: pack.key.clone(),
+        byte_start: pack.byte_start,
+        byte_end: pack.byte_end,
+        mime: pack.mime.clone(),
+        byte_size: pack.byte_size,
+    })
 }
 
 /// A reference that a read does not return by `deadline` is not fresh, so the fetcher decides its job.
@@ -186,9 +218,9 @@ async fn fresh_references(
     references: &[String],
     drops_at_ms: f64,
     deadline: tokio::time::Instant,
-) -> HashSet<String> {
+) -> Fresh {
     if references.is_empty() {
-        return HashSet::new();
+        return Fresh::default();
     }
     let started = Instant::now();
     let past_deadline =
@@ -211,7 +243,7 @@ async fn fresh_references(
     histogram!("ai_research_v4_recorder_image_fetch_history_duration_seconds")
         .record(started.elapsed().as_secs_f64());
 
-    let mut fresh = HashSet::new();
+    let mut fresh = Fresh::default();
     let (mut due, mut invalid, mut unread) = (0, 0, 0);
     let mut first_error = None;
     for read in reads {
@@ -220,7 +252,8 @@ async fn fresh_references(
         first_error = first_error.or(read.error);
         for (reference, entry) in read.entries {
             if entry.job_at(drops_at_ms) == UrlJob::Drop {
-                fresh.insert(reference);
+                fresh.rows.extend(packed_row(&reference, &entry));
+                fresh.references.insert(reference);
             } else {
                 due += 1;
             }
@@ -232,9 +265,10 @@ async fn fresh_references(
 
     let absent = references
         .len()
-        .saturating_sub(fresh.len() + due + invalid + unread);
+        .saturating_sub(fresh.references.len() + due + invalid + unread);
     for (outcome, count) in [
-        ("fresh", fresh.len()),
+        ("fresh", fresh.references.len() - fresh.rows.len()),
+        ("fresh_packed", fresh.rows.len()),
         ("due", due),
         ("absent", absent),
         ("invalid", invalid),
@@ -248,7 +282,7 @@ async fn fresh_references(
 
 #[cfg(test)]
 mod tests {
-    use replay_core_v4::fetch_history::REFRESH_INTERVAL_MS;
+    use replay_core_v4::fetch_history::{PackedCopy, REFRESH_INTERVAL_MS};
     use serde_json::json;
 
     use super::*;
@@ -268,7 +302,7 @@ mod tests {
             HistoryRead {
                 entries: references
                     .iter()
-                    .filter_map(|r| self.entries.get(r).map(|entry| (r.clone(), *entry)))
+                    .filter_map(|r| self.entries.get(r).map(|entry| (r.clone(), entry.clone())))
                     .collect(),
                 ..HistoryRead::default()
             }
@@ -290,20 +324,44 @@ mod tests {
         }
     }
 
-    fn marked(sent_urls: &moka::sync::Cache<(String, String), ()>, reference: &str) -> bool {
-        sent_urls.contains_key(&(DAY.to_owned(), reference.to_owned()))
+    const PACKED: &str = "imageurl:v4:7:2026-10:AAAAAAAAAAAAAAAAAAAAAA";
+    const PACKED_FONT: &str = "fonturl:v4:7:2026-10:BBBBBBBBBBBBBBBBBBBBBB";
+
+    fn pack() -> PackedCopy {
+        PackedCopy {
+            key: "images/url/packs/dt=2026-10-20/7/1-00000000000000aa".to_owned(),
+            byte_start: 10,
+            byte_end: 99,
+            mime: "image/webp".to_owned(),
+            byte_size: 40,
+        }
     }
 
     #[tokio::test]
-    async fn reads_each_cache_miss_once_and_marks_what_the_fetcher_drops_until_the_day_ends() {
+    async fn reads_each_cache_miss_once_and_returns_what_the_fetcher_drops_until_the_day_ends() {
         let day_end_ms = day_end_ms(DAY).unwrap();
         let entry = |next_fetch_in_ms: f64, stored_ago_ms: f64| UrlHistory {
             next_fetch_at_ms: day_end_ms + next_fetch_in_ms,
             stored_at_ms: Some(day_end_ms - stored_ago_ms),
+            pack: None,
+        };
+        let packed = UrlHistory {
+            pack: Some(pack()),
+            ..entry(30.0 * 24.0 * HOUR_MS, HOUR_MS)
         };
         let history = MemoryHistory {
             entries: HashMap::from([
                 ("fresh".to_owned(), entry(30.0 * 24.0 * HOUR_MS, HOUR_MS)),
+                (PACKED.to_owned(), packed.clone()),
+                // A font is never packed, so a pack on its row is not read.
+                (PACKED_FONT.to_owned(), packed.clone()),
+                (
+                    "refresh_packed_today".to_owned(),
+                    UrlHistory {
+                        pack: Some(pack()),
+                        ..entry(30.0 * 24.0 * HOUR_MS, REFRESH_INTERVAL_MS)
+                    },
+                ),
                 ("refetch_today".to_owned(), entry(-HOUR_MS, HOUR_MS)),
                 (
                     "refresh_today".to_owned(),
@@ -318,13 +376,16 @@ mod tests {
             "sent",
             "fresh",
             "fresh",
+            PACKED,
+            PACKED_FONT,
             "refetch_today",
             "refresh_today",
+            "refresh_packed_today",
             "unknown",
         ]
         .map(str::to_owned);
 
-        mark_fresh(
+        let fresh = fresh_urls(
             &history,
             &sent_urls,
             &references,
@@ -335,21 +396,50 @@ mod tests {
 
         let mut read = history.read.into_inner().unwrap();
         read.sort();
-        assert_eq!(read, ["fresh", "refetch_today", "refresh_today", "unknown"]);
-        assert!(marked(&sent_urls, "fresh"));
-        for reference in ["refetch_today", "refresh_today", "unknown"] {
-            assert!(!marked(&sent_urls, reference), "{reference}");
-        }
+        assert_eq!(
+            read,
+            [
+                PACKED_FONT,
+                "fresh",
+                PACKED,
+                "refetch_today",
+                "refresh_packed_today",
+                "refresh_today",
+                "unknown"
+            ]
+        );
+        assert_eq!(
+            fresh.references,
+            HashSet::from([
+                "fresh".to_owned(),
+                PACKED.to_owned(),
+                PACKED_FONT.to_owned()
+            ])
+        );
+        assert_eq!(
+            fresh.rows,
+            [ImageIndexRow {
+                team_id: 7,
+                key_month: "2026-10".to_owned(),
+                image_ref: PACKED.to_owned(),
+                pack_s3_key: pack().key,
+                byte_start: 10,
+                byte_end: 99,
+                mime: "image/webp".to_owned(),
+                byte_size: 40,
+            }]
+        );
+        assert!(!sent_urls.contains_key(&(DAY.to_owned(), "fresh".to_owned())));
     }
 
     #[tokio::test(start_paused = true)]
-    async fn marks_nothing_when_the_read_fails_or_stalls() {
+    async fn finds_nothing_fresh_when_the_read_fails_or_stalls() {
         for history in [Broken::Failing, Broken::Stalled] {
             let references: Vec<String> = (0..2 * DYNAMODB_BATCH_GET_KEY_LIMIT)
                 .map(|i| format!("r{i:03}"))
                 .collect();
             let sent_urls = crate::urls::sent_urls(1_000);
-            mark_fresh(
+            let fresh = fresh_urls(
                 &history,
                 &sent_urls,
                 &references,
@@ -357,7 +447,7 @@ mod tests {
                 tokio::time::Instant::now() + Duration::from_secs(5),
             )
             .await;
-            assert!(!references.iter().any(|r| marked(&sent_urls, r)));
+            assert_eq!(fresh, Fresh::default());
         }
     }
 
@@ -369,7 +459,7 @@ mod tests {
         };
         let references = ["r".to_owned()];
         let sent_urls = crate::urls::sent_urls(100);
-        mark_fresh(
+        fresh_urls(
             &history,
             &sent_urls,
             &references,

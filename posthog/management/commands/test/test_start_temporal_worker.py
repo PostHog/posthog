@@ -11,16 +11,13 @@ from posthog.management.commands.start_temporal_worker import (
     AI_WORKFLOWS,
     ALERT_AI_QUEUE_ACTIVITIES,
     DATA_SYNC_WORKFLOWS,
-    INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
-    WA_DIGEST_ACTIVITIES,
-    WA_DIGEST_WORKFLOWS,
-    WEEKLY_DIGEST_WORKFLOWS,
     WORKFLOWS_DICT,
     _task_queue_specs,
     apply_hogql_shadow_sample_rate_override,
     workflows_include_data_import_syncs,
 )
 from posthog.temporal.ai_observability import BatchTraceSummarizationWorkflow
+from posthog.temporal.common.registration import QueueBinding, combined_registration, load_registrations
 from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
 from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow
 
@@ -28,6 +25,7 @@ from products.ai_observability.backend.facade.temporal import (
     ACTIVITIES as AI_OBSERVABILITY_ACTIVITIES,
     WORKFLOWS as AI_OBSERVABILITY_WORKFLOWS,
 )
+from products.alerts.backend.facade.temporal import PLATFORM_AI_QUEUE_ACTIVITIES as ALERTS_AI_QUEUE_ACTIVITIES
 from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS,
@@ -45,6 +43,7 @@ from products.warehouse_sources.backend.facade.temporal import (
     WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
     WAREHOUSE_ALERT_EVALUATION_WORKFLOWS,
 )
+from products.web_analytics.backend.facade.temporal import WA_DIGEST_ACTIVITIES, WA_DIGEST_WORKFLOWS
 from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
     WORKFLOWS as WIZARD_WORKFLOWS,
@@ -124,46 +123,49 @@ def test_only_data_import_queues_warm_sources(workflows: list[type], expected: b
 # registered alongside the queue that serves it, the schedules still fire and nothing polls them,
 # which stays invisible for a week because both digests are weekly. Registration has two halves, and
 # a workflow registered without its activities fails at runtime the moment it dispatches one, so both
-# are asserted. Queue settings collapse to a single dev queue under DEBUG, so match on the spec entry
-# that carries the weekly digest rather than on a queue name.
+# are asserted. Queue values collapse to a single dev queue under DEBUG, so match on the queue setting
+# that the web_analytics declaration names.
 def test_wa_digests_are_registered_with_the_weekly_digest() -> None:
-    entries = [
-        (workflows, activities)
-        for _, workflows, activities in _task_queue_specs
-        if WEEKLY_DIGEST_WORKFLOWS[0] in workflows
+    (digests,) = [
+        binding
+        for binding in load_registrations()["web_analytics"].queues
+        if binding.queue_setting == "WEEKLY_DIGEST_TASK_QUEUE"
     ]
-    assert len(entries) == 1
-    workflows, activities = entries[0]
-    assert set(WA_DIGEST_WORKFLOWS) <= set(workflows)
-    assert set(WA_DIGEST_ACTIVITIES) <= set(activities)
+    assert set(WA_DIGEST_WORKFLOWS) <= set(digests.workflows)
+    assert set(WA_DIGEST_ACTIVITIES) <= set(digests.activities)
 
 
 # CheckAlertWorkflow routes an AI detector's evaluation to the AI queue, because only that worker
 # holds the model provider credentials. Routed there without the activity registered, every AI
-# alert check would sit unpolled until it timed out. Queue settings collapse to a single dev queue
-# under DEBUG, so match on the spec entry that carries the AI workflows rather than on a queue name.
+# alert check would sit unpolled until it timed out. Queue values collapse to a single dev queue
+# under DEBUG, so match on the spec entry that carries the AI workflows, and on the queue setting that
+# the alerts declaration names.
 def test_ai_queue_registers_the_alert_evaluate_activity() -> None:
     entries = [activities for _, workflows, activities in _task_queue_specs if AI_WORKFLOWS[0] in workflows]
 
     assert len(entries) == 1
     assert ALERT_AI_QUEUE_ACTIVITIES
     assert set(ALERT_AI_QUEUE_ACTIVITIES) <= set(entries[0])
-    assert set(INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES) <= set(entries[0])
+    assert ALERTS_AI_QUEUE_ACTIVITIES
+    assert QueueBinding(queue_setting="MAX_AI_TASK_QUEUE", activities=tuple(ALERTS_AI_QUEUE_ACTIVITIES)) in (
+        load_registrations()["alerts"].queues
+    )
 
 
 # The facade starts the trace summary on the LLMA queue by name. Registered elsewhere, every request would stay
 # pending until its entry expired.
 def test_trace_summary_runs_on_the_llma_queue() -> None:
-    entries = [
-        (queue, workflows, activities)
-        for queue, workflows, activities in _task_queue_specs
-        if all(workflow in workflows for workflow in AI_OBSERVABILITY_WORKFLOWS)
+    (llma,) = [
+        binding
+        for binding in load_registrations()["ai_observability"].queues
+        if set(AI_OBSERVABILITY_WORKFLOWS) <= set(binding.workflows)
     ]
-
-    assert len(entries) == 1
-    queue, workflows, activities = entries[0]
-    assert queue == settings.LLMA_TASK_QUEUE and BatchTraceSummarizationWorkflow in workflows
-    assert all(activity in activities for activity in AI_OBSERVABILITY_ACTIVITIES)
+    assert llma.queue_setting == "LLMA_TASK_QUEUE"
+    assert set(AI_OBSERVABILITY_ACTIVITIES) <= set(llma.activities)
+    assert any(
+        queue == settings.LLMA_TASK_QUEUE and BatchTraceSummarizationWorkflow in workflows
+        for queue, workflows, _ in _task_queue_specs
+    )
 
 
 @pytest.mark.parametrize(
@@ -185,3 +187,9 @@ def test_hogql_shadow_sample_rate_override(
     monkeypatch.setattr(hogql_parser, "_SHADOW_SAMPLE_RATE", 0.001)
     apply_hogql_shadow_sample_rate_override()
     assert hogql_parser._SHADOW_SAMPLE_RATE == expected
+
+
+def test_the_worker_hosts_every_binding_that_a_product_declares() -> None:
+    for binding in combined_registration().queues:
+        assert set(binding.workflows) <= WORKFLOWS_DICT[binding.task_queue]
+        assert set(binding.activities) <= ACTIVITIES_DICT[binding.task_queue]

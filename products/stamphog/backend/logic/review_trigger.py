@@ -25,15 +25,19 @@ def derive_review_trigger(
     has_inbox_review: bool,
     review_mode: ReviewMode | str,
     has_manual_review: bool = False,
+    has_bot_admission: bool = False,
 ) -> ReviewTrigger:
-    """Inbox provenance outranks a manual request, and both outrank the repo mode.
+    """Inbox provenance outranks a bot admission, both outrank a manual request, and all outrank the repo mode.
 
     A self-driving run is dispatched from the inbox whether or not the repo also reviews every PR
-    event, so a repo in ALL mode still reports SELF_DRIVING for those PRs. A manual request is an
-    explicit ask, so it reports MANUAL in either mode.
+    event, so a repo in ALL mode still reports SELF_DRIVING for those PRs. A bot admission exists
+    only because the policy named the author, so it reports BOT_ADMISSION in either mode. A manual
+    request is an explicit ask, so it reports MANUAL in either mode.
     """
     if has_inbox_review:
         return ReviewTrigger.SELF_DRIVING
+    if has_bot_admission:
+        return ReviewTrigger.BOT_ADMISSION
     if has_manual_review:
         return ReviewTrigger.MANUAL
     if review_mode == ReviewMode.LABEL:
@@ -49,9 +53,8 @@ def trigger_for_run(*, output: dict[str, Any] | None, review_mode: ReviewMode | 
     and an ALL to LABEL switch would assert a request label the PR does not carry.
 
     Runs created before the stamp existed have nothing to read, so they derive it live as before.
-    The facade deliberately keeps deriving instead of calling this: its display value is paired with
-    a SQL filter that cannot read the stamp, and a display that disagreed with its own filter would
-    hide rows the caller just saw.
+    The facade does not call this: its display value is paired with a SQL filter, so it reads only
+    the stamps that filter can match (``facade/api.py::_derive_trigger``).
     """
     stamped = (output or {}).get("review_trigger")
     if stamped:
@@ -59,5 +62,6 @@ def trigger_for_run(*, output: dict[str, Any] | None, review_mode: ReviewMode | 
     return derive_review_trigger(
         has_inbox_review=bool((output or {}).get("inbox_review")),
         has_manual_review=bool((output or {}).get("manual_review")),
+        has_bot_admission=bool((output or {}).get("bot_admission")),
         review_mode=review_mode,
     ).value

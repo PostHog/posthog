@@ -1,6 +1,9 @@
 import uuid
 import dataclasses
 from collections import namedtuple
+from collections.abc import Callable, Collection
+from contextvars import ContextVar, Token
+from types import TracebackType
 from typing import Optional
 
 from django.db.models import Count
@@ -12,11 +15,81 @@ from posthog.models.activity_logging.activity_log import (
     LogActivityEntry,
     bulk_log_activity,
 )
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import get_organization_ids_in_key_scope
 from posthog.models.team.team import Team
 from posthog.user_permissions import UserPermissions
 
 LogScope = namedtuple("LogScope", ["org_id", "team_id"])
+
+_acting_organization_id: ContextVar[str | None] = ContextVar("personal_api_key_acting_organization_id", default=None)
+
+
+def _canonical_organization_id(organization_id: str) -> str:
+    return str(uuid.UUID(organization_id))
+
+
+class OrganizationAdminKeyActionContext:
+    """Marks key changes an admin of `organization_id` makes to a member's key.
+
+    While it is active, rows in the other organizations the key reaches name no actor, and the
+    other organizations that the key owner left get no row. The acting organization always keeps
+    its row, with the admin as the actor.
+    """
+
+    def __init__(self, organization_id: str) -> None:
+        self.organization_id = _canonical_organization_id(organization_id)
+        self._token: Token[str | None] | None = None
+
+    def __enter__(self) -> "OrganizationAdminKeyActionContext":
+        self._token = _acting_organization_id.set(self.organization_id)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        if self._token is not None:
+            _acting_organization_id.reset(self._token)
+            self._token = None
+
+
+def get_acting_organization_id() -> str | None:
+    return _acting_organization_id.get()
+
+
+def _skip_organizations_owner_left[T](
+    api_key: PersonalAPIKey,
+    items: Collection[T],
+    organization_id_of: Callable[[T], str],
+    acting_organization_id: str | None,
+) -> list[T]:
+    """Drop the items in organizations that the key owner is not a member of, during an admin action.
+
+    The acting organization keeps its items, so that its audit row with the admin as the actor
+    survives when the owner's membership there ends during the action.
+    """
+    if acting_organization_id is None:
+        return list(items)
+    other_organization_ids = {_canonical_organization_id(organization_id_of(item)) for item in items} - {
+        acting_organization_id
+    }
+    member_organization_ids: set[str] = set()
+    if other_organization_ids:
+        member_organization_ids = {
+            str(organization_id)
+            for organization_id in OrganizationMembership.objects.filter(
+                user_id=api_key.user_id, organization_id__in=other_organization_ids
+            ).values_list("organization_id", flat=True)
+        }
+    kept_organization_ids = member_organization_ids | {acting_organization_id}
+    return [item for item in items if _canonical_organization_id(organization_id_of(item)) in kept_organization_ids]
+
+
+def _acted_from_outside(organization_id: str, acting_organization_id: str | None) -> bool:
+    return acting_organization_id is not None and _canonical_organization_id(organization_id) != acting_organization_id
 
 
 @dataclasses.dataclass(frozen=True)
@@ -27,6 +100,7 @@ class PersonalAPIKeyContext(ActivityContextBase):
     organization_name: Optional[str] = None
     team_name: Optional[str] = None
     scopes: list[str] = dataclasses.field(default_factory=list)
+    acted_by_user_outside_organization: bool = False
 
 
 def get_personal_api_key_access_locations(api_key: PersonalAPIKey) -> set[LogScope]:
@@ -186,12 +260,19 @@ def log_personal_api_key_scope_change(
     before_api_key: PersonalAPIKey, after_api_key: PersonalAPIKey, user, was_impersonated: bool, changes
 ):
     """Log activity for PersonalAPIKey scope changes with proper created/revoked logic."""
-    log_entries = calculate_scope_change_logs(before_api_key, after_api_key, changes)
+    acting_organization_id = get_acting_organization_id()
+    log_entries = _skip_organizations_owner_left(
+        after_api_key,
+        calculate_scope_change_logs(before_api_key, after_api_key, changes),
+        lambda log_entry: log_entry["organization_id"],
+        acting_organization_id,
+    )
 
     bulk_entries: list[LogActivityEntry] = []
     for log_entry in log_entries:
         team_id = log_entry["team_id"]
         org_id = log_entry["organization_id"]
+        external_actor = _acted_from_outside(org_id, acting_organization_id)
 
         detail_data = Detail(
             changes=changes,
@@ -205,6 +286,7 @@ def log_personal_api_key_scope_change(
                 else None,
                 team_name=get_team_name(team_id) if team_id else None,
                 scopes=after_api_key.scopes,
+                acted_by_user_outside_organization=external_actor,
             ),
         )
 
@@ -218,6 +300,7 @@ def log_personal_api_key_scope_change(
                 "scope": "PersonalAPIKey",
                 "activity": log_entry["activity"],
                 "detail": detail_data,
+                "external_actor": external_actor,
             }
         )
 
@@ -250,10 +333,22 @@ def get_team_name(team_id: Optional[int]) -> str:
 
 def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, was_impersonated: bool, changes=None):
     """Create activity logs for PersonalAPIKey operations at appropriate organization/team levels."""
-    access_locations = get_personal_api_key_access_locations(api_key)
+    acting_organization_id = get_acting_organization_id()
+    access_locations = _skip_organizations_owner_left(
+        api_key,
+        get_personal_api_key_access_locations(api_key),
+        lambda location: location.org_id,
+        acting_organization_id,
+    )
+
+    if acting_organization_id is not None and not any(
+        _canonical_organization_id(location.org_id) == acting_organization_id for location in access_locations
+    ):
+        access_locations.append(LogScope(acting_organization_id, None))
 
     log_entries: list[LogActivityEntry] = []
     for location in access_locations:
+        external_actor = _acted_from_outside(location.org_id, acting_organization_id)
         log_entries.append(
             {
                 "organization_id": uuid.UUID(location.org_id),
@@ -273,8 +368,10 @@ def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, 
                         organization_name=get_organization_name(location.org_id),
                         team_name=get_team_name(location.team_id),
                         scopes=api_key.scopes,
+                        acted_by_user_outside_organization=external_actor,
                     ),
                 ),
+                "external_actor": external_actor,
             }
         )
 

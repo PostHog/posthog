@@ -1,8 +1,10 @@
+import re
 import copy
 import json
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -14,6 +16,11 @@ import fakeredis
 from parameterized import parameterized
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+from products.growth.backend.enrichment.fit_score import SCORE_VERSION
+from products.growth.backend.enrichment.icp_lists import CuratedLists
+from products.growth.backend.enrichment.scoring_rules import ScoringRules
+
+from ee.billing.salesforce_enrichment.account_fields import DESCRIPTION_MIRROR_FIELD
 from ee.billing.salesforce_enrichment.constants import (
     ACCOUNT_FILL_FIELDS,
     HARMONIC_ACCOUNT_ENRICHMENT_QUERY,
@@ -33,6 +40,7 @@ from ee.billing.salesforce_enrichment.enrichment import (
     prepare_salesforce_update_data,
     query_salesforce_accounts_chunk_async,
     transform_harmonic_data,
+    write_account_updates,
 )
 from ee.billing.salesforce_enrichment.redis_cache import get_accounts_from_redis, store_accounts_in_redis
 
@@ -55,6 +63,33 @@ def load_harmonic_fixture():
     with open(fixture_path) as f:
         data = json.load(f)
     return data["response"]
+
+
+FIT_LISTS = CuratedLists(version="test-lists")
+INCOHERENT_FIT_LISTS = CuratedLists(
+    version="incoherent", rules=ScoringRules(source="return {'status': 'scored', 'score': 5};")
+)
+FIT_COMPONENT_FIELDS = (
+    "icp_fit_traction__c",
+    "icp_fit_capital__c",
+    "icp_fit_ai_pilled__c",
+    "icp_fit_headcount_growth__c",
+    "icp_fit_software_relevance__c",
+)
+FIT_FIELDS = (
+    "icp_fit_status__c",
+    "icp_fit_score__c",
+    "icp_fit_dq_reason__c",
+    "icp_fit_version__c",
+    "icp_fit_lists_version__c",
+    "icp_fit_evaluated_at__c",
+    "icp_fit_data_coverage__c",
+    *FIT_COMPONENT_FIELDS,
+)
+
+
+def fit_fields(record: dict[str, Any]) -> dict[str, Any]:
+    return {field: value for field, value in record.items() if field.startswith("icp_fit_")}
 
 
 class TestDomainExclusion(SimpleTestCase):
@@ -122,6 +157,7 @@ class TestExtractDomain(SimpleTestCase):
             ("   ", None, "whitespace only"),
             ("WWW.EXAMPLE.COM", "example.com", "uppercase with www"),
             ("https://www.example.com:443/path#fragment", "example.com", "full URL with all parts"),
+            ("HTTPS://EXAMPLE.COM/", "example.com", "uppercase scheme"),
         ]
     )
     def test_extract_domain(self, input_url, expected, description):
@@ -284,6 +320,28 @@ class TestHarmonicDataTransformation(SimpleTestCase):
         for key, value in salesforce_data.items():
             assert value is not None, f"Field {key} should not be None"
 
+    @parameterized.expand(
+        [
+            ("plain", "Builds analytics tools.", "Builds analytics tools."),
+            ("surrounding_whitespace", "  Builds analytics tools.  ", "Builds analytics tools."),
+            ("two_unit_characters_over_the_field_limit", "\U0001f600" * 2501, "\U0001f600" * 2500),
+            ("blank", "   ", "left out"),
+            ("missing", None, "left out"),
+        ]
+    )
+    def test_prepare_salesforce_update_writes_a_usable_description(
+        self, _name: str, description: str | None, expected: str
+    ) -> None:
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["description"] = description
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        assert salesforce_data is not None
+        assert salesforce_data.get("harmonic_description__c", "left out") == expected
+
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_mirror_clearing_data_covers_every_stamped_field_and_no_canonical_field(self) -> None:
         transformed_data = transform_harmonic_data(load_harmonic_fixture())
@@ -298,17 +356,8 @@ class TestHarmonicDataTransformation(SimpleTestCase):
             "Id": "001EXAMPLE123",
             "harmonic_is_yc_company__c": False,
         }
-        for canonical in (
-            "Total_Funding__c",
-            "Last_Funding_Date__c",
-            "Founded_year__c",
-            "NumberOfEmployees",
-            "Industry",
-            "Company_LinkedIn__c",
-            "LinkedIn_Engineer_Count__c",
-            "LinkedIn_Rolecount__c",
-        ):
-            assert canonical not in cleared
+        canonical = {*ACCOUNT_FILL_FIELDS, "Total_Funding__c", "Last_Funding_Date__c", "Founded_year__c"}
+        assert not canonical & set(cleared)
 
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     def test_transform_harmonic_data_missing_funding(self):
@@ -1028,6 +1077,126 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
         assert result["records_enriched"] == 0
         assert result["enriched_data"] is None
 
+    async def _enrich_example_com_with_a_description(
+        self, accounts: list[dict[str, Any]], current_values: list[dict[str, Any]]
+    ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+        harmonic_response = {**load_harmonic_fixture(), "description": "Builds analytics tools."}
+        sent: dict[str, dict[str, Any]] = {}
+
+        def record_update(_path: str, *, method: str, json: dict[str, Any]) -> list[dict[str, bool]]:
+            sent.update((record["Id"], record) for record in json["records"])
+            return [{"success": True} for _ in json["records"]]
+
+        with (
+            mock_harmonic_client() as mock_client,
+            patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=accounts,
+            ),
+            patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
+        ):
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
+            mock_get_sf.return_value.query_all.return_value = {"records": current_values}
+            mock_get_sf.return_value.restful = record_update
+
+            result = await enrich_accounts_async(specific_domain="example.com")
+
+        return result, sent
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_specific_domain_fills_description_only_on_the_account_at_harmonics_root_site(self) -> None:
+        accounts = [
+            {"Id": "001PARENT", "Name": "Parent", "Domain__c": "example.com", "Website": "https://example.com"},
+            {"Id": "001SUBDOMAIN", "Name": "App", "Domain__c": "app.example.com", "Website": "https://app.example.com"},
+            {"Id": "001PROFILE", "Name": "Profile", "Domain__c": "example.com", "Website": "https://example.com/acme"},
+            {"Id": "001OTHERHOST", "Name": "Other", "Domain__c": "example.com", "Website": "https://app.example.com"},
+        ]
+        empty = dict.fromkeys(ACCOUNT_FILL_FIELDS)
+
+        _, sent = await self._enrich_example_com_with_a_description(
+            accounts, [{"Id": account["Id"], **empty, "Website": account["Website"]} for account in accounts]
+        )
+
+        assert sent["001PARENT"]["Description"] == "Builds analytics tools."
+        assert "Description" not in sent["001SUBDOMAIN"]
+        assert "Description" not in sent["001PROFILE"]
+        assert "Description" not in sent["001OTHERHOST"]
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_specific_domain_result_leaves_out_a_description_it_did_not_send(self) -> None:
+        accounts = [
+            {"Id": "001EMPTY", "Name": "Empty", "Domain__c": "example.com", "Website": "https://example.com"},
+            {"Id": "001SELLER", "Name": "Seller", "Domain__c": "example.com", "Website": "https://example.com"},
+        ]
+        current = {**dict.fromkeys(ACCOUNT_FILL_FIELDS), "Website": "https://example.com"}
+
+        result, _ = await self._enrich_example_com_with_a_description(
+            accounts,
+            [{"Id": "001EMPTY", **current}, {"Id": "001SELLER", **current, "Description": "Text that a seller wrote."}],
+        )
+
+        returned = {account["Id"]: account for account in result["updated_salesforce_accounts"]}
+        assert "Description" in returned["001EMPTY"]
+        assert "Description" not in returned["001SELLER"]
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_specific_domain_writes_the_icp_fit_fields_to_every_matching_account(self) -> None:
+        mock_accounts = [
+            {"Id": "001ACCOUNT1", "Name": "Company A", "Domain__c": "example.com"},
+            {"Id": "001ACCOUNT2", "Name": "Company B", "Domain__c": "example.com"},
+        ]
+
+        with (
+            mock_harmonic_client() as mock_client,
+            patch(
+                "ee.billing.salesforce_enrichment.enrichment.get_salesforce_accounts_by_domain",
+                return_value=mock_accounts,
+            ),
+            patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client"),
+            patch("ee.billing.salesforce_enrichment.enrichment.load_active_lists", return_value=FIT_LISTS),
+            patch("ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts") as mock_bulk_update,
+        ):
+            mock_client.enrich_companies_batch = AsyncMock(return_value=[load_harmonic_fixture()])
+
+            result = await enrich_accounts_async(specific_domain="example.com", score_icp_fit=True)
+
+        first, second = (fit_fields(record) for record in mock_bulk_update.call_args[0][1])
+        assert first["icp_fit_status__c"] == "scored"
+        assert second == first
+        assert result["records_icp_fit_evaluated"] == 2
+
+
+class _FakeSalesforce:
+    def __init__(self, accounts: list[dict[str, Any]]):
+        self.accounts = {account["Id"]: dict(account) for account in accounts}
+        self.read_account_ids: list[list[str]] = []
+        self.on_write: Callable[[str], None] = lambda _account_id: None
+
+    def query_all(self, soql: str) -> dict[str, Any]:
+        selected = soql.removeprefix("SELECT ").split(" FROM ")[0].split(", ")
+        account_ids = re.findall(r"'([^']+)'", soql.split(" WHERE ", 1)[1])
+        self.read_account_ids.append(account_ids)
+        return {
+            "records": [
+                {field: self.accounts[account_id].get(field) for field in selected}
+                for account_id in account_ids
+                if account_id in self.accounts
+            ]
+        }
+
+    def restful(self, _path: str, *, method: str, json: dict[str, Any]) -> list[dict[str, bool]]:
+        for record in json["records"]:
+            self.accounts[record["Id"]].update(record)
+            self.on_write(record["Id"])
+        return [{"success": True} for _ in json["records"]]
+
+
+def _query_returning_selected_fields(records: list[dict[str, Any]]) -> MagicMock:
+    return MagicMock(side_effect=_FakeSalesforce(records).query_all)
+
 
 class TestChunkEnrichment(SimpleTestCase):
     SUB_ENTITY = {
@@ -1044,7 +1213,14 @@ class TestChunkEnrichment(SimpleTestCase):
         {"Id": "001MALFORMED", "Name": "Example Org", "Website": "https://example.net"},
     ]
 
-    async def _run_chunk(self, query_all: MagicMock) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    async def _run_chunk(
+        self,
+        query_all: MagicMock,
+        *,
+        normal_company: dict[str, Any] | None = None,
+        score_icp_fit: bool = False,
+        load_lists: MagicMock | None = None,
+    ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
         with (
             mock_harmonic_client() as mock_client,
             patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
@@ -1054,15 +1230,19 @@ class TestChunkEnrichment(SimpleTestCase):
             ),
             patch("ee.billing.salesforce_enrichment.enrichment.posthoganalytics.capture"),
             patch("ee.billing.salesforce_enrichment.enrichment.capture_exception"),
+            patch(
+                "ee.billing.salesforce_enrichment.enrichment.load_active_lists",
+                new=load_lists or MagicMock(return_value=FIT_LISTS),
+            ),
         ):
             mock_client.enrich_companies_batch = AsyncMock(
-                return_value=[self.SUB_ENTITY, self.NORMAL, ["not", "a", "company"]]
+                return_value=[self.SUB_ENTITY, normal_company or self.NORMAL, ["not", "a", "company"]]
             )
             mock_sf = mock_get_sf.return_value
             mock_sf.query_all = query_all
             mock_sf.restful.return_value = [{"success": True}, {"success": True}]
 
-            result = await enrich_accounts_async(chunk_number=0, chunk_size=10)
+            result = await enrich_accounts_async(chunk_number=0, chunk_size=10, score_icp_fit=score_icp_fit)
 
         assert mock_client.client_class.call_args.kwargs["query"] == HARMONIC_ACCOUNT_ENRICHMENT_QUERY
         mock_sf.restful.assert_called_once()
@@ -1101,14 +1281,196 @@ class TestChunkEnrichment(SimpleTestCase):
 
     @pytest.mark.asyncio
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_chunk_refreshes_a_description_that_still_holds_the_jobs_copy(self) -> None:
+        current_values = {
+            "Id": "001NORMAL",
+            **dict.fromkeys(ACCOUNT_FILL_FIELDS),
+            "Description": "Builds older tools.",
+            DESCRIPTION_MIRROR_FIELD: "Builds older tools.",
+            "Website": "https://example.com",
+        }
+
+        _, records = await self._run_chunk(
+            _query_returning_selected_fields([current_values]),
+            normal_company={**self.NORMAL, "description": "Builds analytics tools."},
+        )
+
+        assert records["001NORMAL"]["Description"] == "Builds analytics tools."
+        assert records["001NORMAL"][DESCRIPTION_MIRROR_FIELD] == "Builds analytics tools."
+
+    @parameterized.expand(
+        [("unchanged_root", "https://example.com", True), ("now_a_profile_page", "https://example.com/acme", False)]
+    )
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_chunk_checks_description_against_the_current_website_not_the_cached_one(
+        self, _name: str, current_website: str, filled: bool
+    ) -> None:
+        current_values = {"Id": "001NORMAL", **dict.fromkeys(ACCOUNT_FILL_FIELDS), "Website": current_website}
+
+        _, records = await self._run_chunk(_query_returning_selected_fields([current_values]))
+
+        assert ("Description" in records["001NORMAL"]) is filled
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
     async def test_chunk_fills_nothing_when_current_values_cannot_be_read(self) -> None:
         _, records = await self._run_chunk(MagicMock(side_effect=Exception("query failed")))
 
         normal_record = records["001NORMAL"]
         assert normal_record["harmonic_company_name__c"] == "Example Corp"
         assert normal_record["Total_Funding__c"] == 900000000
-        for fill_field in ACCOUNT_FILL_FIELDS:
+        for fill_field in (*ACCOUNT_FILL_FIELDS, DESCRIPTION_MIRROR_FIELD):
             assert fill_field not in normal_record
+        assert records["001SUB"] == prepare_mirror_clearing_data("001SUB")
+
+    @parameterized.expand([("salesforce_connection_fails", True), ("account_query_fails", False)])
+    @pytest.mark.asyncio
+    async def test_chunk_raises_when_accounts_cannot_be_read(self, _name: str, connection_fails: bool) -> None:
+        outage = ConnectionError("Synthetic Salesforce outage")
+
+        with (
+            patch(
+                "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+                return_value=fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer()),
+            ),
+            patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
+            patch("ee.billing.salesforce_enrichment.enrichment.capture_exception"),
+        ):
+            if connection_fails:
+                mock_get_sf.side_effect = outage
+            else:
+                mock_get_sf.return_value.query_all.side_effect = outage
+
+            with pytest.raises(ConnectionError):
+                await enrich_accounts_async(chunk_number=3, chunk_size=10)
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00.123456Z", tick=False)
+    async def test_chunk_scores_matched_companies_and_clears_sub_entities(self) -> None:
+        result, records = await self._run_chunk(MagicMock(return_value={"records": []}), score_icp_fit=True)
+
+        assert fit_fields(records["001SUB"]) == dict.fromkeys(FIT_FIELDS)
+
+        normal_fit = fit_fields(records["001NORMAL"])
+        components = [normal_fit.pop(field) for field in FIT_COMPONENT_FIELDS]
+        assert isinstance(normal_fit.pop("icp_fit_data_coverage__c"), int)
+        assert normal_fit == {
+            "icp_fit_status__c": "scored",
+            "icp_fit_score__c": sum(components),
+            "icp_fit_dq_reason__c": None,
+            "icp_fit_version__c": SCORE_VERSION,
+            "icp_fit_lists_version__c": FIT_LISTS.version,
+            "icp_fit_evaluated_at__c": "2025-07-29T12:00:00Z",
+        }
+        assert result["records_icp_fit_evaluated"] == 1
+
+    @parameterized.expand(
+        [
+            (
+                "insufficient_data",
+                {"name": "Example Corp", "website": {"url": "https://example.com", "domain": "example.com"}},
+                {"icp_fit_status__c": "insufficient_data"},
+            ),
+            (
+                "disqualified",
+                {**NORMAL, "companyType": "SCHOOL"},
+                {
+                    "icp_fit_status__c": "disqualified",
+                    "icp_fit_score__c": 0,
+                    "icp_fit_dq_reason__c": "company_type=SCHOOL",
+                },
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_chunk_sends_the_fields_an_unscored_status_lacks_as_nulls(
+        self, _name: str, company: dict[str, Any], status_fields: dict[str, Any]
+    ) -> None:
+        _, records = await self._run_chunk(
+            MagicMock(return_value={"records": []}), normal_company=company, score_icp_fit=True
+        )
+
+        assert fit_fields(records["001NORMAL"]) == {
+            **dict.fromkeys(FIT_FIELDS),
+            "icp_fit_version__c": SCORE_VERSION,
+            "icp_fit_lists_version__c": FIT_LISTS.version,
+            "icp_fit_evaluated_at__c": "2025-07-29T12:00:00Z",
+            **status_fields,
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "long_dq_reason",
+                f"return {{'status': 'disqualified', 'score': 0, 'dq_reason': '{'x' * 300}'}};",
+                {"icp_fit_status__c": "disqualified", "icp_fit_dq_reason__c": "x" * 255},
+            ),
+            (
+                "oversized_data_coverage",
+                "return {'status': 'insufficient_data', 'flags': {'data_coverage': 1000000000000000000}};",
+                {"icp_fit_status__c": "insufficient_data", "icp_fit_data_coverage__c": None},
+            ),
+            (
+                "boolean_data_coverage",
+                "return {'status': 'insufficient_data', 'flags': {'data_coverage': true}};",
+                {"icp_fit_data_coverage__c": None},
+            ),
+            (
+                "unknown_component",
+                "return {'status': 'scored', 'score': 10, 'components': {'traction': 4, 'new_signal': 6}};",
+                {"icp_fit_score__c": 10, **dict.fromkeys(FIT_COMPONENT_FIELDS)},
+            ),
+            (
+                "components_on_a_disqualified_result",
+                "return {'status': 'disqualified', 'score': 0, 'dq_reason': 'agency', 'components': "
+                "{'traction': 9, 'capital': 9, 'ai_pilled': 9, 'headcount_growth': 9, 'software_relevance': 9}};",
+                {"icp_fit_score__c": 0, "icp_fit_dq_reason__c": "agency", **dict.fromkeys(FIT_COMPONENT_FIELDS)},
+            ),
+            (
+                "reason_on_a_scored_result",
+                "return {'status': 'scored', 'score': 5, 'dq_reason': 'agency', 'components': "
+                "{'traction': 1, 'capital': 1, 'ai_pilled': 1, 'headcount_growth': 1, 'software_relevance': 1}};",
+                {"icp_fit_dq_reason__c": None, "icp_fit_traction__c": 1},
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_chunk_fits_formula_output_to_the_salesforce_fields(
+        self, _name: str, formula: str, expected: dict[str, Any]
+    ) -> None:
+        lists = CuratedLists(version="edited", rules=ScoringRules(source=formula))
+
+        _, records = await self._run_chunk(
+            MagicMock(return_value={"records": []}), score_icp_fit=True, load_lists=MagicMock(return_value=lists)
+        )
+
+        normal_fit = fit_fields(records["001NORMAL"])
+        assert {field: normal_fit[field] for field in expected} == expected
+
+    @parameterized.expand(
+        [
+            ("switched_off", False, MagicMock(return_value=FIT_LISTS)),
+            ("no_active_lists", True, MagicMock(return_value=None)),
+            ("lists_cannot_be_read", True, MagicMock(side_effect=Exception("database unavailable"))),
+            ("formula_result_is_incoherent", True, MagicMock(return_value=INCOHERENT_FIT_LISTS)),
+        ]
+    )
+    @pytest.mark.asyncio
+    @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
+    async def test_chunk_writes_the_mirrors_without_fit_fields(
+        self, _name: str, score_icp_fit: bool, load_lists: MagicMock
+    ) -> None:
+        result, records = await self._run_chunk(
+            MagicMock(return_value={"records": []}), score_icp_fit=score_icp_fit, load_lists=load_lists
+        )
+
+        normal_record = records["001NORMAL"]
+        assert normal_record["harmonic_company_name__c"] == "Example Corp"
+        assert fit_fields(normal_record) == {}
+        assert result["records_icp_fit_evaluated"] == 0
 
 
 class TestAddUnoccupiedFillFields(SimpleTestCase):
@@ -1135,10 +1497,63 @@ class TestAddUnoccupiedFillFields(SimpleTestCase):
         sf.query_all.side_effect = query_all
 
         with patch("ee.billing.salesforce_enrichment.enrichment.capture_exception"):
-            add_unoccupied_fill_fields(sf, update_records, dict.fromkeys(account_ids, {"NumberOfEmployees": 120}))
+            add_unoccupied_fill_fields(
+                sf,
+                update_records,
+                dict.fromkeys(account_ids, {"NumberOfEmployees": 120}),
+                dict.fromkeys(account_ids, "example.com"),
+            )
 
         assert sf.query_all.call_count == 2
         assert sum(record.get("NumberOfEmployees") == 120 for record in update_records) == expected_filled
+
+    @parameterized.expand(
+        [
+            ("root", "https://example.com", True),
+            ("locale_landing_page", "https://example.com/en", True),
+            ("uppercase_scheme", "HTTPS://EXAMPLE.COM/", True),
+            ("page_below_root", "https://example.com/acme", False),
+            ("another_domain", "https://example.org", False),
+            ("no_website", None, False),
+        ]
+    )
+    def test_description_needs_a_current_root_website_on_the_queried_domain(
+        self, _name: str, website: str | None, filled: bool
+    ) -> None:
+        sf = _FakeSalesforce([{"Id": "001X", **dict.fromkeys(ACCOUNT_FILL_FIELDS), "Website": website}])
+        update_records: list[dict[str, Any]] = [{"Id": "001X"}]
+
+        add_unoccupied_fill_fields(
+            cast(Any, sf), update_records, {"001X": {"Description": "Builds analytics tools."}}, {"001X": "example.com"}
+        )
+
+        assert ("Description" in update_records[0]) is filled
+
+
+class TestWriteAccountUpdates(SimpleTestCase):
+    def test_an_edit_made_while_an_earlier_batch_is_written_is_kept(self) -> None:
+        job_copy = {"Description": "Builds older tools.", DESCRIPTION_MIRROR_FIELD: "Builds older tools."}
+        accounts: list[dict[str, Any]] = [
+            {"Id": account_id, **dict.fromkeys(ACCOUNT_FILL_FIELDS), **job_copy, "Website": "https://example.com"}
+            for account_id in ("001FIRST", "001SECOND")
+        ]
+        sf = _FakeSalesforce(accounts)
+
+        def seller_edits_the_second_account(written_account_id: str) -> None:
+            if written_account_id == "001FIRST":
+                sf.accounts["001SECOND"]["Description"] = "Text that a seller wrote."
+
+        sf.on_write = seller_edits_the_second_account
+        new_text = "Builds analytics tools."
+        update_records = [{"Id": account["Id"], DESCRIPTION_MIRROR_FIELD: new_text} for account in accounts]
+        fill_fields = {account["Id"]: {"Description": new_text} for account in accounts}
+
+        with patch("ee.billing.salesforce_enrichment.enrichment.SALESFORCE_UPDATE_BATCH_SIZE", 1):
+            write_account_updates(cast(Any, sf), update_records, fill_fields, dict.fromkeys(fill_fields, "example.com"))
+
+        assert sf.accounts["001FIRST"]["Description"] == new_text
+        assert sf.accounts["001SECOND"]["Description"] == "Text that a seller wrote."
+        assert sf.read_account_ids == [["001FIRST"], ["001SECOND"]]
 
 
 class TestValuesMatch(SimpleTestCase):
