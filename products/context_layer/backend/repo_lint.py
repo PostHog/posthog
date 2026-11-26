@@ -33,6 +33,10 @@ KEY_VALUE_RE = re.compile(r"([A-Za-z_][\w-]*):(?: +(.*?))? *")
 NUMBER_RE = re.compile(r"[-+]?(?:\.\d+|\d+(?:\.\d*)?)(?:[eE][-+]?\d+)?|0x[0-9a-fA-F]+|0o[0-7]+")
 SINGLE_QUOTED_RE = re.compile(r"'((?:[^']|'')*)'")
 ALLOWED_STATUSES = {"active", "superseded", "historical"}
+SLACK_CHANNELS_DIRECTORY = "slack-channels"
+# Slack workspace and channel ids are uppercase alphanumerics (T…, C…, G…). The
+# channel id is also the page's file name, so nothing else may reach the path.
+SLACK_ID_RE = re.compile(r"[A-Z0-9]{2,32}")
 REQUIRED_AGENTS_FRAGMENTS = (
     "## Admission test",
     "A fact enters the wiki only if it changes a durable fact, decision, priority, ownership, reusable definition, constraint, or an evidenced recurring pattern.",
@@ -139,6 +143,14 @@ def _lint_markdown_directory(root: Path, directory: str, titles: dict[str, Path]
             errors.append(f"{relative}: Space pages need a non-empty `channel_id` in their frontmatter")
         if is_space_page and fields.get("team_id") != relative.parts[1]:
             errors.append(f"{relative}: Space pages need `team_id: {relative.parts[1]}` in their frontmatter")
+        is_slack_channel_page = (
+            directory == "projects"
+            and len(relative.parts) == 4
+            and relative.parts[2] == SLACK_CHANNELS_DIRECTORY
+            and path.name != "index.md"
+        )
+        if is_slack_channel_page:
+            errors.extend(f"{relative}: {problem}" for problem in _slack_channel_page_problems(relative, fields))
         if path.name == "index.md":
             continue
         errors.extend(f"{relative}: {problem}" for problem in _lint_frontmatter_lists(_frontmatter_lines(path)))
@@ -169,6 +181,19 @@ def _lint_markdown_directory(root: Path, directory: str, titles: dict[str, Path]
             else:
                 titles[normalized] = path
     return errors
+
+
+def _slack_channel_page_problems(relative: Path, fields: dict[str, str]) -> list[str]:
+    problems: list[str] = []
+    if fields.get("team_id") != relative.parts[1]:
+        problems.append(f"Slack channel pages need `team_id: {relative.parts[1]}` in their frontmatter")
+    if not SLACK_ID_RE.fullmatch(relative.stem):
+        problems.append("Slack channel pages must be named <slack-channel-id>.md")
+    elif fields.get("slack_channel_id") != relative.stem:
+        problems.append(f"Slack channel pages need `slack_channel_id: {relative.stem}` in their frontmatter")
+    if not SLACK_ID_RE.fullmatch(fields.get("slack_workspace_id", "")):
+        problems.append("Slack channel pages need a Slack workspace id as `slack_workspace_id` in their frontmatter")
+    return problems
 
 
 def _links(text: str) -> tuple[list[str], bool]:

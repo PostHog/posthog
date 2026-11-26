@@ -86,6 +86,19 @@ def _space_page_with_mismatched_team_id(root: Path) -> None:
     )
 
 
+SLACK_CHANNEL_PAGE_HEAD = "team_id: 1\nslack_workspace_id: T0123ABCD\nslack_channel_id: C0456EFGH"
+
+
+def _write_slack_channel_page(root: Path, name: str, head: str) -> None:
+    channels = root / "projects" / "1" / "slack-channels"
+    channels.mkdir(parents=True, exist_ok=True)
+    (channels / name).write_text(f"---\n{head}\nsummary: Replay team\nstatus: active\n---\n# replay team\n")
+
+
+def _slack_channel_page(name: str, head: str) -> Callable[[Path], None]:
+    return lambda root: _write_slack_channel_page(root, name, head)
+
+
 def _scripts_symlink(root: Path) -> None:
     (root / "scripts" / "alias").symlink_to("/etc/hosts")
 
@@ -179,6 +192,7 @@ class TestRepoLint(SimpleTestCase):
         (spaces / "general.md").write_text(
             f"---\nteam_id: 1\nchannel_id: {uuid.uuid4()}\nsummary: General\nstatus: active\nsources: test\n---\n# general"
         )
+        _write_slack_channel_page(self.root, "C0456EFGH.md", SLACK_CHANNEL_PAGE_HEAD)
         assert lint_repo(self.root) == []
 
     def test_lists_written_by_the_desktop_serializer_are_clean(self) -> None:
@@ -227,6 +241,16 @@ class TestRepoLint(SimpleTestCase):
             ("channel_page_with_empty_channel_id", _channel_page_with_empty_channel_id),
             ("channel_page_with_noncanonical_channel_id", _channel_page_with_noncanonical_channel_id),
             ("space_page_with_mismatched_team_id", _space_page_with_mismatched_team_id),
+            (
+                "slack_channel_page_with_mismatched_team_id",
+                _slack_channel_page("C0456EFGH.md", SLACK_CHANNEL_PAGE_HEAD.replace("team_id: 1", "team_id: 2")),
+            ),
+            ("slack_channel_page_named_by_slug", _slack_channel_page("replay-team.md", SLACK_CHANNEL_PAGE_HEAD)),
+            ("slack_channel_page_with_other_channel_id", _slack_channel_page("C0999ZZZZ.md", SLACK_CHANNEL_PAGE_HEAD)),
+            (
+                "slack_channel_page_without_workspace_id",
+                _slack_channel_page("C0456EFGH.md", "team_id: 1\nslack_channel_id: C0456EFGH"),
+            ),
             ("stray_symlink", _stray_symlink),
             ("index_symlink", _index_symlink),
             ("scripts_symlink", _scripts_symlink),

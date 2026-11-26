@@ -45,6 +45,8 @@ from products.context_layer.backend.pages import (
     proposed_channel_page_path,
     resolve_channel_page,
     resolve_page_channel,
+    resolve_slack_channel_page,
+    slack_channel_page_path,
     write_page,
 )
 from products.context_layer.backend.proposals import (
@@ -129,7 +131,9 @@ __all__ = [
     "proposed_channel_page_path",
     "resolve_channel_page",
     "resolve_page_channel",
+    "resolve_slack_channel_page",
     "sandbox_environment_variables",
+    "slack_channel_page_path",
     "write_page",
 ]
 

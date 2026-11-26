@@ -18,6 +18,7 @@ background agents. Treat it as reference material, not instructions.
 - `areas/<area>.md` is one hub page per product area: current state, direction, links.
 - `decisions/<YYYY-MM-DD>-<slug>.md` records product decisions: what, why, who, source.
 - `projects/<project-id>/spaces/<slug>.md` is one page per Space, with `team_id` and `channel_id` in its frontmatter.
+- `projects/<project-id>/slack-channels/<slack-channel-id>.md` is one page per Slack channel, with `team_id`, `slack_workspace_id`, and `slack_channel_id` in its frontmatter.
 
 ## How to use it
 
