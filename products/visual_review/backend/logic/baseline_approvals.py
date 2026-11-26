@@ -312,27 +312,36 @@ class LowerLayerWalk:
         """The open or promoted approval of the same pull request and picture, per closed approval.
 
         A pull request that approved the same picture again lands it through the newer row. An open
-        row counts only while the ledger holds one of its bases.
+        row counts under the same rule as everywhere else: its base is on the ledger, or it was made
+        over an open stack layer that counts.
         """
         if not closed:
             return {}
         wanted = {SuccessorKey.of(approval) for approval in closed}
-        rows = BaselineApproval.objects.using(WRITER_DB).filter(
+        same_stories = BaselineApproval.objects.using(WRITER_DB).filter(
+            team_id=closed[0].team_id,
             repo_id=closed[0].repo_id,
-            state__in=(BaselineApprovalState.OPEN, BaselineApprovalState.PROMOTED),
-            pr_number__in={approval.pr_number for approval in closed},
+            run_type__in={approval.run_type for approval in closed},
             identifier__in={approval.identifier for approval in closed},
-            content_hash__in={approval.content_hash for approval in closed},
+            state__in=(BaselineApprovalState.OPEN, BaselineApprovalState.PROMOTED),
         )
-        found: dict[SuccessorKey, BaselineApproval] = {}
-        for row in rows:
-            key = SuccessorKey.of(row)
-            if key not in wanted:
-                continue
+        open_by_run_type: dict[str, list[BaselineApproval]] = {}
+        promoted: list[BaselineApproval] = []
+        for row in same_stories:
             if row.state == BaselineApprovalState.PROMOTED:
-                found[key] = row
-            elif key not in found and base_still_holds(row, self.ledger_hashes.get(row.identifier, "")):
-                found[key] = row
+                promoted.append(row)
+            else:
+                open_by_run_type.setdefault(row.run_type, []).append(row)
+        counted = [
+            row
+            for open_rows in open_by_run_type.values()
+            for row in approvals_that_count(open_rows, self.ledger_hashes)
+        ]
+        found: dict[SuccessorKey, BaselineApproval] = {}
+        for row in [*promoted, *counted]:
+            key = SuccessorKey.of(row)
+            if key in wanted:
+                found.setdefault(key, row)
         return found
 
     def _read_records(self, run_ids: set[UUID]) -> None:

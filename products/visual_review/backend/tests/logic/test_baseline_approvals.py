@@ -556,6 +556,7 @@ class TestStaleApprovals:
             "ledger_holds_the_picture",
             "ledger_holds_the_child_base",
             "reverted_to_the_ledger",
+            "same_picture_approved_again_over_an_open_layer",
         ],
     )
     def test_a_closed_approval_whose_picture_is_still_covered_is_not_stale(self, repo, cover) -> None:
@@ -588,6 +589,11 @@ class TestStaleApprovals:
         BaselineApproval.objects.filter(id=parent.id).update(state=BaselineApprovalState.SUPERSEDED)
         if cover == "same_picture_approved_again":
             approve(repo, 7, "Button", "b1")
+        if cover == "same_picture_approved_again_over_an_open_layer":
+            # The parent re-approved b1 over an open layer's b2, and that layer counts once b3 lands.
+            approve(repo, 6, "Button", "b2", effective_base_hash="b3")
+            approve(repo, 7, "Button", "b1", effective_base_hash="b2")
+            move_ledger(repo, "Button", "b3")
         if cover in ("ledger_holds_the_picture", "ledger_holds_the_child_base"):
             move_ledger(repo, "Button", "b1")
 
