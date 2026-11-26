@@ -9,11 +9,17 @@ logger = structlog.get_logger(__name__)
 
 TODAY_RAIL_NAV_FLAG = "today-rail-nav"
 TODAY_REPORT_JEV_FLAG = "today-report-jev"
+TODAY_SEASONAL_CHECKLIST_FLAG = "today-seasonal-checklist"
 
 
 def is_enabled_for(user: User, team: Team) -> bool:
     """Whether the new navigation (and so the Today home) is on for this person. Fails closed."""
     return _flag_on(TODAY_RAIL_NAV_FLAG, user, team)
+
+
+def is_seasonal_checklist_enabled_for(user: User, team: Team) -> bool:
+    """Whether this person sees the seasonal checklist on the Today home. Fails closed."""
+    return is_enabled_for(user, team) and _flag_on(TODAY_SEASONAL_CHECKLIST_FLAG, user, team)
 
 
 def _groups(team: Team) -> dict[str, str]:

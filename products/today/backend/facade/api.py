@@ -1,11 +1,14 @@
 """Facade for today. The only module other products and the presentation layer import."""
 
+from django.utils import timezone
+
 from posthog.models import Team, User
 
 from products.signals.backend.facade import api as signals
 
 from ..feature_flags import (
     is_enabled_for as is_enabled_for,
+    is_seasonal_checklist_enabled_for,
     may_ask_jev as may_ask_jev,
 )
 from ..logic import (
@@ -16,6 +19,7 @@ from ..logic import (
     report_page as report_pages,
 )
 from ..logic.jev import GatewayJev
+from ..logic.seasonal_checklist import seasonal_checklist
 from . import contracts
 
 
@@ -78,3 +82,9 @@ def set_hidden_pulse_numbers(
 ) -> contracts.HiddenPulseNumbers:
     kept = pulse_pins.set_hidden(team=team, user_id=user.id, keys=keys)
     return contracts.HiddenPulseNumbers(hidden=pulse_pins.named_hidden(team=team, user=user, keys=kept, scopes=scopes))
+
+
+def get_seasonal_checklist(*, team: Team, user: User) -> contracts.SeasonalChecklist | None:
+    if not is_seasonal_checklist_enabled_for(user, team):
+        return None
+    return seasonal_checklist(team, user, timezone.now())

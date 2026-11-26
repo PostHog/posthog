@@ -30,6 +30,9 @@ from ..facade.contracts import (
     RecordingTarget,
     ReportKeyClauses,
     ReportPage,
+    SeasonalAction,
+    SeasonalChecklist,
+    SeasonalChecklistItem,
     SignalPreview,
     SignalView,
 )
@@ -44,9 +47,12 @@ from ..facade.enums import (
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
+    HogAccessory,
     ImpactNumberKey,
     KeyClauseRole,
     PulseSlotStatus,
+    SeasonalActionKind,
+    SeasonalItemIcon,
 )
 
 
@@ -555,3 +561,58 @@ class HighlightsSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = Highlights
+
+
+class SeasonalActionSerializer(DataclassSerializer):
+    kind = serializers.ChoiceField(
+        choices=SeasonalActionKind.choices,
+        help_text="What the item's button does. ask_ai starts PostHog AI with the prompt.",
+    )
+    prompt = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="For ask_ai, the prompt PostHog AI starts with. Null for other actions.",
+    )
+
+    class Meta:
+        dataclass = SeasonalAction
+
+
+class SeasonalChecklistItemSerializer(DataclassSerializer):
+    key = serializers.CharField(help_text="Stable key of the item within its campaign. Progress is stored by this key.")
+    title = serializers.CharField(help_text="Short title of the item.")
+    description = serializers.CharField(help_text="One or two sentences on why the item matters.")
+    icon = serializers.ChoiceField(
+        choices=SeasonalItemIcon.choices, allow_null=True, help_text="Icon to show next to the item, or null for none."
+    )
+    action = SeasonalActionSerializer(help_text="What the item's button does.")
+    done = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether PostHog can see the item is already done for this person. Null when it cannot tell, so the person ticks it.",
+    )
+
+    class Meta:
+        dataclass = SeasonalChecklistItem
+
+
+class SeasonalChecklistSerializer(DataclassSerializer):
+    campaign = serializers.CharField(help_text="Key of the campaign. A new key starts everyone's progress again.")
+    title = serializers.CharField(help_text="Title of the checklist.")
+    description = serializers.CharField(help_text="Text under the title.")
+    reason = serializers.CharField(allow_null=True, help_text="Why the person sees these items, or null.")
+    badge = serializers.CharField(allow_null=True, help_text="Short badge next to the title, or null.")
+    bubble = serializers.CharField(help_text="Text in the speech bubble above the hedgehog.")
+    done_title = serializers.CharField(help_text="Title once every item is done.")
+    done_description = serializers.CharField(help_text="Text under the title once every item is done.")
+    accessories = serializers.ListField(
+        child=serializers.ChoiceField(choices=HogAccessory.choices),
+        help_text="Accessories the hedgehog wears, drawn in order.",
+    )
+    snow = serializers.BooleanField(help_text="Whether snow falls when the checklist opens and when it is finished.")
+    lights = serializers.BooleanField(help_text="Whether a string of lights runs along the top of the checklist.")
+    items = SeasonalChecklistItemSerializer(
+        many=True, help_text="Items in order. Items with a broken action are left out."
+    )
+
+    class Meta:
+        dataclass = SeasonalChecklist

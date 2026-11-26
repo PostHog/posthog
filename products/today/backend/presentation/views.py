@@ -35,6 +35,7 @@ from .serializers import (
     PulsePinsSerializer,
     ReportKeyClausesSerializer,
     ReportPageSerializer,
+    SeasonalChecklistSerializer,
     SetHiddenPulseNumbersSerializer,
 )
 
@@ -88,7 +89,7 @@ def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins"]
+    scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins", "seasonal_checklist"]
     scope_object_write_actions = ["set_pulse_pins", "set_hidden_pulse_numbers"]
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -125,6 +126,21 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             refresh=request.validated_query_data["refresh"],
         )
         return Response(HighlightsSerializer(found).data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=SeasonalChecklistSerializer),
+            404: OpenApiResponse(description="No checklist for this person."),
+        },
+        summary="Get the seasonal checklist",
+        description="The active seasonal checklist and its items, in order, with whether each item is already done for this person. Staff write the campaign in Django admin. 404 when the person does not have the new navigation or the seasonal checklist flag, or when no campaign is active.",
+    )
+    @action(detail=False, methods=["get"], url_path="seasonal_checklist")
+    def seasonal_checklist(self, request: Request, **kwargs) -> Response:
+        found = api.get_seasonal_checklist(team=self.team, user=cast(User, request.user))
+        if found is None:
+            raise NotFound()
+        return Response(SeasonalChecklistSerializer(found).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=PulsePinsSerializer)},

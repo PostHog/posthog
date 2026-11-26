@@ -17,6 +17,7 @@ import type {
     PulsePinsApi,
     ReportKeyClausesApi,
     ReportPageApi,
+    SeasonalChecklistApi,
     SetHiddenPulseNumbersApi,
     TodayHighlightsRetrieveParams,
     TodayReportsKeyClausesRetrieveParams,
@@ -217,6 +218,24 @@ export const todayReportsPageRetrieve = async (
     options?: RequestInit
 ): Promise<ReportPageApi> => {
     return apiMutator<ReportPageApi>(getTodayReportsPageRetrieveUrl(projectId, reportId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTodaySeasonalChecklistRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/today/seasonal_checklist/`
+}
+
+/**
+ * The active seasonal checklist and its items, in order, with whether each item is already done for this person. Staff write the campaign in Django admin. 404 when the person does not have the new navigation or the seasonal checklist flag, or when no campaign is active.
+ * @summary Get the seasonal checklist
+ */
+export const todaySeasonalChecklistRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SeasonalChecklistApi> => {
+    return apiMutator<SeasonalChecklistApi>(getTodaySeasonalChecklistRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

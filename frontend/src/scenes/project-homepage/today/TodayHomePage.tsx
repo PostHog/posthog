@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { Suspense, useLayoutEffect, useRef } from 'react'
 
 import { Button, Text } from '@posthog/quill'
-import { PostHogErrorBoundary } from '@posthog/react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -31,12 +30,6 @@ const TodayHomeClassicComposer = lazyWithRetry(() =>
     import('./TodayHomeClassicComposer').then((m) => ({ default: m.TodayHomeClassicComposer }))
 )
 
-const TodaySeasonalChecklist = lazyWithRetry(() =>
-    import('products/today/frontend/seasonal/TodaySeasonalChecklist').then((m) => ({
-        default: m.TodaySeasonalChecklist,
-    }))
-)
-
 const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
 
 function TodayMetaLine(): JSX.Element {
@@ -60,7 +53,6 @@ export function TodayHomePage(): JSX.Element {
         frequentObjectsLoading,
         returnFocusReportId,
         useSampleData,
-        seasonalChecklist,
     } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
     const { homeEditing } = useValues(todayHomeEditLogic)
@@ -131,13 +123,6 @@ export function TodayHomePage(): JSX.Element {
         <div ref={rootRef} className="TodayHome Today__page" data-quill>
             <TodaySampleBanner />
             <TodayPromoBanner />
-            {seasonalChecklist ? (
-                <PostHogErrorBoundary fallback={<></>}>
-                    <Suspense fallback={null}>
-                        <TodaySeasonalChecklist key={seasonalChecklist.campaign} checklist={seasonalChecklist} />
-                    </Suspense>
-                </PostHogErrorBoundary>
-            ) : null}
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">

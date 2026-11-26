@@ -60118,6 +60118,46 @@ export namespace Schemas {
     }
 
     /**
+     * * `beret` - Beret
+     * * `cap` - Cap
+     * * `chef` - Chef hat
+     * * `cowboy` - Cowboy hat
+     * * `eyepatch` - Eyepatch
+     * * `flag` - Flag
+     * * `glasses` - Glasses
+     * * `graduation` - Graduation cap
+     * * `parrot` - Parrot
+     * * `party` - Party hat
+     * * `pineapple` - Pineapple
+     * * `sunglasses` - Sunglasses
+     * * `tophat` - Top hat
+     * * `xmas-antlers` - Christmas antlers
+     * * `xmas-hat` - Christmas hat
+     * * `xmas-scarf` - Christmas scarf
+     */
+    export type HogAccessoryEnum = typeof HogAccessoryEnum[keyof typeof HogAccessoryEnum];
+
+
+    export const HogAccessoryEnum = {
+      Beret: 'beret',
+      Cap: 'cap',
+      Chef: 'chef',
+      Cowboy: 'cowboy',
+      Eyepatch: 'eyepatch',
+      Flag: 'flag',
+      Glasses: 'glasses',
+      Graduation: 'graduation',
+      Parrot: 'parrot',
+      Party: 'party',
+      Pineapple: 'pineapple',
+      Sunglasses: 'sunglasses',
+      Tophat: 'tophat',
+      XmasAntlers: 'xmas-antlers',
+      XmasHat: 'xmas-hat',
+      XmasScarf: 'xmas-scarf',
+    } as const;
+
+    /**
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
      * * `categorical` - Categorical
@@ -119282,6 +119322,133 @@ export namespace Schemas {
     export interface SearchSuggestionsResponse {
       /** Up to 4 example searches naming the largest active themes in recent issue observations. Empty until a scanner has a named theme. */
       queries: string[];
+    }
+
+    /**
+     * * `ask_ai` - Do it with PostHog AI
+     */
+    export type SeasonalActionKindEnum = typeof SeasonalActionKindEnum[keyof typeof SeasonalActionKindEnum];
+
+
+    export const SeasonalActionKindEnum = {
+      AskAi: 'ask_ai',
+    } as const;
+
+    export interface SeasonalAction {
+      /** What the item's button does. ask_ai starts PostHog AI with the prompt.
+       *
+       * * `ask_ai` - Do it with PostHog AI */
+      kind: SeasonalActionKindEnum;
+      /**
+         * For ask_ai, the prompt PostHog AI starts with. Null for other actions.
+         * @nullable
+         */
+      prompt?: string | null;
+    }
+
+    /**
+     * * `bell` - Bell
+     * * `bug` - Bug
+     * * `check` - Check
+     * * `flag` - Flag
+     * * `graph` - Graph
+     * * `laptop` - Laptop
+     * * `message` - Message
+     * * `notification` - Notification
+     * * `plug` - Plug
+     * * `pulse` - Pulse
+     * * `rocket` - Rocket
+     * * `server` - Server
+     * * `sparkles` - Sparkles
+     * * `toggle` - Toggle
+     * * `warning` - Warning
+     */
+    export type SeasonalItemIconEnum = typeof SeasonalItemIconEnum[keyof typeof SeasonalItemIconEnum];
+
+
+    export const SeasonalItemIconEnum = {
+      Bell: 'bell',
+      Bug: 'bug',
+      Check: 'check',
+      Flag: 'flag',
+      Graph: 'graph',
+      Laptop: 'laptop',
+      Message: 'message',
+      Notification: 'notification',
+      Plug: 'plug',
+      Pulse: 'pulse',
+      Rocket: 'rocket',
+      Server: 'server',
+      Sparkles: 'sparkles',
+      Toggle: 'toggle',
+      Warning: 'warning',
+    } as const;
+
+    export interface SeasonalChecklistItem {
+      /** Stable key of the item within its campaign. Progress is stored by this key. */
+      key: string;
+      /** Short title of the item. */
+      title: string;
+      /** One or two sentences on why the item matters. */
+      description: string;
+      /** Icon to show next to the item, or null for none.
+       *
+       * * `bell` - Bell
+       * * `bug` - Bug
+       * * `check` - Check
+       * * `flag` - Flag
+       * * `graph` - Graph
+       * * `laptop` - Laptop
+       * * `message` - Message
+       * * `notification` - Notification
+       * * `plug` - Plug
+       * * `pulse` - Pulse
+       * * `rocket` - Rocket
+       * * `server` - Server
+       * * `sparkles` - Sparkles
+       * * `toggle` - Toggle
+       * * `warning` - Warning */
+      icon: SeasonalItemIconEnum | null;
+      /** What the item's button does. */
+      action: SeasonalAction;
+      /**
+         * Whether PostHog can see the item is already done for this person. Null when it cannot tell, so the person ticks it.
+         * @nullable
+         */
+      done: boolean | null;
+    }
+
+    export interface SeasonalChecklist {
+      /** Key of the campaign. A new key starts everyone's progress again. */
+      campaign: string;
+      /** Title of the checklist. */
+      title: string;
+      /** Text under the title. */
+      description: string;
+      /**
+         * Why the person sees these items, or null.
+         * @nullable
+         */
+      reason: string | null;
+      /**
+         * Short badge next to the title, or null.
+         * @nullable
+         */
+      badge: string | null;
+      /** Text in the speech bubble above the hedgehog. */
+      bubble: string;
+      /** Title once every item is done. */
+      done_title: string;
+      /** Text under the title once every item is done. */
+      done_description: string;
+      /** Accessories the hedgehog wears, drawn in order. */
+      accessories: HogAccessoryEnum[];
+      /** Whether snow falls when the checklist opens and when it is finished. */
+      snow: boolean;
+      /** Whether a string of lights runs along the top of the checklist. */
+      lights: boolean;
+      /** Items in order. Items with a broken action are left out. */
+      items: SeasonalChecklistItem[];
     }
 
     /**

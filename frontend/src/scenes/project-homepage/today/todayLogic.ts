@@ -43,7 +43,6 @@ import { scoutNamesLogic } from 'products/signals/frontend/inbox/logics/scoutNam
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
-import { SeasonalChecklist, parseSeasonalChecklist } from 'products/today/frontend/seasonal/seasonalChecklist'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import { TodayAskContext, todayAskPrompt } from './todayAskPrompt'
@@ -239,7 +238,6 @@ export interface todayLogicValues {
     reportsBroken: boolean
     reportsFailed: boolean
     returnFocusReportId: string | null
-    seasonalChecklist: SeasonalChecklist | null
     shownReportIds: string[]
     topReports: TodayReports | null
     topReportsLoading: boolean
@@ -446,7 +444,6 @@ export interface todayLogicMeta {
             useSampleData: boolean
         ) => TodayProductPush | null
         promoBanner: (growthSlotCard: NavPanelSlotCard | null, useSampleData: boolean) => TodayPromoBanner | null
-        seasonalChecklist: (featureFlags: FeatureFlagsSet, useSampleData: boolean) => SeasonalChecklist | null
         forYouRows: (
             reports: SignalReport[],
             loadedMoreReports: SignalReport[],
@@ -829,13 +826,6 @@ export const todayLogic = kea<todayLogicType>([
                 !growthSlotCard || growthSlotCard.type === NAV_PANEL_CARD_TYPE.PRODUCT_PUSH || useSampleData
                     ? null
                     : growthSlotCard,
-        ],
-        seasonalChecklist: [
-            (s) => [s.featureFlags, s.useSampleData],
-            (_featureFlags: FeatureFlagsSet, useSampleData: boolean): SeasonalChecklist | null =>
-                useSampleData
-                    ? null
-                    : parseSeasonalChecklist(getFeatureFlagPayload(FEATURE_FLAGS.TODAY_SEASONAL_CHECKLIST)),
         ],
         forYouRows: [
             (s) => [
