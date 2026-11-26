@@ -22,8 +22,8 @@
                                     },
                                     "input_kind": {
                                         "default": "auto",
-                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `slider` - Slider",
-                                        "enum": ["auto", "select", "slider"],
+                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `query_select` - Query dropdown\n* `slider` - Slider",
+                                        "enum": ["auto", "select", "query_select", "slider"],
                                         "type": "string"
                                     },
                                     "kind": {
@@ -45,6 +45,12 @@
                                         "default": "",
                                         "description": "Source notebook cell ID.",
                                         "maxLength": 160,
+                                        "type": "string"
+                                    },
+                                    "option_column": {
+                                        "default": "",
+                                        "description": "Column supplying choices for a query dropdown.",
+                                        "maxLength": 256,
                                         "type": "string"
                                     },
                                     "options": {
@@ -166,8 +172,8 @@
                                     },
                                     "input_kind": {
                                         "default": "auto",
-                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `slider` - Slider",
-                                        "enum": ["auto", "select", "slider"],
+                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `query_select` - Query dropdown\n* `slider` - Slider",
+                                        "enum": ["auto", "select", "query_select", "slider"],
                                         "type": "string"
                                     },
                                     "kind": {
@@ -189,6 +195,12 @@
                                         "default": "",
                                         "description": "Source notebook cell ID.",
                                         "maxLength": 160,
+                                        "type": "string"
+                                    },
+                                    "option_column": {
+                                        "default": "",
+                                        "description": "Column supplying choices for a query dropdown.",
+                                        "maxLength": 256,
                                         "type": "string"
                                     },
                                     "options": {
