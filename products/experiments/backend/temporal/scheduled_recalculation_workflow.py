@@ -1,4 +1,5 @@
 import asyncio
+import functools
 from datetime import timedelta
 
 import temporalio.workflow
@@ -18,7 +19,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.scheduled_recalculation_logic import (
         SKIP_DISPATCH_UNCERTAIN,
         SKIP_START_WINDOW_ELAPSED,
-        ScheduledRecalculationCandidate,
         ScheduledRecalculationDiscovery,
     )
 
@@ -76,7 +76,6 @@ class ScheduledExperimentRecalculationWorkflow(PostHogWorkflow):
             return {"hour": hour, "candidates": 0, "started": 0, "skipped": 0, "deferred": 0}
 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXPERIMENTS)
-        next_ticket = 0
         runs_in_flight = 0
         calcs_in_flight = 0
         deferred = 0
@@ -89,33 +88,37 @@ class ScheduledExperimentRecalculationWorkflow(PostHogWorkflow):
                 return True
             return False
 
-        async def _process(ticket: int, candidate: ScheduledRecalculationCandidate) -> bool:
-            nonlocal next_ticket, runs_in_flight, calcs_in_flight
-            if not calc_budget:
-                async with semaphore:
-                    return await _start_and_wait(candidate.experiment_id)
-            weight = (
-                SCHEDULED_CALC_BUDGET
-                if candidate.metric_count is None
-                else min(candidate.metric_count, SCHEDULED_CALC_BUDGET)
-            )
-            # The SDK checks every waiting condition in one pass before any woken coroutine runs, so
-            # without the ticket two candidates could both see the same free budget and both start.
-            await temporalio.workflow.wait_condition(
-                lambda: (
-                    next_ticket == ticket
-                    and runs_in_flight < SCHEDULED_RUN_CAP
-                    and calcs_in_flight + weight <= SCHEDULED_CALC_BUDGET
-                )
-            )
-            next_ticket += 1
-            runs_in_flight += 1
-            calcs_in_flight += weight
+        async def _process(experiment_id: int) -> bool:
+            async with semaphore:
+                return await _start_and_wait(experiment_id)
+
+        def _has_room_for(weight: int) -> bool:
+            return runs_in_flight < SCHEDULED_RUN_CAP and calcs_in_flight + weight <= SCHEDULED_CALC_BUDGET
+
+        async def _run_admitted(experiment_id: int, weight: int) -> bool:
+            nonlocal runs_in_flight, calcs_in_flight
             try:
-                return await _start_and_wait(candidate.experiment_id)
+                return await _start_and_wait(experiment_id)
             finally:
                 runs_in_flight -= 1
                 calcs_in_flight -= weight
+
+        async def _admit_in_discovery_order() -> list[asyncio.Task[bool]]:
+            # One waiter at a time, because the SDK checks every waiting condition on each pass and
+            # a waiter per candidate makes a large batch quadratic within one workflow task.
+            nonlocal runs_in_flight, calcs_in_flight
+            admitted: list[asyncio.Task[bool]] = []
+            for candidate in candidates:
+                weight = (
+                    SCHEDULED_CALC_BUDGET
+                    if candidate.metric_count is None
+                    else min(candidate.metric_count, SCHEDULED_CALC_BUDGET)
+                )
+                await temporalio.workflow.wait_condition(functools.partial(_has_room_for, weight))
+                runs_in_flight += 1
+                calcs_in_flight += weight
+                admitted.append(asyncio.create_task(_run_admitted(candidate.experiment_id, weight)))
+            return admitted
 
         async def _start_and_wait(experiment_id: int) -> bool:
             nonlocal deferred, stop_starting
@@ -169,9 +172,12 @@ class ScheduledExperimentRecalculationWorkflow(PostHogWorkflow):
                     )
             return True
 
-        outcomes = await asyncio.gather(
-            *[_process(ticket, candidate) for ticket, candidate in enumerate(candidates)], return_exceptions=True
-        )
+        if calc_budget:
+            outcomes = await asyncio.gather(*await _admit_in_discovery_order(), return_exceptions=True)
+        else:
+            outcomes = await asyncio.gather(
+                *[_process(candidate.experiment_id) for candidate in candidates], return_exceptions=True
+            )
         started = sum(1 for outcome in outcomes if outcome is True)
 
         temporalio.workflow.logger.info(
