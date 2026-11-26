@@ -1,7 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
-
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { PersonType } from '~/types'
 
@@ -17,28 +16,36 @@ const PERSON: PersonType = {
 
 describe('personDeleteModalLogic', () => {
     let logic: ReturnType<typeof personDeleteModalLogic.build>
-    let deleteSpy: jest.SpyInstance
+    let deletedUrl: URL | null
 
     beforeEach(() => {
+        deletedUrl = null
+        useMocks({
+            delete: {
+                '/api/projects/:team_id/persons/:id/': ({ request }) => {
+                    deletedUrl = new URL(request.url)
+                    return [204]
+                },
+            },
+        })
         initKeaTests()
-        deleteSpy = jest.spyOn(api, 'delete').mockResolvedValue(undefined)
         logic = personDeleteModalLogic({ person: PERSON })
         logic.mount()
     })
 
     afterEach(() => {
         logic.unmount()
-        deleteSpy.mockRestore()
     })
 
     it.each([
-        [false, '/api/projects/997/persons/123/?'],
-        [true, '/api/projects/997/persons/123/?delete_events=true'],
-    ])('deletes the person on the project route with deleteEvents=%s', async (deleteEvents, expectedUrl) => {
+        [false, ''],
+        [true, '?delete_events=true'],
+    ])('deletes the person on the project route with deleteEvents=%s', async (deleteEvents, expectedSearch) => {
         await expectLogic(logic, () => {
             logic.actions.deletePerson(PERSON, deleteEvents, false)
         }).toDispatchActions(['deletePersonSuccess'])
 
-        expect(deleteSpy).toHaveBeenCalledWith(expectedUrl)
+        expect(deletedUrl?.pathname).toEqual('/api/projects/997/persons/123/')
+        expect(deletedUrl?.search).toEqual(expectedSearch)
     })
 })
