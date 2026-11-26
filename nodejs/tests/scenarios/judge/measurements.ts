@@ -302,22 +302,25 @@ const spanning = <T extends { at: number }>(series: readonly T[], phase: Phase):
 const inside = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] =>
     series.filter(({ at }) => within(phase, at))
 
-type Opened<T> = { window: T[]; from: number; before: (read: (sample: T) => number) => number }
+type Opened<T> = { window: T[]; from: number; since: number; before: (read: (sample: T) => number) => number }
 
 // A baseline rate opens at the baseline's own start, the warm-up's end included, not at the scrape before it: that
-// scrape can fall in a quiet warm-up and dilute the rate. A counter's share of the gap before the start is read as if
-// it rose evenly between the two scrapes; across a restart nothing can be read, so the window opens at the first scrape.
+// scrape can fall in a quiet warm-up and dilute the rate. A counter's value at the start is estimated by linear
+// interpolation between the two scrapes. Across a restart nothing can be estimated, so the rate opens at the first scrape,
+// counting that scrape's lifetime from its value there: a start time rounded to the second can read as inside the window.
 function openedAt<T extends { at: number; startedAt?: number }>(series: readonly T[], phase: Phase): Opened<T> {
     const window = spanning(series, phase)
     const [reference, first] = window
     if (first === undefined || reference.at >= phase.from) {
-        return { window, from: reference?.at ?? phase.from, before: () => 0 }
+        const from = reference?.at ?? phase.from
+        return { window, from, since: from, before: () => 0 }
     }
     if (reference.startedAt !== first.startedAt) {
-        return { window: window.slice(1), from: first.at, before: () => 0 }
+        const since = Math.max(first.at, (first.startedAt ?? 0) * 1000) + 1
+        return { window: window.slice(1), from: first.at, since, before: () => 0 }
     }
     const share = (phase.from - reference.at) / (first.at - reference.at)
-    return { window, from: phase.from, before: (read) => (read(first) - read(reference)) * share }
+    return { window, from: phase.from, since: reference.at, before: (read) => (read(first) - read(reference)) * share }
 }
 
 const openedSpanOf = ({ window, from }: Opened<{ at: number }>): number =>
@@ -370,7 +373,7 @@ function phaseRate(samples: readonly MetricSample[], read: Counter, phase: Phase
         const span = openedSpanOf(opened)
         return span <= 0
             ? sum
-            : sum + (increaseOf(opened.window, read, opened.window[0].at) - opened.before(read)) / seconds(span)
+            : sum + (increaseOf(opened.window, read, opened.since) - opened.before(read)) / seconds(span)
     }, 0)
 }
 
@@ -383,9 +386,9 @@ const claimRate = (samples: readonly MetricSample[], queue: string, phase: Phase
 
 function scrapedSeconds(samples: readonly MetricSample[], phase: Phase): number {
     const spans = replicasOf(samples)
-        .map((ofReplica) => openedAt(ofReplica, phase))
-        .filter(({ window }) => window.length > 0)
-        .map((opened) => seconds(openedSpanOf(opened)))
+        .map((ofReplica) => spanning(ofReplica, phase))
+        .filter((window) => window.length > 0)
+        .map((window) => seconds(spanOf(window)))
     return spans.length === 0 ? 0 : Math.min(...spans)
 }
 
