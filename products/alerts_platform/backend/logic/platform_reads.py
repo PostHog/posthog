@@ -119,8 +119,7 @@ def _readable(
     """Configurations of the given kinds belonging to `team_id`, instances prefetched.
 
     The caller resolves which kinds it may read, because that depends on the caller's grants
-    rather than on anything this product knows. A kind with `object_access` also needs access to
-    each alert's object, which only its source can check, so a `reader` asks the source.
+    rather than on anything this product knows.
     """
     instances = PlatformAlert.objects.for_team(team_id, canonical=True).order_by("grouping_key")
     rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(

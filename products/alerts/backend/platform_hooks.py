@@ -124,9 +124,6 @@ def insight_alert_destination_edit_refusal(
 def viewable_alert_insights(
     *, team_id: int, object_ids: Collection[int | str], reader: PlatformAlertReader
 ) -> Collection[int | str]:
-    """The insights of `object_ids` whose alerts the reader may read through the platform API. It
-    applies the insight alert API's read gates: viewer access to the insight, and a metrics scope for
-    a token when the insight is a metrics one."""
     from django.db.models import Q  # noqa: PLC0415
 
     from posthog.schema_enums import NodeKind  # noqa: PLC0415
