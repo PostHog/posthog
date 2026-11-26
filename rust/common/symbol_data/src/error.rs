@@ -25,6 +25,8 @@ pub enum Error {
     UnknownCompression(u8),
     #[error("Decompressed data exceeds the {0} byte limit")]
     DecompressedTooLarge(u64),
+    #[error("Data holds {0} entries, more than the limit of {1}")]
+    TooManyEntries(u64, u64),
 }
 
 impl From<FromUtf8Error> for Error {

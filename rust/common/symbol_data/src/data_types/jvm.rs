@@ -14,6 +14,11 @@ use crate::{
 ///
 /// The encoding is deterministic: the same mapping and sources always give the same bytes. The
 /// CLI derives the symbol set id from these bytes, so that the same build never gets two ids.
+// Each source entry needs memory for its map node and string headers, also when its key and
+// contents are empty. The reader rejects a larger count before it builds the map, so that a small
+// bundle cannot make the reader allocate much more memory than the bundle size suggests.
+pub const MAX_JVM_BUNDLE_SOURCES: usize = 1_000_000;
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct JvmBundle {
     pub mapping: Option<String>,
@@ -66,6 +71,9 @@ impl SymbolData for JvmBundle {
         };
 
         let count = reader.u64()?;
+        if count > MAX_JVM_BUNDLE_SOURCES as u64 {
+            return Err(Error::TooManyEntries(count, MAX_JVM_BUNDLE_SOURCES as u64));
+        }
         let mut sources = BTreeMap::new();
         for _ in 0..count {
             let key = reader.string()?;
@@ -99,5 +107,22 @@ impl SymbolData for JvmBundle {
 
     fn data_type() -> SymbolDataType {
         SymbolDataType::JvmBundle
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bundle_over_the_source_limit_is_rejected_before_its_entries_are_read() {
+        let count = MAX_JVM_BUNDLE_SOURCES as u64 + 1;
+        let mut data = vec![0];
+        data.extend_from_slice(&count.to_le_bytes());
+
+        assert_eq!(
+            JvmBundle::from_bytes(data),
+            Err(Error::TooManyEntries(count, MAX_JVM_BUNDLE_SOURCES as u64))
+        );
     }
 }

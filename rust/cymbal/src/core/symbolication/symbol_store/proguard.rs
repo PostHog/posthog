@@ -23,15 +23,21 @@ pub struct FetchedMapping {
     sources: BTreeMap<String, String>,
 }
 
+// Memory that one source entry holds beyond the bytes of its key and contents: the two `String`
+// headers, its share of a B-tree node, and allocator rounding. B-tree nodes are often only half
+// full, so this is about twice the 48 bytes of the headers. Without it, a bundle of many empty
+// files reports almost no bytes, and the cache keeps far more sets than its budget allows.
+const SOURCE_ENTRY_OVERHEAD_BYTES: usize = 128;
+
 impl Countable for FetchedMapping {
     fn byte_count(&self) -> usize {
-        let cache = self.cache_bytes.as_ref().map_or(0, Vec::len);
+        let cache = self.cache_bytes.as_ref().map_or(0, Vec::capacity);
         let sources: usize = self
             .sources
             .iter()
-            .map(|(key, content)| key.len() + content.len())
+            .map(|(key, content)| key.capacity() + content.capacity() + SOURCE_ENTRY_OVERHEAD_BYTES)
             .sum();
-        cache + sources
+        std::mem::size_of::<Self>() + cache + sources
     }
 }
 
@@ -200,5 +206,19 @@ mod tests {
             frame.class() == "com.posthog.android.sample.MyCustomException3"
                 && frame.method() == "<init>"
         }));
+    }
+
+    #[test]
+    fn empty_source_files_still_count_against_the_cache_budget() {
+        let sources: BTreeMap<String, String> = (0..1000)
+            .map(|i| (format!("{i:06}"), String::new()))
+            .collect();
+        let fetched = FetchedMapping::from_bundle(JvmBundle {
+            mapping: None,
+            sources,
+        })
+        .unwrap();
+
+        assert!(fetched.byte_count() >= 1000 * SOURCE_ENTRY_OVERHEAD_BYTES);
     }
 }

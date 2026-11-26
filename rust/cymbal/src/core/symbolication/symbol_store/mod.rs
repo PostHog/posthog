@@ -76,7 +76,10 @@ pub(crate) fn record_size_limit_exceeded(
     kind: &'static str,
     limit: &'static str,
 ) {
-    if matches!(error, SymbolDataError::DecompressedTooLarge(_)) {
+    if matches!(
+        error,
+        SymbolDataError::DecompressedTooLarge(_) | SymbolDataError::TooManyEntries(..)
+    ) {
         metrics::counter!(SYMBOL_SET_SIZE_LIMIT_EXCEEDED, "kind" => kind, "limit" => limit)
             .increment(1);
     }
