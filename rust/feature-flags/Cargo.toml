@@ -36,6 +36,7 @@ http-body-util = "0.1"
 url = "2.5"
 once_cell = { workspace = true }
 rand = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 json5 = "1.3"

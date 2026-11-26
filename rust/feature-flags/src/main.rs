@@ -175,6 +175,10 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
 }
 
 fn main() {
+    // The quota limiting Redis uses TLS. If both rustls providers are compiled in and none is
+    // installed, the first handshake panics the task that made it.
+    drop(rustls::crypto::aws_lc_rs::default_provider().install_default());
+
     let config = Config::init_from_env().expect("Invalid configuration:");
 
     let threads = ThreadCounts::new(config.thread_pool_cores);
