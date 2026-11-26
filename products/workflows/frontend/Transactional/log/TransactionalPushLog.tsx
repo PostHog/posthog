@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import type { TransactionalPushLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { TransactionalChannelSelect } from '../TransactionalChannelSelect'
+import { TransactionalTemplatesLoadError } from '../TransactionalTemplatesLoadError'
 import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { PUSH_STATUS_DESCRIPTION, PUSH_STATUS_LABEL, PUSH_STATUS_TAG } from './pushLogStatus'
 import { QuillTransactionalPushLogFilters } from './QuillTransactionalPushLogFilters'
@@ -89,6 +90,10 @@ export function TransactionalPushLog(): JSX.Element {
                     </div>
                 </div>
             )}
+            <TransactionalTemplatesLoadError
+                message="Your push notifications couldn't load, so you can't filter by push notification yet. Check your connection and try again."
+                dataAttr="transactional-push-log-templates-retry"
+            />
             {pageFailed && (
                 <LemonBanner
                     type="error"
