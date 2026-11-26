@@ -302,6 +302,27 @@ const spanning = <T extends { at: number }>(series: readonly T[], phase: Phase):
 const inside = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] =>
     series.filter(({ at }) => within(phase, at))
 
+type Opened<T> = { window: T[]; from: number; before: (read: (sample: T) => number) => number }
+
+// A baseline rate opens at the baseline's own start, the warm-up's end included, not at the scrape before it: that
+// scrape can fall in a quiet warm-up and dilute the rate. A counter's share of the gap before the start is read as if
+// it rose evenly between the two scrapes; across a restart nothing can be read, so the window opens at the first scrape.
+function openedAt<T extends { at: number; startedAt?: number }>(series: readonly T[], phase: Phase): Opened<T> {
+    const window = spanning(series, phase)
+    const [reference, first] = window
+    if (first === undefined || reference.at >= phase.from) {
+        return { window, from: reference?.at ?? phase.from, before: () => 0 }
+    }
+    if (reference.startedAt !== first.startedAt) {
+        return { window: window.slice(1), from: first.at, before: () => 0 }
+    }
+    const share = (phase.from - reference.at) / (first.at - reference.at)
+    return { window, from: phase.from, before: (read) => (read(first) - read(reference)) * share }
+}
+
+const openedSpanOf = ({ window, from }: Opened<{ at: number }>): number =>
+    window.length < 2 ? 0 : window.at(-1)!.at - from
+
 const bracketing = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] => {
     const closing = series.find(({ at }) => at >= phase.to)
     return [...spanning(series, phase), ...(closing ? [closing] : [])]
@@ -345,9 +366,11 @@ const spanOf = (window: readonly { at: number }[]): number => (window.length < 2
 
 function phaseRate(samples: readonly MetricSample[], read: Counter, phase: Phase): number {
     return replicasOf(samples).reduce((sum, ofReplica) => {
-        const window = spanning(ofReplica, phase)
-        const span = spanOf(window)
-        return span <= 0 ? sum : sum + increaseOf(window, read, window[0].at) / seconds(span)
+        const opened = openedAt(ofReplica, phase)
+        const span = openedSpanOf(opened)
+        return span <= 0
+            ? sum
+            : sum + (increaseOf(opened.window, read, opened.window[0].at) - opened.before(read)) / seconds(span)
     }, 0)
 }
 
@@ -360,17 +383,19 @@ const claimRate = (samples: readonly MetricSample[], queue: string, phase: Phase
 
 function scrapedSeconds(samples: readonly MetricSample[], phase: Phase): number {
     const spans = replicasOf(samples)
-        .map((ofReplica) => spanning(ofReplica, phase))
-        .filter((window) => window.length > 0)
-        .map((window) => seconds(spanOf(window)))
+        .map((ofReplica) => openedAt(ofReplica, phase))
+        .filter(({ window }) => window.length > 0)
+        .map((opened) => seconds(openedSpanOf(opened)))
     return spans.length === 0 ? 0 : Math.min(...spans)
 }
 
-function busyShareOf(span: readonly HostSample[]): number | undefined {
+function busyShareOf(span: readonly HostSample[], before: Opened<HostSample>['before'] = () => 0): number | undefined {
     const [first, last] = [span.at(0), span.at(-1)]
-    return first !== undefined && last !== undefined && last.totalTicks > first.totalTicks
-        ? (last.busyTicks - first.busyTicks) / (last.totalTicks - first.totalTicks)
-        : undefined
+    if (first === undefined || last === undefined) {
+        return undefined
+    }
+    const total = last.totalTicks - first.totalTicks - before(({ totalTicks }) => totalTicks)
+    return total > 0 ? (last.busyTicks - first.busyTicks - before(({ busyTicks }) => busyTicks)) / total : undefined
 }
 
 export const stepHostBusyShareOf = (host: readonly HostSample[], step: Phase): number | undefined =>
@@ -420,17 +445,21 @@ export function baselineOf({
     }
     const queues = scraped < MIN_BASELINE_SECONDS ? [] : queuesOf(samples)
     const claimsPerSecond = Object.fromEntries(queues.map((name) => [name, claimRate(samples, name, baseline)]))
-    const inserted = spanning(counted(queue), baseline)
-    const hostBusyShare = busyShareOf(spanning(byTime(host), baseline))
+    const inserted = openedAt(counted(queue), baseline)
+    const insertedSpan = openedSpanOf(inserted)
+    const openedHost = openedAt(byTime(host), baseline)
+    const hostBusyShare = busyShareOf(openedHost.window, openedHost.before)
     return {
         seconds: length,
         scrapedSeconds: scraped,
         claimsPerSecond,
-        ...(inserted.length > 1 && inserted.at(-1)!.at > inserted[0].at
+        ...(insertedSpan > 0
             ? {
                   newJobsPerSecond:
-                      (inserted.at(-1)!.inserted - inserted[0].inserted) /
-                      seconds(inserted.at(-1)!.at - inserted[0].at),
+                      (inserted.window.at(-1)!.inserted -
+                          inserted.window[0].inserted -
+                          inserted.before(({ inserted }) => inserted)) /
+                      seconds(insertedSpan),
               }
             : {}),
         ...(hostBusyShare === undefined ? {} : { hostBusyShare }),

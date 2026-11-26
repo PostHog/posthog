@@ -742,7 +742,7 @@ describe('measurements', () => {
         }).toEqual({
             baseline: {
                 seconds: 700,
-                scrapedSeconds: 600,
+                scrapedSeconds: 550,
                 claimsPerSecond: { email: 0.375, hogflow: 0.125 },
                 newJobsPerSecond: 0.5,
                 hostBusyShare: 0.4,
