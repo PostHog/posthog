@@ -324,6 +324,16 @@ class PrimaryMetric:
     # Since when the stored results show each variant that `result` shows as significant. None without a stored result.
     significance: SignificanceHistory | None = None
 
+    @property
+    def samples(self) -> int | None:
+        """The total that the running time estimate's "Target reached" compares, so a check that reads it and the
+        estimate agree. None without a stored result."""
+        if self.result is None:
+            return None
+        if self.target.current_sample_size is not None:
+            return self.target.current_sample_size
+        return self.result.number_of_samples
+
 
 @frozen
 class MetricWindow:

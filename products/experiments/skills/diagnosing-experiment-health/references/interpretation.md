@@ -366,7 +366,9 @@ frontend/src/scenes/experiments/RunningTimeCalculator; running_time_target.py in
 
 **Evidence to gather.** On a running experiment, read `experiment-health-get` first.
 Its `result_ready` finding with subcode `target_reached_not_significant` says that the current result counts at least the target sample and shows no variant as significant, with `samples`, `planned_samples` and `minimum_detectable_effect` in its evidence.
-Those numbers come from the current result, so they hold even when the stored fields below are old.
+`samples` comes from the current result, so it holds even when the stored fields below are old.
+`planned_samples` does too, except in manual mode, where it is the saved `recommended_sample_size`.
+`minimum_detectable_effect` is the effect the experiment plans to detect.
 
 `running_time_calculation` in `experiment-get`:
 

@@ -327,11 +327,11 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.RESULT_READY,
-        name="Results ready for a decision",
+        name="When to end the experiment",
         description=(
             f"Checks whether the primary metric has its answer: a variant that every result has shown as significant "
-            f"for {SIGNIFICANT_DAYS} days or more, or the planned sample without a significant variant. You can then "
-            "end the experiment, or keep it running to measure more."
+            f"for {SIGNIFICANT_DAYS} days or more, or as many users as the running time estimate needs without a "
+            "significant variant. You can then end the experiment, or keep it running to measure more."
         ),
         run=result_ready,
         read=result_ready_values,

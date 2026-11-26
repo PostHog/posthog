@@ -460,9 +460,8 @@ class ExperimentHealthValueKey(LabeledStrEnum):
     SIGNIFICANT = "significant", "Whether a variant's difference from the control is significant"
     SIGNIFICANT_SINCE_AT = (
         "significant_since_at",
-        "When the data ends of the earliest stored result of the primary metric from which every result shows the "
-        "variant as significant, up to the current one. The earliest of the variants that the current result shows as "
-        "significant",
+        "Since when every result of the primary metric, up to the current one, shows a variant as significant. With "
+        "more than one significant variant, the earliest date",
     )
     FORCED_CONDITION_COUNT = (
         "forced_condition_count",

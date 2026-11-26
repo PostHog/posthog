@@ -183,8 +183,9 @@ class SignificanceHistory:
 
     # When the data of the current result ends.
     current_until: datetime
-    # By variant key: when the data ends of the earliest result in the unbroken run of results, up to the current one,
-    # that show the variant as significant. Only the variants that the current result shows as significant.
+    # By variant key: since when every result, up to the current one, shows the variant as significant. The time is
+    # the end of the data of the first result in that run. Only the variants that the current result shows as
+    # significant.
     significant_since: Mapping[str, datetime]
 
 

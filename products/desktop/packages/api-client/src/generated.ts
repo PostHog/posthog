@@ -10751,7 +10751,7 @@ export namespace Schemas {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
-     * * `significant_since_at` - When the data ends of the earliest stored result of the primary metric from which every result shows the variant as significant, up to the current one. The earliest of the variants that the current result shows as significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -10898,7 +10898,7 @@ export namespace Schemas {
          * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
          * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
          * * `significant` - Whether a variant's difference from the control is significant
-         * * `significant_since_at` - When the data ends of the earliest stored result of the primary metric from which every result shows the variant as significant, up to the current one. The earliest of the variants that the current result shows as significant
+         * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
          * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
          * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
          * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -10975,7 +10975,7 @@ export namespace Schemas {
          * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
          * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
          * * `significant` - Whether a variant's difference from the control is significant
-         * * `significant_since_at` - When the data ends of the earliest stored result of the primary metric from which every result shows the variant as significant, up to the current one. The earliest of the variants that the current result shows as significant
+         * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
          * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
          * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
          * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random

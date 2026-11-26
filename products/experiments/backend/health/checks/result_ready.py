@@ -23,8 +23,10 @@ from products.experiments.backend.health.checks.early_significance import early_
 from products.experiments.backend.health.context import HealthContext, PrimaryMetric
 from products.experiments.backend.health.skips import (
     NEEDS_PRIMARY_METRIC,
+    NEEDS_PRIMARY_METRIC_RESULTS,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
+    PRIMARY_METRIC_UNREADABLE,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
     CheckSkip,
@@ -80,15 +82,10 @@ def _readout(ctx: HealthContext) -> _Readout | CheckSkip:
         return not_applicable(NEEDS_PRIMARY_METRIC)
     metric = ctx.primary_metric
     if metric is None:
-        return not_checked("Couldn't read the results of the primary metric")
-    if metric.result is None or metric.significance is None:
-        return not_applicable("Runs once the primary metric has results")
-    # The running time estimate's "Target reached" compares the same total, so the finding and the estimate agree.
-    samples = metric.target.current_sample_size
-    if samples is None:
-        samples = metric.result.baseline.number_of_samples + sum(
-            variant.number_of_samples for variant in metric.result.variants
-        )
+        return not_checked(PRIMARY_METRIC_UNREADABLE)
+    samples = metric.samples
+    if metric.result is None or metric.significance is None or samples is None:
+        return not_applicable(NEEDS_PRIMARY_METRIC_RESULTS)
     return _Readout(metric=metric, result=metric.result, samples=samples, significance=metric.significance)
 
 
