@@ -103,7 +103,7 @@ A pre-check suits a scout that watches data a query can read, such as new events
 Findings do not arrive later, because the next run that starts still sees everything since the last run that started.
 It suits a scout poorly when a query cannot tell whether a run would matter, such as a sweep through a codebase.
 
-- `precheck_query_source` in `posthog:scout-config-list` shows the current state: `config`, `skill_default`, or `off`. Only `off` means no pre-check runs.
+- `precheck_query_source` in `posthog:scout-config-retrieve` shows the current state: `config`, `skill_default`, or `off`. Only `off` means no pre-check runs.
 - Most scouts that PostHog ships come with a default pre-check, so `skill_default` is the normal state. A `precheck_query` saved on the config replaces the default, and does not add to it.
   `skill_default` with a null `effective_precheck_query` means a check in code runs instead of a query.
 - A scout that PostHog ships can show `off` when it has no default, when its default is not rolled out to the project yet, or when `precheck_disabled` is true. A team's own scout has no default.
@@ -183,7 +183,7 @@ Each action starts a separate agent run as the scout's acting user. That run is 
 
 - `report_actions` on the scout config lists the granted actions, and is empty by default.
 - `max_report_actions_per_day` caps how many actions the scout starts in a rolling 24 hours, across all its runs.
-- Read both with `posthog:scout-config-list`. Change them with `posthog:scout-config-update`. Only the scout's acting user can add an action, and a project admin can only remove one.
+- Read both with `posthog:scout-config-retrieve`. Change them with `posthog:scout-config-update`. Only the scout's acting user can add an action, and a project admin can only remove one.
 
 When the user asks why their PostHog AI usage grew with their scouts, check these. Do not count them as Self-driving savings.
 This is not the `scout_triggered_implementation` kind: that kind is the automatic pull request for a report that a scout wrote, and the controls under [Automatic pull requests](#automatic-pull-requests) govern it.

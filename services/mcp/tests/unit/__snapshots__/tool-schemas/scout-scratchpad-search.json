@@ -6,6 +6,12 @@
             "minimum": 0,
             "type": "number"
         },
+        "content_offset": {
+            "description": "Start each entry's `content` at this character. Use it with `key` to read a long entry in parts: pass the `content_next_offset` of the previous read. Combines with `content_max_chars`. Earlier versions from `include_revisions` are not paged.",
+            "maximum": 50000,
+            "minimum": 0,
+            "type": "number"
+        },
         "date_from": {
             "description": "ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.",
             "format": "date-time",

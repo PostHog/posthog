@@ -31,6 +31,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from products.aeo.backend import auto_setup, keyword_suggestions, suggestions
 from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
 from products.aeo.backend.check_brands import enrich_check_brands, enrich_lock, has_stale_brands, has_unresolved_checks
+from products.aeo.backend.credits import out_of_ai_credits
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
     KeywordSuggestionRequest,
@@ -91,6 +92,16 @@ def citation_tracking_enabled(team: Team) -> bool:
     )
 
 
+def citation_checks_can_run(team: Team) -> bool:
+    if not citation_tracking_enabled(team):
+        logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
+        return False
+    if out_of_ai_credits(team):
+        logger.info("aeo_citation_run_skipped_no_credits", team_id=team.id)
+        return False
+    return True
+
+
 def _teams_with_active_prompts() -> list[Team]:
     active = AEOPrompt.objects.unscoped().filter(active=True, archived_at__isnull=True).values("team_id")
     return list(Team.objects.filter(id__in=active).select_related("organization").order_by("id"))
@@ -101,10 +112,8 @@ def _teams_with_active_prompts() -> list[Team]:
 def run_aeo_citation_checks_task() -> None:
     """Beat entrypoint: fan out one runner task per team with active prompts that passes the gate."""
     for team in _teams_with_active_prompts():
-        if not citation_tracking_enabled(team):
-            logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
-            continue
-        run_aeo_citation_checks_for_team_task.delay(team.id)
+        if citation_checks_can_run(team):
+            run_aeo_citation_checks_for_team_task.delay(team.id)
 
 
 @shared_task(ignore_result=True)
@@ -171,8 +180,7 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
         return
     # Re-check the gate here too, so this task fails closed even if it is queued
     # outside the dispatcher (which already checks before fan-out).
-    if not citation_tracking_enabled(team):
-        logger.info("aeo_citation_task_flag_disabled", team_id=team_id)
+    if not citation_checks_can_run(team):
         return
     # thread_local=False: the renewal thread must see the token the task thread acquired.
     lease = get_client().lock(f"aeo_citation_run:{team_id}", timeout=RUN_LEASE_SECONDS, thread_local=False)

@@ -15,6 +15,7 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key, leg
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.messaging.backend.facade.preferences import TopicsNotFound, set_preferences
+from products.messaging.backend.presentation.views.docs_order import MessagingDocsOrder
 from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
 
 logger = structlog.get_logger(__name__)
@@ -83,6 +84,7 @@ class TopicPreferencesTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle)
 
 
 class TopicPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    schema_docs_order = MessagingDocsOrder.PREFERENCES
     # LEGACY_SCOPE_FALLBACKS lets `hog_flow:write` satisfy this scope too, with no end date.
     scope_object = "messaging_preference"
     permission_classes = [IsAuthenticated]
