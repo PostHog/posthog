@@ -9,6 +9,17 @@
  */
 import * as zod from 'zod'
 
+export const BillingPartialUpdateBody = /* @__PURE__ */ zod.object({
+    custom_limits_usd: zod
+        .record(zod.string(), zod.number().nullable())
+        .optional()
+        .describe('Spend limit in USD for each product or usage key. Null removes the limit for that key.'),
+    reset_limit_next_period: zod
+        .string()
+        .optional()
+        .describe('Product type whose limit for the next billing period is removed.'),
+})
+
 export const BillingActivateCreateBody = /* @__PURE__ */ zod.object({
     organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
     products: zod.string().optional().describe('Product and plan keys to activate.'),
@@ -38,53 +49,61 @@ export const BillingCouponsClaimCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const billingCreditsPurchaseCreateBodyPlanMax = 100
-
 export const BillingCreditsPurchaseCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingCreditsPurchaseCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    annual_credit_amount_usd: zod.number().describe('Amount of credits in USD to buy for one year.'),
+    collection_method: zod
+        .string()
+        .describe('How to pay: `charge_automatically` charges the card on file, `send_invoice` emails an invoice.'),
 })
-
-export const billingDeactivateCreateBodyPlanMax = 100
 
 export const BillingDeactivateCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingDeactivateCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    products: zod.string().describe('Comma-separated product types to unsubscribe from.'),
 })
-
-export const billingLicensePartialUpdateBodyPlanMax = 100
 
 export const BillingLicensePartialUpdateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingLicensePartialUpdateBodyPlanMax).optional(),
-    billing_limit: zod.number().optional(),
+    license: zod.string().optional().describe('License key to activate on this self-hosted instance.'),
 })
-
-export const billingStartupsApplyCreateBodyPlanMax = 100
 
 export const BillingStartupsApplyCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingStartupsApplyCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    organization_id: zod.uuid().describe('Organization that applies to the startup program.'),
+    program: zod.string().describe('Program to apply to: `YC` or `startup`.'),
+    yc_merch_count: zod.number().nullish().describe('Number of YC merch items the founders want.'),
+    yc_verification_url: zod.string().nullish().describe('YC Bookface link that proves the founder is in YC.'),
+    yc_batch: zod.string().nullish().describe('YC batch, for example `W25`.'),
+    yc_proof_screenshot_url: zod.string().nullish().describe('Uploaded screenshot that proves the founder is in YC.'),
+    raised: zod.string().nullish().describe('Total funding raised, in USD.'),
+    incorporation_date: zod.iso.date().nullish().describe('Date the company was incorporated, as YYYY-MM-DD.'),
+    referrer: zod.string().nullish().describe('Partner that referred the startup, in lowercase.'),
 })
-
-export const billingSubscriptionSwitchPlanCreateBodyPlanMax = 100
 
 export const BillingSubscriptionSwitchPlanCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingSubscriptionSwitchPlanCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    from_product_key: zod.string().describe('Product the organization is subscribed to now.'),
+    from_plan_key: zod.string().describe('Plan the organization is subscribed to now.'),
+    to_product_key: zod.string().describe('Product to switch to.'),
+    to_plan_key: zod.string().describe('Plan to switch to.'),
 })
-
-export const billingTrialsActivateCreateBodyPlanMax = 100
 
 export const BillingTrialsActivateCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingTrialsActivateCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    type: zod.string().describe('Trial type: `autosubscribe` or `standard`.'),
+    target: zod.string().describe('Product type or plan the trial is for.'),
 })
 
-export const billingTrialsCancelCreateBodyPlanMax = 100
-
-export const BillingTrialsCancelCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingTrialsCancelCreateBodyPlanMax),
-    billing_limit: zod.number(),
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationPartialUpdateBody = /* @__PURE__ */ zod.object({
+    custom_limits_usd: zod
+        .record(zod.string(), zod.number().nullable())
+        .optional()
+        .describe('Spend limit in USD for each product or usage key. Null removes the limit for that key.'),
+    reset_limit_next_period: zod
+        .string()
+        .optional()
+        .describe('Product type whose limit for the next billing period is removed.'),
 })
 
 /**
@@ -427,11 +446,11 @@ export const BillingOrganizationCouponsClaimCreateBody = /* @__PURE__ */ zod.obj
  * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
  * paths in its own shapes, so this viewset leaves those reads to it.
  */
-export const billingOrganizationCreditsPurchaseCreateBodyPlanMax = 100
-
 export const BillingOrganizationCreditsPurchaseCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingOrganizationCreditsPurchaseCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    annual_credit_amount_usd: zod.number().describe('Amount of credits in USD to buy for one year.'),
+    collection_method: zod
+        .string()
+        .describe('How to pay: `charge_automatically` charges the card on file, `send_invoice` emails an invoice.'),
 })
 
 /**
@@ -441,11 +460,8 @@ export const BillingOrganizationCreditsPurchaseCreateBody = /* @__PURE__ */ zod.
  * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
  * paths in its own shapes, so this viewset leaves those reads to it.
  */
-export const billingOrganizationDeactivateCreateBodyPlanMax = 100
-
 export const BillingOrganizationDeactivateCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingOrganizationDeactivateCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    products: zod.string().describe('Comma-separated product types to unsubscribe from.'),
 })
 
 /**
@@ -455,11 +471,8 @@ export const BillingOrganizationDeactivateCreateBody = /* @__PURE__ */ zod.objec
  * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
  * paths in its own shapes, so this viewset leaves those reads to it.
  */
-export const billingOrganizationLicensePartialUpdateBodyPlanMax = 100
-
 export const BillingOrganizationLicensePartialUpdateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingOrganizationLicensePartialUpdateBodyPlanMax).optional(),
-    billing_limit: zod.number().optional(),
+    license: zod.string().optional().describe('License key to activate on this self-hosted instance.'),
 })
 
 /**
@@ -469,11 +482,16 @@ export const BillingOrganizationLicensePartialUpdateBody = /* @__PURE__ */ zod.o
  * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
  * paths in its own shapes, so this viewset leaves those reads to it.
  */
-export const billingOrganizationStartupsApplyCreateBodyPlanMax = 100
-
 export const BillingOrganizationStartupsApplyCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingOrganizationStartupsApplyCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    organization_id: zod.uuid().describe('Organization that applies to the startup program.'),
+    program: zod.string().describe('Program to apply to: `YC` or `startup`.'),
+    yc_merch_count: zod.number().nullish().describe('Number of YC merch items the founders want.'),
+    yc_verification_url: zod.string().nullish().describe('YC Bookface link that proves the founder is in YC.'),
+    yc_batch: zod.string().nullish().describe('YC batch, for example `W25`.'),
+    yc_proof_screenshot_url: zod.string().nullish().describe('Uploaded screenshot that proves the founder is in YC.'),
+    raised: zod.string().nullish().describe('Total funding raised, in USD.'),
+    incorporation_date: zod.iso.date().nullish().describe('Date the company was incorporated, as YYYY-MM-DD.'),
+    referrer: zod.string().nullish().describe('Partner that referred the startup, in lowercase.'),
 })
 
 /**
@@ -483,11 +501,11 @@ export const BillingOrganizationStartupsApplyCreateBody = /* @__PURE__ */ zod.ob
  * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
  * paths in its own shapes, so this viewset leaves those reads to it.
  */
-export const billingOrganizationSubscriptionSwitchPlanCreateBodyPlanMax = 100
-
 export const BillingOrganizationSubscriptionSwitchPlanCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingOrganizationSubscriptionSwitchPlanCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    from_product_key: zod.string().describe('Product the organization is subscribed to now.'),
+    from_plan_key: zod.string().describe('Plan the organization is subscribed to now.'),
+    to_product_key: zod.string().describe('Product to switch to.'),
+    to_plan_key: zod.string().describe('Plan to switch to.'),
 })
 
 /**
@@ -497,23 +515,7 @@ export const BillingOrganizationSubscriptionSwitchPlanCreateBody = /* @__PURE__ 
  * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
  * paths in its own shapes, so this viewset leaves those reads to it.
  */
-export const billingOrganizationTrialsActivateCreateBodyPlanMax = 100
-
 export const BillingOrganizationTrialsActivateCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingOrganizationTrialsActivateCreateBodyPlanMax),
-    billing_limit: zod.number(),
-})
-
-/**
- * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
- * following the user's current project.
- *
- * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
- * paths in its own shapes, so this viewset leaves those reads to it.
- */
-export const billingOrganizationTrialsCancelCreateBodyPlanMax = 100
-
-export const BillingOrganizationTrialsCancelCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingOrganizationTrialsCancelCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    type: zod.string().describe('Trial type: `autosubscribe` or `standard`.'),
+    target: zod.string().describe('Product type or plan the trial is for.'),
 })

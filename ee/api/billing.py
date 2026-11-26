@@ -425,7 +425,7 @@ class BillingOverviewResponseSerializer(serializers.Serializer):
 
 
 class LicenseKeySerializer(serializers.Serializer):
-    license = serializers.CharField()
+    license = serializers.CharField(help_text="License key to activate on this self-hosted instance.")
 
 
 class BillingUsageRequestSerializer(serializers.Serializer):
@@ -688,6 +688,159 @@ class BillingAuthorizationStatusResponseSerializer(serializers.Serializer):
     )
 
 
+class BillingLimitsUpdateRequestSerializer(serializers.Serializer):
+    custom_limits_usd = serializers.DictField(
+        child=serializers.FloatField(allow_null=True),
+        required=False,
+        help_text="Spend limit in USD for each product or usage key. Null removes the limit for that key.",
+    )
+    reset_limit_next_period = serializers.CharField(
+        required=False,
+        help_text="Product type whose limit for the next billing period is removed.",
+    )
+
+
+class BillingInvoiceSummaryRequestSerializer(serializers.Serializer):
+    status = serializers.CharField(
+        required=False,
+        help_text="Stripe invoice status to count, for example `open` or `uncollectible`.",
+    )
+
+
+class BillingInvoiceSummaryResponseSerializer(serializers.Serializer):
+    link = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Link to pay the invoices: the hosted invoice when there is one, the billing portal otherwise.",
+    )
+    count = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Number of invoices with the requested status."
+    )
+
+
+class BillingCreditBracketSerializer(serializers.Serializer):
+    annual_credit_from_inclusive = serializers.FloatField(
+        help_text="Smallest annual credit amount in USD that gets this discount."
+    )
+    annual_credit_to_exclusive = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text="Annual credit amount in USD where the next bracket starts. Null for the last bracket.",
+    )
+    discount = serializers.FloatField(help_text="Discount for this bracket, as a fraction from 0 to 1.")
+
+
+class BillingCreditsOverviewResponseSerializer(serializers.Serializer):
+    eligible = serializers.BooleanField(
+        required=False, help_text="Whether the organization can buy prepaid credits at a discount."
+    )
+    status = serializers.CharField(
+        required=False, help_text="State of the latest credit purchase: `none`, `pending`, or `paid`."
+    )
+    estimated_monthly_credit_amount_usd = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Monthly spend in USD that billing suggests as the base of a credit purchase.",
+    )
+    invoice_url = serializers.CharField(
+        required=False, allow_null=True, help_text="Hosted invoice for a pending credit purchase."
+    )
+    collection_method = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="How the pending credit purchase is paid: `charge_automatically` or `send_invoice`.",
+    )
+    cc_last_four = serializers.CharField(
+        required=False, allow_null=True, help_text="Last four digits of the card on file."
+    )
+    email = serializers.CharField(required=False, allow_null=True, help_text="Billing email that gets invoices.")
+    credit_brackets = BillingCreditBracketSerializer(
+        many=True, required=False, help_text="Discount for each range of annual credit amounts."
+    )
+
+
+class BillingCreditsPurchaseRequestSerializer(serializers.Serializer):
+    annual_credit_amount_usd = serializers.FloatField(help_text="Amount of credits in USD to buy for one year.")
+    collection_method = serializers.CharField(
+        help_text="How to pay: `charge_automatically` charges the card on file, `send_invoice` emails an invoice."
+    )
+
+
+class BillingSwitchPlanRequestSerializer(serializers.Serializer):
+    from_product_key = serializers.CharField(help_text="Product the organization is subscribed to now.")
+    from_plan_key = serializers.CharField(help_text="Plan the organization is subscribed to now.")
+    to_product_key = serializers.CharField(help_text="Product to switch to.")
+    to_plan_key = serializers.CharField(help_text="Plan to switch to.")
+
+
+class BillingTrialActivationRequestSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Trial type: `autosubscribe` or `standard`.")
+    target = serializers.CharField(help_text="Product type or plan the trial is for.")
+
+
+class BillingStartupApplicationRequestSerializer(serializers.Serializer):
+    organization_id = serializers.UUIDField(help_text="Organization that applies to the startup program.")
+    program = serializers.CharField(help_text="Program to apply to: `YC` or `startup`.")
+    yc_merch_count = serializers.IntegerField(
+        required=False, allow_null=True, help_text="Number of YC merch items the founders want."
+    )
+    yc_verification_url = serializers.CharField(
+        required=False, allow_null=True, help_text="YC Bookface link that proves the founder is in YC."
+    )
+    yc_batch = serializers.CharField(required=False, allow_null=True, help_text="YC batch, for example `W25`.")
+    yc_proof_screenshot_url = serializers.CharField(
+        required=False, allow_null=True, help_text="Uploaded screenshot that proves the founder is in YC."
+    )
+    raised = serializers.CharField(required=False, allow_null=True, help_text="Total funding raised, in USD.")
+    incorporation_date = serializers.DateField(
+        required=False, allow_null=True, help_text="Date the company was incorporated, as YYYY-MM-DD."
+    )
+    referrer = serializers.CharField(
+        required=False, allow_null=True, help_text="Partner that referred the startup, in lowercase."
+    )
+
+
+class BillingClaimedCouponSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="Coupon code that was claimed.")
+    campaign_name = serializers.CharField(help_text="Name of the campaign the coupon belongs to.")
+    campaign_slug = serializers.CharField(allow_null=True, help_text="Slug of the campaign, if it has one.")
+    claimed_at = serializers.DateTimeField(help_text="When the coupon was claimed.")
+    expires_at = serializers.DateTimeField(allow_null=True, help_text="When the coupon credit expires, if it does.")
+    status = serializers.CharField(help_text="Coupon state: `claimed` or `expired`.")
+
+
+class BillingCouponsOverviewResponseSerializer(serializers.Serializer):
+    claimed_coupons = BillingClaimedCouponSerializer(
+        many=True, help_text="Coupons the organization has claimed, active and expired."
+    )
+
+
+class BillingCouponClaimResponseSerializer(serializers.Serializer):
+    campaign = serializers.CharField(
+        required=False, allow_null=True, help_text="Name of the campaign the claimed coupon belongs to."
+    )
+    expires_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="When the claimed coupon credit expires, if it does."
+    )
+
+
+_LIST_ROUTE_PATHS = frozenset({"/api/billing/", "/api/organizations/{organization_id}/billing/"})
+
+
+def _is_list_route_patch(path: str, method: str) -> bool:
+    # PATCH on the list route runs the limits action, which its own route already documents. drf-spectacular can't
+    # describe one action on two routes: it inspects the other route's view, which has no request, so the schemas
+    # below leave this one out.
+    return method == "PATCH" and path in _LIST_ROUTE_PATHS
+
+
+class _BillingSchema(PostHogAutoSchema):
+    def get_operation(self, path, path_regex, path_prefix, method, registry):
+        if _is_list_route_patch(path, method):
+            return None
+        return super().get_operation(path, path_regex, path_prefix, method, registry)
+
+
 def _billing_period_response(organization: Organization) -> dict[str, Any]:
     billing_period = organization.current_billing_period
     return BillingPeriodResponseSerializer(
@@ -700,6 +853,7 @@ def _billing_period_response(organization: Organization) -> dict[str, Any]:
 
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    schema = _BillingSchema()
     serializer_class = BillingSerializer
     pagination_class = None
     param_derived_from_user_current_team: Literal["team_id", "project_id"] | None = "team_id"
@@ -822,7 +976,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def period(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(_billing_period_response(self._get_org_required()))
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        extensions={"x-internal": True},
+        request=BillingLimitsUpdateRequestSerializer,
+        responses={200: BillingOverviewResponseSerializer},
+    )
     @action(
         methods=["PATCH"],
         detail=False,
@@ -899,9 +1057,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             res = billing_manager.activate_subscription(organization, data)
         return Response(res, status=status.HTTP_200_OK)
 
+    @extend_schema_serializer(component_name="BillingDeactivateRequest")
     class DeactivateSerializer(serializers.Serializer):
-        products = serializers.CharField()
+        products = serializers.CharField(help_text="Comma-separated product types to unsubscribe from.")
 
+    @extend_schema(request=DeactivateSerializer, responses={200: BillingOverviewResponseSerializer})
     @action(
         methods=["POST"],
         detail=False,
@@ -935,6 +1095,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
+    @extend_schema(request=BillingSwitchPlanRequestSerializer)
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
@@ -974,6 +1135,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return redirect(invoices_url)
         return redirect(res)
 
+    @extend_schema(
+        parameters=[BillingInvoiceSummaryRequestSerializer],
+        responses={200: BillingInvoiceSummaryResponseSerializer},
+    )
     @action(methods=["GET"], detail=False, permission_classes=[permissions.IsAuthenticated, HasBillingAccess])
     def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -1013,6 +1178,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(responses={200: BillingCreditsOverviewResponseSerializer})
     @action(methods=["GET"], detail=False, url_path="credits/overview")
     def credits_overview(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -1028,6 +1194,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.credits_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
 
+    @extend_schema(request=BillingCreditsPurchaseRequestSerializer)
     @action(
         methods=["POST"],
         detail=False,
@@ -1048,6 +1215,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.purchase_credits(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
+    @extend_schema(request=BillingTrialActivationRequestSerializer)
     @action(
         methods=["POST"],
         detail=False,
@@ -1060,6 +1228,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.activate_trial(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
+    @extend_schema(request=None)
     @action(
         methods=["POST"],
         detail=False,
@@ -1133,6 +1302,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.authorize_status(organization, data)
         return Response(res, status=status.HTTP_200_OK)
 
+    @extend_schema(request=LicenseKeySerializer)
     @action(
         methods=["PATCH"],
         detail=False,
@@ -1169,6 +1339,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         BillingManager(license, ip_address=ip_address).update_license_details(data)
         return Response({"success": True})
 
+    @extend_schema(request=BillingStartupApplicationRequestSerializer)
     @action(
         methods=["POST"],
         detail=False,
@@ -1223,7 +1394,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
-    @extend_schema(request=ClaimCouponSerializer)
+    @extend_schema(request=ClaimCouponSerializer, responses={200: BillingCouponClaimResponseSerializer})
     @action(
         methods=["POST"],
         detail=False,
@@ -1282,6 +1453,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @extend_schema(responses={200: BillingCouponsOverviewResponseSerializer})
     @action(methods=["GET"], detail=False, url_path="coupons/overview")
     def coupons_overview(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -1624,6 +1796,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class _OrganizationPathBillingSchema(PostHogAutoSchema):
+    # Subclassing _BillingSchema would give drf-spectacular's extended schema a duplicate base class.
+    def get_operation(self, path, path_regex, path_prefix, method, registry):
+        if _is_list_route_patch(path, method):
+            return None
+        return super().get_operation(path, path_regex, path_prefix, method, registry)
+
     # /api/billing/ serves the same actions, so the organization route needs operation ids of its own.
     def get_operation_id(self) -> str:
         # The nested route would otherwise derive organizations_billing_list, which loses its organizations_ prefix

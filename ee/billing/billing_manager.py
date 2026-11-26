@@ -499,7 +499,7 @@ class BillingManager:
             products = self.get_default_products(organization, timeout=timeout)
             response["products"] = products["products"]
 
-        response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
+        response["stripe_portal_url"] = f"{settings.SITE_URL}/api/organizations/{organization.id}/billing/portal"
 
         usage_summary = response.get("usage_summary") or {}
         if organization.usage:

@@ -875,7 +875,7 @@ class OrganizationBillingViewSet(BillingReadViewSet):
             "amount_off_expires_at": _iso(data.get("amount_off_expires_at")),
             "startup_program_label": data.get("startup_program_label"),
             "startup_program_label_previous": data.get("startup_program_label_previous"),
-            "billing_portal_url": f"{settings.SITE_URL}/api/billing/portal",
+            "billing_portal_url": f"{settings.SITE_URL}/api/organizations/{organization.id}/billing/portal",
             "license": {"plan": license.plan if license else None},
             "billing_managed_by_partner": billing_managed_by_partner(organization),
         }
