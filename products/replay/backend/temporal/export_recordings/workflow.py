@@ -148,7 +148,7 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 wait_for_export_pool,
                 ExportPoolInput(run_id=input.run_id, shards=shards),
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=timedelta(minutes=7),
                 heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=common.RetryPolicy(maximum_attempts=2),
             )
