@@ -5,6 +5,7 @@ import { LogsSamplingRuleApi, LogsExclusionRuleRuleTypeEnumApi } from 'products/
 import {
     buildSamplingConfigPayload,
     buildSamplingFormDefaults,
+    buildScopeAttributeFiltersPayload,
     LogsSamplingFormType,
     rateLimitAmountToKbPerSecond,
 } from './logsSamplingFormLogic'
@@ -95,5 +96,22 @@ describe('logsSamplingFormLogic serialization', () => {
         const config = buildSamplingConfigPayload(form)
         expect(config.kb_per_second).toEqual(50)
         expect(config).not.toHaveProperty('logs_per_second')
+    })
+
+    it('clears legacy attribute filters when an existing rule becomes require_secret_key', () => {
+        const legacy = {
+            name: 'legacy drop',
+            enabled: true,
+            rule_type: LogsExclusionRuleRuleTypeEnumApi.PathDrop,
+            scope_attribute_filters: [{ key: 'env', op: 'eq', value: 'dev' }],
+            config: {},
+        } as unknown as LogsSamplingRuleApi
+        const form = buildSamplingFormDefaults(legacy)
+
+        expect(buildScopeAttributeFiltersPayload(form, legacy)).toEqual(legacy.scope_attribute_filters)
+
+        const converted = { ...form, rule_type: LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey }
+        expect(buildScopeAttributeFiltersPayload(converted, legacy)).toEqual([])
+        expect(buildSamplingConfigPayload(converted)).toEqual({})
     })
 })

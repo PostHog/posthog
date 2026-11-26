@@ -139,6 +139,17 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
     return form
 }
 
+export function buildScopeAttributeFiltersPayload(
+    form: LogsSamplingFormType,
+    rule: LogsSamplingRuleApi | null
+): PatchedLogsSamplingRuleApi['scope_attribute_filters'] {
+    // The form hides the filter editor for this type, so stored legacy filters would block the save.
+    if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey) {
+        return []
+    }
+    return (rule?.scope_attribute_filters ?? []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
+}
+
 export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<string, unknown> {
     if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey) {
         return {}
@@ -275,8 +286,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
             submit: async (form: LogsSamplingFormType) => {
                 const projectId = String(values.currentTeamId)
                 try {
-                    const scope_attribute_filters = (props.rule?.scope_attribute_filters ??
-                        []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
+                    const scope_attribute_filters = buildScopeAttributeFiltersPayload(form, props.rule ?? null)
                     const payload = {
                         name: form.name.trim(),
                         enabled: form.enabled,
