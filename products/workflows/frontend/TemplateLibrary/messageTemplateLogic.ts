@@ -132,6 +132,7 @@ export interface messageTemplateLogicValues {
             sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
             tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
             transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
+            type?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['type']
             updated_at: string | null
         },
         ValidationErrorType
@@ -157,6 +158,7 @@ export interface messageTemplateLogicValues {
             sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
             tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
             transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
+            type?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['type']
             updated_at: string | null
         },
         ValidationErrorType
@@ -244,6 +246,7 @@ export interface messageTemplateLogicActions {
         sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
         tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
         transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
+        type?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['type']
         updated_at: string | null
     }) => {
         values?: {
@@ -260,6 +263,7 @@ export interface messageTemplateLogicActions {
             sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
             tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
             transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
+            type?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['type']
             updated_at: string | null
         }
     }
@@ -359,6 +363,7 @@ export interface messageTemplateLogicActions {
             sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
             tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
             transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
+            type?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['type']
             updated_at: string | null
         }>
     ) => {
@@ -376,6 +381,7 @@ export interface messageTemplateLogicActions {
             sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
             tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
             transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
+            type?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['type']
             updated_at: string | null
         }>
     }
@@ -406,6 +412,7 @@ export interface messageTemplateLogicActions {
         sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
         tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
         transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
+        type?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['type']
         updated_at: string | null
     }) => {
         template: {
@@ -422,6 +429,7 @@ export interface messageTemplateLogicActions {
             sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
             tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
             transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
+            type?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['type']
             updated_at: string | null
         }
     }
@@ -439,6 +447,7 @@ export interface messageTemplateLogicActions {
         sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
         tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
         transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
+        type?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['type']
         updated_at: string | null
     }) => {
         template: {
@@ -455,6 +464,7 @@ export interface messageTemplateLogicActions {
             sensitive?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['sensitive']
             tags?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['tags']
             transactional_hog_flow_id?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['transactional_hog_flow_id']
+            type?: import('products/messaging/frontend/generated/api.schemas').MessageTemplateApi['type']
             updated_at: string | null
         }
     }
