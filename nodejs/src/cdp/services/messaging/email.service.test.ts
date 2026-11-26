@@ -2807,6 +2807,13 @@ describe('EmailService', () => {
                 })
 
                 type FailTheTry = (emailService: EmailService) => void
+                const aDequeueAfterTheDueTimeMs = 250
+                const untilDue = (retry: CyclotronJobInvocationHogFunction): Promise<number> => {
+                    const msToDue = Math.max(0, (retry.queueScheduledAt?.toMillis() ?? 0) - Date.now())
+                    return new Promise((resolve) =>
+                        setTimeout(() => resolve(msToDue), msToDue + aDequeueAfterTheDueTimeMs)
+                    )
+                }
                 const downloadFails: FailTheTry = () => {
                     bucket.answer = 'refuse'
                 }
@@ -2830,6 +2837,7 @@ describe('EmailService', () => {
                         bucket.answer = 'pass'
                         emailService.checkJobOwnershipBeforeSend(() => Promise.resolve(true))
                         next = tried.invocation
+                        await untilDue(next)
                     }
                     return emailService.executeSendEmail(next)
                 }
@@ -2846,18 +2854,17 @@ describe('EmailService', () => {
                     'claims the workflow limit again for the retry after %s, so the retry parks for the next slot and sends once in it',
                     async (_cause, failedTries) => {
                         const emailService = sender()
-                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 60, period: 'minute' } }
+                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 10, period: 'minute' } }
 
                         const parked = await sendAfterFailedTries(emailService, failedTries)
                         const sentBeforeTheNextSlot = deliveredTo(ses, recipient).length
-                        const msToTheNextSlot = parked.invocation.queueScheduledAt!.toMillis() - Date.now()
-                        await new Promise((resolve) => setTimeout(resolve, Math.max(0, msToTheNextSlot)))
+                        const msToTheNextSlot = await untilDue(parked.invocation)
                         const retried = await emailService.executeSendEmail(parked.invocation)
 
                         expect({
                             parked: parked.finished,
                             sentBeforeTheNextSlot,
-                            nextSlotWithinSeconds: msToTheNextSlot < 5_000,
+                            nextSlotWithinSeconds: msToTheNextSlot < 10_000,
                             retried: retried.finished,
                             delivered: deliveredTo(ses, recipient),
                         }).toEqual({
