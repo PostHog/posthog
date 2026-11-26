@@ -133,6 +133,12 @@ You can create a REST API key in your Braze dashboard under **Settings → API K
 - `kpi.uninstalls.data_series`
 - `templates.email.list`
 - `content_blocks.list`
+- `purchases.product_list`
+- `purchases.revenue_series`
+- `purchases.quantity_series`
+- `sessions.data_series`
+- `email.unsubscribe`
+- `email.hard_bounces`
 
 Your REST endpoint must match your Braze dashboard's region — see [Braze's API overview](https://www.braze.com/docs/api/basics/#endpoints) for the list of endpoints.""",
             iconPath="/static/services/braze.png",

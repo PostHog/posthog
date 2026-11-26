@@ -2410,10 +2410,10 @@ Diffed against: <https://www.braze.com/docs/sitemap.xml>
 - [x] `/segments/data_series` — segment size over time, the only way to trend audience growth (high)
 - [x] `/campaigns/details` — enriches the campaign list with message variants, channels, tags and conversion behaviors (high)
 - [x] `/canvas/details` — canvas step and variant structure needed to attribute canvas analytics (high)
-- [ ] `/sends/data_series` — per-send_id analytics for API-triggered campaign sends (medium)
-- [ ] `/purchases/revenue_series, /purchases/quantity_series, /purchases/product_list` — revenue and purchase counts, plus the product lookup that resolves product ids (medium)
-- [ ] `/sessions/data_series` — app session counts by app and date (medium)
-- [ ] `/email/unsubscribes and /email/hard_bounces` — deliverability events joinable to campaigns (medium)
+- [ ] `/sends/data_series` — per-send_id analytics for API-triggered campaign sends (medium) Skipped: needs a send_id, and Braze has no endpoint that lists send IDs, so a sync has nothing to enumerate.
+- [x] `/purchases/revenue_series, /purchases/quantity_series, /purchases/product_list` — revenue and purchase counts, plus the product lookup that resolves product ids (medium)
+- [x] `/sessions/data_series` — app session counts by app and date (medium)
+- [x] `/email/unsubscribes and /email/hard_bounces` — deliverability events joinable to campaigns (medium)
 - [ ] `/catalogs and /catalogs/{catalog_name}/items` — lookup tables resolving catalog item ids referenced in personalization and purchases (medium)
 
 Note: Braze has no OpenAPI/llms.txt (llms.txt 404s), so I enumerated every /docs/api/endpoints/\* page from the docs sitemap and then opened the individual pages to read the literal REST paths (confirmed /campaigns/data_series, /canvas/data_series, /segments/data_series, /events/data_series, /sends/data_series, /kpi/dau/data_series, /sessions/data_series, /purchases/revenue_series, /email/unsubscribes, /canvas/details, /catalogs, /custom_attributes). The connector now syncs the campaign, Canvas, custom event and workspace KPI `data\_series` endpoints alongside the six `list` endpoints, plus `/segments/data_series` and both `details` endpoints.

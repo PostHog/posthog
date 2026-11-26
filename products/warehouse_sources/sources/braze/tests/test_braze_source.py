@@ -62,12 +62,20 @@ class TestBrazeSource:
         assert is_valid is True
         assert error_message is None
 
-    def test_validate_credentials_enforces_scope_for_specific_schema(self):
+    @pytest.mark.parametrize(
+        "schema_name, expected_url",
+        [
+            ("email_templates", f"{BASE_URL}/templates/email/list?page=0"),
+            # The email list queries reject a request without a date range.
+            ("email_unsubscribes", f"{BASE_URL}/email/unsubscribes?start_date=2020-01-01&end_date=2020-01-02&limit=1"),
+        ],
+    )
+    def test_validate_credentials_enforces_scope_for_specific_schema(self, schema_name, expected_url):
         with scripted_network([ScriptedResponse(status=403)]) as network:
             is_valid, error_message = self.source.validate_credentials(
-                self.config, self.team_id, schema_name="email_templates"
+                self.config, self.team_id, schema_name=schema_name
             )
 
         assert is_valid is False
         assert error_message == "Your Braze API key does not have permission for this endpoint"
-        assert [request.url for request in network.requests_log] == [f"{BASE_URL}/templates/email/list?page=0"]
+        assert [request.url for request in network.requests_log] == [expected_url]
