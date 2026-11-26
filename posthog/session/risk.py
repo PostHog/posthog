@@ -63,6 +63,7 @@ class Context:
     longitude: Optional[float]
     country_code: Optional[str]
     ua_signature: Optional[str]
+    ip: Optional[str] = None
 
 
 def ua_signature(user_agent: Optional[str]) -> Optional[str]:
@@ -76,8 +77,8 @@ def ua_signature(user_agent: Optional[str]) -> Optional[str]:
 
 
 def current_request_context(request: HttpRequest) -> Context:
-    """Geo + UA signature for the current request, used by evaluate_session_risk to score against
-    the baseline and to advance it."""
+    """Client IP, geo and UA signature for the current request, used by evaluate_session_risk to score
+    against the baseline, to advance it, and to report it."""
     # Trusted-proxy-validated IP: a spoofed X-Forwarded-For must not drive a security decision.
     ip = get_trusted_client_ip(request)
     loc = get_geoip_location(ip) if ip else {}
@@ -86,6 +87,7 @@ def current_request_context(request: HttpRequest) -> Context:
         longitude=loc.get("longitude"),
         country_code=loc.get("country_code"),
         ua_signature=ua_signature(request.headers.get("user-agent")),
+        ip=ip,
     )
 
 
@@ -341,7 +343,13 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
             "signals": sorted(signal.value for signal in signals),
             "tier": tier.name,
             "enforced": enforced,
+            # The id the login sessions API lists and revokes by. The session key itself is a credential.
+            "session_public_id": str(session_public_id(session_key)),
         }
+        if ctx.ip:
+            # Server-side capture otherwise records this server's egress address as `$ip`. Ingestion
+            # keeps an explicit `$ip` and still drops it for teams that anonymize IPs.
+            properties["$ip"] = ctx.ip
         if RiskSignal.UA_CHANGE in signals:
             # A session is one cookie in one browser, so the device signature should not move within
             # it. Record which way it moved, so the volume can be attributed to a real cause — a
