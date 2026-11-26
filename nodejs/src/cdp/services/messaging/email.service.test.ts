@@ -2922,6 +2922,13 @@ describe('EmailService', () => {
             })
             const sent = { finished: true, error: undefined, retryLater: false }
             const retriedLoad = { finished: false, error: undefined, retryLater: true }
+            const failedMaybeSent = {
+                finished: true,
+                error: expect.stringMatching(
+                    /^Failed to send email via SES: SES did not answer before the send deadline/
+                ),
+                retryLater: false,
+            }
 
             it.each([
                 ['fails', 'with files', () => Promise.reject(new Error('Connection terminated unexpectedly'))],
@@ -2982,6 +2989,7 @@ describe('EmailService', () => {
             const halfTheSizeLimit = (): Promise<StoredFile> =>
                 uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2))
             type HeldCall = { holding: () => Promise<void>; release: () => void; close?: () => Promise<void> }
+            type HeldStep = [(emailService: EmailService) => Promise<HeldCall>, number]
             const theDownload = (): Promise<HeldCall> => {
                 bucket.answer = 'hold'
                 return Promise.resolve(bucket)
@@ -2992,14 +3000,15 @@ describe('EmailService', () => {
                 let release!: () => void
                 const released = new Promise<void>((resolve) => (release = resolve))
                 const server = createServer((request, response) => {
-                    heard()
                     const upstream = httpRequest(
                         new URL(request.url!, ses.endpoint),
                         { method: request.method, headers: request.headers },
-                        (answer) =>
+                        (answer) => {
+                            heard()
                             void released.then(() =>
                                 answer.pipe(response.writeHead(answer.statusCode!, answer.headers))
                             )
+                        }
                     )
                     upstream.on('error', () => response.destroy())
                     request.pipe(upstream)
@@ -3022,8 +3031,7 @@ describe('EmailService', () => {
                     'a download answered after 19 s, a small send, whose deadline is 17 s, sends nothing and retries',
                     () => Promise.resolve(pdf),
                     undefined,
-                    theDownload,
-                    19_000,
+                    [[theDownload, 19_000]],
                     retriedLoad,
                     0,
                 ],
@@ -3031,8 +3039,7 @@ describe('EmailService', () => {
                     'a download answered after 19 s, a small send under a configured 30 s deadline, sends',
                     () => Promise.resolve(pdf),
                     30_000,
-                    theDownload,
-                    19_000,
+                    [[theDownload, 19_000]],
                     sent,
                     1,
                 ],
@@ -3040,8 +3047,7 @@ describe('EmailService', () => {
                     'a download answered after 46 s, a small send under a configured 50 s deadline, which stops at 45 s, sends nothing and retries',
                     () => Promise.resolve(pdf),
                     50_000,
-                    theDownload,
-                    46_000,
+                    [[theDownload, 46_000]],
                     retriedLoad,
                     0,
                 ],
@@ -3049,8 +3055,7 @@ describe('EmailService', () => {
                     'a download answered after 20 s, a send of half the size limit, whose deadline is 31 s, sends',
                     halfTheSizeLimit,
                     undefined,
-                    theDownload,
-                    20_000,
+                    [[theDownload, 20_000]],
                     sent,
                     1,
                 ],
@@ -3058,17 +3063,26 @@ describe('EmailService', () => {
                     'an SES answer that comes after 20 s, a send of half the size limit, whose deadline is 31 s, sends',
                     halfTheSizeLimit,
                     undefined,
-                    theSesAnswer,
-                    20_000,
+                    [[theSesAnswer, 20_000]],
                     sent,
+                    1,
+                ],
+                [
+                    'a download answered after 20 s and an SES answer that comes 20 s later, a send of half the size limit, whose deadline is 31 s, fails without a retry',
+                    halfTheSizeLimit,
+                    undefined,
+                    [
+                        [theDownload, 20_000],
+                        [theSesAnswer, 20_000],
+                    ],
+                    failedMaybeSent,
                     1,
                 ],
                 [
                     'a download answered after 24 s, a send of a fifth of the size limit, whose deadline is 22.6 s, sends nothing and retries',
                     aFifthOfTheSizeLimit,
                     undefined,
-                    theDownload,
-                    24_000,
+                    [[theDownload, 24_000]],
                     retriedLoad,
                     0,
                 ],
@@ -3076,8 +3090,7 @@ describe('EmailService', () => {
                     'a download answered after 32 s, a send of half the size limit under a configured 20 s deadline, which grows to 32.5 s, sends',
                     halfTheSizeLimit,
                     20_000,
-                    theDownload,
-                    32_000,
+                    [[theDownload, 32_000]],
                     sent,
                     1,
                 ],
@@ -3085,17 +3098,21 @@ describe('EmailService', () => {
                     'a download answered after 18 s, a send of half the size limit under a configured 10 s deadline, which grows to 18.2 s, sends',
                     halfTheSizeLimit,
                     10_000,
-                    theDownload,
-                    18_000,
+                    [[theDownload, 18_000]],
                     sent,
                     1,
                 ],
             ])(
                 'on the send deadline, given %s',
-                async (_case, file, attachmentSendDeadlineMs, holdCall, answeredAfterMs, expected, deliveries) => {
+                async (_case, file, attachmentSendDeadlineMs, heldSteps, expected, deliveries) => {
                     send([await file()])
                     const emailService = sender({ attachmentSendDeadlineMs })
-                    const held = await holdCall(emailService)
+                    const steps = await Promise.all(
+                        (heldSteps as HeldStep[]).map(async ([holdCall, answeredAfterMs]) => ({
+                            held: await holdCall(emailService),
+                            answeredAfterMs,
+                        }))
+                    )
                     pinDate(Date.now())
                     const pending: { endsAt: number; controller: AbortController }[] = []
                     const timeouts = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
@@ -3115,20 +3132,24 @@ describe('EmailService', () => {
                     }
                     try {
                         const outcome = emailService.executeSendEmail(invocation).then(outcomeOf)
-                        const heldBeforeTheSendReturned = await Promise.race([
-                            held.holding().then(() => true),
-                            outcome.then(() => false),
-                        ])
-                        expect(heldBeforeTheSendReturned).toBe(true)
-                        advanceSendClock(answeredAfterMs)
-                        held.release()
+                        for (const { held, answeredAfterMs } of steps) {
+                            const heldBeforeTheSendReturned = await Promise.race([
+                                held.holding().then(() => true),
+                                outcome.then(() => false),
+                            ])
+                            expect(heldBeforeTheSendReturned).toBe(true)
+                            advanceSendClock(answeredAfterMs)
+                            held.release()
+                        }
 
                         expect(await outcome).toEqual(expected)
                         expect(deliveredTo(ses, recipient)).toHaveLength(deliveries)
                     } finally {
                         timeouts.mockRestore()
                         jest.useRealTimers()
-                        await held.close?.()
+                        for (const { held } of steps) {
+                            await held.close?.()
+                        }
                     }
                 }
             )
@@ -3274,67 +3295,78 @@ describe('EmailService', () => {
                 }
             )
 
-            it('when SES records the email, answers 500 and its body stalls past the deadline, fails the send without a retry', async () => {
-                const deadlines: AbortController[] = []
-                const heldDeadlines = jest.spyOn(AbortSignal, 'timeout').mockImplementation(() => {
-                    const deadline = new AbortController()
-                    deadlines.push(deadline)
-                    return deadline.signal
-                })
-                const sendRequest = http.request as (...args: unknown[]) => ClientRequest
-                const deadlinePassesOnceThe500Arrives = jest.spyOn(http, 'request').mockImplementation(((
-                    ...args: unknown[]
-                ) =>
-                    sendRequest(...args).on('response', (response) => {
-                        if (response.statusCode === 500) {
-                            setImmediate(() =>
-                                deadlines.forEach((deadline) =>
-                                    deadline.abort(new DOMException('The deadline passed', 'TimeoutError'))
+            it.each([
+                [
+                    500,
+                    'InternalFailure',
+                    'fails the send without a retry, because SES may have recorded it',
+                    { finished: true, error: expect.stringMatching(/^Failed to send email via SES: /), failed: true },
+                ],
+                [
+                    429,
+                    'TooManyRequestsException',
+                    'keeps the send for a retry, because SES refused it',
+                    { finished: false, error: undefined, failed: false },
+                ],
+            ])(
+                'when SES answers %s headers (%s) and its body stalls past the deadline, %s',
+                async (status, errorType, _outcome, expected) => {
+                    const deadlines: AbortController[] = []
+                    const heldDeadlines = jest.spyOn(AbortSignal, 'timeout').mockImplementation(() => {
+                        const deadline = new AbortController()
+                        deadlines.push(deadline)
+                        return deadline.signal
+                    })
+                    const sendRequest = http.request as (...args: unknown[]) => ClientRequest
+                    const deadlinePassesOnceTheHeadersArrive = jest.spyOn(http, 'request').mockImplementation(((
+                        ...args: unknown[]
+                    ) =>
+                        sendRequest(...args).on('response', (response) => {
+                            if (response.statusCode === status) {
+                                setImmediate(() =>
+                                    deadlines.forEach((deadline) =>
+                                        deadline.abort(new DOMException('The deadline passed', 'TimeoutError'))
+                                    )
                                 )
-                            )
-                        }
-                    })) as typeof http.request)
-                let timesSesRecordedIt = 0
-                const ses500ThenStall = createServer((request, response) => {
-                    request.resume()
-                    request.on('end', () => {
-                        timesSesRecordedIt++
-                        response
-                            .writeHead(500, {
-                                'content-type': 'application/json',
-                                'x-amzn-errortype': 'InternalFailure',
-                            })
-                            .write('{"message":')
+                            }
+                        })) as typeof http.request)
+                    let requests = 0
+                    const sesAnswerStalls = createServer((request, response) => {
+                        request.resume()
+                        request.on('end', () => {
+                            requests++
+                            response
+                                .writeHead(status, {
+                                    'content-type': 'application/json',
+                                    'x-amzn-errortype': errorType,
+                                })
+                                .write('{"message":')
+                        })
                     })
-                })
-                await new Promise<void>((resolve) => ses500ThenStall.listen(0, '127.0.0.1', resolve))
-                const emailService = sender()
-                emailService.sesTransport = sesTransportFor({
-                    endpoint: `http://127.0.0.1:${(ses500ThenStall.address() as AddressInfo).port}`,
-                })
-
-                try {
-                    const result = await emailService.executeSendEmail(invocation)
-
-                    expect({
-                        finished: result.finished,
-                        error: result.error,
-                        failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
-                        timesSesRecordedIt,
-                    }).toEqual({
-                        finished: true,
-                        error: expect.stringMatching(/^Failed to send email via SES: /),
-                        failed: true,
-                        timesSesRecordedIt: 1,
+                    await new Promise<void>((resolve) => sesAnswerStalls.listen(0, '127.0.0.1', resolve))
+                    const emailService = sender()
+                    emailService.sesTransport = sesTransportFor({
+                        endpoint: `http://127.0.0.1:${(sesAnswerStalls.address() as AddressInfo).port}`,
                     })
-                } finally {
-                    heldDeadlines.mockRestore()
-                    deadlinePassesOnceThe500Arrives.mockRestore()
-                    emailService.sesTransport?.destroy()
-                    ses500ThenStall.closeAllConnections()
-                    await new Promise<void>((resolve) => ses500ThenStall.close(() => resolve()))
+
+                    try {
+                        const result = await emailService.executeSendEmail(invocation)
+
+                        expect({
+                            finished: result.finished,
+                            error: result.error,
+                            failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
+                            requests,
+                        }).toEqual({ ...expected, requests: 1 })
+                    } finally {
+                        heldDeadlines.mockRestore()
+                        deadlinePassesOnceTheHeadersArrive.mockRestore()
+                        emailService.sesTransport?.destroy()
+                        sesAnswerStalls.closeAllConnections()
+                        await new Promise<void>((resolve) => sesAnswerStalls.close(() => resolve()))
+                    }
                 }
-            })
+            )
 
             const bucketRefuses = (): void => {
                 bucket.answer = 'refuse'

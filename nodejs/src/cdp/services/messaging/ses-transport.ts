@@ -131,7 +131,12 @@ const BENEATH_THE_DESERIALIZER = 'low'
 
 const ABOVE_THE_DESERIALIZER = 'high'
 
-const sesAnsweredInFull = (error: unknown): boolean => typeof (error as { $fault?: unknown })?.$fault === 'string'
+const sesRefusedBeforeRecording = (response: unknown): boolean => {
+    const statusCode = (response as { statusCode?: number } | undefined)?.statusCode
+    return statusCode !== undefined && statusCode >= 400 && statusCode < 500
+}
+
+const sesFailedAndAnsweredInFull = (error: unknown): boolean => (error as { $fault?: unknown })?.$fault === 'server'
 
 type SendAttempts = {
     mayHaveReachedSes: () => boolean
@@ -146,7 +151,11 @@ function trackAttempts(command: SendEmailCommand): SendAttempts {
             attemptsSesMayHaveAccepted++
             whyTheLastNeverLeftTheWorker = null
             try {
-                return await next(args)
+                const httpAnswer = await next(args)
+                if (sesRefusedBeforeRecording(httpAnswer.response)) {
+                    attemptsSesMayHaveAccepted--
+                }
+                return httpAnswer
             } catch (error) {
                 if (failedBeforeTheRequestLeft(error)) {
                     attemptsSesMayHaveAccepted--
@@ -162,7 +171,7 @@ function trackAttempts(command: SendEmailCommand): SendAttempts {
             try {
                 return await next(args)
             } catch (error) {
-                if (sesAnsweredInFull(error)) {
+                if (sesFailedAndAnsweredInFull(error)) {
                     attemptsSesMayHaveAccepted--
                 }
                 throw error
