@@ -5,7 +5,7 @@ from products.workflows.backend.facade.enums import AdventCalendarDay, AdventCal
 
 class AdventCalendarAnswer(models.Model):
     user = models.ForeignKey(
-        "posthog.User", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+        "posthog.User", on_delete=models.DO_NOTHING, db_constraint=False, db_index=False, related_name="+"
     )
     day = models.PositiveSmallIntegerField(choices=AdventCalendarDay.choices)
     option = models.CharField(max_length=16, choices=AdventCalendarOption.choices)

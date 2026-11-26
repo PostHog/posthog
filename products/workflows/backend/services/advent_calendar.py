@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db import transaction
+from django.db.models import Count, Q
 
 from posthog.models.user import User
 
@@ -21,15 +22,15 @@ ADVENT_CALENDAR_QUESTIONS: Mapping[AdventCalendarDay, tuple[AdventCalendarOption
 def answer_advent_calendar(
     user_id: int, day: AdventCalendarDay, option: AdventCalendarOption
 ) -> list[AdventCalendarQuestionResult]:
-    AdventCalendarAnswer.objects.get_or_create(user_id=user_id, day=day, defaults={"option": option})
+    with transaction.atomic():
+        if User.objects.select_for_update(no_key=True).filter(pk=user_id).exists():
+            AdventCalendarAnswer.objects.get_or_create(user_id=user_id, day=day, defaults={"option": option})
     return advent_calendar_results(user_id)
 
 
 def advent_calendar_results(user_id: int) -> list[AdventCalendarQuestionResult]:
-    rows = (
-        AdventCalendarAnswer.objects.filter(Exists(User.objects.filter(pk=OuterRef("user_id"))))
-        .values("day", "option")
-        .annotate(count=Count("id"), own=Count("id", filter=Q(user_id=user_id)))
+    rows = AdventCalendarAnswer.objects.values("day", "option").annotate(
+        count=Count("id"), own=Count("id", filter=Q(user_id=user_id))
     )
     counts = {(row["day"], row["option"]): row["count"] for row in rows}
     own_answers = {row["day"]: AdventCalendarOption(row["option"]) for row in rows if row["own"]}

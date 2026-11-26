@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -8,6 +8,8 @@ from rest_framework import status
 
 from posthog.models import Organization, Team, User
 
+from products.workflows.backend.facade.advent_calendar import answer_advent_calendar
+from products.workflows.backend.facade.enums import AdventCalendarDay, AdventCalendarOption
 from products.workflows.backend.models import AdventCalendarAnswer
 
 
@@ -76,7 +78,6 @@ class TestAdventCalendarAPI(APIBaseTest):
     def test_answers_of_deleted_accounts_leave_the_tally(self) -> None:
         leaver = User.objects.create_and_join(self.organization, "leaver@example.com", "password")
         self._answer_as(leaver, self.team, 18, "no")
-        AdventCalendarAnswer.objects.create(user_id=leaver.id + 1000, day=18, option="no")
         self._answer_as(self.user, self.team, 18, "yes")
         leaver.organization_memberships.all().delete()
         self.client.force_login(leaver)
@@ -124,3 +125,10 @@ class TestAdventCalendarAPI(APIBaseTest):
         assert results.status_code == status.HTTP_403_FORBIDDEN
         assert not AdventCalendarAnswer.objects.exists()
         self._results()
+
+
+class TestAdventCalendarAnswers(BaseTest):
+    def test_an_answer_for_an_account_deleted_meanwhile_stores_nothing(self) -> None:
+        answer_advent_calendar(self.user.id + 1000, AdventCalendarDay.COFFEE_OR_TEA, AdventCalendarOption.TEA)
+
+        assert not AdventCalendarAnswer.objects.exists()

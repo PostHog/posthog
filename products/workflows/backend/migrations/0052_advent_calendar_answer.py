@@ -61,7 +61,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         db_index=False,
-                        on_delete=django.db.models.deletion.CASCADE,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
                         related_name="+",
                         to=settings.AUTH_USER_MODEL,
                     ),
