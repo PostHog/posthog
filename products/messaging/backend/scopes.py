@@ -11,4 +11,12 @@ SCOPE_DOCS = (
         group="Messaging",
         docs_url="https://posthog.com/docs/workflows/transactional-emails",
     ),
+    ScopeDoc(
+        object="transactional_push",
+        name="Transactional push notification",
+        plural="transactional push notifications",
+        description="Making a push template transactional and sending push notifications from it with a project secret key.",
+        group="Messaging",
+        docs_url="https://posthog.com/docs/workflows/push-notifications",
+    ),
 )

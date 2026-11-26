@@ -144,6 +144,7 @@ APIScopeObject = Literal[
     "toolbar",
     "tracing",
     "transactional_email",
+    "transactional_push",
     "field_note",
     "uploaded_media",
     "usage_metric",
