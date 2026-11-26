@@ -14,7 +14,11 @@ from posthog.models.user import User
 
 from products.alerts_platform.backend.delivery import refusal_notices
 from products.alerts_platform.backend.delivery.refusal_notices import notify_refused
-from products.alerts_platform.backend.delivery.transport import DestinationMisconfigured, DestinationRefused
+from products.alerts_platform.backend.delivery.transport import (
+    CHECK_THE_URL,
+    DestinationMisconfigured,
+    DestinationRefused,
+)
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.logic import source_access
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
@@ -108,7 +112,7 @@ class TestRefusalNotices(BaseTest):
 
     @parameterized.expand(
         [
-            ("webhook", REFUSAL, "Check the destination's URL and the format it accepts"),
+            ("webhook", REFUSAL, CHECK_THE_URL),
             (
                 "slack",
                 DestinationRefused(

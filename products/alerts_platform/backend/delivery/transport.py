@@ -93,8 +93,7 @@ class DeliveryAmbiguous(DeliveryError):
 class DestinationMisconfigured(DeliveryError):
     """A refusal that only the destination's owner can fix, such as a channel the bot is not in.
 
-    The platform did its part, so its own reliability metrics count this apart from a failure. The
-    alert's creator is told, with `remedy` saying what to change.
+    The platform did its part, so its own reliability metrics count this apart from a failure.
     """
 
     reason: FailureReason = "destination_config"
@@ -104,7 +103,7 @@ class DestinationMisconfigured(DeliveryError):
         self.remedy = remedy
 
 
-# What an HTTP destination's owner checks. A provider whose fix lies elsewhere names its own.
+# What an HTTP destination's owner checks.
 CHECK_THE_URL = "Check the destination's URL and the format it accepts, then update the destination on the alert."
 
 ADD_RECIPIENTS = "Add recipients to the destination on the alert, or remove the destination."
