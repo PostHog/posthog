@@ -3,7 +3,6 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Context;
 use axum::Router;
 use common_ingestion_warnings::{
     observe_delivery, KafkaWarningEmitter, WarningEmitter, WarningThrottle,
@@ -20,9 +19,9 @@ use crate::ai_event_size_caps::AiEventSizeCaps;
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::events::ai_byte_limit::ENVELOPE_WEIGHT_BYTES;
-use crate::fallback::Fallback;
+use crate::fallback;
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
-use crate::outputs::{self as outputs_layer, Output, OutputRegistry, Target};
+use crate::outputs::{Output, OutputRegistry};
 use crate::producers::{self, ProducerConfig, ProducerName, ProducerRegistry};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
@@ -30,10 +29,8 @@ use crate::quota_limiters::{
 };
 use crate::router;
 use crate::router::{AI_BODY_SIZE, BATCH_BODY_SIZE};
-use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
-use crate::sinks::registry::OutputTable;
 use crate::sinks::s3::S3Sink;
 use crate::v1::constants::CAPTURE_V1_LEGACY_PROPERTY_SPLICE;
 use limiters::overflow::OverflowLimiter;
@@ -551,27 +548,6 @@ async fn create_output(
         return Ok((Output::single(NoOpSink::new()), None));
     }
 
-    // Runs before any producer connects, so a blank topic refuses boot
-    // immediately instead of after a broker connect attempt.
-    let outputs = OutputTable::new(&config.outputs, config.capture_mode.has_ai_overflow_lane());
-    if config.outputs_completeness_check_enabled {
-        outputs.check_complete()?;
-    } else {
-        info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
-    }
-
-    let fallback = Fallback::resolve(config, &outputs, producer_configs)?;
-    let producer_configs = fallback.producer_configs(producer_configs);
-    for table in std::iter::once(&outputs).chain(fallback.table()) {
-        for name in table.producers() {
-            anyhow::ensure!(
-                producer_configs.contains_key(&name),
-                "an output publishes through producer {}, which is not configured",
-                name.as_str()
-            );
-        }
-    }
-
     // With the S3 fallback, the live Kafka producers report to the advisory
     // handle so an unhealthy cluster never gates the pod.
     let kafka_handle = if config.s3_fallback_enabled {
@@ -579,26 +555,8 @@ async fn create_output(
     } else {
         sink_handle.clone()
     };
-    let live_producers = outputs.producers();
-    let liveness = kafka_handle
-        .iter()
-        .flat_map(|handle| {
-            live_producers
-                .iter()
-                .map(move |&name| (name, handle.clone()))
-        })
-        .collect();
-    let producers = ProducerRegistry::build(&producer_configs, liveness)
-        .context("failed to start Kafka producers")?;
-
-    fallback
-        .check_at_boot(&producers, &producer_configs)
-        .await?;
-    let kafka_output = Output::single(KafkaSink::new(
-        outputs.map_producers(|name| producers.get(*name)),
-        config.replay_envelope_compression,
-    ));
-    outputs_layer::record_live_target(Target::Primary);
+    let (kafka_output, producers) =
+        fallback::build_kafka_output(config, producer_configs, kafka_handle.clone()).await?;
 
     if !config.s3_fallback_enabled {
         return Ok((kafka_output, Some(producers)));
@@ -866,7 +824,6 @@ fn create_event_restriction_service(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fallback;
     use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
     use rstest::rstest;
     use std::collections::HashMap;
@@ -1279,56 +1236,6 @@ mod tests {
         create_output_registry(&config, &default_producers, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
-    }
-
-    fn fallback_config(mode: CaptureMode, check: &str) -> Config {
-        let cfg_env: HashMap<String, String> = [
-            ("REDIS_URL", "redis://localhost:6379/"),
-            ("CAPTURE_MODE", mode.as_tag()),
-            (fallback::CHECK_VAR, check),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
-        envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config")
-    }
-
-    #[tokio::test]
-    async fn events_refuse_boot_when_the_fallback_is_required_but_unset() {
-        let config = fallback_config(CaptureMode::Events, "strict");
-        let default_producers = producers::load_all(&HashMap::new()).expect("default producers");
-
-        let err = create_output_registry(&config, &default_producers, None, None)
-            .await
-            .err()
-            .expect("boot must be refused");
-
-        assert!(
-            format!("{err:#}").contains(fallback::FALLBACK_BROKERS_VAR),
-            "{err:#}"
-        );
-    }
-
-    #[rstest::rstest]
-    #[case(CaptureMode::Recordings)]
-    #[case(CaptureMode::Ai)]
-    #[case(CaptureMode::Import)]
-    #[tokio::test]
-    async fn other_modes_ignore_the_fallback_configuration(#[case] mode: CaptureMode) {
-        let config = fallback_config(mode, "bogus");
-        let env: HashMap<String, String> = [(fallback::FALLBACK_BROKERS_VAR, "127.0.0.1:1")]
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        let configs = producers::load_all(&env).expect("producer configs");
-
-        let (_, producers) = create_output_registry(&config, &configs, None, None)
-            .await
-            .expect("other modes must boot whatever the fallback settings say");
-
-        let producers = producers.expect("kafka producers");
-        assert!(producers.contains(ProducerName::Ingestion));
-        assert!(!producers.contains(ProducerName::Fallback));
     }
 
     #[test]

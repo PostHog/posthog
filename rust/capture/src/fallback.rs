@@ -6,12 +6,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context;
+
 use metrics::gauge;
 use tracing::{error, info, warn};
 
 use crate::config::{CaptureMode, Config, FallbackOutputsConfig};
-use crate::outputs::Target;
+use crate::outputs::{record_live_target, Output, Target};
 use crate::producers::{ProducerConfig, ProducerName, ProducerRegistry};
+use crate::sinks::kafka::KafkaSink;
 use crate::sinks::producer::KafkaProducer;
 use crate::sinks::registry::{OutputTable, OutputTarget};
 
@@ -19,18 +22,18 @@ pub const CHECK_VAR: &str = "CAPTURE_ANALYTICS_KAFKA_EMERGENCY_FALLBACK_CHECK";
 pub const FALLBACK_BROKERS_VAR: &str = "KAFKA_FALLBACK_PRODUCER_METADATA_BROKER_LIST";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CheckMode {
+enum CheckMode {
     Warn,
     Strict,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FallbackSettings {
-    pub check: CheckMode,
+struct FallbackSettings {
+    check: CheckMode,
 }
 
 impl FallbackSettings {
-    pub fn from_config(config: &Config) -> anyhow::Result<Option<Self>> {
+    fn from_config(config: &Config) -> anyhow::Result<Option<Self>> {
         let check = config.kafka_emergency_fallback_check.as_deref();
         if config.capture_mode != CaptureMode::Events {
             if check.is_some_and(|v| !v.is_empty()) {
@@ -47,7 +50,7 @@ impl FallbackSettings {
     }
 }
 
-pub fn parse_check(raw: Option<&str>) -> anyhow::Result<CheckMode> {
+fn parse_check(raw: Option<&str>) -> anyhow::Result<CheckMode> {
     match raw {
         None | Some("") | Some("warn") => Ok(CheckMode::Warn),
         Some("strict") => Ok(CheckMode::Strict),
@@ -59,10 +62,7 @@ pub fn parse_check(raw: Option<&str>) -> anyhow::Result<CheckMode> {
     }
 }
 
-pub fn fallback_table(
-    primary: &OutputTable,
-    fallback_config: &FallbackOutputsConfig,
-) -> OutputTable {
+fn fallback_table(primary: &OutputTable, fallback_config: &FallbackOutputsConfig) -> OutputTable {
     let target =
         |primary: &OutputTarget, topic: &Option<String>, producer: Option<ProducerName>| {
             OutputTarget {
@@ -130,7 +130,7 @@ pub fn fallback_table(
     }
 }
 
-pub enum Fallback {
+enum Fallback {
     NotApplicable,
     NotConfigured,
     Configured {
@@ -140,7 +140,7 @@ pub enum Fallback {
 }
 
 impl Fallback {
-    pub fn resolve(
+    fn resolve(
         config: &Config,
         primary: &OutputTable,
         producer_configs: &HashMap<ProducerName, ProducerConfig>,
@@ -161,14 +161,14 @@ impl Fallback {
         })
     }
 
-    pub fn table(&self) -> Option<&OutputTable> {
+    fn table(&self) -> Option<&OutputTable> {
         match self {
             Self::Configured { table, .. } => Some(table),
             Self::NotApplicable | Self::NotConfigured => None,
         }
     }
 
-    pub fn producer_configs(
+    fn producer_configs(
         &self,
         configs: &HashMap<ProducerName, ProducerConfig>,
     ) -> HashMap<ProducerName, ProducerConfig> {
@@ -180,7 +180,7 @@ impl Fallback {
         configs
     }
 
-    pub async fn check_at_boot(
+    async fn check_at_boot(
         &self,
         producers: &ProducerRegistry,
         producer_configs: &HashMap<ProducerName, ProducerConfig>,
@@ -194,9 +194,58 @@ impl Fallback {
     }
 }
 
+pub async fn build_kafka_output(
+    config: &Config,
+    producer_configs: &HashMap<ProducerName, ProducerConfig>,
+    liveness: Option<lifecycle::Handle>,
+) -> anyhow::Result<(Output, ProducerRegistry)> {
+    // Runs before any producer connects, so a blank topic refuses boot
+    // immediately instead of after a broker connect attempt.
+    let primary = OutputTable::new(&config.outputs, config.capture_mode.has_ai_overflow_lane());
+    if config.outputs_completeness_check_enabled {
+        primary.check_complete()?;
+    } else {
+        info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
+    }
+
+    let fallback = Fallback::resolve(config, &primary, producer_configs)?;
+    let producer_configs = fallback.producer_configs(producer_configs);
+    for table in std::iter::once(&primary).chain(fallback.table()) {
+        for name in table.producers() {
+            anyhow::ensure!(
+                producer_configs.contains_key(&name),
+                "an output publishes through producer {}, which is not configured",
+                name.as_str()
+            );
+        }
+    }
+
+    let live_producers = primary.producers();
+    let liveness = liveness
+        .map(|handle| {
+            live_producers
+                .iter()
+                .map(|&name| (name, handle.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let producers = ProducerRegistry::build(&producer_configs, liveness)
+        .context("failed to start Kafka producers")?;
+
+    fallback
+        .check_at_boot(&producers, &producer_configs)
+        .await?;
+    let output = Output::single(KafkaSink::new(
+        primary.map_producers(|name| producers.get(*name)),
+        config.replay_envelope_compression,
+    ));
+    record_live_target(Target::Primary);
+    Ok((output, producers))
+}
+
 /// A topic check that names a missing topic makes the broker create it when
 /// the producer allows auto-creation, and then the check passes.
-pub fn ensure_checks_cannot_create_topics(
+fn ensure_checks_cannot_create_topics(
     fallback: &OutputTable,
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
 ) -> anyhow::Result<()> {
@@ -218,23 +267,23 @@ pub fn ensure_checks_cannot_create_topics(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OnCheckFailure {
+enum OnCheckFailure {
     Warn,
     RefuseBoot,
 }
 
-pub fn on_check_failure(target: Target, settings: FallbackSettings) -> OnCheckFailure {
+fn on_check_failure(target: Target, settings: FallbackSettings) -> OnCheckFailure {
     match (target, settings.check) {
         (Target::Fallback, CheckMode::Strict) => OnCheckFailure::RefuseBoot,
         (Target::Fallback, CheckMode::Warn) | (Target::Primary, _) => OnCheckFailure::Warn,
     }
 }
 
-pub const OUTPUT_TOPIC_READY: &str = "capture_kafka_output_topic_ready";
+const OUTPUT_TOPIC_READY: &str = "capture_kafka_output_topic_ready";
 
 const TOPIC_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub async fn run_boot_checks<P: KafkaProducer + 'static>(
+async fn run_boot_checks<P: KafkaProducer + 'static>(
     fallback: &OutputTable<Arc<P>>,
     settings: FallbackSettings,
 ) -> anyhow::Result<()> {
@@ -339,6 +388,35 @@ mod tests {
             FallbackSettings::from_config(&config(mode, "bogus")).unwrap(),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn strict_without_a_fallback_cluster_refuses_boot() {
+        let producer_configs = crate::producers::load_all(&HashMap::new()).unwrap();
+
+        let err = build_kafka_output(&config("events", "strict"), &producer_configs, None)
+            .await
+            .err()
+            .expect("boot must be refused");
+
+        assert!(format!("{err:#}").contains(FALLBACK_BROKERS_VAR), "{err:#}");
+    }
+
+    #[rstest]
+    #[case("recordings")]
+    #[case("ai")]
+    #[case("import")]
+    #[tokio::test]
+    async fn other_modes_never_build_the_fallback_producer(#[case] mode: &str) {
+        let producer_configs =
+            crate::producers::load_all(&env(&[(FALLBACK_BROKERS_VAR, "127.0.0.1:1")])).unwrap();
+
+        let (_, producers) = build_kafka_output(&config(mode, "bogus"), &producer_configs, None)
+            .await
+            .expect("other modes must boot whatever the fallback settings say");
+
+        assert!(producers.contains(ProducerName::Ingestion));
+        assert!(!producers.contains(ProducerName::Fallback));
     }
 
     #[test]
