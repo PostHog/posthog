@@ -80,7 +80,7 @@ export function CodeEmailScene(): JSX.Element {
                                 </Tooltip>
                                 <CodeBadge sourceUrl={codeEmail.source_url} />
                                 {codeEmail.sensitive && (
-                                    <Tooltip title="PostHog keeps no copy of what each email contained, and records only the site address of a clicked link.">
+                                    <Tooltip title="PostHog keeps no copy of what each email contained. Link click tracking is off by default, and records only the site address when enabled in code.">
                                         <LemonTag type="highlight" icon={<IconLock />}>
                                             Sensitive
                                         </LemonTag>
