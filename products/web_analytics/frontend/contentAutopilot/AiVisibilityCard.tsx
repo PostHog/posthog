@@ -37,7 +37,7 @@ export function AiVisibilityCard({
         <Card size="sm" className={cn('min-w-0', className)}>
             {title ? (
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-1">
+                    <CardTitle className="flex min-h-6 items-center gap-1">
                         {title}
                         {description ? (
                             <Tooltip>

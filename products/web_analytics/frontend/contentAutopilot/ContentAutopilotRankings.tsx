@@ -67,7 +67,10 @@ const VisibilityChart = (): JSX.Element | null => {
     const daysOfData = new Set((rankings?.daily ?? []).filter(({ answers }) => answers > 0).map(({ date }) => date))
         .size
     return (
-        <div className={cn('h-64 min-w-0 flex flex-col', rankingsLoading && 'opacity-50')} aria-busy={rankingsLoading}>
+        <div
+            className={cn('flex min-h-64 min-w-0 flex-1 flex-col', rankingsLoading && 'opacity-50')}
+            aria-busy={rankingsLoading}
+        >
             {daysOfData < MIN_TREND_DAYS ? (
                 <Text
                     size="xs"
@@ -145,12 +148,13 @@ export const ContentAutopilotRankings = (): JSX.Element => {
 
     return (
         <section className="@container/rankings flex flex-col gap-4" data-attr="content-autopilot-rankings">
-            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 items-start gap-4">
-                <AiVisibilityCard title="Visibility">
+            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 gap-4">
+                <AiVisibilityCard title="Visibility" className="h-full">
                     <VisibilityChart />
                 </AiVisibilityCard>
                 <AiVisibilityCard
                     title="Brands"
+                    className="h-full"
                     actions={
                         <Button
                             variant="outline"
@@ -189,31 +193,26 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 render: (_, brand) => {
                                     const named = rankings.competitors_confirmed && !brand.is_target
                                     return (
-                                        <span className="flex flex-col min-w-0">
-                                            <ContentAutopilotSiteLabel domain={brand.domain} isTarget={brand.is_target}>
-                                                <ContentAutopilotCitationsLink
-                                                    lookup={{
-                                                        kind: 'domain',
-                                                        value: brand.domain,
-                                                        dateFrom: rankings.window_from,
-                                                        dateTo: rankings.window_to,
-                                                        branded: rankings.branded,
-                                                    }}
-                                                    source="rankings-brands"
-                                                >
-                                                    {named ? brand.name : brand.domain}
-                                                </ContentAutopilotCitationsLink>
-                                            </ContentAutopilotSiteLabel>
-                                            {named ? (
-                                                <Text
-                                                    size="xs"
-                                                    variant="muted"
-                                                    render={<span className="m-0 truncate pl-6" />}
-                                                >
-                                                    {brand.domain}
-                                                </Text>
-                                            ) : null}
-                                        </span>
+                                        <ContentAutopilotSiteLabel
+                                            domain={brand.domain}
+                                            isTarget={brand.is_target}
+                                            subtitle={named ? brand.domain : undefined}
+                                        >
+                                            <ContentAutopilotCitationsLink
+                                                lookup={{
+                                                    kind: 'domain',
+                                                    value: brand.domain,
+                                                    dateFrom: rankings.window_from,
+                                                    dateTo: rankings.window_to,
+                                                    branded: rankings.branded,
+                                                }}
+                                                source="rankings-brands"
+                                                // Without padding, every name starts where the domain under it does.
+                                                className="px-0"
+                                            >
+                                                {named ? brand.name : brand.domain}
+                                            </ContentAutopilotCitationsLink>
+                                        </ContentAutopilotSiteLabel>
                                     )
                                 },
                             },
