@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -299,6 +299,33 @@ export const Published: Story = {
         )
     },
 }
+export const SharedView: Story = {
+    beforeEach: () => {
+        saved.user_access_level = AccessControlLevel.Viewer
+    },
+    parameters: {
+        pageUrl: combineUrl(
+            urls.notebook(SHORT_ID),
+            { view: 'app' },
+            {
+                appView: { tab: 'details', inputs: { region: 'Europe', weeks: 2 } },
+            }
+        ).url,
+    },
+    play: async ({ canvasElement }) => {
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).toBeVisible(), {
+            timeout: 60000,
+        })
+        const app = within(canvasElement.querySelector<HTMLElement>('[data-attr="notebook-app-builder"]')!)
+        await waitFor(() =>
+            expect(app.getByRole('tab', { name: 'Data and methodology' })).toHaveAttribute('aria-selected', 'true')
+        )
+        await userEvent.click(app.getByRole('tab', { name: 'Overview' }))
+        await waitFor(() => expect(app.getByText('222', { exact: true })).toBeVisible(), { timeout: 60000 })
+        expect(app.getByRole('button', { name: 'Copy view link' })).toBeEnabled()
+    },
+}
+
 export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
     play: async ({ canvasElement }) => {

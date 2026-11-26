@@ -1,6 +1,7 @@
 jest.unmock('lib/utils/concurrencyController')
 
 import { waitFor } from '@testing-library/react'
+import { decodeParams } from 'kea-router'
 
 import api from 'lib/api'
 import { promiseResolveReject } from 'lib/utils/async'
@@ -14,6 +15,7 @@ import * as notebookApi from '../generated/api'
 import { emptyAppLayout } from './notebookAppLayout'
 import { restorePublishedResults, savedQueryResult } from './notebookAppPublishedResults'
 import { notebookAppViewerLogic } from './notebookAppViewerLogic'
+import { notebookAppViewLink } from './notebookAppViewLink'
 
 describe('published viewer refreshes', () => {
     beforeEach(() => initKeaTests())
@@ -59,6 +61,58 @@ describe('published viewer refreshes', () => {
             viewer.actions.refresh()
             await waitFor(() => expect(viewer.values.results?.variables).toEqual([{ ...regions, value: [] }]))
             expect(requests).toEqual([{ revision: 2, variables: [{ ...regions, value: [] }] }])
+        } finally {
+            viewer.unmount()
+        }
+    })
+
+    it('opens a link in the original project and runs only exposed, compatible inputs for the new viewer', async () => {
+        const defaults = [
+            { name: 'regions', type: 'list', value: ['North'] },
+            { name: 'days', type: 'number', value: 7 },
+            { name: 'hidden', type: 'boolean', value: true },
+        ]
+        const url = new URL(
+            notebookAppViewLink('42', 'report', 'details', [{ name: 'regions', type: 'list', value: ['R&D', 'A+B'] }])
+        )
+        expect(url.pathname + url.search).toBe('/project/42/notebooks/report?view=app')
+        const { appView } = decodeParams(url.hash, '#')
+        expect(appView.tab).toBe('details')
+        const inputs = { ...appView.inputs, days: 'old type', hidden: false }
+        const viewer = notebookAppViewerLogic({
+            project: '42',
+            shortId: 'report',
+            sessionId: 'linked',
+            initialInputs: inputs,
+        })
+        jest.spyOn(notebookApi, 'notebooksAppReleaseRetrieve').mockResolvedValue({
+            revision: 2,
+            title: 'Regions',
+            markdown: '',
+            has_previous: false,
+            published_at: null,
+            results_as_of: null,
+            layout: {
+                ...emptyAppLayout(),
+                blocks: defaults.slice(0, 2).map(({ name }) => ({
+                    id: name,
+                    kind: 'input',
+                    tab_id: 'overview',
+                    variable: name,
+                })),
+            },
+            variables: defaults,
+        })
+        const plan = jest.spyOn(notebookApi, 'notebooksAppQueriesCreate').mockResolvedValue([])
+        viewer.mount()
+        try {
+            await waitFor(() =>
+                expect(viewer.values.results?.variables).toEqual([
+                    { ...defaults[0], value: ['R&D', 'A+B'] },
+                    defaults[1],
+                ])
+            )
+            expect(plan).toHaveBeenCalledTimes(1)
         } finally {
             viewer.unmount()
         }

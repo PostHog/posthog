@@ -19,11 +19,13 @@ import { HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schem
 import { notebooksAppQueriesCreate, notebooksAppReleaseRetrieve } from '../generated/api'
 import type { NotebookAppReleaseApi, NotebookAppViewerQueryApi } from '../generated/api.schemas'
 import { type PublishedRunResult, restorePublishedResults } from './notebookAppPublishedResults'
+import { restoreAppInputs } from './notebookAppViewLink'
 
 export interface ViewerProps {
     shortId: string
     project: string
     sessionId: string
+    initialInputs?: unknown
 }
 export interface ViewerOutput {
     query: string
@@ -286,11 +288,12 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         variables: [
             [] as NotebookVariable[],
             {
-                loadReleaseSuccess: (_, { release }) => exposedVariables(release),
+                loadReleaseSuccess: (_, { release }) =>
+                    restoreAppInputs(exposedVariables(release), props.initialInputs),
                 changeInput: (variables, { name, value }) =>
                     variables.map((v) =>
                         v.name === name ? { ...v, value: coerceNotebookVariableValue(v.type, value) } : v
@@ -300,7 +303,7 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
         auto: [true, { setAuto: (_, { auto }) => auto }],
         releaseFailed: [false, { loadRelease: () => false, loadReleaseFailure: () => true }],
         refreshFailed: [false, { refresh: () => false, refreshFailure: () => true }],
-    }),
+    })),
     selectors({
         dirty: [
             (s) => [s.variables, s.results, s.release],
@@ -317,6 +320,9 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
     listeners(({ actions, props, values }) => ({
         loadReleaseSuccess: ({ release }) => {
             actions.restore(release)
+            if (values.dirty) {
+                actions.refresh()
+            }
             posthog.capture('notebook app viewed', { short_id: props.shortId, revision: release.revision })
         },
         changeInput: () => {

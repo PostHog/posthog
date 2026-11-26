@@ -32,7 +32,7 @@ export function NotebookAppScene({ shortId, children }: { shortId: string; child
 }
 
 function NotebookAppSceneEnabled({ shortId, children }: { shortId: string; children: ReactNode }): JSX.Element {
-    const { searchParams, hashParams } = useValues(router)
+    const { searchParams, hashParams, location } = useValues(router)
     const { canEditNotebook, isTemplate, markdownEditorValue } = useValues(notebookLogic({ shortId }))
     const view =
         searchParams.view === 'builder' && canEditNotebook && !isTemplate
@@ -78,7 +78,12 @@ function NotebookAppSceneEnabled({ shortId, children }: { shortId: string; child
             ) : (
                 <Suspense fallback={<Spinner />}>
                     {view === 'app' ? (
-                        <PublishedNotebookApp key={shortId} shortId={shortId} />
+                        <PublishedNotebookApp
+                            key={shortId + location.hash}
+                            shortId={shortId}
+                            initialInputs={hashParams.appView?.inputs}
+                            initialTab={hashParams.appView?.tab}
+                        />
                     ) : (
                         <NotebookAppBuilder shortId={shortId} />
                     )}
