@@ -19,10 +19,12 @@ function boardUrl(uid: string): string {
 }
 
 export function getBoard(uid: string): Promise<Board> {
+    // nosemgrep: prefer-codegen-api -- no generated client until #142503 lands, see the TODO above
     return api.get<Board>(boardUrl(uid))
 }
 
 /** Rejects with a 409 `ApiError` when the board is no longer at `baseVersion`. */
 export function updateBoard(uid: string, spec: DashboardDocument, baseVersion: number): Promise<Board> {
+    // nosemgrep: prefer-codegen-api -- no generated client until #142503 lands, see the TODO above
     return api.put<Board>(boardUrl(uid), { spec, base_version: baseVersion })
 }
