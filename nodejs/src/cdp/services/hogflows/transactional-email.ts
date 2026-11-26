@@ -218,6 +218,10 @@ export const AcceptedSendSchema = z
     })
     .strict()
     .readonly()
+    .refine((send) => send.category?.type !== 'marketing' || !(send.cc?.length || send.bcc?.length), {
+        message: 'a marketing send cannot copy recipients with cc or bcc',
+        path: ['category'],
+    })
 
 export const BatchSendSchema = AcceptedSendSchema.unwrap()
     .omit({ cc: true, bcc: true, attachments: true, thread: true })

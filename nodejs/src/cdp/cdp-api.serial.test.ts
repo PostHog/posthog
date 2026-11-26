@@ -3114,6 +3114,20 @@ describe('CDP API', () => {
             ])
         })
 
+        it.each([
+            ['transactional', 0],
+            ['marketing', 1],
+        ])('queues a %s code send on its email lane', async (type, queuePriority) => {
+            const res = await sendAccepted(hogFlow.id, {
+                ...body,
+                send: { ...codeSend, category: { id: 'news', type } },
+            })
+
+            expect(res.status).toEqual(202)
+            const [invocation] = mockQueueInvocations.mock.calls[0][0]
+            expect(invocation).toMatchObject({ queue: 'email', queuePriority })
+        })
+
         describe('with an idempotency key', () => {
             let keyed: Record<string, unknown>
             const sendKeyed = (payload: Record<string, unknown> = keyed) =>
@@ -3601,6 +3615,14 @@ describe('CDP API', () => {
                 [
                     'more than 10 cc addresses',
                     { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
+                ],
+                [
+                    'a marketing category and cc',
+                    { ...codeSend, category: { id: 'news', type: 'marketing' }, cc: ['copy@example.com'] },
+                ],
+                [
+                    'a marketing category and bcc',
+                    { ...codeSend, category: { id: 'news', type: 'marketing' }, bcc: ['hidden@example.com'] },
                 ],
             ])('refuses a code send with %s', async (_desc, acceptedSend) => {
                 const invalidBefore = await outcomeCount('invalid_request')

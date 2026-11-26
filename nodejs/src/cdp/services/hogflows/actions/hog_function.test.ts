@@ -1494,6 +1494,24 @@ describe('HogFunctionHandler', () => {
                 )
             })
 
+            it('does not send a marketing email that its unsubscribe links make too large to send', async () => {
+                const { emailInvocation, runOnQueue } = await emailStepThroughSes(
+                    {},
+                    {
+                        ...codeSend({ id: newsletterId, type: 'marketing' }),
+                        content: { subject: 'News', html: '{{ unsubscribe_url }}'.repeat(400_000) },
+                    }
+                )
+
+                const queued = await runOnQueue(emailInvocation, 'hogflow')
+                const result = await runOnQueue(queued.invocation, 'email')
+
+                expect(fakeSes.deliveries).toHaveLength(0)
+                expect(result.logs.map(({ message }) => message)).toContainEqual(
+                    expect.stringContaining('message_too_large')
+                )
+            })
+
             it.each([
                 { case: 'no category', category: undefined },
                 { case: 'a transactional category', category: { id: newsletterId, type: 'transactional' as const } },

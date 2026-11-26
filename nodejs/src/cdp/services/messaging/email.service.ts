@@ -1916,6 +1916,14 @@ export class EmailService {
             { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
             preferencesTokenSourceForInvocation(invocation)
         )
+        const expandedBytes = (body: string | undefined, link: string): number =>
+            (body?.match(UNSUBSCRIBE_URL_PLACEHOLDER) ?? []).reduce(
+                (total, placeholder) => total + Buffer.byteLength(link) - placeholder.length,
+                Buffer.byteLength(body ?? '')
+            )
+        if (exceedsLargestSend(expandedBytes(params.html, escapeHtml(url)) + expandedBytes(params.text, url))) {
+            throw new MessageTooLargeError()
+        }
         return {
             ...params,
             html: params.html.replace(UNSUBSCRIBE_URL_PLACEHOLDER, () => escapeHtml(url)),
