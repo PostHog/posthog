@@ -314,6 +314,8 @@ export const commonConfig = {
     define: {
         global: 'globalThis',
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
+        // PROTOTYPE branch only: shows the variant switcher of the messaging call-to-action prototype.
+        'process.env.POSTHOG_PROTOTYPE': JSON.stringify(process.env.POSTHOG_PROTOTYPE ?? ''),
     },
     loader: {
         '.bin': 'file',

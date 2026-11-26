@@ -11,6 +11,7 @@ import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagNoConditionsWarning } from './FeatureFlagNoConditionsWarning'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
+import { PartialRolloutMessageAction } from './prototype/PartialRolloutMessageAction'
 
 interface FeatureFlagReleaseConditionsReadonlyProps {
     id: string
@@ -71,6 +72,11 @@ export function FeatureFlagReleaseConditionsReadonly({
                             aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
                             getDistinctIdName={getDistinctIdName}
                             getFlagKey={getFlagKey}
+                            rolloutAction={
+                                Number(id) > 0 ? (
+                                    <PartialRolloutMessageAction rollout={group.rollout_percentage ?? 100} />
+                                ) : null
+                            }
                         />
                     </div>
                 ))}

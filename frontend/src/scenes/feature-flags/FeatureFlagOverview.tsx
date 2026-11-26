@@ -30,6 +30,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsReadonly } from './FeatureFlagReleaseConditionsReadonly'
 import { FeatureFlagVariantsSection } from './FeatureFlagVariantsSection'
 import { JSONEditorInput } from './JSONEditorInput'
+import { EveryoneMessageAction } from './prototype/EveryoneMessageAction'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
 interface FeatureFlagOverviewProps {
@@ -176,6 +177,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                                 />
                             </AccessControlAction>
                         )}
+                        <EveryoneMessageAction />
                     </div>
 
                     <EditableOverviewSection editOptions={{ expandAdvanced: true }}>

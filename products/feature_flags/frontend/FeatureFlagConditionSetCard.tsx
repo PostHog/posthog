@@ -24,6 +24,7 @@ export interface FeatureFlagConditionSetCardProps {
     previousRolloutPercentage?: number
     /** Title for the card. Defaults to the set's position. */
     label?: string
+    rolloutAction?: JSX.Element | null
 }
 
 /** Extract server-provided group_key_names from a property, if present. */
@@ -112,6 +113,7 @@ export function FeatureFlagConditionSetCard({
     tag,
     previousRolloutPercentage,
     label,
+    rolloutAction,
 }: FeatureFlagConditionSetCardProps): JSX.Element {
     const properties = withResolvedFlagLabels(group.properties, getFlagKey)
     const rollout = rolloutOf(group)
@@ -142,7 +144,7 @@ export function FeatureFlagConditionSetCard({
                 </div>
             )}
 
-            <div className="mt-3">
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
                 <LemonTag type={rollout === 100 ? 'highlight' : rollout === 0 ? 'caution' : 'none'}>
                     <span className="text-sm">
                         Rolled out to <b className="tabular-nums">{rollout}%</b> of <b>{aggregationTargetName}</b> in
@@ -155,6 +157,7 @@ export function FeatureFlagConditionSetCard({
                         )}
                     </span>
                 </LemonTag>
+                {rolloutAction}
             </div>
 
             {group.variant && (

@@ -87,6 +87,7 @@ import {
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { BULK_COPY_MAX_TARGET_PROJECTS } from './flagSelectionLogic'
 import { PercentageInput } from './PercentageInput'
+import { createFormPrototypeState, useMessagingCtaVariant } from './prototype/messagingCtaPrototype'
 
 interface SortableVariantHeaderProps {
     variant: MultivariateFlagVariant
@@ -210,6 +211,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
+    const ctaVariant = useMessagingCtaVariant()
+    const [emailOnFirstExposure, setEmailOnFirstExposure] = useState(false)
+    useEffect(() => {
+        createFormPrototypeState.emailOnFirstExposure = ctaVariant === 'A' && emailOnFirstExposure
+    }, [ctaVariant, emailOnFirstExposure])
     const requiresApprovalToEnable = isNewFeatureFlag && isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
     const renamedFromKey =
         !isNewFeatureFlag && originalFeatureFlag && featureFlag.key !== originalFeatureFlag.key
@@ -584,6 +590,24 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         )
                                     }}
                                 </LemonField>
+
+                                {isNewFeatureFlag && ctaVariant === 'A' && (
+                                    <>
+                                        <LemonDivider />
+                                        <LemonSwitch
+                                            checked={emailOnFirstExposure}
+                                            onChange={setEmailOnFirstExposure}
+                                            label="Email people when they first get this flag"
+                                            bordered
+                                            fullWidth
+                                            data-attr="feature-flag-create-message-workflow"
+                                        />
+                                        <p className="text-xs text-secondary m-0">
+                                            After you save, a workflow opens with this flag as its trigger. Nothing
+                                            sends until you turn the workflow on.
+                                        </p>
+                                    </>
+                                )}
 
                                 {isNewFeatureFlag && alsoCreateInProjectOptions.length > 0 && (
                                     <>

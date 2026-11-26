@@ -176,6 +176,8 @@ import {
     projectSelectOptions,
 } from './flagSelectionLogic'
 import { PropertySelectError, getConditionSetErrors } from './propertySelectErrorMessages'
+import { createFlagWorkflowUrlForPrototype } from './prototype/flagWorkflowPrototype'
+import { createFormPrototypeState } from './prototype/messagingCtaPrototype'
 import {
     ScheduleOccurrence,
     expandScheduleOccurrences,
@@ -263,7 +265,7 @@ export function broadcastNoOneReason(
     return undefined
 }
 
-function isOnForEveryone(flag: Pick<FeatureFlagType, 'active' | 'filters'> | null | undefined): boolean {
+export function isOnForEveryone(flag: Pick<FeatureFlagType, 'active' | 'filters'> | null | undefined): boolean {
     if (!flag?.active || !isV1FeatureFlagConfig(flag.filters) || flag.filters.multivariate) {
         return false
     }
@@ -4578,6 +4580,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 router.actions.replace(combineUrl(urls.featureFlag(featureFlag.id), listParams).url)
             }
             actions.editFeatureFlag(false)
+            if (props.id === 'new' && featureFlag.id && createFormPrototypeState.emailOnFirstExposure) {
+                createFormPrototypeState.emailOnFirstExposure = false
+                router.actions.push(createFlagWorkflowUrlForPrototype(featureFlag))
+            }
 
             const isCreate = props.id === 'new'
             const rolloutPercent = featureFlag.filters?.groups?.[0]?.rollout_percentage ?? null
