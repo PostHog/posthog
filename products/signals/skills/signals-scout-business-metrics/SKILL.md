@@ -62,11 +62,20 @@ A metric qualifies only when its result is a **series**: one time column, one or
 Read the shape off `metric-describe` (the SQL's `GROUP BY` and `ORDER BY`) and confirm it on the first run's `columns`.
 These are not measures, so note `shape=not-a-series` on the `watchlist:` entry and never run them again: a cohort grid (`q0`, `q1`, ... columns), a top-N list, a single number, a sub-daily series (hourly health is the APM and logs scouts' territory).
 
-A metric is in scope when nothing in it is computed over raw `events`, `persons`, `sessions` or `groups` on the fly.
-Those tables may sit under a metric only behind a **materialized** view (`is_materialized = 1` on `system.data_modeling_views`), where the scan already happened on the view's schedule.
-A metric that reads them directly, or through a view that is not materialized, is **out of scope in this version**: note `shape=events-live` and skip it.
-A long-window query over raw events with a person join reads hundreds of gigabytes and holds gigabytes of memory per run, and those series already have watchers: the anomaly-detection scout for saved insights, and insight alerts.
-Say in the close-out how many metrics you skipped for this reason, so the team knows where coverage ends and that a materialized view would bring a metric in.
+A metric has one of two **sources**, and the source decides how you read it:
+
+- **Warehouse-backed** (`definition_kind: HogQLQuery`): in scope when nothing in it is computed over raw `events`, `persons`, `sessions` or `groups` on the fly.
+  Those tables may sit under a metric only behind a **materialized** view (`is_materialized = 1` on `system.data_modeling_views`), where the scan already happened on the view's schedule.
+  A SQL metric that reads them directly, or through a view that is not materialized, is **out of scope**: note `shape=events-live` and skip it.
+  A long-window SQL query over raw events with a person join reads hundreds of gigabytes and holds gigabytes of memory per run.
+- **Insight-backed** (`definition_kind` is an insight query kind, or `source_insight_short_id` is set): in scope at every grain, because the typed query runner reads events through PostHog's own bounded path (a date range, a breakdown, a limit), never a hand-written scan.
+  Read it with `data-catalog-metric-run` and its `date_from`, `date_to` and `interval` overrides, and decompose it with the runner's breakdowns; the recipe is in [`references/driver-analysis.md`](references/driver-analysis.md#insight-backed-metrics).
+  A `TrendsQuery` over events is a series; a funnel or retention insight is not (the product-analytics scout owns those rates).
+
+Detection on **saved insights that are not metrics** stays with the anomaly-detection scout, which scores every active trends insight daily.
+You do not re-detect there.
+You do attribute: when that scout's report, or a flagged episode on an insight a governed metric is built from, names a move with no driver, you run gate 3 on it through the runner and edit that report with the driver table (`report:anomaly_detection:insight:<short_id>` is its scratchpad pointer).
+Say in the close-out how many metrics you skipped as events-live, so the team knows that a materialized view or an insight-backed definition would bring each one in.
 
 The grain of the time column sets the lens and the cadence:
 
@@ -99,6 +108,9 @@ A warehouse table sits in object storage, so every scan costs read bytes, and a 
 - **Cache first.** `data-catalog-metric-run` with `refresh: force_cache` returns the cached result and never calculates.
   When the cached result holds the latest closed period, the series costs nothing; people and dashboards keep the cache of a used metric warm.
   Only when the cache is cold or stale do you read, and then incrementally.
+- **An insight-backed metric is read through the runner with the lens window pinned**: `data-catalog-metric-run` with `date_from` and `date_to` set to the series window and `interval` to the grain, so the runner scans the window and nothing more.
+  Its decompositions are `query-trends` calls with the metric's own series, the same pinned window, and one `breakdownFilter` per hinted dimension (`breakdown_limit: 20`), at most one breakdown per call and event or session properties by default; a person or group property is a join, so it needs a hint.
+  Each runner call counts against the 40.
 - **Read each series incrementally.** The `series:` scratchpad entry holds the last 35 daily values (or 13 periods) of a measure.
   Each run reads only the periods after the last stored one, plus the 2 most recent stored periods again, because late rows change them.
   That is a 3-day window instead of 35.
@@ -142,7 +154,8 @@ Take `pending:` candidates first, then every daily measure, then the weekly, mon
 Prefer measures on materialized views and small tables over measures on large raw tables, because they cost less.
 Do not try to cover every metric in one run.
 
-For a measure that enters the watchlist, call `metric-describe` once and record: the grain, the shape, the referenced tables and their sizes, the time column, the measure expression (a sum, a count, or a ratio with its numerator and denominator), the metric's own dimension column when it has one, and otherwise the dimension profile.
+For a measure that enters the watchlist, call `metric-describe` once and record: the source (warehouse-backed or insight-backed), the grain, the shape, the referenced tables and their sizes, the time column, the measure expression (a sum, a count, or a ratio with its numerator and denominator), the metric's own dimension column when it has one, and otherwise the dimension profile.
+For an insight-backed metric also record the series (events, math, filters) and the `source_insight_short_id`, so a decomposition reuses the exact definition and a report can link the insight.
 
 Before you profile, look for a **dimension hint**: a `dims:business_metrics:<metric>` scratchpad entry, which a person sets once for a metric they own ("decompose by: tenure bucket (paying_month_number: 1-3, 4-12, over 12), product, plan"), or a scout note that names dimensions for a metric.
 A hint wins over profiling: a person knows that revenue churn splits by tenure and that an identifier column explains nothing, and profiling cannot derive a bucket.
@@ -167,6 +180,7 @@ FROM system.source_schemas
 WHERE deleted = 0 AND should_sync AND table_id IN (<the ids from the first read>)
 ```
 
+For an insight-backed metric there is no sync to check: freshness is the latest complete period having rows, which the series read shows, and a drop to exactly zero on every series at once is a capture gap, not a move (the anomaly-detection scout's source-liveness probe owns that; do not report it).
 For a measure on a materialized view, take the view's `id` from `system.data_modeling_views` and call `view-get` for it: the response carries the derived `status`, `last_run_at`, `latest_error`, `sync_frequency` and `suspended`.
 Do not judge a view by the `status` column of the system table: it is written on edit and never reset, so it does not say whether the view is current.
 A view is fresh when it is not suspended, its status is not Failed, and `last_run_at` is within its `sync_frequency`; `Modified` means the definition changed after the last run, so the materialized rows serve the old definition until a run completes, which is stale for you.
@@ -194,7 +208,8 @@ No lens passes: refresh the `baseline:` entry, stamp `last_judged`, and move on.
 Run the decomposition in [`references/driver-analysis.md`](references/driver-analysis.md#decomposition) over the same windows the lens used, within the tier the table size allows:
 
 - A metric with its own dimension column decomposes from its own rows first.
-- Otherwise, one query per profiled dimension on the referenced table or view.
+- A warehouse-backed metric: one query per profiled dimension on the referenced table or view.
+- An insight-backed metric: one `query-trends` call per dimension, the metric's series with a `breakdownFilter`, the window pinned; the per-value totals over `cur` and `base` are the segments ([recipe](references/driver-analysis.md#insight-backed-metrics)).
 - For a sum or a count, each segment's contribution is its own delta, divided by the total delta.
 - For a ratio (conversion rate, average order value, revenue per account), split each segment's contribution into a **mix effect** (the segment's share of the denominator changed) and a **rate effect** (the segment's own ratio changed).
   A mix effect is "more traffic from a low-converting country", not "the country converts worse".

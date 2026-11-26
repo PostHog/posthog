@@ -9,6 +9,7 @@ Never widen a window past the grain's cap, and never drop the time predicate.
 
 - [The script](#the-script)
 - [Windows per grain](#windows-per-grain)
+- [Insight-backed metrics](#insight-backed-metrics)
 - [Dimension hints](#dimension-hints)
 - [Choosing dimensions](#choosing-dimensions)
 - [Detection](#detection)
@@ -51,6 +52,37 @@ Feed the script at most 20 segments plus an `other` row.
 
 A period is closed when its end is before today, and for a monthly or quarterly measure also when at least 5 (or 10) days have passed since, so late rows have posted.
 Pin `cur` and `base` to absolute dates in every query, so a `pending:` candidate decomposed later reads the same periods.
+
+## Insight-backed metrics
+
+A metric built from a trends insight is read and decomposed through the typed query runner, never through SQL over events.
+
+**The series.** `data-catalog-metric-run` with the lens window pinned and the grain as the interval:
+
+```text
+call data-catalog-metric-run {"name": "<metric>", "date_from": "<series start>", "date_to": "<latest complete period end>", "interval": "day"}
+```
+
+Read each row against `columns`.
+The cache probe (`refresh: force_cache`) comes first, as for any metric; a cold read is the call above, and the `series:` entry is updated the same way.
+
+**The decomposition.** One `query-trends` call per hinted dimension, with the metric's own `series` (events, math and filters copied from `metric-describe`), the `cur` and `base` windows pinned in `dateRange`, the grain as `interval`, and one breakdown:
+
+```text
+call query-trends {"series": [<the metric's series>], "dateRange": {"date_from": "<base start>", "date_to": "<cur end>"}, "interval": "day", "breakdownFilter": {"breakdowns": [{"property": "<dimension>", "type": "event"}], "breakdown_limit": 20}}
+```
+
+Sum each breakdown value's buckets over `cur` and over `base` (divided by the number of base periods), and feed the segments to the script's `decompose` mode as for a table.
+For a ratio metric (a formula over two series), break down both series and feed numerators and denominators.
+Rules:
+
+- One breakdown per call; the runner allows three, but a second level is a second call inside the top segment, with a property filter on it.
+- Event and session properties by default.
+  A person or group property makes the runner join person data, which is the cost the warehouse rule exists to avoid; use one only when a hint names it, and never two at once.
+- `breakdown_limit: 20`, so the segments and the "other" bucket match the table recipe.
+- The runner call is a query call for the budget.
+
+**Charts.** For an insight-backed metric, chart 1 is the metric's own insight (`SavedInsightNode` by `source_insight_short_id`, with the window pinned in `filters_override`), and charts 2 and 3 are `InsightVizNode`s wrapping the breakdown `TrendsQuery` you ran, which draws one line per segment without SQL.
 
 ## Dimension hints
 
