@@ -44,9 +44,9 @@ from ..logic.routing.owners_file import owners_file_status
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import (
     DigestRun,
-    HumanRequest,
-    HumanRequestDelivery,
-    HumanRequestParticipant,
+    ExpressRequest,
+    ExpressRequestDelivery,
+    ExpressRequestParticipant,
     PullRequest,
     ReviewRun,
     RoutingRun,
@@ -59,9 +59,9 @@ from .enums import (
     TERMINAL_STATUSES,
     ChannelResolutionSource,
     DigestRunStatus,
-    HumanRequestDeliveryKind,
-    HumanRequestSource,
-    HumanRequestStatus,
+    ExpressRequestDeliveryKind,
+    ExpressRequestSource,
+    ExpressRequestStatus,
     LlmSkipReason,
     OwnerKind,
     OwnersFileStatus,
@@ -129,9 +129,9 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
         routing_mode=obj.routing_mode,
         routing_fork_labels=fork_labels(obj),
         review_on_clean_external_review=obj.review_on_clean_external_review,
-        human_request_enabled=obj.human_request_enabled,
-        human_request_slack_channel_id=obj.human_request_slack_channel_id,
-        human_request_slack_channel_name=obj.human_request_slack_channel_name,
+        express_enabled=obj.express_enabled,
+        express_slack_channel_id=obj.express_slack_channel_id,
+        express_slack_channel_name=obj.express_slack_channel_name,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -172,28 +172,28 @@ def _routing_to_dto(record: object) -> contracts.PullRequestRoutingDTO | None:
     )
 
 
-# The attribute that _with_human_requests prefetches onto each pull request, newest request first.
-_HUMAN_REQUESTS_ATTR = "prefetched_human_requests"
+# The attribute that _with_express_requests prefetches onto each pull request, newest request first.
+_EXPRESS_REQUESTS_ATTR = "prefetched_express_requests"
 
 
-def _human_request_delivery_url(delivery: HumanRequestDelivery) -> str:
+def _express_request_delivery_url(delivery: ExpressRequestDelivery) -> str:
     # The archives permalink resolves the workspace from the channel, so no workspace domain is stored.
     return f"https://app.slack.com/archives/{delivery.channel_id}/p{delivery.message_ts.replace('.', '')}"
 
 
-def _human_request_to_dto(obj: HumanRequest) -> contracts.HumanRequestDTO:
-    """Expects the looking participants and the posted deliveries that _with_human_requests prefetches."""
-    return contracts.HumanRequestDTO(
+def _express_request_to_dto(obj: ExpressRequest) -> contracts.ExpressRequestDTO:
+    """Expects the looking participants and the posted deliveries that _with_express_requests prefetches."""
+    return contracts.ExpressRequestDTO(
         id=obj.id,
-        status=HumanRequestStatus(obj.status),
+        status=ExpressRequestStatus(obj.status),
         head_sha=obj.head_sha,
-        requested_via=HumanRequestSource(obj.requested_via),
+        requested_via=ExpressRequestSource(obj.requested_via),
         note=obj.note,
         looking=[participant.display_name or participant.slack_user_id for participant in obj.participants.all()],
         approved_by_login=obj.approved_by_login,
         deliveries=[
-            contracts.HumanRequestDeliveryDTO(
-                kind=HumanRequestDeliveryKind(delivery.kind), url=_human_request_delivery_url(delivery)
+            contracts.ExpressRequestDeliveryDTO(
+                kind=ExpressRequestDeliveryKind(delivery.kind), url=_express_request_delivery_url(delivery)
             )
             for delivery in obj.deliveries.all()
         ],
@@ -202,42 +202,42 @@ def _human_request_to_dto(obj: HumanRequest) -> contracts.HumanRequestDTO:
     )
 
 
-def _human_request_reads(team_id: int) -> QuerySet[HumanRequest]:
+def _express_request_reads(team_id: int) -> QuerySet[ExpressRequest]:
     team_id = resolve_effective_team_id(team_id)
-    participants = HumanRequestParticipant.objects.for_team(team_id, canonical=True).filter(looking=True)
+    participants = ExpressRequestParticipant.objects.for_team(team_id, canonical=True).filter(looking=True)
     deliveries = (
-        HumanRequestDelivery.objects.for_team(team_id, canonical=True)
-        .filter(state=HumanRequestDelivery.State.POSTED)
+        ExpressRequestDelivery.objects.for_team(team_id, canonical=True)
+        .filter(state=ExpressRequestDelivery.State.POSTED)
         .exclude(message_ts="")
     )
     return (
-        HumanRequest.objects.for_team(team_id, canonical=True)
+        ExpressRequest.objects.for_team(team_id, canonical=True)
         .prefetch_related(Prefetch("participants", queryset=participants.order_by("created_at")))
         .prefetch_related(Prefetch("deliveries", queryset=deliveries.order_by("created_at")))
     )
 
 
-def _with_human_requests(qs: _QS, team_id: int, pull_request_path: str) -> _QS:
-    """Prefetch the human requests of each row's pull request, so a page of rows reads them in three queries."""
+def _with_express_requests(qs: _QS, team_id: int, pull_request_path: str) -> _QS:
+    """Prefetch the Express requests of each row's pull request, so a page of rows reads them in three queries."""
     return qs.prefetch_related(
         Prefetch(
             pull_request_path,
-            queryset=_human_request_reads(team_id).order_by("-created_at"),
-            to_attr=_HUMAN_REQUESTS_ATTR,
+            queryset=_express_request_reads(team_id).order_by("-created_at"),
+            to_attr=_EXPRESS_REQUESTS_ATTR,
         )
     )
 
 
-def _latest_human_request(pull_request: PullRequest) -> contracts.HumanRequestDTO | None:
-    """The newest human request of a pull request, or None when there is none or the read did not prefetch them."""
-    requests = getattr(pull_request, _HUMAN_REQUESTS_ATTR, None)
-    return _human_request_to_dto(requests[0]) if requests else None
+def _latest_express_request(pull_request: PullRequest) -> contracts.ExpressRequestDTO | None:
+    """The newest Express request of a pull request, or None when there is none or the read did not prefetch them."""
+    requests = getattr(pull_request, _EXPRESS_REQUESTS_ATTR, None)
+    return _express_request_to_dto(requests[0]) if requests else None
 
 
-def human_request_to_dto(team_id: int, human_request_id: UUID) -> contracts.HumanRequestDTO:
-    """One human request with its participants and deliveries, from the writer, so it includes a request just made."""
-    obj = _human_request_reads(team_id).using(router.db_for_write(HumanRequest)).get(id=human_request_id)
-    return _human_request_to_dto(obj)
+def express_request_to_dto(team_id: int, express_request_id: UUID) -> contracts.ExpressRequestDTO:
+    """One Express request with its participants and deliveries, from the writer, so it includes a request just made."""
+    obj = _express_request_reads(team_id).using(router.db_for_write(ExpressRequest)).get(id=express_request_id)
+    return _express_request_to_dto(obj)
 
 
 def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
@@ -260,7 +260,7 @@ def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
         posted_comment_id=obj.posted_comment_id,
         routing_mode=RoutingMode(obj.repo_config.routing_mode),
         routing=_routing_to_dto(obj.routing),
-        human_request=_latest_human_request(obj),
+        express_request=_latest_express_request(obj),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -380,7 +380,7 @@ def _build_review_run_dto(obj: ReviewRun, *, output: dict[str, Any], trigger: Re
         posted_review_id=obj.posted_review_id,
         verdict_posted_at=obj.verdict_posted_at,
         approval_dismissed_at=obj.approval_dismissed_at,
-        human_request=_latest_human_request(obj.pull_request),
+        express_request=_latest_express_request(obj.pull_request),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
         completed_at=obj.completed_at,
@@ -508,7 +508,7 @@ def check_approval_gates(
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
     """One run for the API. Its `output` carries only the summary keys and `reviewer_raw`."""
     qs = ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config")
-    qs = _with_human_requests(qs, team_id, "pull_request__human_requests")
+    qs = _with_express_requests(qs, team_id, "pull_request__express_requests")
     obj = _slim_review_runs(qs, _RETRIEVE_OUTPUT_KEYS).first()
     return _slim_review_run_to_dto(obj, _RETRIEVE_OUTPUT_KEYS) if obj is not None else None
 
@@ -569,7 +569,7 @@ def get_digest_run(team_id: int, digest_run_id: str) -> contracts.DigestRunDTO |
 
 def get_pull_request(team_id: int, pull_request_id: str) -> contracts.PullRequestDTO | None:
     qs = PullRequest.objects.for_team(team_id).filter(id=pull_request_id).select_related("repo_config")
-    obj = _with_human_requests(qs, team_id, "human_requests").first()
+    obj = _with_express_requests(qs, team_id, "express_requests").first()
     return _pull_request_to_dto(obj) if obj is not None else None
 
 
@@ -593,9 +593,9 @@ def create_repo_config(
     routing_mode: str | None = None,
     routing_fork_labels: dict[str, str] | None = None,
     review_on_clean_external_review: bool | None = None,
-    human_request_enabled: bool | None = None,
-    human_request_slack_channel_id: str | None = None,
-    human_request_slack_channel_name: str | None = None,
+    express_enabled: bool | None = None,
+    express_slack_channel_id: str | None = None,
+    express_slack_channel_name: str | None = None,
 ) -> contracts.RepoConfigDTO:
     """Create a repo config, refusing a repository another team already owns.
 
@@ -616,12 +616,12 @@ def create_repo_config(
         fields["routing_fork_labels"] = routing_fork_labels
     if review_on_clean_external_review is not None:
         fields["review_on_clean_external_review"] = review_on_clean_external_review
-    if human_request_enabled is not None:
-        fields["human_request_enabled"] = human_request_enabled
-    if human_request_slack_channel_id is not None:
-        fields["human_request_slack_channel_id"] = human_request_slack_channel_id
-    if human_request_slack_channel_name is not None:
-        fields["human_request_slack_channel_name"] = human_request_slack_channel_name
+    if express_enabled is not None:
+        fields["express_enabled"] = express_enabled
+    if express_slack_channel_id is not None:
+        fields["express_slack_channel_id"] = express_slack_channel_id
+    if express_slack_channel_name is not None:
+        fields["express_slack_channel_name"] = express_slack_channel_name
     # unique_stamphog_installation_repo backs this at the DB level, so a race that slips past the
     # read still fails closed on the create below and surfaces as the same domain error.
     try:
@@ -818,7 +818,7 @@ def list_review_runs(
         qs = qs.filter(status=status)
     if trigger:
         qs = _filter_by_trigger(qs, trigger)
-    qs = _with_human_requests(qs, team_id, "pull_request__human_requests")
+    qs = _with_express_requests(qs, team_id, "pull_request__express_requests")
     return LazyDTOList(_slim_review_runs(qs, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS), _review_run_list_row_to_dto)
 
 
@@ -833,7 +833,7 @@ def list_pull_requests(
         qs = qs.filter(pr_number=pr_number)
     if merged is not None:
         qs = qs.filter(merged_at__isnull=not merged)
-    return LazyDTOList(_with_human_requests(qs, team_id, "human_requests"), _pull_request_to_dto)
+    return LazyDTOList(_with_express_requests(qs, team_id, "express_requests"), _pull_request_to_dto)
 
 
 # --- Reviewer routing runs ---

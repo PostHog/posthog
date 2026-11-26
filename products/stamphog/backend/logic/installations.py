@@ -24,7 +24,7 @@ def reset_unverified_review_policy(config: StamphogRepoConfig) -> list[str]:
     installation and turns on: all mode reviews every pull request, and a label nobody uses
     reviews nothing. Reviewer routing does not wait for the row to turn on, so a routing mode
     picked there would request reviewers as soon as the row binds. The clean-review switch widens
-    when reviews run, the same way a mode does. A Slack channel picked for human requests would start
+    when reviews run, the same way a mode does. A Slack channel picked for Express requests would start
     to get pull requests as soon as a manager turns the row on, although nobody with GitHub access chose it.
     """
     fields = [
@@ -33,9 +33,9 @@ def reset_unverified_review_policy(config: StamphogRepoConfig) -> list[str]:
         "routing_mode",
         "routing_fork_labels",
         "review_on_clean_external_review",
-        "human_request_enabled",
-        "human_request_slack_channel_id",
-        "human_request_slack_channel_name",
+        "express_enabled",
+        "express_slack_channel_id",
+        "express_slack_channel_name",
     ]
     # Read the defaults off the model so the reset cannot drift from what a fresh row gets.
     for name in fields:

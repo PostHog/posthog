@@ -29744,10 +29744,10 @@ export namespace Schemas {
      * * `merged` - Merged
      * * `closed` - Closed
      */
-    export type HumanRequestStatusEnum = typeof HumanRequestStatusEnum[keyof typeof HumanRequestStatusEnum];
+    export type ExpressRequestStatusEnum = typeof ExpressRequestStatusEnum[keyof typeof ExpressRequestStatusEnum];
 
 
-    export const HumanRequestStatusEnum = {
+    export const ExpressRequestStatusEnum = {
       Pending: 'pending',
       Open: 'open',
       Approved: 'approved',
@@ -29761,10 +29761,10 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `api` - API
      */
-    export type HumanRequestSourceEnum = typeof HumanRequestSourceEnum[keyof typeof HumanRequestSourceEnum];
+    export type ExpressRequestSourceEnum = typeof ExpressRequestSourceEnum[keyof typeof ExpressRequestSourceEnum];
 
 
-    export const HumanRequestSourceEnum = {
+    export const ExpressRequestSourceEnum = {
       Github: 'github',
       Slack: 'slack',
       Api: 'api',
@@ -29773,24 +29773,24 @@ export namespace Schemas {
     /**
      * * `slack_message` - Slack message
      */
-    export type HumanRequestDeliveryKindEnum = typeof HumanRequestDeliveryKindEnum[keyof typeof HumanRequestDeliveryKindEnum];
+    export type ExpressRequestDeliveryKindEnum = typeof ExpressRequestDeliveryKindEnum[keyof typeof ExpressRequestDeliveryKindEnum];
 
 
-    export const HumanRequestDeliveryKindEnum = {
+    export const ExpressRequestDeliveryKindEnum = {
       SlackMessage: 'slack_message',
     } as const;
 
-    export interface CodeReviewApprovalHumanRequestDelivery {
+    export interface CodeReviewApprovalExpressRequestDelivery {
       /** Where the request was posted. 'slack_message' is a message in the repository's Slack channel.
        *
        * * `slack_message` - Slack message */
-      readonly kind: HumanRequestDeliveryKindEnum;
+      readonly kind: ExpressRequestDeliveryKindEnum;
       /** Link that opens the posted message. */
       readonly url: string;
     }
 
-    export interface CodeReviewApprovalHumanRequest {
-      /** ID of the human request. */
+    export interface CodeReviewApprovalExpressRequest {
+      /** ID of the Express request. */
       readonly id: string;
       /** 'pending' while auto-approval reviews the head, so nothing is posted yet. 'open' when auto-approval did not approve and the request waits for a person. 'approved' when a person approved the current head; a new push sets 'open' again. 'stamphog_approved' when auto-approval approved, so no person needs to look. 'merged' or 'closed' when the pull request merged or closed. Only 'pending', 'open' and 'approved' are active, and a pull request has at most one active request.
        *
@@ -29800,7 +29800,7 @@ export namespace Schemas {
        * * `stamphog_approved` - Approved by Stamphog
        * * `merged` - Merged
        * * `closed` - Closed */
-      readonly status: HumanRequestStatusEnum;
+      readonly status: ExpressRequestStatusEnum;
       /** The pull request head the request follows. A push moves it. */
       readonly head_sha: string;
       /** Where the request came from: a pull request comment ('github'), a Slack mention ('slack') or the API ('api').
@@ -29808,7 +29808,7 @@ export namespace Schemas {
        * * `github` - Pull request comment
        * * `slack` - Slack
        * * `api` - API */
-      readonly requested_via: HumanRequestSourceEnum;
+      readonly requested_via: ExpressRequestSourceEnum;
       /** The requester's note for the people who review, shown in Slack only. Blank when there is none. */
       readonly note: string;
       /** Slack display names of the people who said they will look, in the order they said it. */
@@ -29816,7 +29816,7 @@ export namespace Schemas {
       /** GitHub login of the person whose approval of the current head set 'approved'. Blank otherwise. */
       readonly approved_by_login: string;
       /** Where the request was posted. Empty until auto-approval does not approve. */
-      readonly deliveries: readonly CodeReviewApprovalHumanRequestDelivery[];
+      readonly deliveries: readonly CodeReviewApprovalExpressRequestDelivery[];
       /** When somebody asked for people to review. */
       readonly created_at: string;
       /** When the request last changed. */
@@ -29989,8 +29989,8 @@ export namespace Schemas {
       readonly routing_mode: RoutingModeEnum;
       /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
       readonly routing: CodeReviewApprovalPullRequestRouting | null;
-      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with human set to true, or by `@posthog stamp --human`. */
-      readonly human_request: CodeReviewApprovalHumanRequest | null;
+      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with express set to true, or by `@posthog stamp --express`. */
+      readonly express_request: CodeReviewApprovalExpressRequest | null;
       /** When this pull request was first captured. */
       readonly created_at: string;
       /** When this pull request was last updated. */
@@ -30043,14 +30043,14 @@ export namespace Schemas {
       readonly routing_fork_labels: CodeReviewApprovalRepositoryRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       readonly review_on_clean_external_review: boolean;
-      /** Whether `stamp --human` and review requests with human set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to human_request_slack_channel_id. Turning it on needs a channel. Defaults to false. */
-      readonly human_request_enabled: boolean;
+      /** Whether `stamp --express` and review requests with express set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to express_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      readonly express_enabled: boolean;
       /** Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set. */
-      readonly human_request_slack_channel_id: string;
-      /** Display name of the Slack channel in human_request_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go. */
-      readonly human_request_slack_channel_name: string;
+      readonly express_slack_channel_id: string;
+      /** Display name of the Slack channel in express_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go. */
+      readonly express_slack_channel_name: string;
       /**
-         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, human_request_enabled, human_request_slack_channel_id or human_request_slack_channel_name.
+         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, express_enabled, express_slack_channel_id or express_slack_channel_name.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -30101,18 +30101,18 @@ export namespace Schemas {
       routing_fork_labels?: CodeReviewApprovalRepositoryWriteRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
-      /** Whether `stamp --human` and review requests with human set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to human_request_slack_channel_id. Turning it on needs a channel. Defaults to false. */
-      human_request_enabled?: boolean;
+      /** Whether `stamp --express` and review requests with express set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to express_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      express_enabled?: boolean;
       /**
          * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
          * @maxLength 64
          */
-      human_request_slack_channel_id?: string;
+      express_slack_channel_id?: string;
       /**
-         * Display name of the Slack channel in human_request_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go.
+         * Display name of the Slack channel in express_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go.
          * @maxLength 255
          */
-      human_request_slack_channel_name?: string;
+      express_slack_channel_name?: string;
     }
 
     export interface CodeReviewApprovalRoutingFile {
@@ -84468,8 +84468,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly approval_dismissed_at: string | null;
-      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with human set to true, or by `@posthog stamp --human`. It belongs to the pull request, so every run of the pull request shows it. */
-      readonly human_request: CodeReviewApprovalHumanRequest | null;
+      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with express set to true, or by `@posthog stamp --express`. It belongs to the pull request, so every run of the pull request shows it. */
+      readonly express_request: CodeReviewApprovalExpressRequest | null;
       /** When the review run was created. */
       readonly created_at: string;
       /** When the review run was last updated. */
@@ -91793,18 +91793,18 @@ export namespace Schemas {
       routing_fork_labels?: PatchedCodeReviewApprovalRepositoryWriteRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
-      /** Whether `stamp --human` and review requests with human set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to human_request_slack_channel_id. Turning it on needs a channel. Defaults to false. */
-      human_request_enabled?: boolean;
+      /** Whether `stamp --express` and review requests with express set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to express_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      express_enabled?: boolean;
       /**
          * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
          * @maxLength 64
          */
-      human_request_slack_channel_id?: string;
+      express_slack_channel_id?: string;
       /**
-         * Display name of the Slack channel in human_request_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go.
+         * Display name of the Slack channel in express_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go.
          * @maxLength 255
          */
-      human_request_slack_channel_name?: string;
+      express_slack_channel_name?: string;
     }
 
     export interface PatchedCohort {
@@ -115754,10 +115754,10 @@ export namespace Schemas {
          * @minimum 1
          */
       pr_number: number;
-      /** Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull request to the repository's Slack channel for people to review. When it approves, nothing is posted. The repository must have human requests turned on. Asking again returns the request that is already active. Only set it when the user asks for people to review. */
-      human?: boolean;
+      /** Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull request to the repository's Slack channel for people to review. When it approves, nothing is posted. The repository must have Express turned on. Asking again returns the request that is already active. Only set it when the user asks for people to review. */
+      express?: boolean;
       /**
-         * A short note for the people who review, shown in Slack only and never on GitHub. Needs human set to true. A request that is already active keeps its note.
+         * A short note for the people who review, shown in Slack only and never on GitHub. Needs express set to true. A request that is already active keeps its note.
          * @maxLength 200
          */
       note?: string;
@@ -115783,8 +115783,8 @@ export namespace Schemas {
       readonly run: ReviewRun;
       /** True when this request queued a new run. False when a queued, running, or finished run already covered the current head, which is returned instead. */
       readonly created: boolean;
-      /** The request for people to review that this request made or found active. Null unless human was true. */
-      readonly human_request: CodeReviewApprovalHumanRequest | null;
+      /** The request for people to review that this request made or found active. Null unless express was true. */
+      readonly express_request: CodeReviewApprovalExpressRequest | null;
     }
 
     export interface ReviewResolutionConfig {

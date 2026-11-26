@@ -11,9 +11,9 @@ from collections.abc import Collection
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.stamphog.backend.facade import contracts
-from products.stamphog.backend.facade.api import _review_run_to_dto, human_request_to_dto
-from products.stamphog.backend.facade.enums import HumanRequestSource
-from products.stamphog.backend.logic.human_requests import HumanRequestAsk
+from products.stamphog.backend.facade.api import _review_run_to_dto, express_request_to_dto
+from products.stamphog.backend.facade.enums import ExpressRequestSource
+from products.stamphog.backend.logic.express_requests import ExpressRequestAsk
 from products.stamphog.backend.tasks.tasks import (
     request_manual_review,
     reviewing_team_ids as _reviewing_team_ids,
@@ -34,9 +34,9 @@ def request_review(
     user_id: int | None,
     repository: str,
     pr_number: int,
-    human: bool = False,
+    express: bool = False,
     note: str = "",
-    requested_via: HumanRequestSource = HumanRequestSource.API,
+    requested_via: ExpressRequestSource = ExpressRequestSource.API,
     requester_slack_user_id: str = "",
 ) -> contracts.ReviewRequestResultDTO:
     """Queue a stamphog review of a PR, or return the run already covering its current head.
@@ -44,31 +44,31 @@ def request_review(
     ``team_id`` may be an environment: the review runs in its project. Raises ``contracts.ReviewRequestRefusedError`` when the request is refused. The review itself
     runs asynchronously, and whether it approves is stamphog's decision.
 
-    ``human`` also asks people to review in the repository's Slack channel when stamphog does not
+    ``express`` also asks people to review in the repository's Slack channel when stamphog does not
     approve, or returns the pull request's request that is already active. ``note`` goes to Slack
-    only, and only with ``human``.
+    only, and only with ``express``.
     """
-    if note and not human:
-        raise ValueError("A note needs human set")
+    if note and not express:
+        raise ValueError("A note needs express set")
     ask = (
-        HumanRequestAsk(
+        ExpressRequestAsk(
             requested_by_user_id=user_id,
             requested_via=requested_via,
             requester_slack_user_id=requester_slack_user_id,
             note=note,
         )
-        if human
+        if express
         else None
     )
     project_id = resolve_effective_team_id(team_id)
-    queued = request_manual_review(project_id, user_id, repository, pr_number, human=ask)
+    queued = request_manual_review(project_id, user_id, repository, pr_number, express=ask)
     run = _review_run_to_dto(queued.run)
-    if queued.human_request is None:
+    if queued.express_request is None:
         return contracts.ReviewRequestResultDTO(run=run, created=queued.created)
-    human_request = human_request_to_dto(project_id, queued.human_request.id)
+    express_request = express_request_to_dto(project_id, queued.express_request.id)
     return contracts.ReviewRequestResultDTO(
-        run=dataclasses.replace(run, human_request=human_request),
+        run=dataclasses.replace(run, express_request=express_request),
         created=queued.created,
-        human_request=human_request,
-        human_request_channel_name=queued.human_request_channel_name,
+        express_request=express_request,
+        express_request_channel_name=queued.express_request_channel_name,
     )

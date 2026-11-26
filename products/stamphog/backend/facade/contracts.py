@@ -21,9 +21,9 @@ from posthog.dataclasses import frozen
 from .enums import (
     ChannelResolutionSource,
     DigestRunStatus,
-    HumanRequestDeliveryKind,
-    HumanRequestSource,
-    HumanRequestStatus,
+    ExpressRequestDeliveryKind,
+    ExpressRequestSource,
+    ExpressRequestStatus,
     LlmSkipReason,
     OwnerKind,
     PinReason,
@@ -55,9 +55,9 @@ class RepoConfigDTO:
     routing_mode: str = ""
     routing_fork_labels: dict[str, str] = Field(default_factory=dict)
     review_on_clean_external_review: bool = False
-    human_request_enabled: bool = False
-    human_request_slack_channel_id: str = ""
-    human_request_slack_channel_name: str = ""
+    express_enabled: bool = False
+    express_slack_channel_id: str = ""
+    express_slack_channel_name: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -101,26 +101,26 @@ class PullRequestRoutingDTO:
 
 
 @dataclass(frozen=True)
-class HumanRequestDeliveryDTO:
-    """Where a human request was posted."""
+class ExpressRequestDeliveryDTO:
+    """Where an Express request was posted."""
 
-    kind: HumanRequestDeliveryKind
+    kind: ExpressRequestDeliveryKind
     url: str
 
 
 @dataclass(frozen=True)
-class HumanRequestDTO:
+class ExpressRequestDTO:
     """A request for a person to review a pull request when stamphog does not approve it."""
 
     id: UUID
-    status: HumanRequestStatus
+    status: ExpressRequestStatus
     head_sha: str
-    requested_via: HumanRequestSource
+    requested_via: ExpressRequestSource
     note: str = ""
     # Display names of the people who said they will look, in the order they said it.
     looking: list[str] = Field(default_factory=list)
     approved_by_login: str = ""
-    deliveries: list[HumanRequestDeliveryDTO] = Field(default_factory=list)
+    deliveries: list[ExpressRequestDeliveryDTO] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -147,8 +147,8 @@ class PullRequestDTO:
     posted_comment_id: int | None = None
     routing_mode: RoutingMode = RoutingMode.OFF
     routing: PullRequestRoutingDTO | None = None
-    # The newest human request of the pull request, None when nobody asked or the read did not load it.
-    human_request: HumanRequestDTO | None = None
+    # The newest Express request of the pull request, None when nobody asked or the read did not load it.
+    express_request: ExpressRequestDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -204,8 +204,8 @@ class ReviewRunDTO:
     posted_review_id: int | None = None
     verdict_posted_at: datetime | None = None
     approval_dismissed_at: datetime | None = None
-    # The newest human request of the run's pull request, as on PullRequestDTO.
-    human_request: HumanRequestDTO | None = None
+    # The newest Express request of the run's pull request, as on PullRequestDTO.
+    express_request: ExpressRequestDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
@@ -306,9 +306,9 @@ class ReviewRequestResultDTO:
     # False when a live or delivered run already covered the PR's current head.
     created: bool
     # Set only when the request asked for people to review. It can be a request that already existed.
-    human_request: HumanRequestDTO | None = None
-    # The Slack channel name the repository sends human requests to, without the '#'. Blank when unknown.
-    human_request_channel_name: str = ""
+    express_request: ExpressRequestDTO | None = None
+    # The Slack channel name the repository sends Express requests to, without the '#'. Blank when unknown.
+    express_request_channel_name: str = ""
 
 
 @dataclass(frozen=True)

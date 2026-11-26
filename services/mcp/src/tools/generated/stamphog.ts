@@ -211,14 +211,14 @@ const codeReviewApprovalsRepositoriesUpdate = (): ToolBase<
         if (params.review_on_clean_external_review !== undefined) {
             body['review_on_clean_external_review'] = params.review_on_clean_external_review
         }
-        if (params.human_request_enabled !== undefined) {
-            body['human_request_enabled'] = params.human_request_enabled
+        if (params.express_enabled !== undefined) {
+            body['express_enabled'] = params.express_enabled
         }
-        if (params.human_request_slack_channel_id !== undefined) {
-            body['human_request_slack_channel_id'] = params.human_request_slack_channel_id
+        if (params.express_slack_channel_id !== undefined) {
+            body['express_slack_channel_id'] = params.express_slack_channel_id
         }
-        if (params.human_request_slack_channel_name !== undefined) {
-            body['human_request_slack_channel_name'] = params.human_request_slack_channel_name
+        if (params.express_slack_channel_name !== undefined) {
+            body['express_slack_channel_name'] = params.express_slack_channel_name
         }
         const result = await context.api.request<Schemas.CodeReviewApprovalRepository>({
             method: 'PATCH',
@@ -324,8 +324,8 @@ const codeReviewApprovalsRunsCreate = (): ToolBase<
         if (params.pr_number !== undefined) {
             body['pr_number'] = params.pr_number
         }
-        if (params.human !== undefined) {
-            body['human'] = params.human
+        if (params.express !== undefined) {
+            body['express'] = params.express
         }
         if (params.note !== undefined) {
             body['note'] = params.note

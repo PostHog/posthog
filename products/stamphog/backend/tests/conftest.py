@@ -318,7 +318,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
             patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=_run_on_commit_immediately)
         )
         stack.enter_context(patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", fake_slack))
-        stack.enter_context(patch("products.stamphog.backend.logic.human_request_slack.SlackIntegration", fake_slack))
+        stack.enter_context(patch("products.stamphog.backend.logic.express_request_slack.SlackIntegration", fake_slack))
         stack.enter_context(patch("posthog.slack.channels.SlackIntegration", fake_slack))
         stack.enter_context(
             patch(

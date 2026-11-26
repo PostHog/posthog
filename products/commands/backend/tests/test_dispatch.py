@@ -38,6 +38,7 @@ from products.commands.backend.channels.slack.mentions import read_slack_command
 from products.commands.backend.facade.api import accept_slack_mention
 from products.commands.backend.facade.contracts import SlackMention
 from products.commands.backend.logic.commands import (
+    ChannelName,
     CommandContext,
     CommandRequest,
     ProjectMember,
@@ -60,8 +61,12 @@ from products.review_hog.backend.facade.reviews import (
     PRReviewRequestOutcome,
     PRReviewRequestStatus,
 )
-from products.stamphog.backend.facade.contracts import HumanRequestDeliveryDTO, HumanRequestDTO
-from products.stamphog.backend.facade.enums import HumanRequestDeliveryKind, HumanRequestSource, HumanRequestStatus
+from products.stamphog.backend.facade.contracts import ExpressRequestDeliveryDTO, ExpressRequestDTO
+from products.stamphog.backend.facade.enums import (
+    ExpressRequestDeliveryKind,
+    ExpressRequestSource,
+    ExpressRequestStatus,
+)
 from products.tasks.backend.facade.access import DesktopAccessDecision
 
 INSTALLATION_ID = "31337"
@@ -182,7 +187,9 @@ class TestDispatchCommentCommand(BaseTest):
         self._link_github_login()
         github = FakeGitHub()
 
-        with patch(REQUEST_STAMPHOG_REVIEW, return_value=MagicMock(created=True, human_request=None)) as request_review:
+        with patch(
+            REQUEST_STAMPHOG_REVIEW, return_value=MagicMock(created=True, express_request=None)
+        ) as request_review:
             outcome = dispatch_comment_command(self._request(), github=github)
 
         assert outcome == "accepted"
@@ -191,9 +198,9 @@ class TestDispatchCommentCommand(BaseTest):
             user_id=self.user.id,
             repository=REPOSITORY,
             pr_number=7,
-            human=False,
+            express=False,
             note="",
-            requested_via=HumanRequestSource.GITHUB,
+            requested_via=ExpressRequestSource.GITHUB,
             requester_slack_user_id="",
         )
         # A login can pass to another account after a rename; the permission must be for this id.
@@ -437,7 +444,7 @@ class TestDispatchCommentCommand(BaseTest):
         request_review.assert_not_called()
         assert github.replies == [
             "<!-- posthog-github-command:555 -->\n@octo `stamp` doesn't take that option. "
-            "Use `@posthog stamp [--human] [<note>]`."
+            "Use `@posthog stamp [--express] [<note>]`."
         ]
 
     def test_an_installation_outside_the_rollout_stays_silent(self) -> None:
@@ -466,12 +473,14 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("from_github", "github", StampArgs(human=True, note="ask Jane about billing"), "Notes only work"),
-            ("from_github_without_human", "github", StampArgs(note="ask Jane about billing"), "Notes only work"),
-            ("without_human", "slack", StampArgs(note="ask Jane about billing"), "Add `--human`"),
+            ("from_github", "github", StampArgs(express=True, note="ask Jane about billing"), "Notes only work"),
+            ("from_github_without_express", "github", StampArgs(note="ask Jane about billing"), "Notes only work"),
+            ("without_express", "slack", StampArgs(note="ask Jane about billing"), "Add `--express`"),
         ]
     )
-    def test_stamp_refuses_a_note_it_cannot_use(self, _name: str, channel: str, args: StampArgs, expected: str) -> None:
+    def test_stamp_refuses_a_note_it_cannot_use(
+        self, _name: str, channel: ChannelName, args: StampArgs, expected: str
+    ) -> None:
         context = CommandContext(
             request=dataclasses.replace(self._command_request(verb="stamp"), channel=channel),
             subject=_pull_request(),
@@ -489,43 +498,49 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("pending", HumanRequestStatus.PENDING, False, "reviews", "If it doesn't approve, this goes to #reviews."),
+            (
+                "pending",
+                ExpressRequestStatus.PENDING,
+                False,
+                "reviews",
+                "If it doesn't approve, this goes to #reviews.",
+            ),
             (
                 "pending_without_a_channel_name",
-                HumanRequestStatus.PENDING,
+                ExpressRequestStatus.PENDING,
                 False,
                 "",
                 "If it doesn't approve, this goes to the repository's Slack channel.",
             ),
-            ("open", HumanRequestStatus.OPEN, False, "reviews", "Stamphog didn't approve, so this goes to #reviews."),
+            ("open", ExpressRequestStatus.OPEN, False, "reviews", "Stamphog didn't approve, so this goes to #reviews."),
             (
                 "already_posted",
-                HumanRequestStatus.OPEN,
+                ExpressRequestStatus.OPEN,
                 True,
                 "reviews",
                 "Already asked in #reviews: https://app.slack.com/archives/C1/p100200",
             ),
             (
                 "stamphog_approved",
-                HumanRequestStatus.STAMPHOG_APPROVED,
+                ExpressRequestStatus.STAMPHOG_APPROVED,
                 False,
                 "reviews",
                 "Stamphog approved. No one else needs to look.",
             ),
         ]
     )
-    def test_stamp_human_replies_with_where_the_request_stands(
-        self, _name: str, status: HumanRequestStatus, posted: bool, channel_name: str, expected: str
+    def test_stamp_express_replies_with_where_the_request_stands(
+        self, _name: str, status: ExpressRequestStatus, posted: bool, channel_name: str, expected: str
     ) -> None:
-        human_request = HumanRequestDTO(
+        express_request = ExpressRequestDTO(
             id=uuid4(),
             status=status,
             head_sha="abc123",
-            requested_via=HumanRequestSource.SLACK,
+            requested_via=ExpressRequestSource.SLACK,
             note="ask Jane about billing",
             deliveries=[
-                HumanRequestDeliveryDTO(
-                    kind=HumanRequestDeliveryKind.SLACK_MESSAGE, url="https://app.slack.com/archives/C1/p100200"
+                ExpressRequestDeliveryDTO(
+                    kind=ExpressRequestDeliveryKind.SLACK_MESSAGE, url="https://app.slack.com/archives/C1/p100200"
                 )
             ]
             if posted
@@ -536,10 +551,10 @@ class TestDispatchCommentCommand(BaseTest):
             subject=_pull_request(),
             members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
-        result = MagicMock(created=True, human_request=human_request, human_request_channel_name=channel_name)
+        result = MagicMock(created=True, express_request=express_request, express_request_channel_name=channel_name)
 
         with patch(REQUEST_STAMPHOG_REVIEW, return_value=result):
-            outcome = handle_stamp(context, StampArgs(human=True, note="ask Jane about billing"))
+            outcome = handle_stamp(context, StampArgs(express=True, note="ask Jane about billing"))
 
         assert outcome.accepted
         assert outcome.message.endswith(expected)
@@ -710,12 +725,12 @@ class TestDispatchCommentCommand(BaseTest):
         )
         mention = dataclasses.replace(
             self._slack_mention("stamp", (str(self.organization.id),), integration_id=slack.id),
-            text=f"stamp --human https://github.com/{REPOSITORY}/pull/7 check the billing migration",
+            text=f"stamp --express https://github.com/{REPOSITORY}/pull/7 check the billing migration",
         )
-        human_request = HumanRequestDTO(
-            id=uuid4(), status=HumanRequestStatus.PENDING, head_sha="abc123", requested_via=HumanRequestSource.SLACK
+        express_request = ExpressRequestDTO(
+            id=uuid4(), status=ExpressRequestStatus.PENDING, head_sha="abc123", requested_via=ExpressRequestSource.SLACK
         )
-        result = MagicMock(created=True, human_request=human_request, human_request_channel_name="reviews")
+        result = MagicMock(created=True, express_request=express_request, express_request_channel_name="reviews")
         budget = BucketDecision(allowed=True, remaining=0, limit=5, retry_after=60, reset=600)
         answers: list[str] = []
 
@@ -732,9 +747,9 @@ class TestDispatchCommentCommand(BaseTest):
             "user_id": self.user.id,
             "repository": REPOSITORY,
             "pr_number": 7,
-            "human": True,
+            "express": True,
             "note": "check the billing migration",
-            "requested_via": HumanRequestSource.SLACK,
+            "requested_via": ExpressRequestSource.SLACK,
             "requester_slack_user_id": "U1",
         }
         assert [answer.split("\n")[0] for answer in answers] == [

@@ -42,7 +42,7 @@ from products.stamphog.backend.facade import (
     api as facade_api,
     contracts,
 )
-from products.stamphog.backend.facade.enums import HumanRequestSource, ReviewRequestRefusal, ReviewTrigger
+from products.stamphog.backend.facade.enums import ExpressRequestSource, ReviewRequestRefusal, ReviewTrigger
 
 from ..facade import review_requests
 from ..facade.github import (
@@ -91,15 +91,15 @@ REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
 # pull requests with no reviewer at all, so both directions take manager. A fork label replaces a
 # team's review request on fork pull requests, so it decides who gets asked too.
 # The clean-review switch starts reviews outside review_mode, so it decides when reviews run as well.
-# Human requests send pull requests to a Slack channel for people to review, so they decide who gets asked too.
+# Express requests send pull requests to a Slack channel for people to review, so they decide who gets asked too.
 MANAGER_FIELDS = (
     *REVIEW_POLICY_FIELDS,
     "routing_mode",
     "routing_fork_labels",
     "review_on_clean_external_review",
-    "human_request_enabled",
-    "human_request_slack_channel_id",
-    "human_request_slack_channel_name",
+    "express_enabled",
+    "express_slack_channel_id",
+    "express_slack_channel_name",
 )
 
 # How far back the owner list looks when the caller names no window.
@@ -607,7 +607,7 @@ _REFUSAL_STATUS = {
     ReviewRequestRefusal.NOT_FOUND: 404,
     ReviewRequestRefusal.NOT_REVIEWABLE: 409,
     ReviewRequestRefusal.GITHUB_UNAVAILABLE: 503,
-    ReviewRequestRefusal.HUMAN_REQUEST_OFF: 409,
+    ReviewRequestRefusal.EXPRESS_OFF: 409,
 }
 
 
@@ -663,9 +663,9 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
                 user_id=request.user.pk,
                 repository=serializer.validated_data["repository"],
                 pr_number=serializer.validated_data["pr_number"],
-                human=serializer.validated_data["human"],
+                express=serializer.validated_data["express"],
                 note=serializer.validated_data["note"],
-                requested_via=HumanRequestSource.API,
+                requested_via=ExpressRequestSource.API,
             )
         except contracts.ReviewRequestRefusedError as error:
             raise ReviewRequestRefused(error)

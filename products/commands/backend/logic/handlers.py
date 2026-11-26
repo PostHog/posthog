@@ -141,30 +141,30 @@ def _follow_up(context: CommandContext) -> follow_ups.FollowUp | None:
     )
 
 
-_HUMAN_REQUEST_SOURCES: dict[ChannelName, stamphog_enums.HumanRequestSource] = {
-    "github": stamphog_enums.HumanRequestSource.GITHUB,
-    "slack": stamphog_enums.HumanRequestSource.SLACK,
+_EXPRESS_REQUEST_SOURCES: dict[ChannelName, stamphog_enums.ExpressRequestSource] = {
+    "github": stamphog_enums.ExpressRequestSource.GITHUB,
+    "slack": stamphog_enums.ExpressRequestSource.SLACK,
 }
 
 
-def _human_request_reply(result: stamphog_contracts.ReviewRequestResultDTO) -> str | None:
-    """The reply to `stamp --human`, or None to fall back to the reply about the run.
+def _express_request_reply(result: stamphog_contracts.ReviewRequestResultDTO) -> str | None:
+    """The reply to `stamp --express`, or None to fall back to the reply about the run.
 
     Built from fixed text, the channel name a manager set, and the Slack link, so it never repeats the note.
     """
-    human_request = result.human_request
-    if human_request is None:
+    express_request = result.express_request
+    if express_request is None:
         return None
-    channel_name = result.human_request_channel_name.lstrip("#")
+    channel_name = result.express_request_channel_name.lstrip("#")
     channel = f"#{channel_name}" if channel_name else "the repository's Slack channel"
-    status = human_request.status
-    if status == stamphog_enums.HumanRequestStatus.STAMPHOG_APPROVED:
+    status = express_request.status
+    if status == stamphog_enums.ExpressRequestStatus.STAMPHOG_APPROVED:
         return "Stamphog approved. No one else needs to look."
-    if human_request.deliveries:
-        return f"Already asked in {channel}: {human_request.deliveries[0].url}"
-    if status == stamphog_enums.HumanRequestStatus.PENDING:
+    if express_request.deliveries:
+        return f"Already asked in {channel}: {express_request.deliveries[0].url}"
+    if status == stamphog_enums.ExpressRequestStatus.PENDING:
         return f"Stamphog is reviewing. If it doesn't approve, this goes to {channel}."
-    if status == stamphog_enums.HumanRequestStatus.OPEN:
+    if status == stamphog_enums.ExpressRequestStatus.OPEN:
         return f"Stamphog didn't approve, so this goes to {channel}."
     return None
 
@@ -172,7 +172,7 @@ def _human_request_reply(result: stamphog_contracts.ReviewRequestResultDTO) -> s
 def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     """Ask Stamphog to review the pull request. Stamphog alone decides whether to approve.
 
-    With `--human`, people in the repository's Slack channel are also asked to review when Stamphog
+    With `--express`, people in the repository's Slack channel are also asked to review when Stamphog
     doesn't approve.
     """
     # The refusals never repeat the note, because a reply on GitHub is public.
@@ -181,8 +181,8 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
             accepted=False,
             message="Notes only work from Slack, because pull request comments are public. Run it again without the note.",
         )
-    if args.note and not args.human:
-        return CommandOutcome(accepted=False, message="Add `--human` to ask people, or leave out the text.")
+    if args.note and not args.express:
+        return CommandOutcome(accepted=False, message="Add `--express` to ask people, or leave out the text.")
     pull_request = context.pull_request
     member = context.members[0]
     try:
@@ -191,9 +191,9 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
             user_id=member.user_id,
             repository=pull_request.repository,
             pr_number=pull_request.number,
-            human=args.human,
+            express=args.express,
             note=args.note,
-            requested_via=_HUMAN_REQUEST_SOURCES[context.request.channel],
+            requested_via=_EXPRESS_REQUEST_SOURCES[context.request.channel],
             requester_slack_user_id=context.request.slack_user_id,
         )
     except stamphog_contracts.ReviewRequestRefusedError as error:
@@ -202,9 +202,9 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     follow_up = _follow_up(context)
     if follow_up is not None and result.run.status not in stamphog_enums.TERMINAL_STATUSES:
         follow_ups.remember(follow_ups.stamphog_run_key(str(result.run.id)), follow_up)
-    human_request_reply = _human_request_reply(result)
-    if human_request_reply is not None:
-        return CommandOutcome(accepted=True, message=human_request_reply)
+    express_request_reply = _express_request_reply(result)
+    if express_request_reply is not None:
+        return CommandOutcome(accepted=True, message=express_request_reply)
     if result.created:
         return CommandOutcome(accepted=True, message="Stamphog is reviewing this pull request.")
     return CommandOutcome(

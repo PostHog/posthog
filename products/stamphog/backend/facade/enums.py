@@ -135,14 +135,14 @@ class RoutingRunOrdering(LabeledStrEnum):
 # module level, so it lives in this light module.
 ROUTING_ACTIONS = frozenset({"opened", "ready_for_review"})
 
-# The pull_request actions that can change what a human request's card shows, apart from the head:
+# The pull_request actions that can change what an Express request's card shows, apart from the head:
 # the final state, or who GitHub asks to review. A head change or a base retarget is refreshed by the
 # review task once it decided whether stamphog reviews the head, because the card reads a missing
 # run as no review coming.
-HUMAN_REQUEST_PR_ACTIONS = frozenset({"closed", "review_requested", "review_request_removed"})
+EXPRESS_REQUEST_PR_ACTIONS = frozenset({"closed", "review_requested", "review_request_removed"})
 # The pull_request_review actions that can add or withdraw a person's approval. A submitted review
 # that only comments leaves an approval standing, so the consumer drops it.
-HUMAN_REQUEST_REVIEW_ACTIONS = frozenset({"submitted", "dismissed"})
+EXPRESS_REQUEST_REVIEW_ACTIONS = frozenset({"submitted", "dismissed"})
 
 
 class ReviewRunStatus(StrEnum):
@@ -190,11 +190,11 @@ class ReviewRequestRefusal(StrEnum):
     NOT_FOUND = "not_found"
     NOT_REVIEWABLE = "not_reviewable"
     GITHUB_UNAVAILABLE = "github_unavailable"
-    # The request asked for people to review, and the repository has human requests turned off.
-    HUMAN_REQUEST_OFF = "human_request_off"
+    # The request asked for people to review, and the repository has Express turned off.
+    EXPRESS_OFF = "express_off"
 
 
-class HumanRequestStatus(LabeledStrEnum):
+class ExpressRequestStatus(LabeledStrEnum):
     """Where a request for a person to review one pull request stands."""
 
     # Stamphog has not decided the head yet, so nothing is posted.
@@ -209,12 +209,12 @@ class HumanRequestStatus(LabeledStrEnum):
 
 
 # A pull request has at most one request in these states. The other states are final.
-ACTIVE_HUMAN_REQUEST_STATUSES = frozenset(
-    {HumanRequestStatus.PENDING, HumanRequestStatus.OPEN, HumanRequestStatus.APPROVED}
+ACTIVE_EXPRESS_REQUEST_STATUSES = frozenset(
+    {ExpressRequestStatus.PENDING, ExpressRequestStatus.OPEN, ExpressRequestStatus.APPROVED}
 )
 
 
-class HumanRequestSource(LabeledStrEnum):
+class ExpressRequestSource(LabeledStrEnum):
     """Where somebody asked for a person to review a pull request."""
 
     GITHUB = "github", "Pull request comment"
@@ -222,7 +222,7 @@ class HumanRequestSource(LabeledStrEnum):
     API = "api", "API"
 
 
-class HumanRequestDeliveryKind(LabeledStrEnum):
+class ExpressRequestDeliveryKind(LabeledStrEnum):
     """Where a request for a person was posted."""
 
     SLACK_MESSAGE = "slack_message", "Slack message"

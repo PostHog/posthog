@@ -196,16 +196,16 @@ digest:
 This key belongs to this product, not to the engine, which ignores it.
 It is read from the default branch too, so a PR cannot redirect its own digest.
 
-## Asking people to review
+## Express: asking people to review
 
-`@posthog stamp --human [note]`, or a review request with `human: true`, asks Stamphog for a review and opens a human request for the pull request.
-A manager turns it on per repository with `human_request_enabled` and a Slack channel on the repo config API.
+`@posthog stamp --express [note]`, or a review request with `express: true`, asks Stamphog for a review and opens an Express request for the pull request.
+A manager turns it on per repository with `express_enabled` and a Slack channel on the repo config API.
 If Stamphog approves, nothing is posted.
 If Stamphog refuses, escalates, is gated or fails, one message goes to the channel, with an "I'll take a look" button.
 That message changes as the pull request does: a person's approval of the current head, a push that makes it stale, a later Stamphog approval, a merge or a close.
 Each pull request has at most one active request, so asking again returns it.
 The note is shown in Slack only, because pull request comments are public.
-The logic is in `backend/logic/human_requests.py`, and the events are `stamphog_human_request_created`, `stamphog_human_request_card_posted` and `stamphog_human_request_look_clicked`.
+The logic is in `backend/logic/express_requests.py`, and the events are `stamphog_express_request_created`, `stamphog_express_card_posted` and `stamphog_express_look_clicked`.
 
 ## Daily digest
 

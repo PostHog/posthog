@@ -10,8 +10,8 @@ from typing import Any, cast
 from posthog.ingress.contracts import WebhookConsumer, WebhookDelivery
 
 from products.stamphog.backend.facade.enums import (
-    HUMAN_REQUEST_PR_ACTIONS,
-    HUMAN_REQUEST_REVIEW_ACTIONS,
+    EXPRESS_REQUEST_PR_ACTIONS,
+    EXPRESS_REQUEST_REVIEW_ACTIONS,
     ROUTING_ACTIONS,
 )
 
@@ -54,36 +54,36 @@ def _route_reviewers(delivery: WebhookDelivery) -> None:
     )
 
 
-def _queue_human_request_refreshes(payload: Mapping[str, Any], installation_id: str) -> None:
+def _queue_express_request_refreshes(payload: Mapping[str, Any], installation_id: str) -> None:
     repository = (payload.get("repository") or {}).get("full_name")
     pr_number = (payload.get("pull_request") or {}).get("number")
     if not repository or not isinstance(pr_number, int):
         return
     from products.stamphog.backend.facade.tasks import (  # noqa: PLC0415 - keeps the GitHub and Temporal clients off the registry's import path
-        refresh_human_requests_for_pull_request,
+        refresh_express_requests_for_pull_request,
     )
 
-    cast(Any, refresh_human_requests_for_pull_request).delay(
+    cast(Any, refresh_express_requests_for_pull_request).delay(
         repository=repository, pr_number=pr_number, installation_id=installation_id
     )
 
 
-def _refresh_human_requests_on_pull_request(delivery: WebhookDelivery) -> None:
+def _refresh_express_requests_on_pull_request(delivery: WebhookDelivery) -> None:
     payload = delivery.payload
-    if payload.get("action") not in HUMAN_REQUEST_PR_ACTIONS:
+    if payload.get("action") not in EXPRESS_REQUEST_PR_ACTIONS:
         return
-    _queue_human_request_refreshes(payload, delivery.context.get("installation_id", ""))
+    _queue_express_request_refreshes(payload, delivery.context.get("installation_id", ""))
 
 
-def _refresh_human_requests_on_review(delivery: WebhookDelivery) -> None:
+def _refresh_express_requests_on_review(delivery: WebhookDelivery) -> None:
     payload = delivery.payload
     review = payload.get("review") or {}
-    if payload.get("action") not in HUMAN_REQUEST_REVIEW_ACTIONS or (review.get("user") or {}).get("type") == "Bot":
+    if payload.get("action") not in EXPRESS_REQUEST_REVIEW_ACTIONS or (review.get("user") or {}).get("type") == "Bot":
         return
     if payload.get("action") == "submitted" and review.get("state") == "commented":
         return
     # The PostHog App's installation is not stamphog's, so the task matches on the repository alone.
-    _queue_human_request_refreshes(payload, "")
+    _queue_express_request_refreshes(payload, "")
 
 
 WEBHOOK_CONSUMERS = (
@@ -108,19 +108,19 @@ WEBHOOK_CONSUMERS = (
         dedup=False,
     ),
     WebhookConsumer(
-        name="stamphog_human_request_pull_requests",
+        name="stamphog_express_request_pull_requests",
         provider="github",
         app="stamphog",
         event_types=frozenset({"pull_request"}),
-        handler=_refresh_human_requests_on_pull_request,
+        handler=_refresh_express_requests_on_pull_request,
     ),
     # The stamphog App gets no review events, so a person's approval or its dismissal arrives
     # through the PostHog App. GitHub delivers it to the region that holds that installation.
     WebhookConsumer(
-        name="stamphog_human_request_reviews",
+        name="stamphog_express_request_reviews",
         provider="github",
         app="posthog",
         event_types=frozenset({"pull_request_review"}),
-        handler=_refresh_human_requests_on_review,
+        handler=_refresh_express_requests_on_review,
     ),
 )

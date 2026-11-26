@@ -1,6 +1,6 @@
 """Requests for a person to review a pull request that stamphog did not approve.
 
-A request starts with a manual review request that sets ``human``. It follows the pull request
+A request starts with a manual review request that sets ``express``. It follows the pull request
 until a person or stamphog approves it, or the pull request merges or closes. ``refresh`` decides
 the request's state from the database and GitHub, then posts or edits its Slack card, so every
 change to a request goes through one idempotent path.
@@ -21,19 +21,18 @@ from posthog.models import User
 from posthog.ph_client import ph_scoped_capture
 
 from ..facade.enums import (
-    ACTIVE_HUMAN_REQUEST_STATUSES,
-    HumanRequestDeliveryKind,
-    HumanRequestSource,
-    HumanRequestStatus,
+    ACTIVE_EXPRESS_REQUEST_STATUSES,
+    ExpressRequestDeliveryKind,
+    ExpressRequestSource,
+    ExpressRequestStatus,
     ReviewRunStatus,
     ReviewVerdict,
 )
-from ..models import HumanRequest, HumanRequestDelivery, HumanRequestParticipant, PullRequest, ReviewRun
-from .github_client import StamphogGitHubClient
-from .human_request_slack import (
+from ..models import ExpressRequest, ExpressRequestDelivery, ExpressRequestParticipant, PullRequest, ReviewRun
+from .express_request_slack import (
     CardLooker,
-    HumanRequestCard,
-    HumanRequestSlackError,
+    ExpressRequestCard,
+    ExpressRequestSlackError,
     LookClick,
     card_workspace,
     find_card_integration,
@@ -41,62 +40,63 @@ from .human_request_slack import (
     post_card,
     update_card,
 )
+from .github_client import StamphogGitHubClient
 from .rerun_evidence import is_person
 from .reviewer import parse_reviewer_output
 from .scrubbing import neutralize_active_markdown, scrub_credentials
 
 logger = structlog.get_logger(__name__)
 
-REQUEST_CREATED_EVENT = "stamphog_human_request_created"
-CARD_POSTED_EVENT = "stamphog_human_request_card_posted"
-LOOK_CLICKED_EVENT = "stamphog_human_request_look_clicked"
+REQUEST_CREATED_EVENT = "stamphog_express_request_created"
+CARD_POSTED_EVENT = "stamphog_express_card_posted"
+LOOK_CLICKED_EVENT = "stamphog_express_look_clicked"
 
 # The outcomes that send a pull request to people. A WAIT is absent because stamphog reviews the head again.
 _NOT_APPROVED_VERDICTS = frozenset({ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE})
 
 
 @frozen
-class HumanRequestAsk:
+class ExpressRequestAsk:
     """Who asked for people to review a pull request, and from where."""
 
     requested_by_user_id: int | None
-    requested_via: HumanRequestSource
+    requested_via: ExpressRequestSource
     requester_slack_user_id: str = ""
     # Shown in Slack only. It is never written to GitHub, because pull request comments are public.
     note: str = ""
 
 
 @frozen
-class OpenedHumanRequest:
+class OpenedExpressRequest:
     """The active request for a pull request, and whether this ask created it."""
 
-    request: HumanRequest
+    request: ExpressRequest
     created: bool
 
 
-def status_for_run(run: ReviewRun) -> HumanRequestStatus:
+def status_for_run(run: ReviewRun) -> ExpressRequestStatus:
     """What a request waits for while ``run`` is stamphog's newest review of the request's head.
 
     Only a verdict that GitHub already has counts, so a run that has not posted one leaves the request
     PENDING. ``stamphog_status_at_head`` never passes a silent run that withheld its verdict.
     """
     if run.status == ReviewRunStatus.FAILED:
-        return HumanRequestStatus.OPEN if run.may_publish() else HumanRequestStatus.PENDING
+        return ExpressRequestStatus.OPEN if run.may_publish() else ExpressRequestStatus.PENDING
     if run.status not in (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED) or run.verdict_posted_at is None:
-        return HumanRequestStatus.PENDING
+        return ExpressRequestStatus.PENDING
     # A gate denial is stored as a GATED WAIT, and stamphog does not review that head again.
     if run.status == ReviewRunStatus.GATED:
-        return HumanRequestStatus.OPEN
+        return ExpressRequestStatus.OPEN
     if run.verdict == ReviewVerdict.APPROVED and run.approval_dismissed_at is None:
-        return HumanRequestStatus.STAMPHOG_APPROVED
+        return ExpressRequestStatus.STAMPHOG_APPROVED
     if run.verdict in _NOT_APPROVED_VERDICTS:
-        return HumanRequestStatus.OPEN
-    return HumanRequestStatus.PENDING
+        return ExpressRequestStatus.OPEN
+    return ExpressRequestStatus.PENDING
 
 
-def open_human_request(
-    pull_request: PullRequest, run: ReviewRun, ask: HumanRequestAsk, *, using: str
-) -> OpenedHumanRequest:
+def open_express_request(
+    pull_request: PullRequest, run: ReviewRun, ask: ExpressRequestAsk, *, using: str
+) -> OpenedExpressRequest:
     """Return the pull request's active request, or create one for the head that ``run`` covers.
 
     Call it inside the transaction that locked ``run``. The run cannot reach a terminal state before
@@ -106,18 +106,18 @@ def open_human_request(
     is created as STAMPHOG_APPROVED, which is final, so it does not block a later request.
     """
     active = (
-        HumanRequest.objects.for_team(pull_request.team_id)
+        ExpressRequest.objects.for_team(pull_request.team_id)
         .using(using)
-        .filter(pull_request=pull_request, status__in=ACTIVE_HUMAN_REQUEST_STATUSES)
+        .filter(pull_request=pull_request, status__in=ACTIVE_EXPRESS_REQUEST_STATUSES)
     )
     existing = active.first()
     if existing is not None:
-        return OpenedHumanRequest(request=existing, created=False)
+        return OpenedExpressRequest(request=existing, created=False)
     try:
         # The savepoint keeps the outer transaction usable when a concurrent ask wins the unique constraint.
         with transaction.atomic(using=using):
             request = (
-                HumanRequest.objects.for_team(pull_request.team_id)
+                ExpressRequest.objects.for_team(pull_request.team_id)
                 .using(using)
                 .create(
                     team_id=pull_request.team_id,
@@ -131,30 +131,30 @@ def open_human_request(
                 )
             )
     except IntegrityError:
-        return OpenedHumanRequest(request=active.get(), created=False)
+        return OpenedExpressRequest(request=active.get(), created=False)
     transaction.on_commit(
         lambda: _capture(
             request,
             REQUEST_CREATED_EVENT,
             {
-                "stamphog_human_request_status": str(request.status),
-                "stamphog_human_request_has_note": bool(request.note),
+                "stamphog_express_request_status": str(request.status),
+                "stamphog_express_request_has_note": bool(request.note),
             },
         ),
         using=using,
     )
-    return OpenedHumanRequest(request=request, created=True)
+    return OpenedExpressRequest(request=request, created=True)
 
 
 # The review states that replace a person's earlier review. A COMMENTED review leaves an approval standing.
 _DECIDING_REVIEW_STATES = frozenset({"APPROVED", "CHANGES_REQUESTED", "DISMISSED"})
 # The statuses that a card shows a person can still pick up.
-_REVIEWABLE_STATUSES = frozenset({HumanRequestStatus.OPEN, HumanRequestStatus.PENDING})
+_REVIEWABLE_STATUSES = frozenset({ExpressRequestStatus.OPEN, ExpressRequestStatus.PENDING})
 
 
 def stamphog_status_at_head(
     pull_request: PullRequest, head_sha: str, *, using: str
-) -> tuple[HumanRequestStatus, ReviewRun | None]:
+) -> tuple[ExpressRequestStatus, ReviewRun | None]:
     """What stamphog's newest review of ``head_sha`` means for a request, and that run.
 
     No review that still counts means stamphog will not answer this head, for example after a push in
@@ -175,7 +175,7 @@ def stamphog_status_at_head(
         if run.is_silent and run.verdict_posted_at is None:
             continue
         return status_for_run(run), run
-    return HumanRequestStatus.OPEN, None
+    return ExpressRequestStatus.OPEN, None
 
 
 def human_approver(reviews: list[dict[str, Any]], head_sha: str, author_login: str) -> str:
@@ -215,24 +215,24 @@ def _findings(run: ReviewRun | None) -> tuple[str, ...]:
     return tuple(neutralize_active_markdown(scrub_credentials(item)) for item in items if item.strip())
 
 
-def _requester_name(request: HumanRequest) -> str:
+def _requester_name(request: ExpressRequest) -> str:
     if request.requester_slack_user_id or request.requested_by_user_id is None:
         return ""
     return User.objects.filter(id=request.requested_by_user_id).values_list("first_name", flat=True).first() or ""
 
 
 def _card(
-    request: HumanRequest,
+    request: ExpressRequest,
     pr: Mapping[str, Any],
     *,
     integration_id: int,
-    status: HumanRequestStatus,
+    status: ExpressRequestStatus,
     approved_by_login: str,
     run: ReviewRun | None,
-    lookers: list[HumanRequestParticipant],
-) -> HumanRequestCard:
+    lookers: list[ExpressRequestParticipant],
+) -> ExpressRequestCard:
     pull_request = request.pull_request
-    return HumanRequestCard(
+    return ExpressRequestCard(
         request_id=str(request.id),
         team_id=request.team_id,
         integration_id=integration_id,
@@ -248,8 +248,10 @@ def _card(
             *(reviewer.get("login") or "" for reviewer in pr.get("requested_reviewers") or []),
             *(team.get("slug") or "" for team in pr.get("requested_teams") or []),
         ),
-        findings=_findings(run) if status in (HumanRequestStatus.OPEN, HumanRequestStatus.APPROVED) else (),
-        stamphog_failed=run is not None and run.status == ReviewRunStatus.FAILED and status == HumanRequestStatus.OPEN,
+        findings=_findings(run) if status in (ExpressRequestStatus.OPEN, ExpressRequestStatus.APPROVED) else (),
+        stamphog_failed=run is not None
+        and run.status == ReviewRunStatus.FAILED
+        and status == ExpressRequestStatus.OPEN,
         note=request.note,
         requester_slack_user_id=request.requester_slack_user_id,
         requester_name=_requester_name(request),
@@ -260,38 +262,38 @@ def _card(
 
 @frozen
 class _NextState:
-    status: HumanRequestStatus
+    status: ExpressRequestStatus
     approved_by_login: str
     # Stamphog's newest review of the head, for its findings. None for a final request.
     run: ReviewRun | None
 
 
 def _next_state(
-    request: HumanRequest, client: StamphogGitHubClient, pr: Mapping[str, Any], *, using: str
+    request: ExpressRequest, client: StamphogGitHubClient, pr: Mapping[str, Any], *, using: str
 ) -> _NextState:
-    if request.status not in ACTIVE_HUMAN_REQUEST_STATUSES:
+    if request.status not in ACTIVE_EXPRESS_REQUEST_STATUSES:
         return _NextState(
-            status=HumanRequestStatus(request.status), approved_by_login=request.approved_by_login, run=None
+            status=ExpressRequestStatus(request.status), approved_by_login=request.approved_by_login, run=None
         )
     if pr.get("merged") or pr.get("merged_at"):
-        return _NextState(status=HumanRequestStatus.MERGED, approved_by_login=request.approved_by_login, run=None)
+        return _NextState(status=ExpressRequestStatus.MERGED, approved_by_login=request.approved_by_login, run=None)
     if pr.get("state") == "closed":
-        return _NextState(status=HumanRequestStatus.CLOSED, approved_by_login=request.approved_by_login, run=None)
+        return _NextState(status=ExpressRequestStatus.CLOSED, approved_by_login=request.approved_by_login, run=None)
     pull_request = request.pull_request
     head_sha = pr["head"]["sha"]
     status, run = stamphog_status_at_head(pull_request, head_sha, using=using)
-    if status == HumanRequestStatus.STAMPHOG_APPROVED:
+    if status == ExpressRequestStatus.STAMPHOG_APPROVED:
         return _NextState(status=status, approved_by_login="", run=run)
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
     approver = human_approver(
         client.get_pr_reviews(pull_request.repo_config.repository, pull_request.pr_number), head_sha, author
     )
     if approver:
-        return _NextState(status=HumanRequestStatus.APPROVED, approved_by_login=approver, run=run)
+        return _NextState(status=ExpressRequestStatus.APPROVED, approved_by_login=approver, run=run)
     return _NextState(status=status, approved_by_login="", run=run)
 
 
-def _capture(request: HumanRequest, event: str, properties: dict[str, Any]) -> None:
+def _capture(request: ExpressRequest, event: str, properties: dict[str, Any]) -> None:
     repo_config = request.pull_request.repo_config
     try:
         with ph_scoped_capture() as capture:
@@ -301,66 +303,64 @@ def _capture(request: HumanRequest, event: str, properties: dict[str, Any]) -> N
                 properties={
                     "stamphog_repo": repo_config.repository,
                     "stamphog_team_id": request.team_id,
-                    "stamphog_human_request_id": str(request.id),
-                    "stamphog_human_request_via": request.requested_via,
+                    "stamphog_express_request_id": str(request.id),
+                    "stamphog_express_request_via": request.requested_via,
                     **properties,
                 },
             )
     except Exception:
-        logger.exception("stamphog_human_request_capture_failed", human_request_id=str(request.id))
+        logger.exception("stamphog_express_request_capture_failed", express_request_id=str(request.id))
 
 
-def _post_once(request: HumanRequest, card: HumanRequestCard, head_sha: str, *, using: str) -> None:
+def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str, *, using: str) -> None:
     """Post the card unless another refresh already did. The delivery row lock makes a retry wait and then skip."""
     repo_config = request.pull_request.repo_config
-    kind = HumanRequestDeliveryKind.SLACK_MESSAGE
-    deliveries = HumanRequestDelivery.objects.for_team(request.team_id).using(using)
+    kind = ExpressRequestDeliveryKind.SLACK_MESSAGE
+    deliveries = ExpressRequestDelivery.objects.for_team(request.team_id).using(using)
     with transaction.atomic(using=using):
-        deliveries.get_or_create(team_id=request.team_id, human_request=request, kind=kind)
-        delivery = deliveries.select_for_update().get(human_request=request, kind=kind)
-        if delivery.state == HumanRequestDelivery.State.POSTED:
+        deliveries.get_or_create(team_id=request.team_id, express_request=request, kind=kind)
+        delivery = deliveries.select_for_update().get(express_request=request, kind=kind)
+        if delivery.state == ExpressRequestDelivery.State.POSTED:
             return
         try:
-            ts = post_card(
-                card, repo_config.human_request_slack_channel_id, repo_config.human_request_slack_channel_name
-            )
-        except HumanRequestSlackError as e:
+            ts = post_card(card, repo_config.express_slack_channel_id, repo_config.express_slack_channel_name)
+        except ExpressRequestSlackError as e:
             # A missing integration, a channel the app cannot join, or a Slack refusal such as a revoked token needs a
             # person, so a retry would fail the same way. The next refresh tries again.
-            logger.warning("stamphog_human_request_post_refused", human_request_id=str(request.id), error=str(e))
-            delivery.state = HumanRequestDelivery.State.FAILED
+            logger.warning("stamphog_express_request_post_refused", express_request_id=str(request.id), error=str(e))
+            delivery.state = ExpressRequestDelivery.State.FAILED
             delivery.save(update_fields=["state", "updated_at"])
             return
         delivery.integration_id = card.integration_id
-        delivery.channel_id = repo_config.human_request_slack_channel_id
+        delivery.channel_id = repo_config.express_slack_channel_id
         delivery.message_ts = ts
-        delivery.state = HumanRequestDelivery.State.POSTED
+        delivery.state = ExpressRequestDelivery.State.POSTED
         delivery.save(update_fields=["integration_id", "channel_id", "message_ts", "state", "updated_at"])
         # The people who look later see the card at this head, so only a later head pings them.
-        HumanRequest.objects.for_team(request.team_id).using(using).filter(id=request.id).update(
+        ExpressRequest.objects.for_team(request.team_id).using(using).filter(id=request.id).update(
             pinged_head_sha=head_sha, updated_at=timezone.now()
         )
-    _capture(request, CARD_POSTED_EVENT, {"stamphog_human_request_status": card.status.value})
+    _capture(request, CARD_POSTED_EVENT, {"stamphog_express_request_status": card.status.value})
 
 
 def _post_if_open(
-    request: HumanRequest,
+    request: ExpressRequest,
     pr: Mapping[str, Any],
     state: _NextState,
-    lookers: list[HumanRequestParticipant],
+    lookers: list[ExpressRequestParticipant],
     head_sha: str,
     *,
     using: str,
 ) -> None:
-    if state.status != HumanRequestStatus.OPEN:
+    if state.status != ExpressRequestStatus.OPEN:
         return
     repo_config = request.pull_request.repo_config
-    if not repo_config.human_request_enabled or not repo_config.human_request_slack_channel_id:
-        logger.info("stamphog_human_request_not_configured", human_request_id=str(request.id))
+    if not repo_config.express_enabled or not repo_config.express_slack_channel_id:
+        logger.info("stamphog_express_request_not_configured", express_request_id=str(request.id))
         return
     integration_id = find_card_integration(request.team_id)
     if integration_id is None:
-        logger.warning("stamphog_human_request_no_slack_integration", human_request_id=str(request.id))
+        logger.warning("stamphog_express_request_no_slack_integration", express_request_id=str(request.id))
         return
     card = _card(
         request,
@@ -374,8 +374,8 @@ def _post_if_open(
     _post_once(request, card, head_sha, using=using)
 
 
-def refresh(team_id: int, human_request_id: str) -> None:
-    """Recompute one human request from the database and GitHub, then post or edit its Slack card.
+def refresh(team_id: int, express_request_id: str) -> None:
+    """Recompute one Express request from the database and GitHub, then post or edit its Slack card.
 
     Idempotent: a retry, or a second refresh for the same state, posts nothing new. Every read that
     decides a post is pinned to the writer.
@@ -384,15 +384,15 @@ def refresh(team_id: int, human_request_id: str) -> None:
     GitHub reads and the Slack call. Without it, a refresh that read GitHub before a push or a merge
     could write its older state, or edit the card to it, after a newer refresh finished.
     """
-    db = router.db_for_write(HumanRequest)
+    db = router.db_for_write(ExpressRequest)
     with transaction.atomic(using=db):
         request = (
-            HumanRequest.objects.for_team(team_id)
+            ExpressRequest.objects.for_team(team_id)
             .using(db)
             .select_related("pull_request__repo_config")
             # Only the request row: a lock on the pull request row would block the review path's upsert.
             .select_for_update(of=("self",))
-            .filter(id=human_request_id)
+            .filter(id=express_request_id)
             .first()
         )
         if request is None:
@@ -400,7 +400,7 @@ def refresh(team_id: int, human_request_id: str) -> None:
         _refresh_locked(request, using=db)
 
 
-def _refresh_locked(request: HumanRequest, *, using: str) -> None:
+def _refresh_locked(request: ExpressRequest, *, using: str) -> None:
     team_id = request.team_id
     pull_request = request.pull_request
     repo_config = pull_request.repo_config
@@ -409,25 +409,25 @@ def _refresh_locked(request: HumanRequest, *, using: str) -> None:
     head_sha = pr["head"]["sha"]
     state = _next_state(request, client, pr, using=using)
 
-    if request.status in ACTIVE_HUMAN_REQUEST_STATUSES:
-        HumanRequest.objects.for_team(team_id).using(using).filter(id=request.id).update(
+    if request.status in ACTIVE_EXPRESS_REQUEST_STATUSES:
+        ExpressRequest.objects.for_team(team_id).using(using).filter(id=request.id).update(
             status=state.status, head_sha=head_sha, approved_by_login=state.approved_by_login, updated_at=timezone.now()
         )
 
     delivery = (
-        HumanRequestDelivery.objects.for_team(team_id)
+        ExpressRequestDelivery.objects.for_team(team_id)
         .using(using)
-        .filter(human_request=request, kind=HumanRequestDeliveryKind.SLACK_MESSAGE)
+        .filter(express_request=request, kind=ExpressRequestDeliveryKind.SLACK_MESSAGE)
         .first()
     )
     lookers = list(
-        HumanRequestParticipant.objects.for_team(team_id)
+        ExpressRequestParticipant.objects.for_team(team_id)
         .using(using)
-        .filter(human_request=request, looking=True)
+        .filter(express_request=request, looking=True)
         .order_by("created_at")
     )
 
-    if delivery is None or delivery.state != HumanRequestDelivery.State.POSTED or delivery.integration_id is None:
+    if delivery is None or delivery.state != ExpressRequestDelivery.State.POSTED or delivery.integration_id is None:
         _post_if_open(request, pr, state, lookers, head_sha, using=using)
         return
 
@@ -442,18 +442,18 @@ def _refresh_locked(request: HumanRequest, *, using: str) -> None:
     )
     try:
         update_card(card, delivery.channel_id, delivery.message_ts)
-    except HumanRequestSlackError as e:
-        logger.warning("stamphog_human_request_update_refused", human_request_id=str(request.id), error=str(e))
+    except ExpressRequestSlackError as e:
+        logger.warning("stamphog_express_request_update_refused", express_request_id=str(request.id), error=str(e))
         return
     if head_sha == request.pinged_head_sha:
         return
     # Recorded before the reply, so a failed reply is not sent again.
-    HumanRequest.objects.for_team(team_id).using(using).filter(id=request.id).update(
+    ExpressRequest.objects.for_team(team_id).using(using).filter(id=request.id).update(
         pinged_head_sha=head_sha, updated_at=timezone.now()
     )
     if lookers and state.status in _REVIEWABLE_STATUSES:
         ping_lookers(
-            card, delivery.channel_id, delivery.message_ts, reviewing=state.status == HumanRequestStatus.PENDING
+            card, delivery.channel_id, delivery.message_ts, reviewing=state.status == ExpressRequestStatus.PENDING
         )
 
 
@@ -465,23 +465,23 @@ def record_look(click: LookClick) -> bool:
     can be copied into another message. Slack expects an answer in 3 seconds, so the refresh is queued
     by the caller.
     """
-    db = router.db_for_write(HumanRequest)
+    db = router.db_for_write(ExpressRequest)
     request = (
-        HumanRequest.objects.for_team(click.team_id)
+        ExpressRequest.objects.for_team(click.team_id)
         .using(db)
         .select_related("pull_request__repo_config")
-        .filter(id=click.human_request_id, status__in=_REVIEWABLE_STATUSES)
+        .filter(id=click.express_request_id, status__in=_REVIEWABLE_STATUSES)
         .first()
     )
     if request is None:
         return False
     on_card = (
-        HumanRequestDelivery.objects.for_team(click.team_id)
+        ExpressRequestDelivery.objects.for_team(click.team_id)
         .using(db)
         .filter(
-            human_request=request,
-            kind=HumanRequestDeliveryKind.SLACK_MESSAGE,
-            state=HumanRequestDelivery.State.POSTED,
+            express_request=request,
+            kind=ExpressRequestDeliveryKind.SLACK_MESSAGE,
+            state=ExpressRequestDelivery.State.POSTED,
             integration_id=click.integration_id,
             channel_id=click.channel_id,
             message_ts=click.message_ts,
@@ -492,14 +492,14 @@ def record_look(click: LookClick) -> bool:
         return False
     workspace = card_workspace(click.team_id, click.integration_id)
     if not workspace or workspace != click.slack_team_id or click.slack_user_team_id != workspace:
-        logger.info("stamphog_human_request_click_from_another_workspace", human_request_id=str(request.id))
+        logger.info("stamphog_express_request_click_from_another_workspace", express_request_id=str(request.id))
         return False
 
-    participants = HumanRequestParticipant.objects.for_team(click.team_id).using(db)
+    participants = ExpressRequestParticipant.objects.for_team(click.team_id).using(db)
     if click.looking:
         participant, created = participants.get_or_create(
             team_id=click.team_id,
-            human_request=request,
+            express_request=request,
             slack_user_id=click.slack_user_id,
             defaults={"display_name": click.display_name, "looking": True},
         )
@@ -512,10 +512,10 @@ def record_look(click: LookClick) -> bool:
         )
     else:
         changed = bool(
-            participants.filter(human_request=request, slack_user_id=click.slack_user_id, looking=True).update(
+            participants.filter(express_request=request, slack_user_id=click.slack_user_id, looking=True).update(
                 looking=False, updated_at=timezone.now()
             )
         )
     if changed:
-        _capture(request, LOOK_CLICKED_EVENT, {"stamphog_human_request_looking": click.looking})
+        _capture(request, LOOK_CLICKED_EVENT, {"stamphog_express_request_looking": click.looking})
     return changed

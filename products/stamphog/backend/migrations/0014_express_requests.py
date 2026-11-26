@@ -15,21 +15,21 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="stamphogrepoconfig",
-            name="human_request_enabled",
+            name="express_enabled",
             field=models.BooleanField(db_default=False, default=False),
         ),
         migrations.AddField(
             model_name="stamphogrepoconfig",
-            name="human_request_slack_channel_id",
+            name="express_slack_channel_id",
             field=models.CharField(blank=True, db_default="", default="", max_length=64),
         ),
         migrations.AddField(
             model_name="stamphogrepoconfig",
-            name="human_request_slack_channel_name",
+            name="express_slack_channel_name",
             field=models.CharField(blank=True, db_default="", default="", max_length=255),
         ),
         migrations.CreateModel(
-            name="HumanRequest",
+            name="ExpressRequest",
             fields=[
                 ("team_id", models.BigIntegerField(db_index=True)),
                 (
@@ -88,7 +88,7 @@ class Migration(migrations.Migration):
                     "pull_request",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="human_requests",
+                        related_name="express_requests",
                         to="stamphog.pullrequest",
                     ),
                 ),
@@ -102,7 +102,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name="HumanRequestDelivery",
+            name="ExpressRequestDelivery",
             fields=[
                 ("team_id", models.BigIntegerField(db_index=True)),
                 (
@@ -136,12 +136,12 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "human_request",
+                    "express_request",
                     models.ForeignKey(
                         db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="deliveries",
-                        to="stamphog.humanrequest",
+                        to="stamphog.expressrequest",
                     ),
                 ),
             ],
@@ -154,7 +154,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name="HumanRequestParticipant",
+            name="ExpressRequestParticipant",
             fields=[
                 ("team_id", models.BigIntegerField(db_index=True)),
                 (
@@ -175,12 +175,12 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "human_request",
+                    "express_request",
                     models.ForeignKey(
                         db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="participants",
-                        to="stamphog.humanrequest",
+                        to="stamphog.expressrequest",
                     ),
                 ),
             ],
@@ -193,25 +193,25 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.AddConstraint(
-            model_name="humanrequest",
+            model_name="expressrequest",
             constraint=models.UniqueConstraint(
                 condition=models.Q(("status__in", ["approved", "open", "pending"])),
                 fields=("pull_request",),
-                name="unique_stamphog_active_human_request",
+                name="unique_stamphog_active_express_request",
             ),
         ),
         migrations.AddConstraint(
-            model_name="humanrequestdelivery",
+            model_name="expressrequestdelivery",
             constraint=models.UniqueConstraint(
-                fields=("human_request", "kind"),
-                name="unique_stamphog_human_request_delivery",
+                fields=("express_request", "kind"),
+                name="unique_stamphog_express_request_delivery",
             ),
         ),
         migrations.AddConstraint(
-            model_name="humanrequestparticipant",
+            model_name="expressrequestparticipant",
             constraint=models.UniqueConstraint(
-                fields=("human_request", "slack_user_id"),
-                name="unique_stamphog_human_request_participant",
+                fields=("express_request", "slack_user_id"),
+                name="unique_stamphog_express_request_participant",
             ),
         ),
     ]

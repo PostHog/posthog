@@ -1,4 +1,4 @@
-"""Clicks on the buttons of the human request card in Slack.
+"""Clicks on the buttons of the Express request card in Slack.
 
 The slack_app product serves the PostHog Slack app's interactivity URL and forwards the click to the
 region that owns the card. It reaches stamphog through ``posthog.slack.block_actions``, because a
@@ -11,17 +11,17 @@ from typing import Any
 
 from posthog.slack.block_actions import register_block_action_handler
 
-from products.stamphog.backend.logic.human_request_slack import ACTION_ID_PREFIX, parse_look_click
+from products.stamphog.backend.logic.express_request_slack import ACTION_ID_PREFIX, parse_look_click
 
 
 def handle_card_click(payload: dict[str, Any], action: dict[str, Any]) -> None:
     # Deferred, because connect() runs in AppConfig.ready() and must not load the GitHub client and Celery tasks there.
-    from products.stamphog.backend.logic.human_requests import record_look  # noqa: PLC0415
-    from products.stamphog.backend.tasks.human_requests import queue_human_request_refresh  # noqa: PLC0415
+    from products.stamphog.backend.logic.express_requests import record_look  # noqa: PLC0415
+    from products.stamphog.backend.tasks.express_requests import queue_express_request_refresh  # noqa: PLC0415
 
     click = parse_look_click(payload, action)
     if click is not None and record_look(click):
-        queue_human_request_refresh(click.team_id, click.human_request_id)
+        queue_express_request_refresh(click.team_id, click.express_request_id)
 
 
 def connect() -> None:

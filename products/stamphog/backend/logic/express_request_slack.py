@@ -1,7 +1,7 @@
 """The Slack card that asks people to review a pull request that stamphog did not approve.
 
-One card is posted per human request and edited in place as the pull request changes. The card
-never decides anything: ``logic/human_requests.py`` decides the state, and this module only renders
+One card is posted per Express request and edited in place as the pull request changes. The card
+never decides anything: ``logic/express_requests.py`` decides the state, and this module only renders
 it and talks to Slack.
 
 The title, logins, note and reviewer findings come from the pull request or from model output over
@@ -39,16 +39,16 @@ from posthog.slack.channels import (
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import get_instance_region
 
-from ..facade.enums import HumanRequestStatus
+from ..facade.enums import ExpressRequestStatus
 
 logger = structlog.get_logger(__name__)
 
 # The click handler routes every action id with this prefix to stamphog.
-ACTION_ID_PREFIX = "stamphog_human."
+ACTION_ID_PREFIX = "stamphog_express."
 LOOK_ACTION_ID = f"{ACTION_ID_PREFIX}look"
 STOP_LOOKING_ACTION_ID = f"{ACTION_ID_PREFIX}stop_looking"
 # No colon: the Slack app's interactivity handler reads a block id with a colon as a picker context token.
-ACTIONS_BLOCK_ID = "stamphog_human_actions"
+ACTIONS_BLOCK_ID = "stamphog_express_actions"
 
 _SOURCE = "stamphog"
 # Enough findings to say why stamphog did not approve. The full review is on the pull request.
@@ -58,14 +58,14 @@ _MAX_TITLE_CHARS = 200
 # Slack renders a mention only for an id of this shape, so any other stored value is shown as text.
 _SLACK_USER_ID = re.compile(r"^[UW][A-Z0-9]{2,}$")
 
-_STATUS_LINES: dict[HumanRequestStatus, str] = {
-    HumanRequestStatus.PENDING: "Stamphog is reviewing the new commits.",
-    HumanRequestStatus.STAMPHOG_APPROVED: "✅ Stamphog approved the new commits. No review needed.",
-    HumanRequestStatus.MERGED: "Merged.",
-    HumanRequestStatus.CLOSED: "Closed without merging.",
+_STATUS_LINES: dict[ExpressRequestStatus, str] = {
+    ExpressRequestStatus.PENDING: "Stamphog is reviewing the new commits.",
+    ExpressRequestStatus.STAMPHOG_APPROVED: "✅ Stamphog approved the new commits. No review needed.",
+    ExpressRequestStatus.MERGED: "Merged.",
+    ExpressRequestStatus.CLOSED: "Closed without merging.",
 }
 # People can still say they will look while stamphog reviews new commits.
-_STATUSES_WITH_BUTTONS = frozenset({HumanRequestStatus.OPEN, HumanRequestStatus.PENDING})
+_STATUSES_WITH_BUTTONS = frozenset({ExpressRequestStatus.OPEN, ExpressRequestStatus.PENDING})
 
 
 # Slack errors that a retry cannot fix: the card or the channel is gone, or the integration lost access.
@@ -84,14 +84,14 @@ _PERMANENT_SLACK_ERRORS = frozenset(
 )
 
 
-class HumanRequestSlackError(Exception):
+class ExpressRequestSlackError(Exception):
     """The card could not be posted or edited, and a retry would fail the same way."""
 
 
 def _raise_if_permanent(e: SlackApiError) -> None:
     error = str(e.response.get("error") or "")
     if error in _PERMANENT_SLACK_ERRORS:
-        raise HumanRequestSlackError(f"Slack refused the card: {error}") from e
+        raise ExpressRequestSlackError(f"Slack refused the card: {error}") from e
 
 
 @frozen
@@ -101,13 +101,13 @@ class CardLooker:
 
 
 @frozen
-class HumanRequestCard:
+class ExpressRequestCard:
     """Everything the card shows. Strings are raw here and escaped when rendered."""
 
     request_id: str
     team_id: int
     integration_id: int
-    status: HumanRequestStatus
+    status: ExpressRequestStatus
     repository: str
     pr_number: int
     pr_url: str
@@ -144,29 +144,29 @@ def _link(url: str, label: str) -> str:
     return f"<{url}|{escape_slack_mrkdwn(label).replace('|', '/')}>"
 
 
-def _heading(card: HumanRequestCard) -> str:
+def _heading(card: ExpressRequestCard) -> str:
     title = escape_slack_mrkdwn(clip_text(card.title, _MAX_TITLE_CHARS))
     return clip_text(f"*{_link(card.pr_url, f'{card.repository}#{card.pr_number}')}* · {title}", MAX_SECTION_CHARS)
 
 
-def _status_line(card: HumanRequestCard) -> str:
-    if card.status == HumanRequestStatus.APPROVED:
+def _status_line(card: ExpressRequestCard) -> str:
+    if card.status == ExpressRequestStatus.APPROVED:
         return f"✅ Approved by {escape_slack_mrkdwn(card.approved_by_login)}"
     return _STATUS_LINES.get(card.status, "")
 
 
-def _size(card: HumanRequestCard) -> str:
+def _size(card: ExpressRequestCard) -> str:
     files = "file" if card.changed_files == 1 else "files"
     return f"+{card.additions} −{card.deletions} · {card.changed_files} {files}"
 
 
-def _requested(card: HumanRequestCard) -> str:
+def _requested(card: ExpressRequestCard) -> str:
     if not card.requested_on_github:
         return "No one"
     return clip_text(", ".join(escape_slack_mrkdwn(name) for name in card.requested_on_github), 1900)
 
 
-def _notes(card: HumanRequestCard) -> str:
+def _notes(card: ExpressRequestCard) -> str:
     if card.stamphog_failed:
         return "*Stamphog's notes*\nStamphog couldn't finish its review."
     if not card.findings:
@@ -177,13 +177,13 @@ def _notes(card: HumanRequestCard) -> str:
     return clip_text("*Stamphog's notes*\n" + "\n".join(lines), MAX_SECTION_CHARS)
 
 
-def _asked_by(card: HumanRequestCard) -> str:
+def _asked_by(card: ExpressRequestCard) -> str:
     if card.requester_slack_user_id or card.requester_name:
         return f"Asked by {_mention_or_name(card.requester_slack_user_id, card.requester_name)}"
     return ""
 
 
-def _looking(card: HumanRequestCard) -> str:
+def _looking(card: ExpressRequestCard) -> str:
     if not card.lookers:
         return ""
     names = [_mention_or_name(looker.slack_user_id, looker.display_name) for looker in card.lookers]
@@ -191,7 +191,7 @@ def _looking(card: HumanRequestCard) -> str:
     return clip_text(f"👀 {_join_names(names)} {verb} looking", MAX_SECTION_CHARS)
 
 
-def button_value(card: HumanRequestCard) -> str:
+def button_value(card: ExpressRequestCard) -> str:
     """What a click carries back. The integration and region let the click handler find the region that owns the request."""
     return json.dumps(
         {
@@ -216,7 +216,7 @@ def _button(text: str, action_id: str, value: str, *, primary: bool = False) -> 
     return element
 
 
-def card_blocks(card: HumanRequestCard) -> list[dict[str, Any]]:
+def card_blocks(card: ExpressRequestCard) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = [section_block(_heading(card))]
     if status_line := _status_line(card):
         blocks.append(section_block(status_line))
@@ -236,7 +236,7 @@ def card_blocks(card: HumanRequestCard) -> list[dict[str, Any]]:
     return blocks
 
 
-def card_text(card: HumanRequestCard) -> str:
+def card_text(card: ExpressRequestCard) -> str:
     """The notification preview and the text for clients that ignore blocks. Slack parses it for mentions too."""
     title = clip_text(card.title, _MAX_TITLE_CHARS)
     return clip_text(
@@ -249,7 +249,7 @@ class LookClick:
     """A click on a card's look or stop-looking button, as Slack describes it."""
 
     team_id: int
-    human_request_id: str
+    express_request_id: str
     integration_id: int
     # The workspace the click came from, and the clicker's own workspace. They differ for a person from
     # another workspace in a Slack Connect channel.
@@ -290,7 +290,7 @@ def parse_look_click(payload: Mapping[str, Any], action: Mapping[str, Any]) -> L
         return None
     return LookClick(
         team_id=team_id,
-        human_request_id=request_id,
+        express_request_id=request_id,
         integration_id=integration_id,
         slack_team_id=slack_team_id,
         # Slack leaves the clicker's team out of some payloads, and then the clicker is in the click's workspace.
@@ -321,33 +321,33 @@ def _slack(team_id: int, integration_id: int) -> SlackIntegration:
     try:
         integration = IntegrationManager.slack.oauth.get(team_id, integration_id)
     except IntegrationNotFound as e:
-        raise HumanRequestSlackError(f"No Slack integration {integration_id} for team {team_id}") from e
+        raise ExpressRequestSlackError(f"No Slack integration {integration_id} for team {team_id}") from e
     return SlackIntegration(integration, source=_SOURCE)
 
 
-def post_card(card: HumanRequestCard, channel_id: str, channel_name: str) -> str:
+def post_card(card: ExpressRequestCard, channel_id: str, channel_name: str) -> str:
     """Post the card and return its ts.
 
-    Raises ``HumanRequestSlackError`` when Slack cannot take it, and lets a transient Slack error through
+    Raises ``ExpressRequestSlackError`` when Slack cannot take it, and lets a transient Slack error through
     so the task retries.
     """
     slack = _slack(card.team_id, card.integration_id)
     try:
         ts = post_with_join(slack, channel_id, card_blocks(card), card_text(card), channel_name=channel_name or None)
     except SlackPostRefused as e:
-        raise HumanRequestSlackError(str(e)) from e
+        raise ExpressRequestSlackError(str(e)) from e
     except SlackApiError as e:
         _raise_if_permanent(e)
         raise
     if not ts:
-        raise HumanRequestSlackError(f"Slack returned no ts for the card in {channel_id}")
+        raise ExpressRequestSlackError(f"Slack returned no ts for the card in {channel_id}")
     return ts
 
 
-def update_card(card: HumanRequestCard, channel_id: str, ts: str) -> None:
+def update_card(card: ExpressRequestCard, channel_id: str, ts: str) -> None:
     """Edit the posted card in place. It must go through the integration that posted it.
 
-    Raises ``HumanRequestSlackError`` when Slack cannot take the edit, and lets a transient Slack error
+    Raises ``ExpressRequestSlackError`` when Slack cannot take the edit, and lets a transient Slack error
     through so the task retries.
     """
     slack = _slack(card.team_id, card.integration_id)
@@ -358,7 +358,7 @@ def update_card(card: HumanRequestCard, channel_id: str, ts: str) -> None:
         raise
 
 
-def ping_lookers(card: HumanRequestCard, channel_id: str, ts: str, *, reviewing: bool) -> None:
+def ping_lookers(card: ExpressRequestCard, channel_id: str, ts: str, *, reviewing: bool) -> None:
     """Tell the people looking, in the card's thread, that new commits arrived. Never raises.
 
     The caller records the head before it calls this, so a failed reply is lost rather than sent twice.
@@ -372,4 +372,4 @@ def ping_lookers(card: HumanRequestCard, channel_id: str, ts: str, *, reviewing:
     try:
         post_message(_slack(card.team_id, card.integration_id), channel_id, [section_block(text)], text, thread_ts=ts)
     except Exception as e:
-        logger.warning("stamphog_human_request_ping_failed", slack_channel_id=channel_id, error=str(e))
+        logger.warning("stamphog_express_request_ping_failed", slack_channel_id=channel_id, error=str(e))

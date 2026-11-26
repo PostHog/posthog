@@ -32,8 +32,8 @@ from products.stamphog.backend.facade.enums import (
     AudienceReason,
     ChannelResolutionSource,
     DigestRunStatus,
-    HumanRequestSource,
-    HumanRequestStatus,
+    ExpressRequestSource,
+    ExpressRequestStatus,
     ReviewMode,
     ReviewRunStatus,
     ReviewVerdict,
@@ -49,24 +49,24 @@ from products.stamphog.backend.logic.channel_resolution import (
     resolve_destination,
 )
 from products.stamphog.backend.logic.engine_pregate import EnginePregateError, GateAttestation, pregate_skip_reason
+from products.stamphog.backend.logic.express_requests import ExpressRequestAsk
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
-from products.stamphog.backend.logic.human_requests import HumanRequestAsk
 from products.stamphog.backend.logic.policy_files import checked_repo_policy_yaml
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.logic.workflow_proofs import RunOrder, seen_on_head
 from products.stamphog.backend.models import (
     DigestRun,
-    HumanRequest,
-    HumanRequestParticipant,
+    ExpressRequest,
+    ExpressRequestParticipant,
     PullRequest,
     PullRequestAudience,
     ReviewRun,
     StamphogRepoConfig,
 )
 from products.stamphog.backend.tasks.digest import send_daily_digests
-from products.stamphog.backend.tasks.human_requests import (
-    refresh_human_request,
-    refresh_human_requests_for_pull_request,
+from products.stamphog.backend.tasks.express_requests import (
+    refresh_express_request,
+    refresh_express_requests_for_pull_request,
 )
 from products.stamphog.backend.tasks.tasks import (
     pending_attestation_checks,
@@ -4424,7 +4424,7 @@ def test_a_sandbox_created_after_its_teardown_tears_itself_down(team, stamphog_c
     assert stamphog_chain.sandbox_class.destroy_returned
 
 
-HUMAN_CHANNEL = "C0HUMAN"
+EXPRESS_CHANNEL = "C0EXPRESS"
 
 
 def _escalated_engine_output() -> str:
@@ -4438,32 +4438,32 @@ def _escalated_engine_output() -> str:
     )
 
 
-def _human_repo_config(team_id: int) -> StamphogRepoConfig:
+def _express_repo_config(team_id: int) -> StamphogRepoConfig:
     repo_config = _repo_config(team_id)
-    repo_config.human_request_enabled = True
-    repo_config.human_request_slack_channel_id = HUMAN_CHANNEL
-    repo_config.human_request_slack_channel_name = "reviews"
+    repo_config.express_enabled = True
+    repo_config.express_slack_channel_id = EXPRESS_CHANNEL
+    repo_config.express_slack_channel_name = "reviews"
     repo_config.save()
     Integration.objects.create(team_id=team_id, kind="slack", config={}, sensitive_config={"access_token": "x"})
     return repo_config
 
 
-def _ask_people(team_id: int, number: int, sandbox: Any) -> HumanRequest:
-    ask = HumanRequestAsk(
+def _ask_people(team_id: int, number: int, sandbox: Any) -> ExpressRequest:
+    ask = ExpressRequestAsk(
         requested_by_user_id=None,
-        requested_via=HumanRequestSource.SLACK,
+        requested_via=ExpressRequestSource.SLACK,
         requester_slack_user_id="U0ASKER",
         note="Touches billing.",
     )
     with patch.object(activities, "get_sandbox_class_for_backend", lambda backend: sandbox):
-        queued = request_manual_review(team_id, None, REPO, number, human=ask)
-    assert queued.human_request is not None
-    return HumanRequest.objects.for_team(team_id).get(id=queued.human_request.id)
+        queued = request_manual_review(team_id, None, REPO, number, express=ask)
+    assert queued.express_request is not None
+    return ExpressRequest.objects.for_team(team_id).get(id=queued.express_request.id)
 
 
 def _cards() -> list[dict]:
     return [
-        m for m in fakes.FakeSlackIntegration.posted_messages if m["channel"] == HUMAN_CHANNEL and not m["thread_ts"]
+        m for m in fakes.FakeSlackIntegration.posted_messages if m["channel"] == EXPRESS_CHANNEL and not m["thread_ts"]
     ]
 
 
@@ -4475,8 +4475,8 @@ def _rendered(blocks: list[dict]) -> str:
     return json.dumps(blocks, ensure_ascii=False)
 
 
-def _refresh(request: HumanRequest) -> HumanRequest:
-    refresh_human_request(team_id=request.team_id, human_request_id=str(request.id))
+def _refresh(request: ExpressRequest) -> ExpressRequest:
+    refresh_express_request(team_id=request.team_id, express_request_id=str(request.id))
     request.refresh_from_db()
     return request
 
@@ -4484,28 +4484,28 @@ def _refresh(request: HumanRequest) -> HumanRequest:
 @pytest.mark.parametrize(
     "files, engine_output, reviewer_exit_code, expect_status, expect_card",
     [
-        pytest.param(_pr_files(), _refused_engine_output(), 0, HumanRequestStatus.OPEN, True, id="refused"),
-        pytest.param(_pr_files(), _escalated_engine_output(), 0, HumanRequestStatus.OPEN, True, id="escalate"),
-        pytest.param([_big_api_file("lib/big.py", 1300)], None, 0, HumanRequestStatus.OPEN, True, id="gated"),
-        pytest.param(_pr_files(), None, 1, HumanRequestStatus.OPEN, True, id="failed"),
+        pytest.param(_pr_files(), _refused_engine_output(), 0, ExpressRequestStatus.OPEN, True, id="refused"),
+        pytest.param(_pr_files(), _escalated_engine_output(), 0, ExpressRequestStatus.OPEN, True, id="escalate"),
+        pytest.param([_big_api_file("lib/big.py", 1300)], None, 0, ExpressRequestStatus.OPEN, True, id="gated"),
+        pytest.param(_pr_files(), None, 1, ExpressRequestStatus.OPEN, True, id="failed"),
         pytest.param(
-            _pr_files(), fakes.approved_engine_output(), 0, HumanRequestStatus.STAMPHOG_APPROVED, False, id="approved"
+            _pr_files(), fakes.approved_engine_output(), 0, ExpressRequestStatus.STAMPHOG_APPROVED, False, id="approved"
         ),
         # A visible WAIT gets another review of the head, so nobody is asked yet.
-        pytest.param(_pr_files(), _waiting_engine_output(), 0, HumanRequestStatus.PENDING, False, id="wait"),
+        pytest.param(_pr_files(), _waiting_engine_output(), 0, ExpressRequestStatus.PENDING, False, id="wait"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_human_request_posts_one_card_when_stamphog_does_not_approve(
+def test_a_express_request_posts_one_card_when_stamphog_does_not_approve(
     team,
     stamphog_chain: StamphogChain,
     files: list[dict],
     engine_output: str | None,
     reviewer_exit_code: int,
-    expect_status: HumanRequestStatus,
+    expect_status: ExpressRequestStatus,
     expect_card: bool,
 ) -> None:
-    _human_repo_config(team.id)
+    _express_repo_config(team.id)
     stamphog_chain.recorder.register_pr(
         REPO, 170, _silent_review_pr(170, "sha170a", changed_files=len(files), additions=12, deletions=3), files
     )
@@ -4535,13 +4535,13 @@ def test_a_human_request_posts_one_card_when_stamphog_does_not_approve(
 def test_a_verdict_reaches_a_waiting_request_only_once_github_shows_it(
     team, stamphog_chain: StamphogChain, silent: bool
 ) -> None:
-    repo_config = _human_repo_config(team.id)
+    repo_config = _express_repo_config(team.id)
     stamphog_chain.recorder.register_pr(REPO, 171, _silent_review_pr(171, "sha171a"), _pr_files())
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=171, author_login="devex-dev"
     )
-    request = HumanRequest.objects.for_team(team.id).create(
-        team_id=team.id, pull_request=pull_request, head_sha="sha171a", requested_via=HumanRequestSource.API
+    request = ExpressRequest.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha171a", requested_via=ExpressRequestSource.API
     )
     output = {"reviewer_raw": _refused_engine_output()} | ({"review_trigger": "reviewhog_clean"} if silent else {})
     run = ReviewRun.objects.for_team(team.id).create(
@@ -4553,7 +4553,7 @@ def test_a_verdict_reaches_a_waiting_request_only_once_github_shows_it(
     run.refresh_from_db()
     request.refresh_from_db()
     assert (run.verdict, run.verdict_withheld) == (ReviewVerdict.REFUSED, silent)
-    assert request.status == (HumanRequestStatus.PENDING if silent else HumanRequestStatus.OPEN)
+    assert request.status == (ExpressRequestStatus.PENDING if silent else ExpressRequestStatus.OPEN)
     cards = _cards()
     assert len(cards) == int(not silent)
     if not silent:
@@ -4562,20 +4562,20 @@ def test_a_verdict_reaches_a_waiting_request_only_once_github_shows_it(
     # No stamphog verdict follows a withheld one, so a later refresh asks people, and the card hides what the
     # silent run found.
     request = _refresh(request)
-    assert request.status == HumanRequestStatus.OPEN
+    assert request.status == ExpressRequestStatus.OPEN
     (card,) = _cards()
     assert ("billing change" in _rendered(card["blocks"])) is not silent
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain: StamphogChain) -> None:
-    _human_repo_config(team.id)
+    _express_repo_config(team.id)
     recorder = stamphog_chain.recorder
     recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172a"), _pr_files())
     request = _ask_people(team.id, 172, fakes.make_fake_sandbox_class(_refused_engine_output()))
     (card,) = _cards()
-    HumanRequestParticipant.objects.for_team(team.id).create(
-        team_id=team.id, human_request=request, slack_user_id="U0LOOKER", display_name="Lou"
+    ExpressRequestParticipant.objects.for_team(team.id).create(
+        team_id=team.id, express_request=request, slack_user_id="U0LOOKER", display_name="Lou"
     )
 
     # A person approves the head: the card says who, and nobody else is asked to look.
@@ -4588,7 +4588,7 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
         }
     ]
     request = _refresh(request)
-    assert (request.status, request.approved_by_login) == (HumanRequestStatus.APPROVED, "maintainer")
+    assert (request.status, request.approved_by_login) == (ExpressRequestStatus.APPROVED, "maintainer")
     approved_card = fakes.FakeSlackIntegration.updated_messages[-1]
     assert "Approved by maintainer" in _rendered(approved_card["blocks"])
     assert not any(block["type"] == "actions" for block in approved_card["blocks"])
@@ -4598,37 +4598,37 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
     recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172b"), _pr_files())
     request = _refresh(request)
     request = _refresh(request)
-    assert (request.status, request.head_sha, request.approved_by_login) == (HumanRequestStatus.OPEN, "sha172b", "")
+    assert (request.status, request.head_sha, request.approved_by_login) == (ExpressRequestStatus.OPEN, "sha172b", "")
     (ping,) = _thread_replies()
     assert ping["thread_ts"] == card["ts"]
     assert ping["text"].startswith("<@U0LOOKER> new commits were pushed.")
 
     recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172b", state="closed", merged=True), _pr_files())
     request = _refresh(request)
-    assert request.status == HumanRequestStatus.MERGED
+    assert request.status == ExpressRequestStatus.MERGED
     assert "Merged." in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
     assert len(_cards()) == 1
 
     # Slack answers an edit of a deleted card with message_not_found, which no retry can fix.
     fakes.FakeSlackIntegration.posted_messages.clear()
-    assert _refresh(request).status == HumanRequestStatus.MERGED
+    assert _refresh(request).status == ExpressRequestStatus.MERGED
 
 
 @pytest.mark.parametrize(
     "review_mode, expect_status, expect_cards",
     [
         # Label mode with no label: nothing reviews the new head, so the request opens and its card is posted.
-        pytest.param(ReviewMode.LABEL, HumanRequestStatus.OPEN, 1, id="push_nothing_reviews"),
+        pytest.param(ReviewMode.LABEL, ExpressRequestStatus.OPEN, 1, id="push_nothing_reviews"),
         # The review of the new head is queued but has not started. A refresh that ran before the run existed
         # would read the head as unreviewed and post the card.
-        pytest.param(ReviewMode.ALL, HumanRequestStatus.PENDING, 0, id="push_stamphog_reviews"),
+        pytest.param(ReviewMode.ALL, ExpressRequestStatus.PENDING, 0, id="push_stamphog_reviews"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_push_refreshes_a_human_request_once_stamphog_decided_the_new_head(
-    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, expect_status: HumanRequestStatus, expect_cards: int
+def test_a_push_refreshes_a_express_request_once_stamphog_decided_the_new_head(
+    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, expect_status: ExpressRequestStatus, expect_cards: int
 ) -> None:
-    repo_config = _human_repo_config(team.id)
+    repo_config = _express_repo_config(team.id)
     repo_config.review_mode = review_mode
     repo_config.save()
     pull_request = PullRequest.objects.for_team(team.id).create(
@@ -4637,8 +4637,8 @@ def test_a_push_refreshes_a_human_request_once_stamphog_decided_the_new_head(
     ReviewRun.objects.for_team(team.id).create(
         team_id=team.id, pull_request=pull_request, head_sha="sha176a", status=ReviewRunStatus.REVIEWING
     )
-    request = HumanRequest.objects.for_team(team.id).create(
-        team_id=team.id, pull_request=pull_request, head_sha="sha176a", requested_via=HumanRequestSource.API
+    request = ExpressRequest.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha176a", requested_via=ExpressRequestSource.API
     )
     stamphog_chain.recorder.register_pr(REPO, 176, _silent_review_pr(176, "sha176b"), _pr_files())
     stamphog_chain.recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
@@ -4684,22 +4684,22 @@ def _click(
 def test_a_click_on_the_card_marks_who_is_looking(
     team, stamphog_chain: StamphogChain, click: dict, looking: bool
 ) -> None:
-    _human_repo_config(team.id)
+    _express_repo_config(team.id)
     Integration.objects.filter(team_id=team.id, kind="slack").update(integration_id="T0CARD")
     stamphog_chain.recorder.register_pr(REPO, 175, _silent_review_pr(175, "sha175a"), _pr_files())
     request = _ask_people(team.id, 175, fakes.make_fake_sandbox_class(_refused_engine_output()))
     (card,) = _cards()
     updates_before = len(fakes.FakeSlackIntegration.updated_messages)
 
-    _click(card, "stamphog_human.look", **click)
+    _click(card, "stamphog_express.look", **click)
 
-    participants = HumanRequestParticipant.objects.for_team(team.id).filter(human_request=request)
+    participants = ExpressRequestParticipant.objects.for_team(team.id).filter(express_request=request)
     assert [(p.slack_user_id, p.looking) for p in participants] == ([("U0LOOKER", True)] if looking else [])
     updates = fakes.FakeSlackIntegration.updated_messages[updates_before:]
     assert len(updates) == int(looking)
     if looking:
         assert "<@U0LOOKER> is looking" in _rendered(updates[0]["blocks"])
-        _click(card, "stamphog_human.stop_looking", **click)
+        _click(card, "stamphog_express.stop_looking", **click)
         assert [p.looking for p in participants.all()] == [False]
         assert "is looking" not in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
 
@@ -4714,7 +4714,7 @@ def test_a_click_on_the_card_marks_who_is_looking(
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_github_delivery_refreshes_every_active_human_request_of_its_pull_request(
+def test_a_github_delivery_refreshes_every_active_express_request_of_its_pull_request(
     team, installation_id: str, expected: set[str]
 ) -> None:
     other_team = Team.objects.create(organization=team.organization, name="Other project")
@@ -4723,28 +4723,28 @@ def test_a_github_delivery_refreshes_every_active_human_request_of_its_pull_requ
     other_config.save()
     own_config = _repo_config(team.id)
 
-    def _request(repo_config: StamphogRepoConfig, pr_number: int, status: HumanRequestStatus) -> tuple[int, str]:
+    def _request(repo_config: StamphogRepoConfig, pr_number: int, status: ExpressRequestStatus) -> tuple[int, str]:
         pull_request, _ = PullRequest.objects.for_team(repo_config.team_id).get_or_create(
             team_id=repo_config.team_id, repo_config=repo_config, pr_number=pr_number
         )
-        request = HumanRequest.objects.for_team(repo_config.team_id).create(
+        request = ExpressRequest.objects.for_team(repo_config.team_id).create(
             team_id=repo_config.team_id,
             pull_request=pull_request,
             status=status,
             head_sha="sha173a",
-            requested_via=HumanRequestSource.API,
+            requested_via=ExpressRequestSource.API,
         )
         return repo_config.team_id, str(request.id)
 
     labels = {
-        _request(own_config, 173, HumanRequestStatus.APPROVED): "own",
-        _request(own_config, 173, HumanRequestStatus.MERGED): "own_final",
-        _request(own_config, 174, HumanRequestStatus.OPEN): "own_other_pull_request",
-        _request(other_config, 173, HumanRequestStatus.PENDING): "other_project",
+        _request(own_config, 173, ExpressRequestStatus.APPROVED): "own",
+        _request(own_config, 173, ExpressRequestStatus.MERGED): "own_final",
+        _request(own_config, 174, ExpressRequestStatus.OPEN): "own_other_pull_request",
+        _request(other_config, 173, ExpressRequestStatus.PENDING): "other_project",
     }
 
-    with patch.object(refresh_human_request, "delay") as refresh_delay:
-        refresh_human_requests_for_pull_request(repository=REPO, pr_number=173, installation_id=installation_id)
+    with patch.object(refresh_express_request, "delay") as refresh_delay:
+        refresh_express_requests_for_pull_request(repository=REPO, pr_number=173, installation_id=installation_id)
 
-    queued = [labels[(c.kwargs["team_id"], c.kwargs["human_request_id"])] for c in refresh_delay.call_args_list]
+    queued = [labels[(c.kwargs["team_id"], c.kwargs["express_request_id"])] for c in refresh_delay.call_args_list]
     assert sorted(queued) == sorted(expected)
