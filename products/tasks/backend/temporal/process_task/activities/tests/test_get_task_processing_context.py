@@ -1179,17 +1179,21 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "environment,expected",
+        "profile,environment,expected",
         [
-            ("internal", []),
-            ("picked_by_a_person", None),
-            (None, []),
+            ("business_knowledge", "internal", []),
+            ("business_knowledge", None, []),
+            ("user", "picked_by_a_person", None),
+            ("image_builder", "picked_by_a_person", None),
+            ("business_knowledge", "picked_by_a_person", TaskInvalidStateError),
+            ("mcp_analytics", "picked_by_a_person", TaskInvalidStateError),
+            ("wizard", "picked_by_a_person", TaskInvalidStateError),
         ],
     )
-    def test_a_profiled_task_takes_its_network_from_the_profile_unless_a_person_picked_the_environment(
-        self, activity_environment, test_task, environment, expected
+    def test_a_profiled_task_takes_its_network_from_the_profile_and_refuses_a_picked_environment_that_widens_it(
+        self, activity_environment, test_task, profile, environment, expected
     ):
-        test_task.profile = "business_knowledge"
+        test_task.profile = profile
         test_task.save(update_fields=["profile"])
         extra_state = {}
         if environment is not None:
@@ -1203,12 +1207,14 @@ class TestGetTaskProcessingContextActivity:
             )
             extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
         task_run = test_task.create_run(extra_state=extra_state)
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        result = async_to_sync(activity_environment.run)(
-            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
-        )
-
-        assert result.allowed_domains == expected
+        if expected is TaskInvalidStateError:
+            with pytest.raises(TaskInvalidStateError, match="does not accept sandbox environment"):
+                async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+        else:
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+            assert result.allowed_domains == expected
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_other_users_private_sandbox_environment(
