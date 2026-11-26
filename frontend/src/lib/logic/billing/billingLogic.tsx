@@ -226,6 +226,18 @@ export const parseBillingResponse = (response: BillingOverviewResponseApi | null
     return data as BillingType
 }
 
+/** The organization's billing overview. */
+export const fetchBilling = async (organizationId: string, skipForecasting: boolean): Promise<BillingType | null> => {
+    // Note: this is a temporary flag to skip forecasting in the billing page
+    // for customers running into performance issues until we have a more permanent fix
+    // of splitting the billing and forecasting data.
+    const response = await billingOrganizationList(
+        organizationId,
+        skipForecasting ? { include_forecasting: false } : undefined
+    )
+    return parseBillingResponse(response)
+}
+
 const storeBillingAlertDismissal = (
     organizationId: string | undefined,
     productType: string,
@@ -1005,18 +1017,11 @@ export const billingLogic = kea<billingLogicType>([
                         cache.billingAwaitsOrganization = true
                         return values.billing
                     }
-                    // Note: this is a temporary flag to skip forecasting in the billing page
-                    // for customers running into performance issues until we have a more permanent fix
-                    // of splitting the billing and forecasting data.
-                    const skipForecasting = values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
                     // Many scenes read billing, so a failed read keeps the last known state quietly
                     // rather than toasting on every page or reaching error tracking.
                     try {
-                        const response = await billingOrganizationList(
-                            organizationId,
-                            skipForecasting ? { include_forecasting: false } : undefined
-                        )
-                        return parseBillingResponse(response) ?? values.billing
+                        const skipForecasting = !!values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
+                        return (await fetchBilling(organizationId, skipForecasting)) ?? values.billing
                     } catch {
                         return values.billing
                     }

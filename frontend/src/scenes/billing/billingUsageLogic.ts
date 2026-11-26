@@ -425,8 +425,11 @@ function usageExportUrlFor(
     dateTo: string | null,
     effectiveTeamIds: number[] | undefined,
     withChartCap: boolean,
-    billingReads: BillingReads
-): string {
+    billingReads: BillingReads | null
+): string | null {
+    if (!billingReads) {
+        return null
+    }
     const params: BillingUsageExportDownloadParams = {
         ...(filters.usage_types?.length ? { usage_types: JSON.stringify(filters.usage_types) } : {}),
         ...(effectiveTeamIds?.length ? { team_ids: JSON.stringify(effectiveTeamIds) } : {}),
@@ -628,9 +631,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             ): string | null =>
                 // Every project in the period: the page's filters without the chart's project cap,
                 // which is how the chart is drawn and not part of the data.
-                billingReads
-                    ? usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, false, billingReads)
-                    : null,
+                usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, false, billingReads),
         ],
         usageChartExportUrl: [
             (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds, s.billingReads],
@@ -642,9 +643,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 billingReads: BillingReads | null
             ): string | null =>
                 // The chart's series as billing built them, cap and folded row included.
-                billingReads
-                    ? usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, true, billingReads)
-                    : null,
+                usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, true, billingReads),
         ],
         dateOptions: [
             (s) => [s.billingPeriodUTC],

@@ -23,10 +23,9 @@ import type { BillingSpendResponse } from './billingSpendLogic'
 import type { BillingUsageResponse } from './billingUsageLogic'
 
 /**
- * The billing reads the usage and spend pages make, one set per source. The pages never name a route.
+ * The billing reads the usage and spend pages make, from the organization billing API. The pages never name a route.
  *
- * Each method returns what the pages consume, and each source maps its own answer into it, so neither
- * source takes the other's shape.
+ * Each method maps the API's answer into the shape the pages consume.
  */
 export interface BillingReads {
     usageSeries(params: BillingUsageTimeseriesRetrieveParams): Promise<BillingUsageResponse>
@@ -37,7 +36,7 @@ export interface BillingReads {
     reportedProjectIds(): Promise<number[]>
 }
 
-// Both sources describe a series with every field optional, and the charts draw only complete ones.
+// The API describes a series with every field optional, and the charts draw only complete ones.
 // The pages' breakdown enums hold the same strings as the generated one.
 function chartSeries<Response extends BillingUsageResponse | BillingSpendResponse>(
     points: BillingTimeSeriesPointApi[]
