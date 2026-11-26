@@ -78,7 +78,7 @@ export interface todaySeasonalChecklistLogicActions {
     ) => {
         done: boolean
         key: string
-        source: SeasonalItemSource
+        source: 'checkbox'
     }
 }
 
