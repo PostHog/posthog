@@ -1587,9 +1587,9 @@ describe('CI workflow run plans', () => {
     it.each([
         ['the exact migration-set dump', ['posthog-schema-mig-v2-base'], false],
         ['the exact base dump', ['posthog-schema-master-base'], false],
-        ['only an older migration set', ['posthog-schema-mig-v2-older'], true],
+        ['only an older migration set', ['posthog-schema-mig-v2-older'], false],
         ['no dump', [], true],
-    ])('prime-schema-cache builds the base dump when the cache holds %s', (name, cached, builds) => {
+    ])('prime-schema-cache build step when the cache holds %s', (name, cached, builds) => {
         const github = pullRequest()
         const schemaKey = {
             migrations_key: 'posthog-schema-mig-v2-base',

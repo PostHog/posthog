@@ -1115,10 +1115,11 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
-                  # Exact keys only. A match on an older migration set must still build the
-                  # base's own dump, because every later run on this base would restore that
-                  # older dump and repeat its top-up migrations in each shard.
-                  restore-keys: ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                  # An older migration set also skips the build, because product shards wait for
+                  # this job and pytest migrates an older dump forward in seconds.
+                  restore-keys: |
+                      ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                      ${{ needs.turbo-discover.outputs.schema_ancestor_keys }}
                   lookup-only: true
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: steps.schema-cache.outputs.cache-matched-key == ''
