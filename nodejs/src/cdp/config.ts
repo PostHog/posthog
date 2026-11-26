@@ -63,8 +63,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
-    // Skip the event body when the team id header names a team without a legacy plugin, or without a webhook.
-    // Off reads every body. Each side has its own switch so it can be rolled out and back alone.
     CDP_LEGACY_EVENT_CONSUMER_PLUGINS_SKIP_BY_TEAM_HEADER: boolean
     CDP_LEGACY_EVENT_CONSUMER_WEBHOOKS_SKIP_BY_TEAM_HEADER: boolean
 
