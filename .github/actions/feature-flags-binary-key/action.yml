@@ -33,7 +33,7 @@ runs:
               # Path-dependency closure of rust/feature-flags, all dependency kinds and
               # targets, resolving `workspace = true` through [workspace.dependencies].
               CRATES=$(python3 - <<'PY'
-              import os, tomllib
+              import os, re, sys, tomllib
 
               def load(path):
                   with open(path, "rb") as f:
@@ -63,14 +63,20 @@ runs:
                                   todo.append(os.path.join("rust", ws["path"]))
                           elif "path" in spec:
                               todo.append(os.path.join(crate, spec["path"]))
+              # Paths come from PR-controlled Cargo.toml files and are passed to git as
+              # pathspecs, so refuse anything that is not a plain relative path.
+              bad = [c for c in seen if not re.fullmatch(r"[A-Za-z0-9._/-]+", c) or c.startswith("..")]
+              if bad:
+                  sys.exit(f"Refusing unexpected crate paths in the closure: {bad}")
               print("\n".join(sorted(seen)))
               PY
               )
               echo "Crates in the key:"
               echo "$CRATES"
               # usage-ingestion-proto's build.rs compiles protos from the repo-root proto/ tree.
-              # shellcheck disable=SC2086
-              SOURCE_HASH=$(git ls-files -s -- $CRATES rust/Cargo.toml rust/Cargo.lock rust/.cargo proto \
+              # Literal pathspecs: no glob or `:(exclude)` magic can drop files from the hash.
+              mapfile -t CRATE_LIST <<<"$CRATES"
+              SOURCE_HASH=$(GIT_LITERAL_PATHSPECS=1 git ls-files -s -- "${CRATE_LIST[@]}" rust/Cargo.toml rust/Cargo.lock rust/.cargo proto \
                   .github/actions/setup-protoc .github/actions/feature-flags-binary-key \
                   | sha256sum | cut -c1-40)
               FLAGS_HASH=$(printf '%s' "$FLAGS" | sha256sum | cut -c1-8)
