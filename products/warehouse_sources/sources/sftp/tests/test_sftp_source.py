@@ -328,7 +328,7 @@ class TestHostRechecks:
                 if method == "get_schemas":
                     self.source.get_schemas(make_config(), team_id=1)
                 else:
-                    list(cast(Any, self.source.source_for_pipeline(make_config(), make_inputs()).items()))
+                    self.source.source_for_pipeline(make_config(), make_inputs())
 
         create_connection.assert_not_called()
 

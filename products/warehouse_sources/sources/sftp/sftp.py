@@ -105,16 +105,21 @@ class SFTPAuth:
         return load_private_key(self.private_key, self.passphrase) if self.private_key else None
 
 
-def _open_socket(host: str, port: int, team_id: int | None, timeout: int) -> socket.socket:
+def approved_addresses(host: str, team_id: int | None) -> tuple[str, ...]:
     resolution = resolve_safe_host(host, team_id)
     if resolution.connect_host is None:
         raise SFTPCredentialsError(f"{CONNECTION_FAILED_ERROR} at {host}: {resolution.error}")
+    return resolution.addresses or (resolution.connect_host,)
+
+
+def _open_socket(host: str, port: int, team_id: int | None, timeout: int) -> socket.socket:
+    addresses = approved_addresses(host, team_id)
 
     # Dial the addresses the check approved, never the hostname. A second lookup can get a
     # different answer from a short-TTL record, public for the check and internal for the connect.
     # No egress proxy sees this socket, so the check is the only control on where it goes.
     last_error: OSError | None = None
-    for address in resolution.addresses or (resolution.connect_host,):
+    for address in addresses:
         try:
             return socket.create_connection((address, port), timeout=timeout)
         except OSError as e:

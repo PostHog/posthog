@@ -32,6 +32,7 @@ from products.warehouse_sources.sources.sftp.sftp import (
     PRIVATE_KEY_ERROR,
     SFTPAuth,
     SFTPCredentialsError,
+    approved_addresses,
     group_files_by_table,
     list_remote_files,
     parseable_files,
@@ -334,6 +335,10 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
         return schemas
 
     def source_for_pipeline(self, config: SFTPSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        # Refuse the host here, before the pipeline starts, because a full-refresh sync deletes the
+        # existing table before it reads the first item.
+        approved_addresses(config.host, inputs.team_id)
+
         return sftp_source(
             host=config.host,
             port=config.port,
