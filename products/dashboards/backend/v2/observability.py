@@ -18,6 +18,8 @@ from opentelemetry import (
 from opentelemetry.trace import Span, StatusCode
 from prometheus_client import Counter, Histogram
 
+from posthog.dataclasses import frozen
+
 from products.dashboards.backend.facade.contracts import QueryBatchInput
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
 
@@ -93,12 +95,18 @@ def _target_attributes(item: QueryBatchInput, query_id: Optional[str]) -> dict[s
     return attributes
 
 
-def _describe(span: Span, line: dict[str, Any]) -> tuple[str, str]:
-    """Sets what a target's line says on its span. Returns its cache and outcome labels."""
+@frozen
+class _Answer:
+    cache: str
+    outcome: str
+
+
+def _describe(span: Span, line: dict[str, Any]) -> _Answer:
+    """Sets what a target's line says on its span, and returns its labels. An error's text is left off: it can quote
+    the query, and `note_error` has already named its type."""
     if "error" in line:
-        span.set_attribute("dashboard_v2.error", str(line["error"]))
         span.set_status(StatusCode.ERROR)
-        return "miss", "error"
+        return _Answer(cache="miss", outcome="error")
     result = line.get("result") or {}
     cache = result.get("cache") or {}
     hit, stale = bool(cache.get("hit")), bool(cache.get("stale"))
@@ -110,19 +118,31 @@ def _describe(span: Span, line: dict[str, Any]) -> tuple[str, str]:
         span.set_attribute("dashboard_v2.frames", len(frames))
         span.set_attribute(
             "dashboard_v2.points",
-            sum(len(frame.get("values") or ()) for frame in frames if isinstance(frame, dict)),
+            sum(
+                len(field.get("values") or ())
+                for frame in frames
+                if isinstance(frame, dict)
+                for field in frame.get("fields") or ()
+                if isinstance(field, dict) and field.get("type") != "time"
+            ),
         )
     rows = (result.get("result") or {}).get("results") if isinstance(result.get("result"), dict) else None
     if isinstance(rows, list):
         span.set_attribute("dashboard_v2.rows", len(rows))
     if result.get("result") is None and "frames" not in result:
-        return "miss", "ok"
-    return ("stale" if stale else "hit") if hit else "miss", "ok"
+        return _Answer(cache="miss", outcome="ok")
+    return _Answer(cache=("stale" if stale else "hit") if hit else "miss", outcome="ok")
 
 
 def _observe(language: str, kind: str, cache: str, outcome: str, seconds: float) -> None:
     TARGET_SECONDS.labels(language=language, query_kind=kind, cache=cache, outcome=outcome).observe(seconds)
     TARGETS_TOTAL.labels(language=language, outcome=outcome).inc()
+
+
+def count_answer(language: str, *, error: bool) -> None:
+    """Counts a target answered without running or reading the cache itself: a miss on a cache-only read, a panel
+    sharing another's entry, a target that failed validation, or one turned away as the batch was busy."""
+    TARGETS_TOTAL.labels(language=language, outcome="error" if error else "ok").inc()
 
 
 class TargetRun:
@@ -133,16 +153,19 @@ class TargetRun:
         self._language = language
         self._kind = kind
         self._started = monotonic()
-        self._outcome: Optional[tuple[str, str]] = None
+        self._answer: Optional[_Answer] = None
 
     def finish(self, line: dict[str, Any], *, cancelled: bool) -> None:
-        cache, outcome = _describe(self.span, line)
-        self._outcome = (cache, "cancelled" if cancelled and outcome == "error" else outcome)
+        """Takes the line as sent, after any size limit has replaced it."""
+        answer = _describe(self.span, line)
+        if cancelled and answer.outcome == "error":
+            answer = _Answer(cache=answer.cache, outcome="cancelled")
+        self._answer = answer
 
     def _end(self) -> None:
-        cache, outcome = self._outcome or ("miss", "cancelled")
-        self.span.set_attribute("dashboard_v2.outcome", outcome)
-        _observe(self._language, self._kind, cache, outcome, monotonic() - self._started)
+        answer = self._answer or _Answer(cache="miss", outcome="cancelled")
+        self.span.set_attribute("dashboard_v2.outcome", answer.outcome)
+        _observe(self._language, self._kind, answer.cache, answer.outcome, monotonic() - self._started)
 
 
 class StreamTrace:
@@ -211,7 +234,10 @@ class StreamTrace:
         attributes["dashboard_v2.query_kind"] = kind
         attributes["dashboard_v2.queue_wait_ms"] = round(self.queue_wait_ms(), 1)
         with tracer.start_as_current_span(
-            "dashboard_v2.query_batch.target", context=self._context or self._parent, attributes=attributes
+            "dashboard_v2.query_batch.target",
+            context=self._context or self._parent,
+            attributes=attributes,
+            record_exception=False,
         ) as span:
             run = TargetRun(span, language, kind)
             try:
@@ -223,7 +249,13 @@ class StreamTrace:
 @contextmanager
 def phase(name: str, **attributes: Any) -> Iterator[None]:
     """A phase of the current target: `plan`, `cache_read`, `execute` or `frames`."""
-    with tracer.start_as_current_span(f"dashboard_v2.query_batch.{name}", attributes=attributes or None):
+    # Exceptions are not recorded: their messages can quote the query. The target's span names the type instead.
+    with tracer.start_as_current_span(
+        f"dashboard_v2.query_batch.{name}",
+        attributes=attributes or None,
+        record_exception=False,
+        set_status_on_exception=False,
+    ):
         yield
 
 
@@ -231,7 +263,7 @@ def record_cache_hit(
     item: QueryBatchInput, query: Optional[dict[str, Any]], line: dict[str, Any], started: float
 ) -> None:
     """A target answered from the cache while the request was planning, as a span from `started` (monotonic) until
-    now under the request's span."""
+    now under the request's span. `line` is the one sent, after any size limit has replaced it."""
     elapsed = monotonic() - started
     language = language_label(item.target.language)
     kind = query_kind(query, item.target.language)
@@ -240,10 +272,10 @@ def record_cache_hit(
     span = tracer.start_span(
         "dashboard_v2.query_batch.target", attributes=attributes, start_time=time_ns() - int(elapsed * 1e9)
     )
-    cache, outcome = _describe(span, line)
-    span.set_attribute("dashboard_v2.outcome", outcome)
+    answer = _describe(span, line)
+    span.set_attribute("dashboard_v2.outcome", answer.outcome)
     span.end()
-    _observe(language, kind, cache, outcome, elapsed)
+    _observe(language, kind, answer.cache, answer.outcome, elapsed)
 
 
 def note_error(error: BaseException) -> None:

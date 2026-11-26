@@ -748,6 +748,7 @@ class QueryBatch:
         self._client_query_id = client_query_id
         self._traceparent = traceparent
         self._heads = [_line_head(item) for item in inputs]
+        self._languages = [observability.language_label(item.target.language) for item in inputs]
         # Each line's JSON without its `i`, so panels that share a cache entry share one copy of its result.
         self.ready: list[tuple[int, bytes]] = []
         self._ready_bytes = 0
@@ -993,22 +994,27 @@ class QueryBatch:
                     shape=self._shapes[index],
                     ms=(monotonic() - started) * 1000,
                 )
-                observability.record_cache_hit(item, resolved[index].query, line, started)
                 body = _render_body(line)
-                del line
                 del response
                 self._read_bytes += max(len(body), stored_bytes)
                 if self._ready_bytes + len(body) > MAX_READY_BYTES:
+                    too_large = {"i": index, "error": _TOO_LARGE}
+                    observability.record_cache_hit(item, resolved[index].query, too_large, started)
                     # Shared like a served body, so panels repeating this entry are not fetched and rendered again.
-                    served[same_entry] = self._add_ready({"i": index, "error": _TOO_LARGE})
+                    served[same_entry] = self._add_ready(too_large, metered=True)
                     continue
+                observability.record_cache_hit(item, resolved[index].query, line, started)
+                del line
                 self.ready.append((index, body))
                 self._ready_bytes += len(body)
                 served[same_entry] = body
                 if stale and item.swr and not item.cache_only:
                     to_refresh.append(index)
 
-    def _add_ready(self, line: dict[str, Any]) -> bytes:
+    def _add_ready(self, line: dict[str, Any], *, metered: bool = False) -> bytes:
+        """`metered` when the caller has already recorded this answer."""
+        if not metered:
+            observability.count_answer(self._languages[line["i"]], error="error" in line)
         body = _render_body(line)
         self.ready.append((line["i"], body))
         self._ready_bytes += len(body)
@@ -1019,6 +1025,7 @@ class QueryBatch:
         if self._ready_bytes + len(body) > MAX_READY_BYTES:
             self._add_ready({"i": index, "error": _TOO_LARGE})
             return
+        observability.count_answer(self._languages[index], error=body.startswith(b'{"error":'))
         self.ready.append((index, body))
         self._ready_bytes += len(body)
 
@@ -1229,11 +1236,12 @@ class QueryBatch:
                     line = self._run_logql(index, query, self._logql_budget)
                 else:
                     line = self._run(index, query, query_id)
+                index, data = line["i"], self._encode(line)
+                if len(data) > MAX_UNREAD_BYTES:
+                    line = {"i": index, "error": _TOO_LARGE}
+                    data = self._encode(line)
                 target.finish(line, cancelled=self._is_cancelled())
-            index, data = line["i"], self._encode(line)
-            del line
-            if len(data) > MAX_UNREAD_BYTES:
-                data = self._encode({"i": index, "error": _TOO_LARGE})
+                del line
             # Waits while the client is behind, so a slow reader holds a few results and a bounded number of bytes,
             # not every finished one. One result is always let through, however large, so the batch cannot stall.
             while not self._unread.acquire(timeout=1.0):
@@ -1361,6 +1369,7 @@ class QueryBatch:
     def _busy_lines(self, jobs: Sequence[tuple[int, str, ResolvedQuery | QueryBatchInput]]) -> Iterator[bytes]:
         message = _TIMED_OUT if self._closed else _BUSY
         for index, _query_id, _query in jobs:
+            observability.count_answer(self._languages[index], error=True)
             yield self._encode({"i": index, "error": message})
 
     def _trace_start(self) -> None:

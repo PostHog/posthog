@@ -792,33 +792,68 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         self.assertEqual([line.get("error") for line in lines], [None, None])
         spans = exporter.get_finished_spans()
-        by_id = {span.context.span_id: span for span in spans}
+
+        def attrs(span: Any) -> dict[str, Any]:
+            return dict(span.attributes or {})
+
+        def parent_id(span: Any) -> int:
+            assert span.parent is not None
+            return span.parent.span_id
+
+        by_id = {span.context.span_id: span for span in spans if span.context is not None}
         (stream,) = [span for span in spans if span.name == "dashboard_v2.query_batch.stream"]
         targets = {
-            span.attributes["dashboard_v2.ref_id"]: span
-            for span in spans
-            if span.name == "dashboard_v2.query_batch.target"
+            attrs(span)["dashboard_v2.ref_id"]: span for span in spans if span.name == "dashboard_v2.query_batch.target"
         }
-        self.assertEqual(stream.parent.span_id, request_span.get_span_context().span_id)
-        self.assertEqual(stream.attributes["dashboard_v2.lines_ok"], 2)
-        self.assertEqual(stream.attributes["dashboard_v2.cancelled"], False)
+        stream_id = stream.get_span_context().span_id
+        self.assertEqual(parent_id(stream), request_span.get_span_context().span_id)
+        self.assertEqual(attrs(stream)["dashboard_v2.lines_ok"], 2)
+        self.assertEqual(attrs(stream)["dashboard_v2.cancelled"], False)
         self.assertEqual(
             {
-                ref_id: (span.parent.span_id, span.attributes["dashboard_v2.language"], span.attributes["cache.hit"])
+                ref_id: (parent_id(span), attrs(span)["dashboard_v2.language"], attrs(span)["cache.hit"])
                 for ref_id, span in targets.items()
             },
-            {"A": (stream.context.span_id, "hogql", False), "B": (stream.context.span_id, "query", False)},
+            {"A": (stream_id, "hogql", False), "B": (stream_id, "query", False)},
         )
-        self.assertEqual(targets["B"].attributes["dashboard_v2.query_kind"], "EventsQuery")
+        self.assertEqual(attrs(targets["B"])["dashboard_v2.query_kind"], "EventsQuery")
+        self.assertTrue(all("dashboard_v2.error" not in attrs(span) for span in spans))
         selects = [span for span in spans if span.name == "SELECT"]
         self.assertEqual(len(selects), 2)
         for select in selects:
-            execute = by_id[select.parent.span_id]
+            execute = by_id[parent_id(select)]
             self.assertEqual(execute.name, "dashboard_v2.query_batch.execute")
-            self.assertIn(by_id[execute.parent.span_id], targets.values())
+            self.assertIn(by_id[parent_id(execute)], targets.values())
         self.assertEqual(
             {language: ok_targets(language) - before[language] for language in before}, {"hogql": 1, "query": 1}
         )
+
+
+class TestTargetSpanAttributes(SimpleTestCase):
+    def _attributes(self, line: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        with provider.get_tracer(__name__).start_as_current_span("target") as span:
+            outcome = observability._describe(span, line).outcome
+        (finished,) = exporter.get_finished_spans()
+        return outcome, dict(finished.attributes or {})
+
+    def test_points_count_the_value_fields_of_each_frame(self) -> None:
+        frame = {
+            "fields": [
+                {"name": "time", "type": "time", "values": [1, 2, 3]},
+                {"name": "count", "type": "number", "values": [4, 5, 6]},
+                {"name": "unique", "type": "number", "values": [1, 1, 2]},
+            ]
+        }
+        outcome, attributes = self._attributes({"result": {"cache": {}, "frames": [frame, frame]}})
+        self.assertEqual((outcome, attributes["dashboard_v2.frames"], attributes["dashboard_v2.points"]), ("ok", 2, 12))
+
+    def test_an_errors_text_stays_out_of_the_span(self) -> None:
+        outcome, attributes = self._attributes({"error": "Unknown table secret_customer_table"})
+        self.assertEqual(outcome, "error")
+        self.assertNotIn("secret_customer_table", repr(attributes))
 
 
 class TestQueryShares(SimpleTestCase):
