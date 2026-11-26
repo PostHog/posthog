@@ -481,9 +481,10 @@ tools:
             Reject changed, new or removed snapshots of a pull request run in ledger mode, each with a `reason` the
             author can act on. Pass the run's UUID as `id` and `snapshots: [{identifier, new_hash, reason}]`, with
             `new_hash` null for a `removed` snapshot. A rejected snapshot blocks finalize, also when it is tolerated or
-            quarantined, until the pull request renders a different picture or the rejecter undoes it. Reject only when the user asked you to review someone else's
-            change, never your own: fix your code instead. For a picture that is wrong on the default branch, use
-            `visual-review-repos-quarantine-create`, not a reject. The response has `head_run` and its `progress`.
+            quarantined, until the pull request renders a different picture or the rejecter undoes it. Reject only when
+            the user asked you to review someone else's change, never your own: fix your code instead. For a picture
+            that is wrong on the default branch, use `visual-review-repos-quarantine-create`, not a reject. The response
+            has `head_run` and its `progress`.
         param_overrides:
             id:
                 description: |
