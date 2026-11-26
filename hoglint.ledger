@@ -876,7 +876,6 @@ facade-no-state	django.db.transaction.atomic	products.warehouse_sources.backend.
 facade-no-state	posthog.models.comment.comment.Comment	products.conversations.backend.facade.api	write(create)	2
 facade-no-state	posthog.models.oauth.OAuthAccessToken	products.tasks.backend.facade.api	instance-many(filter)	1
 facade-no-state	posthog.models.oauth.OAuthRefreshToken	products.tasks.backend.facade.api	write(delete)	1
-facade-no-state	posthog.models.tag.Tag	products.customer_analytics.backend.facade.api	write(delete)	1
 facade-no-state	posthog.models.tag.Tag	products.customer_analytics.backend.facade.api	write(get_or_create)	2
 facade-no-state	posthog.models.team.team.Team	products.signals.backend.facade.api	lock	1
 facade-no-state	products.access_control.backend.models.access_control.AccessControl	products.access_control.backend.facade.api	lock	2
