@@ -262,7 +262,6 @@ class TestSlackTransport(APIBaseTest):
     def test_a_slack_answer_that_is_not_json_is_classified_by_its_status(
         self, _name: str, status: int, reason: str
     ) -> None:
-        # The SDK fills `error` with text made from the body, so no Slack code matches it.
         response = SlackResponse(
             client=None,
             http_verb="POST",

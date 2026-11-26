@@ -101,7 +101,6 @@ def post_json(
             refused = _is_owner_refusal(status, response, owner_refusals)
             response.close()
     except SSRFBlockedError as error:
-        # The validator also blocks a host that did not resolve, which a DNS outage causes too.
         if str(error) == UNRESOLVED_HOST_REASON:
             raise DeliveryError(
                 f"The {display_name} destination's host name did not resolve.", reason="unreachable"
