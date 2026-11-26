@@ -88,9 +88,13 @@ def _bound_topic(team: Team, user: User, task_id: UUID, topic_id: UUID) -> Topic
         "signal_scout", "editor"
     ):
         raise PermissionDenied("Managing a topic scout requires scout editor access.")
+    return bound_topic(team, user, task_id, topic_id)
+
+
+def bound_topic(team: Team, user: User, task_id: UUID, topic_id: UUID) -> Topic:
     task = task_control_runtime_and_origin(task_id, team.pk, user.pk)
     if task is None or task.origin_product != "meep":
-        raise PermissionDenied("A Meep task is required to manage topic scouts.")
+        raise PermissionDenied("A Meep task is required to change this topic.")
     User.objects.select_for_update().only("pk").get(pk=user.pk)
     topic = get_object_or_404(
         Topic.objects.for_team(team.pk).select_for_update(),
@@ -102,7 +106,7 @@ def _bound_topic(team: Team, user: User, task_id: UUID, topic_id: UUID) -> Topic
     if not (
         (topic.conversation_id == task_id and topic.turns.exists()) or topic.board_runs.filter(task_id=task_id).exists()
     ):
-        raise PermissionDenied("This task cannot manage scouts for this topic.")
+        raise PermissionDenied("This task cannot change this topic.")
     return topic
 
 

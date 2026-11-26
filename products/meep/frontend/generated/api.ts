@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     MeepConversationBindingApi,
+    MeepRoutineApi,
+    MeepRoutineBindApi,
     MeepScoutApi,
     MeepScoutCreateApi,
     MeepScoutStatusApi,
@@ -115,6 +117,24 @@ export const meepTopicsConversationCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(meepConversationBindingApi),
+    })
+}
+
+export const getMeepTopicsBindRoutineUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/meep/topics/${id}/routines/`
+}
+
+export const meepTopicsBindRoutine = async (
+    projectId: string,
+    id: string,
+    meepRoutineBindApi: MeepRoutineBindApi,
+    options?: RequestInit
+): Promise<MeepRoutineApi> => {
+    return apiMutator<MeepRoutineApi>(getMeepTopicsBindRoutineUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(meepRoutineBindApi),
     })
 }
 

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from products.tasks.backend.facade.api import resolve_scopes
 from products.tasks.backend.facade.profiles import (
     DrivePolicy,
     GithubAccess,
@@ -31,7 +32,9 @@ MEEP_READ_SCOPES = [
     "feature_flag:read",
 ]
 
-MEEP_MCP_SCOPES = [*MEEP_READ_SCOPES, "meep_scout:write", "meep_task:write"]
+MEEP_MCP_SCOPES = list(
+    dict.fromkeys([*resolve_scopes("full"), *MEEP_READ_SCOPES, "meep_scout:write", "meep_task:write"])
+)
 
 MEEP = TaskProfile(
     key="meep",

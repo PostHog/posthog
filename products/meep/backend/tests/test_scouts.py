@@ -112,6 +112,27 @@ class TestTopicScouts(APIBaseTest):
             == 403
         )
 
+    def test_agent_links_a_workflow_as_a_topic_routine_once(self):
+        workflow_id = uuid4()
+        body = {"workflow_id": str(workflow_id), "name": "Daily report", "trigger": "Every day at 09:00 UTC"}
+        with (
+            patch("products.meep.backend.routines.workflows.can_edit_workflows", return_value=True),
+            patch(
+                "products.meep.backend.routines.workflows.workflow_exists",
+                side_effect=lambda **kw: kw["workflow_id"] == workflow_id,
+            ),
+        ):
+            first = self.agent.post(self.url + "routines/", body, format="json")
+            assert first.status_code == 200, first.content
+            assert self.agent.post(self.url + "routines/", body, format="json").status_code == 200
+            missing = self.agent.post(self.url + "routines/", {**body, "workflow_id": str(uuid4())}, format="json")
+        assert missing.status_code == 404
+        self.topic.refresh_from_db()
+        bindings = self.topic.state["topic"]["routines"]
+        assert [(b["backend"], b["external_id"], b["name"]) for b in bindings] == [
+            ("posthog", str(workflow_id), "Daily report")
+        ]
+
     def test_native_scout_retries_pause_resume_and_report_delivery(self):
         created = self.agent.post(self.url + "scouts/", self.create_body, format="json")
         assert created.status_code == 201, created.content

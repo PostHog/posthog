@@ -192,6 +192,36 @@ const meepScoutSetEnabled = (): ToolBase<ReturnType<typeof MeepScoutSetEnabledSc
     },
 })
 
+const MeepRoutineBindSchema = () => {
+    const MeepTopicsBindRoutineBody = orvalSchemas.MeepTopicsBindRoutineBody()
+    const MeepTopicsBindRoutineParams = orvalSchemas.MeepTopicsBindRoutineParams()
+    return MeepTopicsBindRoutineParams.omit({ project_id: true }).extend(MeepTopicsBindRoutineBody.shape)
+}
+
+const meepRoutineBind = (): ToolBase<ReturnType<typeof MeepRoutineBindSchema>, Schemas.MeepRoutine> => ({
+    name: 'meep-routine-bind',
+    schema: MeepRoutineBindSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MeepRoutineBindSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.workflow_id !== undefined) {
+            body['workflow_id'] = params.workflow_id
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.trigger !== undefined) {
+            body['trigger'] = params.trigger
+        }
+        const result = await context.api.request<Schemas.MeepRoutine>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/meep/topics/${encodeURIComponent(String(params.id))}/routines/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'meep-task-start': meepTaskStart,
     'meep-task-wait': meepTaskWait,
@@ -200,4 +230,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'meep-topic-get': meepTopicGet,
     'meep-scout-create': meepScoutCreate,
     'meep-scout-set-enabled': meepScoutSetEnabled,
+    'meep-routine-bind': meepRoutineBind,
 }

@@ -20,6 +20,22 @@ export const MeepTopicsConversationCreateBody = /* @__PURE__ */ zod.object({
     task_id: zod.uuid(),
 })
 
+export const meepTopicsBindRoutineBodyNameMax = 100
+
+export const meepTopicsBindRoutineBodyTriggerMax = 200
+
+export const MeepTopicsBindRoutineBody = /* @__PURE__ */ zod.object({
+    workflow_id: zod.uuid().describe('The ID of the PostHog workflow this topic should show as a routine.'),
+    name: zod
+        .string()
+        .max(meepTopicsBindRoutineBodyNameMax)
+        .describe("A short name for the routine, shown in the topic's Routines."),
+    trigger: zod
+        .string()
+        .max(meepTopicsBindRoutineBodyTriggerMax)
+        .describe("When the routine runs, in plain words, for example 'Every day at 09:00 UTC'."),
+})
+
 export const MeepTopicsSetScoutEnabledBody = /* @__PURE__ */ zod.object({
     scout_id: zod.uuid(),
     enabled: zod.boolean(),

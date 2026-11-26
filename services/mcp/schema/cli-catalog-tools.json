@@ -38328,6 +38328,51 @@
             "validators": []
         }
     },
+    "meep-routine-bind": {
+        "name": "meep-routine-bind",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/meep/topics/{id}/routines/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "workflow_id",
+                    "key": "workflow_id"
+                },
+                {
+                    "param": "name",
+                    "key": "name"
+                },
+                {
+                    "param": "trigger",
+                    "key": "trigger"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "meep-scout-create": {
         "name": "meep-scout-create",
         "kind": "http",

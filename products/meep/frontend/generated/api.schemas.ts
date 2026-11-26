@@ -43,6 +43,29 @@ export interface MeepConversationBindingApi {
     task_id: string
 }
 
+export interface MeepRoutineBindApi {
+    /** The ID of the PostHog workflow this topic should show as a routine. */
+    workflow_id: string
+    /**
+     * A short name for the routine, shown in the topic's Routines.
+     * @maxLength 100
+     */
+    name: string
+    /**
+     * When the routine runs, in plain words, for example 'Every day at 09:00 UTC'.
+     * @maxLength 200
+     */
+    trigger: string
+}
+
+export interface MeepRoutineApi {
+    /** The topic-local routine key. */
+    id: string
+    name: string
+    trigger: string
+    workflow_id: string
+}
+
 export interface MeepScoutStatusApi {
     scout_id: string
     enabled: boolean

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -28,6 +28,31 @@ export const MeepTopicsRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const MeepTopicsBindRoutineParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const meepTopicsBindRoutineBodyNameMax = 100
+
+export const meepTopicsBindRoutineBodyTriggerMax = 200
+
+export const MeepTopicsBindRoutineBody = () => zod.object({
+    workflow_id: zod.string().describe('The ID of the PostHog workflow this topic should show as a routine.'),
+    name: zod
+        .string()
+        .max(meepTopicsBindRoutineBodyNameMax)
+        .describe("A short name for the routine, shown in the topic's Routines."),
+    trigger: zod
+        .string()
+        .max(meepTopicsBindRoutineBodyTriggerMax)
+        .describe("When the routine runs, in plain words, for example 'Every day at 09:00 UTC'."),
 })
 
 export const MeepTopicsSetScoutEnabledParams = () => zod.object({

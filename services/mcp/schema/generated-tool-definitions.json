@@ -12657,6 +12657,21 @@
             "readOnlyHint": true
         }
     },
+    "meep-routine-bind": {
+        "description": "Link a PostHog workflow you created for this topic so it appears under the topic's Routines. Call it once, after the workflow exists. It does not enable or run the workflow.",
+        "category": "Meep",
+        "feature": "meep",
+        "summary": "Show a workflow as a topic routine",
+        "title": "Show a workflow as a topic routine",
+        "required_scopes": ["meep_scout:write"],
+        "api_operations": ["POST /api/projects/{project_id}/meep/topics/{id}/routines/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "meep-scout-create": {
         "description": "Create a native PostHog Scout for a requested recurring investigation. Its findings appear in the assigned Meep topic. Repeating the same definition returns the linked scout.",
         "category": "Meep",

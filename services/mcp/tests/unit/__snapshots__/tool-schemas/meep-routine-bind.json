@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "name": {
+            "description": "A short name for the routine, shown in the topic's Routines.",
+            "maxLength": 100,
+            "type": "string"
+        },
+        "trigger": {
+            "description": "When the routine runs, in plain words, for example 'Every day at 09:00 UTC'.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "workflow_id": {
+            "description": "The ID of the PostHog workflow this topic should show as a routine.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "workflow_id", "name", "trigger"],
+    "type": "object"
+}

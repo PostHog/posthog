@@ -45,6 +45,23 @@ class MeepScoutSerializer(serializers.Serializer):
     enabled = serializers.BooleanField()
 
 
+class MeepRoutineBindSerializer(serializers.Serializer):
+    workflow_id = serializers.UUIDField(help_text="The ID of the PostHog workflow this topic should show as a routine.")
+    name = serializers.CharField(
+        max_length=100, help_text="A short name for the routine, shown in the topic's Routines."
+    )
+    trigger = serializers.CharField(
+        max_length=200, help_text="When the routine runs, in plain words, for example 'Every day at 09:00 UTC'."
+    )
+
+
+class MeepRoutineSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The topic-local routine key.")
+    name = serializers.CharField()
+    trigger = serializers.CharField()
+    workflow_id = serializers.UUIDField()
+
+
 class MeepConversationBindingSerializer(serializers.Serializer):
     task_id = serializers.UUIDField()
 
@@ -263,3 +280,24 @@ class TopicViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request=request,
         )
         return Response(MeepScoutSerializer(scout).data)
+
+    @extend_schema(
+        operation_id="meep_topics_bind_routine", request=MeepRoutineBindSerializer, responses=MeepRoutineSerializer
+    )
+    @action(methods=["post"], detail=True, url_path="routines", required_scopes=["meep_scout:write"])
+    def bind_routine(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
+        task_id = self._conversation(request)
+        if task_id is None or not canonical_scout_access(self):
+            raise PermissionDenied("Link this routine from its Meep topic in a project you can access.")
+        payload = MeepRoutineBindSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        routine = api.bind_topic_routine(
+            team=self.team,
+            user=request.user,
+            task_id=task_id,
+            topic_id=pk,
+            workflow_id=payload.validated_data["workflow_id"],
+            name=payload.validated_data["name"],
+            trigger=payload.validated_data["trigger"],
+        )
+        return Response(MeepRoutineSerializer(routine).data)
