@@ -1392,7 +1392,7 @@ class AdminImpersonationMiddleware:
     def __call__(self, request: HttpRequest):
         if self._should_swap_user(request):
             original_user = get_original_user_from_session(request)
-            if original_user and original_user.is_active and original_user.is_staff:
+            if original_user and original_user.is_active and original_user.is_staff and original_user.is_human:
                 request.user = original_user
                 # Keep the lazy auth-middleware cache in sync with the swapped user.
                 request._cached_user = original_user  # type: ignore[attr-defined]

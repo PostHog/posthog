@@ -2017,6 +2017,7 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         [
             ("loses_staff", {"is_staff": False}),
             ("deactivated", {"is_active": False}),
+            ("not_human", {"type": UserType.SERVICE_ACCOUNT}),
         ]
     )
     def test_admin_blocked_when_original_user_cannot_swap(self, _name, user_attrs):
