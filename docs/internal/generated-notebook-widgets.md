@@ -32,6 +32,8 @@ Each visitor to a published app starts with its published defaults. Changing an 
 
 Choose **Copy view link** in a published app to share its active tab and applied inputs. The link opens in the original project and uses the recipient’s permissions. Referenced inputs or tabs that have since been removed fall back to the current release.
 
+Choose **Saved views** to name the current tab and applied filters. Your views appear here and in your project’s **Starred** items. Open a saved view in a new tab or remove it when you no longer need it.
+
 When you publish a SQL result, the app keeps up to 300 cached rows. Published results share an 8 MiB limit per release. If the original query cache expired before publication or a result exceeds the remaining space, the viewer shows the saved first page and labels it as partial. Reading these rows requires access to the notebook, queries, and any connected data source.
 
 In the notebook editor, inputs change the shared notebook variables. A widget becomes stale when one of its SQL or Python inputs, including upstream dependencies, becomes stale. A successful notebook run refreshes the widget's preview with the latest dataframe snapshots. If Run all fails or is interrupted after one of the widget's source cells succeeds, the preview still refreshes when all its inputs are current. Individual source-cell runs refresh the widget once its dependencies are current. This does not change the selected widget version or grant preview approval for generated code.

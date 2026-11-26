@@ -15,7 +15,7 @@ import * as notebookApi from '../generated/api'
 import { emptyAppLayout } from './notebookAppLayout'
 import { restorePublishedResults, savedQueryResult } from './notebookAppPublishedResults'
 import { notebookAppViewerLogic } from './notebookAppViewerLogic'
-import { notebookAppViewLink } from './notebookAppViewLink'
+import { notebookAppViewPath } from './notebookAppViewLink'
 
 describe('published viewer refreshes', () => {
     beforeEach(() => initKeaTests())
@@ -73,7 +73,8 @@ describe('published viewer refreshes', () => {
             { name: 'hidden', type: 'boolean', value: true },
         ]
         const url = new URL(
-            notebookAppViewLink('42', 'report', 'details', [{ name: 'regions', type: 'list', value: ['R&D', 'A+B'] }])
+            notebookAppViewPath('42', 'report', 'details', [{ name: 'regions', type: 'list', value: ['R&D', 'A+B'] }]),
+            window.location.origin
         )
         expect(url.pathname + url.search).toBe('/project/42/notebooks/report?view=app')
         const { appView } = decodeParams(url.hash, '#')

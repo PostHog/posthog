@@ -34,14 +34,12 @@ export function restoreAppInputs(defaults: NotebookVariable[], linked: unknown):
     })
 }
 
-export function notebookAppViewLink(
+export function notebookAppViewPath(
     project: string,
     shortId: string,
     tab: string,
     variables: NotebookVariable[]
 ): string {
     const inputs = Object.fromEntries(variables.map(({ name, value }) => [name, value]))
-    return urls.absolute(
-        combineUrl(urls.project(project, urls.notebook(shortId)), { view: 'app' }, { appView: { tab, inputs } }).url
-    )
+    return combineUrl(urls.project(project, urls.notebook(shortId)), { view: 'app' }, { appView: { tab, inputs } }).url
 }
