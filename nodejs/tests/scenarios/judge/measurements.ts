@@ -114,7 +114,6 @@ export const roleCpuSeconds: MeasurementDefinition = {
         }),
 }
 
-// Math.max(...values) passes each value as an argument, which overflows V8's stack for the sample count of a long drive.
 export const maxOf = (values: readonly number[]): number =>
     values.reduce((max, value) => Math.max(max, value), -Infinity)
 

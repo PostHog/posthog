@@ -209,7 +209,7 @@ describe('runCards', () => {
         jest.spyOn(process.stdout, 'write').mockImplementation((text) => printed.push(String(text)) > 0)
 
         expect(await runCards(runner, [SMOKE], new AbortController().signal)).toBe(EXIT_CODE.invalid)
-        expect(printed).toContain(`stopped in the drive phase: ${stack}\n`)
+        expect(printed.join('')).toContain(`stopped in the drive phase: ${stack}\n`)
     })
 
     it('prints a failed store report and keeps the exit code of the run', async () => {

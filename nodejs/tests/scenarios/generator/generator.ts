@@ -61,7 +61,6 @@ const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeou
 
 type InFlight = { add(work: Promise<unknown>): void; drained(): Promise<void> }
 
-// Count the pending work and keep no list, because a drive can send more units than one Promise.all or Promise.allSettled accepts.
 function inFlight(): InFlight {
     let pending = 0
     let idle = Promise.withResolvers<void>()
