@@ -1293,22 +1293,6 @@ tools:
                 - last_run_at
                 - tags
                 - source_product
-    scout-config-retrieve:
-        operation: signals_scout_config_retrieve
-        enabled: true
-        scopes:
-            - signal_scout:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get a scout config
-        description: >
-            Return one scout config by its `id` from `scout-config-list`, with every field: schedule, `enabled`, `emit`,
-            `status`, output destinations, write scopes, report actions, MCP servers, repositories, pre-check queries
-            and their last outcome, structured output schema, model, owners, and who last turned it on or off. Use it
-            when the compact list row does not carry the field you need.
-        feature_flag: scout-config-retrieve-mcp
     scout-config-precheck-test:
         operation: signals_scout_config_precheck_test
         enabled: true
@@ -1327,6 +1311,22 @@ tools:
             `{now}` values the next scheduled run would get. `would_run` and `reason` say whether that run would start
             (`rows`, `query_error`) or skip (`no_rows`, `false_value`). `rows_text` is the text the scout reads, one
             JSON object per line. A query error comes back in `error`: fix the query and test again.
+    scout-config-retrieve:
+        operation: signals_scout_config_retrieve
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a scout config
+        description: >
+            Return one scout config by its `id` from `scout-config-list`, with every field: schedule, `enabled`, `emit`,
+            `status`, output destinations, write scopes, report actions, MCP servers, repositories, pre-check queries
+            and their last outcome, structured output schema, model, owners, and who last turned it on or off. Use it
+            when the compact list row does not carry the field you need.
+        feature_flag: scout-config-retrieve-mcp
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -1868,9 +1868,9 @@ tools:
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
             to dedupe against work other runs already covered. Each row is a compact view: `summary_lead` (the start of
             the run's close-out, at most 600 characters), `emitted_count` (how many findings the run surfaced to the
-            inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored directly via
-            `emit_report`) and `edited_report_ids` (reports the run mutated via `edit_report`) for the report channel;
-            and `failure_reason` (a concise one-liner) for runs that didn't complete cleanly. Read one run in full with
+            inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored directly via `emit_report`)
+            and `edited_report_ids` (reports the run mutated via `edit_report`) for the report channel; and
+            `failure_reason` (a concise one-liner) for runs that didn't complete cleanly. Read one run in full with
             `scout-runs-retrieve`, for the whole `summary`, the full `error`, `metadata`, and `task_url`. Pass
             `skill_name` (optionally with `skill_version`) to scope the dump to a single scout instead of every scout on
             the team — the primary scoping path when a specialist dedupes against its own past runs. Pass
