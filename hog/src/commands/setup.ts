@@ -9,6 +9,7 @@ import { plural } from '@/core/text'
 import { REGION_IDS } from '@/posthog/host'
 import { PRODUCT_IDS, ProductListSchema } from '@/setup/products'
 import type { NextAction, SetupResult } from '@/setup/result'
+import type { StepId } from '@/setup/state'
 
 const Reason = z
     .string()
@@ -17,6 +18,21 @@ const Reason = z
     .max(1000, { error: 'Keep the reason under 1000 characters.' })
 
 const PRODUCTS_HINT = `Pass product IDs separated by commas: ${PRODUCT_IDS.join(', ')}.`
+
+// What each step does, in the order `hog setup` runs them, for the help and the errors that name the steps.
+const STEP_SUMMARY: Record<StepId, string> = {
+    purpose: 'say what PostHog is for',
+    login: 'log in',
+    project: 'save the project',
+    'agents-md': 'add a PostHog note to AGENTS.md',
+    install: 'install PostHog in the app',
+    review: 'check the install against the rules',
+    verify: 'wait for the first events',
+    products: 'see the other products',
+    mcp: "check for PostHog's MCP server",
+    connected: 'finish the AGENTS.md note',
+}
+const STEPS = Object.values(STEP_SUMMARY).join(', ')
 
 const OPTIONS = {
     reason: {
@@ -168,7 +184,8 @@ export default defineCommand({
     },
     scopes: ['project:read', 'query:read'],
     notes: [
-        '`hog setup` does the current step and keeps going until a step needs you or your agent. Its output names that step and what to do before you run it again.',
+        `\`hog setup\` goes through the steps in order: ${STEPS}.`,
+        'It does the current step and keeps going until a step needs you or your agent. Its output names that step and what to do before you run it again.',
         '`hog setup status` shows the current step and changes nothing.',
         'The setup belongs to the folder of the closest posthog.json, or to this folder when there is none, so each app in a monorepo has its own.',
         'An agent works out the answers from the conversation and the code, and passes them as options. It runs `hog setup` again only when a step stops.',
@@ -186,7 +203,7 @@ export default defineCommand({
             throw new HogError(
                 'invalid_setup_command',
                 `There is no \`hog setup ${escapeControls(args.action)}\`.`,
-                'Run `hog setup` to do the current step, or `hog setup status` to see it.',
+                `Run \`hog setup\` to go on with the setup. It goes through the steps in order (${STEPS}), and stops at the first one that needs you or your agent. \`hog setup status\` shows which step you're on.`,
                 EXIT_USAGE
             )
         }
