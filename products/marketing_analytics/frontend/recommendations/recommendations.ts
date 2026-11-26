@@ -41,7 +41,7 @@ export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommen
     brand_overlap: 'You pay for brand searches where your site already ranks in the top 3 organically.',
     content_gap: 'Searches that convert cheaply in ads, where your site ranks below position 10 or not at all.',
     keyword_gap:
-        'Popular organic searches you do not bid on. Their words already convert in your ads, or they rank on a page your ads link to.',
+        'Popular organic searches you do not bid on. Each one is a variant of a search that converts in your ads, or ranks on a page your ads link to.',
     spend_without_conversions: 'Search terms that cost at least twice the benchmark CPA and never converted.',
     striking_distance: 'Searches where your site ranks between positions 5 and 20. The top 3 gets most of the clicks.',
     keyword_tracking:
