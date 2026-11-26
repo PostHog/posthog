@@ -26,8 +26,8 @@ export function QuillRecommendationResolutionButtons({
                     {resolution === 'applied' ? 'Applied' : 'Dismissed'}
                 </Badge>
                 <Button
+                    variant="outline"
                     size="sm"
-                    className={cn(stacked && '-ml-2')}
                     disabled={loading}
                     aria-busy={loading || undefined}
                     tooltip="Show this recommendation again for everyone in this project"
@@ -60,12 +60,13 @@ export function QuillRecommendationResolutionButtons({
     return (
         <div
             className={cn(
-                'flex gap-0.5 whitespace-nowrap',
-                stacked ? '-ml-2 flex-row flex-wrap items-center' : 'flex-col items-end'
+                'flex gap-1 whitespace-nowrap',
+                stacked ? 'flex-row flex-wrap items-center' : 'flex-col items-end'
             )}
         >
             {recommendation.impactDirection !== 'keep' && (
                 <Button
+                    variant="outline"
                     size="sm"
                     disabled={loading}
                     aria-busy={loading || undefined}
@@ -79,6 +80,7 @@ export function QuillRecommendationResolutionButtons({
                 </Button>
             )}
             <Button
+                variant="outline"
                 size="sm"
                 disabled={loading}
                 aria-busy={loading || undefined}

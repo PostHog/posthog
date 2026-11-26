@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
 import {
     Button,
     Item,
@@ -85,10 +86,19 @@ export function QuillUtmAuditTab({
 
             <Text size="xs" variant="muted" render={<p className="m-0" />}>
                 PostHog uses UTM parameters (utm_source, utm_campaign) from your pageview events to connect website
-                traffic back to your ad platform campaigns. This connection powers{' '}
+                traffic back to your ad platform campaigns. This connection powers marketing conversion goal{' '}
                 <Tooltip>
-                    <TooltipTrigger render={<span className="cursor-help underline decoration-dotted" />}>
-                        marketing conversion goal
+                    <TooltipTrigger
+                        delay={0}
+                        render={
+                            <Button
+                                size="icon-xs"
+                                className="align-middle"
+                                aria-label="About marketing conversion goals"
+                            />
+                        }
+                    >
+                        <IconInfo />
                     </TooltipTrigger>
                     <TooltipContent className="max-w-80">
                         Conversion goals are events or actions you define in settings (e.g. purchase, sign up) that are

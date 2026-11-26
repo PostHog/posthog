@@ -32,6 +32,7 @@ import {
     IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
     conversionSourceLabel,
+    impactColumnTitle,
     isResolved,
     RECOMMENDATION_CATEGORY_LABELS,
     RECOMMENDATION_RULE_DESCRIPTIONS,
@@ -81,10 +82,14 @@ function ImpactTotals({ totals }: { totals: RecommendationTotal[] }): JSX.Elemen
 
 function RecommendationRows({
     rows,
+    keepOnly,
     quill = false,
+    showRule = false,
 }: {
     rows: MarketingAnalyticsRecommendation[]
+    keepOnly: boolean
     quill?: boolean
+    showRule?: boolean
 }): JSX.Element {
     const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
     const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -101,7 +106,15 @@ function RecommendationRows({
         })
     }
     if (quill) {
-        return <QuillRecommendationRows rows={rows} expanded={expanded} onToggle={toggle} />
+        return (
+            <QuillRecommendationRows
+                rows={rows}
+                keepOnly={keepOnly}
+                showRule={showRule}
+                expanded={expanded}
+                onToggle={toggle}
+            />
+        )
     }
     return (
         <LemonTable<MarketingAnalyticsRecommendation>
@@ -155,7 +168,7 @@ function RecommendationRows({
                     },
                 },
                 {
-                    title: 'Impact',
+                    title: impactColumnTitle(keepOnly),
                     key: 'impact',
                     align: 'right',
                     width: 140,
@@ -229,8 +242,16 @@ export function RecommendationsModal(): JSX.Element {
                     selectedGroup ? subjectCount(selectedGroup, selectedGroup.activeCount) : null
                 }
                 onToggleResolved={toggleResolved}
-                onSelectGroup={selectGroup}
-                renderRows={(rows) => <RecommendationRows rows={rows} quill />}
+                onSelectGroup={(group) => {
+                    // The resolved recommendations replace the rule tables, so picking a rule goes back to its table.
+                    if (showResolved) {
+                        setShowResolved(false)
+                    }
+                    selectGroup(group)
+                }}
+                renderRows={(rows, { keepOnly, showRule }) => (
+                    <RecommendationRows rows={rows} keepOnly={keepOnly} showRule={showRule} quill />
+                )}
             />
         )
     }
@@ -363,7 +384,10 @@ export function RecommendationsModal(): JSX.Element {
                                     </LemonBanner>
                                 ))}
                             {selectedGroup.recommendations.length > 0 ? (
-                                <RecommendationRows rows={selectedGroup.recommendations} />
+                                <RecommendationRows
+                                    rows={selectedGroup.recommendations}
+                                    keepOnly={selectedGroup.keepOnly}
+                                />
                             ) : (
                                 <p className="mb-0 text-secondary">
                                     Every recommendation in this rule is dismissed or applied. Review them to see each

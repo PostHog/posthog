@@ -1,4 +1,5 @@
-import { Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconInfo } from '@posthog/icons'
+import { Button, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
@@ -21,17 +22,18 @@ export function QuillRecommendationCpa({
     return (
         <Text size="xs" variant="muted" render={<span className="m-0 flex flex-wrap items-center gap-x-2" />}>
             {cpa.value != null && <span className="tabular-nums" translate="no">{`CPA ${money(cpa.value)}`}</span>}
-            <Tooltip>
-                <TooltipTrigger
-                    render={
-                        <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-2" />
-                    }
-                >
+            <span className="inline-flex items-center gap-1">
+                <span>
                     <span className="tabular-nums" translate="no">{`Benchmark ${money(cpa.benchmark)}`}</span>
                     <span>{`, ${BENCHMARK_SOURCE_LABELS[cpa.benchmarkSource]}`}</span>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-80">{tooltip}</TooltipContent>
-            </Tooltip>
+                </span>
+                <Tooltip>
+                    <TooltipTrigger delay={0} render={<Button size="icon-xs" aria-label="About the benchmark" />}>
+                        <IconInfo />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-80">{tooltip}</TooltipContent>
+                </Tooltip>
+            </span>
         </Text>
     )
 }

@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { RefObject, useRef } from 'react'
 
 import {
@@ -24,9 +24,6 @@ import {
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
-import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
 import { QuillRecommendationCountBadge } from './QuillRecommendationCountBadge'
@@ -54,21 +51,25 @@ export function QuillRecommendationsModal({
     selectedGroupSubjectCount: string | null
     onToggleResolved: () => void
     onSelectGroup: (group: RecommendationGroup) => void
-    renderRows: (rows: MarketingAnalyticsRecommendation[]) => JSX.Element
+    renderRows: (
+        rows: MarketingAnalyticsRecommendation[],
+        options: { keepOnly: boolean; showRule?: boolean }
+    ) => JSX.Element
 }): JSX.Element {
     const {
         showResolved,
         selectedRule,
         activeRecommendations,
+        resolvedRecommendations,
         totals,
         resolvedCount,
         sections,
         selectedGroup,
         selectedGroupTotals,
-        dataNodeProps,
         dataGaps,
         disclaimer,
     } = useValues(recommendationsLogic)
+    const showingResolved = showResolved && resolvedCount > 0
     const { reportRecommendationsActionClicked, closeRecommendations } = useActions(recommendationsLogic)
     // The header's first tabbable controls open tooltips on focus, so the dialog opens with focus on its title.
     const titleRef = useRef<HTMLHeadingElement>(null)
@@ -81,21 +82,13 @@ export function QuillRecommendationsModal({
                         <DialogTitle ref={titleRef} tabIndex={-1} className="m-0 outline-none">
                             Recommendations
                         </DialogTitle>
-                        <BindLogic logic={dataNodeLogic} props={dataNodeProps}>
-                            <span className="flex flex-wrap items-center gap-2">
-                                {dataGaps.length > 0 && (
-                                    <QuillRecommendationDataGapButton
-                                        gaps={dataGaps}
-                                        dataAttr="marketing-recommendations-modal-data-gaps"
-                                        location="modal_data_gaps"
-                                    />
-                                )}
-                                <span data-not-quill className="contents">
-                                    <ElapsedTime />
-                                    <Reload />
-                                </span>
-                            </span>
-                        </BindLogic>
+                        {dataGaps.length > 0 && (
+                            <QuillRecommendationDataGapButton
+                                gaps={dataGaps}
+                                dataAttr="marketing-recommendations-modal-data-gaps"
+                                location="modal_data_gaps"
+                            />
+                        )}
                     </div>
                     <DialogDescription className="m-0 flex flex-wrap items-center gap-2">
                         <span>{`${activeRecommendations.length} for the selected sources and dates`}</span>
@@ -123,7 +116,7 @@ export function QuillRecommendationsModal({
                                     >
                                         <MenuLabel>{RECOMMENDATION_CATEGORY_LABELS[section.category]}</MenuLabel>
                                         {section.groups.map((group) => {
-                                            const selected = group.rule === selectedGroup?.rule
+                                            const selected = !showingResolved && group.rule === selectedGroup?.rule
                                             return (
                                                 <Button
                                                     key={group.rule}
@@ -149,7 +142,20 @@ export function QuillRecommendationsModal({
                                     </div>
                                 ))}
                             </nav>
-                            {selectedGroup ? (
+                            {showingResolved ? (
+                                <section ref={detailRef} className="flex min-w-0 flex-1 flex-col gap-3">
+                                    <Heading
+                                        size="base"
+                                        render={<h3 className="m-0 flex flex-wrap items-baseline gap-x-2" />}
+                                    >
+                                        <span>Dismissed and applied</span>
+                                        <Text size="xs" variant="muted" render={<span translate="no" />}>
+                                            {resolvedCount}
+                                        </Text>
+                                    </Heading>
+                                    {renderRows(resolvedRecommendations, { keepOnly: false, showRule: true })}
+                                </section>
+                            ) : selectedGroup ? (
                                 <section ref={detailRef} className="flex min-w-0 flex-1 flex-col gap-3">
                                     <div className="flex flex-wrap items-start justify-between gap-2">
                                         <div className="flex min-w-0 flex-col gap-1">
@@ -206,7 +212,7 @@ export function QuillRecommendationsModal({
                                             </Item>
                                         ))}
                                     {selectedGroup.recommendations.length > 0 ? (
-                                        renderRows(selectedGroup.recommendations)
+                                        renderRows(selectedGroup.recommendations, { keepOnly: selectedGroup.keepOnly })
                                     ) : (
                                         <Text size="xs" variant="muted" render={<p className="m-0 text-center" />}>
                                             Every recommendation in this rule is dismissed or applied. Review them to

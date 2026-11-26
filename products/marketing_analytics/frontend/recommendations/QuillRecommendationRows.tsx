@@ -12,16 +12,20 @@ import { QuillRecommendationCpa } from './QuillRecommendationCpa'
 import { QUILL_DIRECTION_BADGE } from './QuillRecommendationImpactTotals'
 import { QuillRecommendationResolutionButtons } from './QuillRecommendationResolutionButtons'
 import { QuillRecommendationSteps } from './QuillRecommendationSteps'
-import { IMPACT_DIRECTION_LABELS, isResolved } from './recommendations'
+import { IMPACT_DIRECTION_LABELS, impactColumnTitle, RECOMMENDATION_RULE_LABELS } from './recommendations'
 
 const LAYOUT_BREAKPOINTS: Record<number, 'stacked' | 'columns'> = { 0: 'stacked', 640: 'columns' }
 
 export function QuillRecommendationRows({
     rows,
+    keepOnly,
+    showRule,
     expanded,
     onToggle,
 }: {
     rows: MarketingAnalyticsRecommendation[]
+    keepOnly: boolean
+    showRule: boolean
     expanded: Set<string>
     onToggle: (key: string, rule: MarketingAnalyticsRecommendation['rule']) => void
 }): JSX.Element {
@@ -37,7 +41,7 @@ export function QuillRecommendationRows({
                     <TableRow>
                         <TableHead>For</TableHead>
                         <TableHead expand>Recommendation</TableHead>
-                        <TableHead align="right">Impact</TableHead>
+                        <TableHead align="right">{impactColumnTitle(keepOnly)}</TableHead>
                         {!stacked && <TableHead />}
                     </TableRow>
                 </TableHeader>
@@ -45,8 +49,6 @@ export function QuillRecommendationRows({
                     {rows.map((row) => {
                         const hasSteps = !!row.steps?.length
                         const isExpanded = hasSteps && expanded.has(row.key)
-                        // Dims the content but not the actions, so Restore still reads as a live button.
-                        const dimmed = isResolved(row) && 'opacity-60'
                         return (
                             <Fragment key={row.key}>
                                 <TableRow>
@@ -54,7 +56,7 @@ export function QuillRecommendationRows({
                                         valign="top"
                                         className={cn('w-1/4 whitespace-normal break-words', !stacked && 'min-w-40')}
                                     >
-                                        <div className={cn('flex flex-col gap-0.5', dimmed)}>
+                                        <div className="flex flex-col gap-0.5">
                                             <Text size="xs" weight="semibold" render={<span />}>
                                                 {row.subject}
                                             </Text>
@@ -67,15 +69,18 @@ export function QuillRecommendationRows({
                                     </TableCell>
                                     <TableCell valign="top" expand className="whitespace-normal">
                                         <div className="flex flex-col items-start gap-0.5">
-                                            <div className={cn('flex flex-col items-start gap-0.5', dimmed)}>
-                                                <Text size="xs" render={<span className="text-pretty" />}>
-                                                    {row.action}
+                                            {showRule && (
+                                                <Text size="xs" variant="muted" weight="medium" render={<span />}>
+                                                    {RECOMMENDATION_RULE_LABELS[row.rule]}
                                                 </Text>
-                                                <Text size="xs" variant="muted" render={<span />}>
-                                                    {row.reason}
-                                                </Text>
-                                                <QuillRecommendationCpa recommendation={row} />
-                                            </div>
+                                            )}
+                                            <Text size="xs" render={<span className="text-pretty" />}>
+                                                {row.action}
+                                            </Text>
+                                            <Text size="xs" variant="muted" render={<span />}>
+                                                {row.reason}
+                                            </Text>
+                                            <QuillRecommendationCpa recommendation={row} />
                                             {hasSteps && (
                                                 <Button
                                                     size="sm"
@@ -95,11 +100,11 @@ export function QuillRecommendationRows({
                                     </TableCell>
                                     <TableCell valign="top" align="right">
                                         {row.impact == null ? (
-                                            <Text size="xs" variant="muted" render={<span className={cn(dimmed)} />}>
+                                            <Text size="xs" variant="muted" render={<span />}>
                                                 –
                                             </Text>
                                         ) : (
-                                            <div className={cn('flex flex-col items-end gap-0.5', dimmed)}>
+                                            <div className="flex flex-col items-end gap-0.5">
                                                 <Text
                                                     size="xs"
                                                     weight="semibold"

@@ -139,6 +139,9 @@ describe('recommendations', () => {
             recommendation({ key: 'small', minor: true }),
             recommendation({ rule: 'keyword_gap', key: 'gap', minor: true, resolution: DISMISSED }),
             recommendation({ rule: 'policy_limited', key: 'policy', impact: null, minor: false }),
+            recommendation({ rule: 'brand_overlap', key: 'overlap', impactDirection: 'keep', minor: true }),
+            recommendation({ rule: 'brand_leak', key: 'leak-keep', impactDirection: 'keep' }),
+            recommendation({ rule: 'brand_leak', key: 'leak-save' }),
         ]
 
         it.each([
@@ -149,7 +152,7 @@ describe('recommendations', () => {
                 keepRule: 'keyword_gap' as const,
             },
         ])(
-            'moves a rule to the minor section only when all its rows are minor, $name',
+            'moves a rule to the minor or keep section only when all its rows are minor or keep, $name',
             ({ showResolved, keepRule }) => {
                 expect(
                     sectionRecommendations(groupRecommendations(rows, showResolved, keepRule)).map((section) => [
@@ -157,8 +160,9 @@ describe('recommendations', () => {
                         section.groups.map((group) => group.rule),
                     ])
                 ).toEqual([
-                    ['waste', ['spend_without_conversions']],
+                    ['waste', ['spend_without_conversions', 'brand_leak']],
                     ['fix', ['policy_limited']],
+                    ['keep', ['brand_overlap']],
                     ['minor', ['keyword_gap']],
                 ])
             }

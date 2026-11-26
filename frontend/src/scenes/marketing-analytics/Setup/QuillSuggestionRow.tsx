@@ -1,4 +1,4 @@
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconInfo } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -72,16 +72,12 @@ export function QuillSuggestionRow({
 
                 {suggestion.unlocks.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1">
+                        <Text size="xs" variant="muted" render={<span />}>
+                            Unlocks
+                        </Text>
                         <Tooltip>
-                            <TooltipTrigger
-                                render={
-                                    <span
-                                        tabIndex={0}
-                                        className="cursor-help border-b border-dotted border-border text-xs text-muted-foreground"
-                                    />
-                                }
-                            >
-                                Unlocks
+                            <TooltipTrigger delay={0} render={<Button size="icon-xs" aria-label="About unlocks" />}>
+                                <IconInfo />
                             </TooltipTrigger>
                             <TooltipContent>
                                 The metrics this fix makes available. They stay empty or wrong until it's done.

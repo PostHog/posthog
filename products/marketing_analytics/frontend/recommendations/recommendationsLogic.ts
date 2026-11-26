@@ -54,6 +54,7 @@ import {
     recommendationDataGaps,
     recommendationsShownState,
     recommendationsSource,
+    resolved,
     sectionRecommendations,
     serverDataGaps,
     sumImpact,
@@ -115,6 +116,7 @@ export interface recommendationsLogicValues {
     disclaimer: string | undefined
     recommendations: MarketingAnalyticsRecommendation[]
     activeRecommendations: MarketingAnalyticsRecommendation[]
+    resolvedRecommendations: MarketingAnalyticsRecommendation[]
     resolvedCount: number
     detectedCount: number
     totals: RecommendationTotal[]
@@ -388,6 +390,11 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             (s) => [s.recommendations],
             (recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] =>
                 unresolved(recommendations),
+        ],
+        resolvedRecommendations: [
+            (s) => [s.recommendations],
+            (recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] =>
+                resolved(recommendations),
         ],
         resolvedCount: [
             (s) => [s.recommendations, s.activeRecommendations],
