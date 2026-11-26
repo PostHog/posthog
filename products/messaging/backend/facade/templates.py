@@ -10,6 +10,7 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from posthog.api.tagged_item import current_tag_names
 from posthog.dataclasses import frozen
 
+from products.messaging.backend.facade.contracts import MessageTemplateListFilter
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services import message_templates as templates_service
 from products.messaging.backend.services.lazy_list import LazyList
@@ -102,17 +103,17 @@ def _to_basic_contract(row: MessageTemplate) -> MessageTemplateBasicRow:
     )
 
 
-def list_templates(team_id: int, *, transactional: bool | None = None) -> Sequence[MessageTemplateRow]:
-    """The team's templates that are not deleted, newest first. Sizing is a COUNT, and a slice reads one page.
+def list_templates(team_id: int, filters: MessageTemplateListFilter) -> Sequence[MessageTemplateRow]:
+    """The team's templates that are not deleted and match `filters`, newest first.
 
-    `transactional` keeps only the templates that have a transactional workflow (True) or only those without (False).
+    Sizing is a COUNT, and a slice reads one page.
     """
-    return LazyList(templates_service.team_templates(team_id, transactional=transactional), _to_contract)
+    return LazyList(templates_service.team_templates(team_id, filters), _to_contract)
 
 
-def list_basic_templates(team_id: int, *, transactional: bool | None = None) -> Sequence[MessageTemplateBasicRow]:
+def list_basic_templates(team_id: int, filters: MessageTemplateListFilter) -> Sequence[MessageTemplateBasicRow]:
     """Like `list_templates`, but the content and the draft never leave the database."""
-    return LazyList(templates_service.team_basic_templates(team_id, transactional=transactional), _to_basic_contract)
+    return LazyList(templates_service.team_basic_templates(team_id, filters), _to_basic_contract)
 
 
 def get_template(team_id: int, template_id: UUID | str, *, with_tags: bool = True) -> MessageTemplateRow:
