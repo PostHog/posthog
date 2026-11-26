@@ -94,7 +94,10 @@ class IncidentIoTransport:
         config_id = target.get("incident_io_alert_source_config_id") or ""
         secret = target.get("incident_io_secret")
         if not INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE.fullmatch(config_id) or not secret:
-            raise DestinationMisconfigured("This incident.io destination has no valid alert source ID or secret.")
+            raise DestinationMisconfigured(
+                "This incident.io destination has no valid alert source ID or secret.",
+                remedy="Copy the alert source ID and secret from incident.io into the destination on the alert.",
+            )
         post_json(
             endpoint(config_id),
             incident_io_body(message),

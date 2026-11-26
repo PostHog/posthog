@@ -409,7 +409,7 @@ class TestDeliveryDispatch(SimpleTestCase):
             ),
             (
                 "misconfigured",
-                DestinationMisconfigured("not_in_channel"),
+                DestinationMisconfigured("not_in_channel", remedy=""),
                 1,
                 0,
                 "not_in_channel",
@@ -479,15 +479,21 @@ class TestDeliveryDispatch(SimpleTestCase):
             }
         ]
 
-    def test_a_refusal_is_noticed_and_counted_as_the_destination_owners_fix(self) -> None:
-        refusal = DestinationRefused("The webhook destination refused the message with status 400.")
-
+    @parameterized.expand(
+        [
+            ("refused", DestinationRefused("The webhook destination refused the message with status 400.")),
+            ("misconfigured", DestinationMisconfigured("This email destination has no recipients.", remedy="")),
+        ]
+    )
+    def test_a_refusal_is_noticed_and_counted_as_the_destination_owners_fix(
+        self, _name: str, refusal: DestinationMisconfigured
+    ) -> None:
         with (
             patch("products.alerts_platform.backend.delivery.dispatch.record_delivery"),
             patch("products.alerts_platform.backend.delivery.dispatch.notify_refused") as notified,
             recorded_metrics() as metrics,
         ):
-            with pytest.raises(DestinationRefused):
+            with pytest.raises(type(refusal)):
                 deliver(
                     transport=FakeTransport(error=refusal),
                     thread_store=NullThreadStore(),

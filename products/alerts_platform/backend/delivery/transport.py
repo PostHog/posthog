@@ -93,30 +93,34 @@ class DeliveryAmbiguous(DeliveryError):
 class DestinationMisconfigured(DeliveryError):
     """A refusal that only the destination's owner can fix, such as a channel the bot is not in.
 
-    The platform did its part, so its own reliability metrics count this apart from a failure.
+    The platform did its part, so its own reliability metrics count this apart from a failure. The
+    alert's creator is told, with `remedy` saying what to change.
     """
 
     reason: FailureReason = "destination_config"
 
+    def __init__(self, problem: str, *, remedy: str) -> None:
+        super().__init__(problem)
+        self.remedy = remedy
+
 
 # What an HTTP destination's owner checks. A provider whose fix lies elsewhere names its own.
 CHECK_THE_URL = "Check the destination's URL and the format it accepts, then update the destination on the alert."
+ADD_RECIPIENTS = "Add recipients to the destination on the alert, or remove the destination."
 
 
 class DestinationRefused(DestinationMisconfigured):
     """A destination rejected the request itself, so every retry and every later message fails the same way.
 
-    The alert's creator is told, with `remedy` saying what to change. For an HTTP destination only a
-    4xx answer the owner can fix counts, and never 408 or 429, which a later attempt can get past. A
-    4xx that rejects the body PostHog built is PostHog's fix, not the owner's. Slack names its own
-    refusals, such as a channel the app is not in.
+    For an HTTP destination only a 4xx answer the owner can fix counts, and never 408 or 429, which a
+    later attempt can get past. A 4xx that rejects the body PostHog built is PostHog's fix, not the
+    owner's. Slack names its own refusals, such as a channel the app is not in.
     """
 
     reason: FailureReason = "refused"
 
     def __init__(self, refusal: str, *, remedy: str = CHECK_THE_URL) -> None:
-        super().__init__(refusal)
-        self.remedy = remedy
+        super().__init__(refusal, remedy=remedy)
 
 
 class RefusedEverywhere(DeliveryError):

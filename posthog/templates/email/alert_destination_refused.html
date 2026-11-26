@@ -1,5 +1,5 @@
 {% extends "email/base.html" %}
-{% block heading %}An alert destination refused a notification{% endblock %}
+{% block heading %}Couldn't deliver an alert notification{% endblock %}
 {% block section %}
     <p>A notification from your alert <a href="{{ alert_url }}">{{ alert_name }}</a> was not delivered:</p>
     <p><i>{{ refusal }}</i></p>
