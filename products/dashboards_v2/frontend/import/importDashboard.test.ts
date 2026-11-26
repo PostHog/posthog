@@ -41,22 +41,6 @@ describe('importDashboard', () => {
     test.each([
         ['not JSON', 'dashboard', "This isn't JSON"],
         ['JSON of another tool', '{"widgets": []}', "doesn't look like"],
-        [
-            'a legend the query endpoint rejects',
-            JSON.stringify({
-                panels: [
-                    {
-                        type: 'timeseries',
-                        title: 'Up',
-                        targets: [
-                            { refId: 'A', expr: 'up', legendFormat: 'x'.repeat(1001) },
-                            { refId: 'B', expr: 'down' },
-                        ],
-                    },
-                ],
-            }),
-            "can't be opened",
-        ],
     ])('explains input it can not read: %s', (_name, text, error) => {
         expect(importDashboard(text)).toEqual({ error: expect.stringContaining(error) })
     })
@@ -149,6 +133,122 @@ describe('importDashboard', () => {
         })
         expect(statuses(result)['Worker logs']).toBe('unsupported')
         expect(result.dashboard.time).toEqual({ from: 'now-6h', to: 'now' })
+    })
+
+    const panelWith = (overrides: Record<string, any>): Record<string, any> => ({
+        type: 'timeseries',
+        title: 'P',
+        gridPos: { x: 0, y: 0, w: 12, h: 8 },
+        datasource: { type: 'prometheus', uid: 'prom' },
+        ...overrides,
+    })
+    const host = { name: 'host', type: 'custom', multi: true, current: { value: ['a.example.com'] } }
+
+    test.each([
+        [
+            'a PromQL label inequality stays PromQL',
+            panelWith({ datasource: null, targets: [{ refId: 'A', expr: 'requests_total{status!="200"}' }] }),
+            { language: 'promql', query: 'requests_total{status!="200"}' },
+            'mapped',
+        ],
+        [
+            'a multi-value variable is regex-escaped',
+            panelWith({ targets: [{ refId: 'A', expr: 'up{instance=~"$host"}' }] }),
+            { language: 'promql', query: 'up{instance=~"a\\\\.example\\\\.com"}' },
+            'mapped',
+        ],
+        [
+            'a LogQL range macro gets a fixed window',
+            panelWith({
+                datasource: { type: 'loki', uid: 'loki' },
+                targets: [{ refId: 'A', expr: 'rate({app="x"} |= "by (pod)" [$__auto])' }],
+            }),
+            { language: 'logql', query: 'rate({service_name="x"} |= "by (pod)" [1m])' },
+            'partial',
+        ],
+        [
+            "a percent stat is scaled to the stat's fraction",
+            panelWith({
+                type: 'stat',
+                fieldConfig: { defaults: { unit: 'percent' } },
+                targets: [{ refId: 'A', expr: 'cpu_pct' }],
+            }),
+            { language: 'promql', query: '(cpu_pct) / 100' },
+            'mapped',
+        ],
+        [
+            'a mean reducer is reported',
+            panelWith({ type: 'stat', options: { reduceOptions: { calcs: ['mean'] } }, targets: [{ expr: 'up' }] }),
+            { language: 'promql', query: 'up' },
+            'partial',
+        ],
+        [
+            'transformations are reported',
+            panelWith({ transformations: [{ id: 'calculateField' }], targets: [{ expr: 'up' }] }),
+            { language: 'promql', query: 'up' },
+            'partial',
+        ],
+    ])('%s', (_name, panel, query, status) => {
+        const result = imported({ title: 'T', templating: { list: [host] }, panels: [panel] })
+        expect(byTitle(result)['P'].panel.config.query).toEqual(query)
+        expect(result.report.tiles[0].status).toBe(status)
+    })
+
+    it('requires metrics named by __name__, and keeps a query that would close the note fence inside it', () => {
+        const result = imported({
+            title: 'T',
+            time: { from: '11/25/2026', to: 'now' },
+            panels: [
+                panelWith({ targets: [{ expr: '{__name__="requests_total"}' }] }),
+                panelWith({
+                    title: 'SQL',
+                    datasource: { type: 'grafana-postgresql-datasource' },
+                    targets: [{ rawSql: 'SELECT 1\n```\n# injected' }],
+                }),
+            ],
+        })
+        expect(result.report.requires.metrics).toEqual(['requests_total'])
+        expect(byTitle(result)['SQL'].panel.config.text).toContain('````sql\n-- A')
+        expect(result.dashboard.time).toBeUndefined()
+    })
+
+    it('keeps refIds unique when shortening them to the board limit', () => {
+        const long = 'r'.repeat(250)
+        const result = imported({
+            title: 'T',
+            panels: [
+                panelWith({
+                    targets: [
+                        { refId: `${long}1`, expr: 'up' },
+                        { refId: `${long}2`, expr: 'down' },
+                    ],
+                }),
+            ],
+        })
+        expect(validateDashboard(result.dashboard, DEFAULT_PANELS)).toEqual([])
+    })
+
+    it('reads plugin identifiers from a v2alpha1 export', () => {
+        const result = imported({
+            elements: {
+                p: {
+                    kind: 'Panel',
+                    spec: {
+                        title: 'P',
+                        vizConfig: { kind: 'timeseries', spec: {} },
+                        data: {
+                            spec: {
+                                queries: [
+                                    { spec: { refId: 'A', query: { kind: 'prometheus', spec: { expr: 'up' } } } },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+            layout: { kind: 'GridLayout', spec: { items: [{ spec: { element: { name: 'p' }, width: 12 } }] } },
+        })
+        expect(statuses(result)).toEqual({ P: 'mapped' })
     })
 
     it('maps a New Relic board: pages, layout, NRQL, time ranges and fallbacks', () => {

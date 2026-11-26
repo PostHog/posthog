@@ -131,7 +131,10 @@ const MAX_NOTE_QUERY = 1500
 
 function fence(language: string, text: string): string {
     const body = text.length > MAX_NOTE_QUERY ? `${text.slice(0, MAX_NOTE_QUERY)}\n…` : text
-    return `\`\`\`${language}\n${body}\n\`\`\``
+    // A fence longer than any backtick run in the query, so the query can't close it early.
+    const longest = Math.max(0, ...(body.match(/`+/g) ?? []).map((run) => run.length))
+    const marks = '`'.repeat(Math.max(3, longest + 1))
+    return `${marks}${language}\n${body}\n${marks}`
 }
 
 export function notePanel(
@@ -149,6 +152,8 @@ export function notePanel(
 
 // The query batch endpoint rejects a chart with more targets, and with it every other tile in the batch.
 export const MAX_TARGETS = 26
+export const MAX_LEGEND = 1000
+export const MAX_REF_ID = 200
 
 export function chartPanel(
     title: string | undefined,
@@ -178,8 +183,11 @@ export function chartPanel(
     }
 }
 
+// The ISO 8601 forms the query batch endpoint's `datetime.fromisoformat` reads.
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)?$/
+
 export function isBoardTime(end: string): boolean {
-    return end === 'now' || /^now-\d+[smhdwMy]$/.test(end) || !Number.isNaN(Date.parse(end))
+    return end === 'now' || /^now-\d+[smhdwMy]$/.test(end) || (ISO_TIME.test(end) && !Number.isNaN(Date.parse(end)))
 }
 
 const MIN_SIZES: Record<string, { minW: number; minH: number }> = {
