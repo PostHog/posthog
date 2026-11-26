@@ -876,6 +876,7 @@ def _reads_tables_the_walk_cannot_name(
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
     from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin  # noqa: PLC0415
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
     def key(name: str) -> str:
         return name.rsplit(".", 1)[-1].lower()
@@ -935,6 +936,31 @@ def _reads_tables_the_walk_cannot_name(
     reading_expressions: frozenset[str] = cache["graph"][1]
     if not joins and not reading_expressions:
         return False
+    if "sources" not in cache:
+        source_tables: dict[str, set[str]] = defaultdict(set)
+        for table in (
+            DataWarehouseTable.objects.filter(team_id=team.pk, external_data_source__isnull=False)
+            .exclude(deleted=True)
+            .select_related(None)
+            .prefetch_related(None)
+            .select_related("external_data_source")
+            .only(
+                "name",
+                "external_data_source__source_type",
+                "external_data_source__prefix",
+                "external_data_source__access_method",
+            )
+        ):
+            source_tables[str(table.external_data_source_id)] |= {
+                key(table.name),
+                key(get_data_warehouse_table_name(table.external_data_source, table.name)),
+            }
+        cache["sources"] = [frozenset(tables) for tables in source_tables.values()]
+    # Foreign-key lazy fields link tables of one external source to each other, declared or inferred.
+    linked: dict[str, set[str]] = defaultdict(set)
+    for tables in cache["sources"]:
+        for name in tables:
+            linked[name] |= tables
 
     gated = {key(name) for name in gated_tables}
     # Built-in tables reach each other through lazy fields such as `events.person`, so a join stored on one
@@ -950,6 +976,7 @@ def _reads_tables_the_walk_cannot_name(
         reached.add(name)
         if name in builtin:
             frontier.extend(builtin - reached)
+        frontier.extend(linked.get(name, set()) - reached)
         if name in reading_expressions:
             return True
         for target in joins.get(name, ()):
