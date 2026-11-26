@@ -55,8 +55,12 @@ for pair in approve:18080 never:18081 denied:18082 quiet:18083; do
 FROM node:22-bookworm-slim
 
 RUN apt-get update \\
-    && apt-get install --yes --no-install-recommends ca-certificates curl git ripgrep \\
+    && apt-get install --yes --no-install-recommends ca-certificates curl git ripgrep python3 python3-pip python3-venv \\
     && rm -rf /var/lib/apt/lists/*
+
+# Python apps get a virtualenv outside the workspace: StuntHog can't save the symlinks of one inside it.
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --quiet flask==3.1.2
+ENV PATH=/opt/venv/bin:\$PATH VIRTUAL_ENV=/opt/venv
 
 # The fake PostHog (scenario: $name) answers for us/eu.posthog.com through this proxy.
 COPY mock-ca.crt /usr/local/share/ca-certificates/hog-mock.crt
