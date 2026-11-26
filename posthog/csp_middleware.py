@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
 from django.http import HttpResponse
+from django.template.response import TemplateResponse
 
 from posthog.cloud_utils import get_api_host, is_cloud, is_hobby
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
@@ -236,6 +237,28 @@ class CSPMiddleware:
         # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
         if "text/html" not in content_type:
             response.headers["Content-Security-Policy"] = "default-src 'none'"
+            return response
+
+        if (
+            isinstance(response, TemplateResponse)
+            and getattr(request.resolver_match, "url_name", None) == "notebook_app_embed"
+        ):
+            origin = response.context_data.get("audience", "") if isinstance(response.context_data, dict) else ""
+            ancestor = (
+                origin
+                if re.fullmatch(r"https://(?:[a-z0-9.-]+|\[[a-f0-9:]+\])(?::[0-9]+)?", origin, re.ASCII)
+                else "'none'"
+            )
+            response.headers["Content-Security-Policy"] = "; ".join(
+                [
+                    "default-src 'none'",
+                    "base-uri 'none'",
+                    "form-action 'self'",
+                    f"script-src 'nonce-{nonce}'",
+                    f"style-src 'nonce-{nonce}'",
+                    f"frame-ancestors {ancestor}",
+                ]
+            )
             return response
 
         if request.path == REPLAY_PLAYER_FRAME_PATH:

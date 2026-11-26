@@ -2,7 +2,8 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.http import Http404, HttpRequest, HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404
+from django.template.response import TemplateResponse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
@@ -70,7 +71,7 @@ def notebook_app_embed(request: HttpRequest, team_id: int, embed_id: UUID) -> Ht
         output = redeem_signed_embed(team_id, embed_id, request.POST.get("token", ""))
         if output is None:
             raise Http404()
-        response = render(
+        response = TemplateResponse(
             request,
             "notebooks/app_output.html",
             {
@@ -80,13 +81,10 @@ def notebook_app_embed(request: HttpRequest, team_id: int, embed_id: UUID) -> Ht
                 "published_at": output.published_at,
                 "tabs": output.tabs,
                 "embedded": True,
+                "audience": audience.origin,
             },
         )
     else:
-        response = render(request, "notebooks/app_embed_frame.html", {"audience": audience.origin})
-    nonce = request.csp_nonce
-    response["Content-Security-Policy"] = (
-        f"default-src 'none'; base-uri 'none'; form-action 'self'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; frame-ancestors {audience.origin}"
-    )
+        response = TemplateResponse(request, "notebooks/app_embed_frame.html", {"audience": audience.origin})
     response["Referrer-Policy"] = "no-referrer"
     return response

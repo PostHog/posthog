@@ -46,7 +46,7 @@ class TestNotebookAppEmbeds(APIBaseTest):
             team=self.team,
             notebook=self.notebook,
             revision=1,
-            title=self.notebook.title,
+            title="Project activity report",
             layout=layout,
             markdown='<SQLV2 nodeId="usage" code="SELECT private_source" outputTab="results" result={'
             + json.dumps(result)

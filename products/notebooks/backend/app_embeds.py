@@ -56,7 +56,9 @@ def change_signed_embed(
     embed, _ = NotebookAppEmbed.objects.for_team(team_id).update_or_create(
         team_id=team_id,
         release=release,
-        **audience,
+        origin=origin,
+        tenant_column=tenant_column,
+        tenant_value=tenant_value,
         defaults={
             "issued_by_id": issuer_id,
             "verification_key": private_key.public_key().public_bytes_raw(),

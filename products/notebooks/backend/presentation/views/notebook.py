@@ -934,7 +934,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def app_embeds(self, request: Request, **kwargs) -> Response:
         notebook = self.get_object()
-        if not notebook_app_builder_enabled(request.user, notebook.team):
+        if request.user.pk is None or not notebook_app_builder_enabled(request.user, notebook.team):
             raise Http404()
         self._require_app_sharing_access()
         data = AppEmbedRequestSerializer(data=request.data)
