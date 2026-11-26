@@ -66,6 +66,15 @@ export class RetainedValues<T> {
         }
     }
 
+    deleteMatching(matches: (key: string) => boolean): void {
+        const store = this.store()
+        for (const key of store.entries.keys()) {
+            if (matches(key)) {
+                this.deleteEntry(store, key)
+            }
+        }
+    }
+
     private setIn(store: Store<T>, id: string, value: T, knownSize?: number): void {
         const key = this.key(id)
         if (!key) {

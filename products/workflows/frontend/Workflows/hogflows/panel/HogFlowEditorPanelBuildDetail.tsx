@@ -36,6 +36,7 @@ import { UtmTeamDefaultControls } from '../steps/components/UtmTeamDefaultContro
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isEmailAction, isOptOutEligibleAction, isPushAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
+import { AiTaskReturns } from './AiTaskReturns'
 import {
     WORKFLOW_VARIABLE_TYPE_OPTIONS,
     hogFlowOutputMappingLogic,
@@ -298,14 +299,18 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                         key: 'outputs',
                                         header: (
                                             <>
-                                                <span className="flex-1">Output variables</span>
+                                                <span className="flex-1">
+                                                    {isAiTaskAction ? 'Agent returns' : 'Output variables'}
+                                                </span>
                                                 <LemonBadge.Number
                                                     count={mappings.filter((m) => m.key).length}
                                                     showZero={false}
                                                 />
                                             </>
                                         ),
-                                        content: (
+                                        content: isAiTaskAction ? (
+                                            <AiTaskReturns />
+                                        ) : (
                                             <div className="flex flex-col items-start gap-2 max-h-96 overflow-y-auto">
                                                 {mappings.map((mapping, index) => (
                                                     <div

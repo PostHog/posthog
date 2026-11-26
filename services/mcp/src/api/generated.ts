@@ -10829,7 +10829,23 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    export type ErrorTrackingIssueTagColor = typeof ErrorTrackingIssueTagColor[keyof typeof ErrorTrackingIssueTagColor];
+
+
+    export const ErrorTrackingIssueTagColor = {
+      Blue: 'blue',
+      Teal: 'teal',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+      Pink: 'pink',
+      Purple: 'purple',
+    } as const;
+
     export interface ErrorTrackingIssueTag {
+      /** Named color of the tag, or null for a color picked from the label. */
+      color?: ErrorTrackingIssueTagColor | null;
       /** What the tag means, for a tooltip. */
       description: string;
       /** Key of the tag definition. */
@@ -31771,6 +31787,36 @@ export namespace Schemas {
       ticket_number: number;
     }
 
+    /**
+     * * `pass_rate` - pass_rate
+     * * `mean` - mean
+     * * `true_rate` - true_rate
+     * * `category_rate` - category_rate
+     */
+    export type ExperimentScoreStatisticEnum = typeof ExperimentScoreStatisticEnum[keyof typeof ExperimentScoreStatisticEnum];
+
+
+    export const ExperimentScoreStatisticEnum = {
+      PassRate: 'pass_rate',
+      Mean: 'mean',
+      TrueRate: 'true_rate',
+      CategoryRate: 'category_rate',
+    } as const;
+
+    /**
+     * * `run` - run
+     * * `exact` - exact
+     * * `combine` - combine
+     */
+    export type ExperimentScoreVersionPolicyEnum = typeof ExperimentScoreVersionPolicyEnum[keyof typeof ExperimentScoreVersionPolicyEnum];
+
+
+    export const ExperimentScoreVersionPolicyEnum = {
+      Run: 'run',
+      Exact: 'exact',
+      Combine: 'combine',
+    } as const;
+
     export interface CompositeInput {
       /**
          * Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.
@@ -31778,8 +31824,12 @@ export namespace Schemas {
          * @pattern ^[a-z][a-z0-9_]{0,31}$
          */
       alias: string;
-      /** Exact immutable version of an ordinary input scorer. */
+      /** Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact. */
       scorer_version_id: string;
+      statistic?: ExperimentScoreStatisticEnum;
+      version_policy?: ExperimentScoreVersionPolicyEnum;
+      /** @maxLength 128 */
+      category?: string;
     }
 
     export interface CompositeConfig {
@@ -31788,7 +31838,7 @@ export namespace Schemas {
          * @maxLength 1024
          */
       expression: string;
-      /** Named, version-pinned input scorers for the same item. Nested composites are not supported. */
+      /** Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers. */
       inputs: CompositeInput[];
     }
 
@@ -31881,7 +31931,20 @@ export namespace Schemas {
       latest_version: number | null;
     }
 
+    /**
+     * * `item` - Item
+     * * `experiment` - Experiment
+     */
+    export type ScoreDefinitionScopeEnum = typeof ScoreDefinitionScopeEnum[keyof typeof ScoreDefinitionScopeEnum];
+
+
+    export const ScoreDefinitionScopeEnum = {
+      Item: 'item',
+      Experiment: 'experiment',
+    } as const;
+
     export interface CompositeValidation {
+      scope?: ScoreDefinitionScopeEnum;
       /** Expected formula output kind.
        *
        * * `categorical` - categorical
@@ -36981,11 +37044,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly submission_id: string | null;
-      /**
-         * Number of selected events, when calculated.
-         * @nullable
-         */
-      readonly count: number | null;
       /**
          * Identifier of the user who submitted the request.
          * @nullable
@@ -45868,6 +45926,30 @@ export namespace Schemas {
       includeBreakdown?: boolean;
     }
 
+    /**
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple
+     */
+    export type IssueTagColorEnum = typeof IssueTagColorEnum[keyof typeof IssueTagColorEnum];
+
+
+    export const IssueTagColorEnum = {
+      Blue: 'blue',
+      Teal: 'teal',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+      Pink: 'pink',
+      Purple: 'purple',
+    } as const;
+
     export interface ErrorTrackingIssueTagRead {
       /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
@@ -45875,6 +45957,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
       source: string;
     }
@@ -46076,6 +46169,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
       source: string;
       /** Whether the tag is applied to the issue after the change. */
@@ -46089,6 +46193,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
     }
 
     export interface ErrorTrackingIssueTagDefinitionsResponse {
@@ -46128,6 +46243,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means. Shown with the tag. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /** Starts at 1, and goes up by one each time the filters change. */
@@ -46156,6 +46282,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label. Defaults to null.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /**
@@ -46182,6 +46319,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
@@ -50371,6 +50519,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
      * * `stale_experiment` - Stale Experiment
      */
@@ -50406,6 +50555,7 @@ export namespace Schemas {
       NewFlagNoTraffic: 'new_flag_no_traffic',
       EarlySignificance: 'early_significance',
       MetricsNotMatured: 'metrics_not_matured',
+      ResultReady: 'result_ready',
       FlagShared: 'flag_shared',
       StaleExperiment: 'stale_experiment',
     } as const;
@@ -50474,6 +50624,7 @@ export namespace Schemas {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -50507,6 +50658,7 @@ export namespace Schemas {
       ExposureFilters: 'exposure_filters',
       EarlySignificance: 'early_significance',
       MetricsNotMatured: 'metrics_not_matured',
+      ResultReady: 'result_ready',
       StaleExperiment: 'stale_experiment',
       ZeroExposures: 'zero_exposures',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
@@ -50554,6 +50706,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `early_significance` - Early Significance
        * * `metrics_not_matured` - Metrics Not Matured
+       * * `result_ready` - Result Ready
        * * `flag_shared` - Flag Shared
        * * `stale_experiment` - Stale Experiment */
       code: ExperimentHealthFindingCodeEnum;
@@ -50607,6 +50760,7 @@ export namespace Schemas {
        * * `exposure_filters` - Exposure Filters
        * * `early_significance` - Early Significance
        * * `metrics_not_matured` - Metrics Not Matured
+       * * `result_ready` - Result Ready
        * * `stale_experiment` - Stale Experiment
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -50677,6 +50831,7 @@ export namespace Schemas {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -50751,6 +50906,7 @@ export namespace Schemas {
       DifferencePercentage: 'difference_percentage',
       DetectableDifferencePercentage: 'detectable_difference_percentage',
       Significant: 'significant',
+      SignificantSinceAt: 'significant_since_at',
       ForcedConditionCount: 'forced_condition_count',
       MatchedCount: 'matched_count',
       VariantMatchedCount: 'variant_matched_count',
@@ -50847,6 +51003,7 @@ export namespace Schemas {
        * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
        * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
        * * `significant` - Whether a variant's difference from the control is significant
+       * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
        * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
        * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
        * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -50924,6 +51081,7 @@ export namespace Schemas {
        * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
        * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
        * * `significant` - Whether a variant's difference from the control is significant
+       * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
        * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
        * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
        * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -51001,6 +51159,7 @@ export namespace Schemas {
        * * `exposure_filters` - Exposure Filters
        * * `early_significance` - Early Significance
        * * `metrics_not_matured` - Metrics Not Matured
+       * * `result_ready` - Result Ready
        * * `stale_experiment` - Stale Experiment
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -52238,6 +52397,83 @@ export namespace Schemas {
     }
 
     /**
+     * * `ok` - Ok
+     * * `mixed_versions` - Mixed Versions
+     * * `missing_input` - Missing Input
+     * * `no_successful_items` - No Successful Items
+     * * `unavailable_statistic` - Unavailable Statistic
+     * * `overlapping_items` - Overlapping Items
+     * * `formula_error` - Formula Error
+     * * `pending` - Pending
+     * * `failed` - Failed
+     */
+    export type ExperimentScoreStatusEnum = typeof ExperimentScoreStatusEnum[keyof typeof ExperimentScoreStatusEnum];
+
+
+    export const ExperimentScoreStatusEnum = {
+      Ok: 'ok',
+      MixedVersions: 'mixed_versions',
+      MissingInput: 'missing_input',
+      NoSuccessfulItems: 'no_successful_items',
+      UnavailableStatistic: 'unavailable_statistic',
+      OverlappingItems: 'overlapping_items',
+      FormulaError: 'formula_error',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
+    export interface ExperimentScoreSource {
+      version_id: string;
+      version: number;
+      successful_items: number;
+      /** @nullable */
+      value: number | null;
+    }
+
+    export interface ExperimentScoreInput {
+      alias: string;
+      statistic: ExperimentScoreStatisticEnum;
+      version_policy: ExperimentScoreVersionPolicyEnum;
+      status: ExperimentScoreStatusEnum;
+      /** @nullable */
+      value: number | null;
+      sources: ExperimentScoreSource[];
+    }
+
+    export interface ExperimentScore {
+      status: ExperimentScoreStatusEnum;
+      kind: ScoreDefinitionKindEnum;
+      /** Output configuration used to interpret the result. */
+      config: ScoreDefinitionConfig;
+      /**
+         * Passing verdict, or null without a value or passing rule.
+         * @nullable
+         */
+      passed: boolean | null;
+      value: number | boolean | string[] | null;
+      inputs: ExperimentScoreInput[];
+      /** Definition of the experiment scorer pinned to this run. */
+      definition_id: string;
+      scorer_version_id: string;
+      version: number;
+      name: string;
+    }
+
+    export interface ExperimentScorePreview {
+      status: ExperimentScoreStatusEnum;
+      kind: ScoreDefinitionKindEnum;
+      /** Output configuration used to interpret the result. */
+      config: ScoreDefinitionConfig;
+      /**
+         * Passing verdict, or null without a value or passing rule.
+         * @nullable
+         */
+      passed: boolean | null;
+      value: number | boolean | string[] | null;
+      inputs: ExperimentScoreInput[];
+    }
+
+    /**
      * * `fired_any` - fired_any
      * * `no_metric_activity` - no_metric_activity
      * * `funnel_dropoff` - funnel_dropoff
@@ -53337,6 +53573,11 @@ export namespace Schemas {
          * @nullable
          */
       suite_key?: string | null;
+      /**
+         * Exact experiment scorer version. Omit to use the suite default.
+         * @nullable
+         */
+      experiment_scorer_version_id?: string | null;
       /**
          * Source of an external dataset. Hosted dataset provenance is derived from its revision.
          * @maxLength 255
@@ -60994,11 +61235,15 @@ export namespace Schemas {
     } as const;
 
     export interface SuggestionsSample {
-      /** Whether an email step of the live version has enough tracked sends, over enough time, for PostHog to judge it. */
+      /** Whether an email step of the live version has enough sends, over enough time, for PostHog to judge it. Only tracked sends count unless `reads_conversion` is true. */
       readonly reached: boolean;
       /** Tracked sends (sends with open tracking on) from the live version's busiest email step in the last 7 days. */
       readonly tracked_sends: number;
-      /** Tracked sends an email step needs before PostHog judges it. */
+      /** All sends, with open tracking on or off, from the live version's busiest email step in the last 7 days. */
+      readonly sends: number;
+      /** Whether PostHog can read this workflow's conversion goal. When true, sends without open tracking count toward `required_sends` too, because suggestions can aim at conversion instead of opens. */
+      readonly reads_conversion: boolean;
+      /** Sends an email step needs before PostHog judges it: tracked sends, or all sends when `reads_conversion` is true. */
       readonly required_sends: number;
       /** When the live version was published. PostHog waits 48 hours before judging it. */
       readonly version_live_since: string;
@@ -62624,6 +62869,7 @@ export namespace Schemas {
       PosthogConversionGoalsUnusable: 'posthog_conversion_goals_unusable',
       PosthogCampaignsUnmatched: 'posthog_campaigns_unmatched',
       PosthogConversionsFailed: 'posthog_conversions_failed',
+      HiddenSearchSpend: 'hidden_search_spend',
     } as const;
 
     export interface MarketingAnalyticsRecommendationsDataGap {
@@ -64950,7 +65196,22 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface MCPToolQualityRowBucket {
+      /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"). */
+      bucket: string;
+      calls: number;
+      errors: number;
+      /** 0 when no call in the bucket carried a duration. */
+      p95_duration_ms: number;
+    }
+
     export interface MCPToolQualityRowItem {
+      /** Calls, errors and p95 per interval in the current window, for the row's volume chart. */
+      buckets?: MCPToolQualityRowBucket[] | null;
+      /** The $mcp_tool_category from the tool's latest call that sent one. */
+      category?: string | null;
+      /** The description from the tool's latest call that sent one. */
+      description?: string | null;
       error_rate_pct: number;
       errors: number;
       first_seen: string;
@@ -65032,6 +65293,10 @@ export namespace Schemas {
       categories?: string[] | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
+      /** Also return each row's volume chart buckets, which costs one more query. */
+      includeBuckets?: boolean | null;
+      /** Bucket granularity of each row's volume chart. Defaults to day. */
+      interval?: IntervalType | null;
       kind?: 'MCPToolQualityRowsQuery';
       /** Page size. The server defaults to 50 and caps this at 100. */
       limit?: number | null;
@@ -65067,6 +65332,18 @@ export namespace Schemas {
       p99: number;
     }
 
+    export interface MCPToolQualityTotals {
+      calls: number;
+      errors: number;
+      p50: number;
+      p95: number;
+      previous_calls: number;
+      previous_errors: number;
+      /** null when no call in the previous period carried a duration. */
+      previous_p50: number | null;
+      previous_p95?: number | null;
+    }
+
     export interface MCPToolQualityDailyStatsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -65083,6 +65360,8 @@ export namespace Schemas {
       results: MCPToolQualityDailyStatItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Window totals and the previous period's, set only when the query asks for them. */
+      totals?: MCPToolQualityTotals | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
@@ -65096,6 +65375,8 @@ export namespace Schemas {
       categories?: string[] | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
+      /** Also return window totals and the previous period's, for the Tool quality tiles. */
+      includeTotals?: boolean | null;
       /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
       interval?: IntervalType | null;
       kind?: 'MCPToolQualityDailyStatsQuery';
@@ -65103,6 +65384,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolQualityDailyStatsQueryResponse | null;
+      /** Case-insensitive substring search on the effective tool name, so the tiles match the searched table. */
+      search?: string | null;
       tags?: QueryLogTags | null;
       /** Restrict to a single $mcp_tool_name; omitted means the aggregate across all tools. */
       toolName?: string | null;
@@ -65385,10 +65668,16 @@ export namespace Schemas {
       harness: string;
       /** The agent's own words for the capability it wanted, from $mcp_intent. */
       intent: string;
+      /** The model the agent self-reported, from $mcp_llm_model; empty when the report did not say. */
+      model: string;
+      /** Whether the agent says it still finished the user's task, from $mcp_feedback_task_completed (or an in-app report's blocked flag): "blocked", "completed", or "not_reported" when the report did not say. */
+      outcome: string;
       /** JSON-encoded person email/name for display; "{}" when neither resolved. */
       person_properties: string;
       /** Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set. */
       session_id: string;
+      /** The change the agent suggested, from $mcp_feedback_suggested_improvement; empty when it gave none. */
+      suggested_improvement: string;
       timestamp: string;
     }
 
@@ -65429,6 +65718,10 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Reports to skip before returning results. Combine with limit to page through them; the response's has_next flag indicates whether more remain. */
       offset?: number | null;
+      /** Only reports with one of these outcomes: "blocked", "completed" or "not_reported". */
+      outcomes?: string[] | null;
+      /** Property filters applied to the report events, such as the shared harness and model filters. */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPMissingCapabilitiesQueryResponse | null;
       /** Case-insensitive substring match over the report text. */
       search?: string | null;
@@ -65496,6 +65789,10 @@ export namespace Schemas {
       ProtocolVersion: 'protocolVersion',
       Tool: 'tool',
       ErrorType: 'errorType',
+      ToolShare: 'toolShare',
+      Harness: 'harness',
+      ErrorTypeShare: 'errorTypeShare',
+      User: 'user',
       LabUsers: 'labUsers',
       NamedModelUsers: 'namedModelUsers',
       Reliability: 'reliability',
@@ -75784,8 +76081,6 @@ export namespace Schemas {
     }
 
     export interface MessageTemplate {
-      /** Project folder for the new email template. */
-      _create_in_folder?: string;
       readonly id: string;
       /**
          * Human-readable template name shown in the library.
@@ -75828,14 +76123,6 @@ export namespace Schemas {
       draft_content?: MessageTemplateContent | null;
       /** Whether the template has unpublished edits in `draft_content`. */
       readonly has_draft: boolean;
-    }
-
-    export interface MessageTemplatePlacement {
-      /**
-         * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
-         * @nullable
-         */
-      path: string | null;
     }
 
     export interface MessagingError {
@@ -79193,6 +79480,13 @@ export namespace Schemas {
 
     export interface OfflineExperimentRead {
       /**
+         * Whether this suite has a visible default for future runs. Checked on experiment detail.
+         * @nullable
+         */
+      suite_has_score?: boolean | null;
+      /** Overall score from the run's pinned experiment formula, when visible. */
+      experiment_score?: ExperimentScore | null;
+      /**
          * Most recent item, result, or payload change.
          * @nullable
          */
@@ -79452,8 +79746,8 @@ export namespace Schemas {
       breakdown_value?: string | null;
       /** Experiment execution and cohort context. */
       experiment: OfflineExperimentRead;
-      /** Complete summary for one experiment and scorer version. */
-      summary: OfflineScorerSummary;
+      /** Item score summary. For an experiment scorer, this is null and experiment.experiment_score holds the run's result. */
+      summary: OfflineScorerSummary | null;
     }
 
     /**
@@ -84794,12 +85088,17 @@ export namespace Schemas {
       /** Project tag names assigned to this resource. */
       readonly tags: readonly string[];
       readonly kind: ScoreDefinitionKindEnum;
-      /** Whether results are reported by the caller or calculated from other item scores.
+      readonly scope: ScoreDefinitionScopeEnum;
+      /** Suites that currently use this exact version for new experiments. */
+      readonly suite_keys: readonly string[];
+      /** Suite defaults across all visible versions. Included on retrieve. */
+      assigned_suite_keys?: string[];
+      /** Whether results are reported by the caller or calculated with a formula.
        *
        * * `reported` - Reported
        * * `composite` - Composite */
       readonly calculation: ScoreDefinitionCalculationEnum;
-      /** Formula and exact input versions for a composite scorer. */
+      /** Formula and input selections for an item or experiment scorer. */
       readonly composition: CompositeConfig | null;
       /** Pinned inputs and their latest versions. Empty for reported scorers. */
       readonly input_scorers: readonly CompositeInputRead[];
@@ -93181,6 +93480,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
@@ -96085,8 +96395,6 @@ export namespace Schemas {
     }
 
     export interface PatchedMessageTemplate {
-      /** Project folder for the new email template. */
-      _create_in_folder?: string;
       readonly id?: string;
       /**
          * Human-readable template name shown in the library.
@@ -99030,6 +99338,14 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       tags?: string[];
+      /**
+         * Apply this version to these suites for future runs. Omit to preserve existing assignments.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      apply_to_suite_keys?: string[];
+      /** Exact version to assign to the selected suites. Defaults to the current version. */
+      suite_version_id?: string;
       /**
          * Updated scorer name.
          * @maxLength 255
@@ -110917,6 +111233,8 @@ export namespace Schemas {
       results: MCPToolQualityDailyStatItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Window totals and the previous period's, set only when the query asks for them. */
+      totals?: MCPToolQualityTotals | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
@@ -117326,6 +117644,13 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       tags?: string[];
+      /**
+         * Apply this version to these suites for future runs. Omit to preserve existing assignments.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      apply_to_suite_keys?: string[];
+      scope?: ScoreDefinitionScopeEnum;
       /** Reported or composite. This cannot be changed after creation.
        *
        * * `reported` - Reported
@@ -117361,6 +117686,12 @@ export namespace Schemas {
     }
 
     export interface ScoreDefinitionNewVersion {
+      /**
+         * Apply this version to these suites for future runs. Omit to preserve existing assignments.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      apply_to_suite_keys?: string[];
       /** Required for a composite scorer. Creates a new immutable formula and input selection. */
       composition?: CompositeConfig | null;
       /**
@@ -117394,12 +117725,15 @@ export namespace Schemas {
       readonly definition_id: string;
       /** Immutable version number within this scorer. */
       readonly version: number;
+      /** Suites currently assigned to this exact version. */
+      readonly suite_keys: readonly string[];
       /** Scorer value kind.
        *
        * * `categorical` - categorical
        * * `numeric` - numeric
        * * `boolean` - boolean */
       readonly kind: ScoreDefinitionKindEnum;
+      readonly scope: ScoreDefinitionScopeEnum;
       /** How this scorer's results are produced.
        *
        * * `reported` - Reported
@@ -129841,6 +130175,13 @@ export namespace Schemas {
       after_click: TransactionalEmailConversions | null;
       /** Delivered sends nobody clicked and how many converted. Null without an event. */
       without_click: TransactionalEmailConversions | null;
+      /**
+         * Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends at most. Sends that went out while link tagging was off carry no tag. Null when link_tagging_enabled is false, when the user has no access to querying events, or when the count could not be computed.
+         * @nullable
+         */
+      sessions: number | null;
+      /** Whether the project setting that tags tracked links on the sender's own domain with ph_workflow_run is on now. The tag connects a click to its session. When false, sessions is null. Set it with workflows_config.email_workflow_run_link_tag_enabled in the project settings. */
+      link_tagging_enabled: boolean;
     }
 
     export interface TransactionalEmailLogEvent {
@@ -139845,7 +140186,7 @@ export namespace Schemas {
      */
     application_version?: string;
     /**
-     * Split history by this property. Model uses each item's model, falling back to the experiment's model.
+     * Split history by this property. Model uses the run's model for experiment scores. For item scores it uses the item's model, falling back to the run's model.
      *
      * * `model_version` - Model
      * * `prompt_version` - Prompt version
@@ -149020,6 +149361,11 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
+     * * `item` - Item
+     * * `experiment` - Experiment
+     */
+    scope?: LlmAnalyticsScoreDefinitionsListScope;
+    /**
      * Search scorers by name, short name, or description.
      */
     search?: string;
@@ -149043,6 +149389,14 @@ export namespace Schemas {
     export const LlmAnalyticsScoreDefinitionsListCalculation = {
       Composite: 'composite',
       Reported: 'reported',
+    } as const;
+
+    export type LlmAnalyticsScoreDefinitionsListScope = typeof LlmAnalyticsScoreDefinitionsListScope[keyof typeof LlmAnalyticsScoreDefinitionsListScope];
+
+
+    export const LlmAnalyticsScoreDefinitionsListScope = {
+      Experiment: 'experiment',
+      Item: 'item',
     } as const;
 
     export type LlmAnalyticsScoreDefinitionsListTagMatch = typeof LlmAnalyticsScoreDefinitionsListTagMatch[keyof typeof LlmAnalyticsScoreDefinitionsListTagMatch];
@@ -149868,6 +150222,10 @@ export namespace Schemas {
      * End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Only sessions where the agent sent feedback or reported a missing capability.
+     */
+    feedback_only?: boolean;
     /**
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */

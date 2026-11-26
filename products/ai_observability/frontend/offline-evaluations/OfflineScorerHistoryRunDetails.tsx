@@ -18,13 +18,15 @@ export function OfflineScorerHistoryRunDetails({
                     {experiment.run_source ? offlineRunSourceLabel(experiment.run_source) : 'Source not specified'}
                 </span>
             </div>
-            <div className="text-xs space-y-1">
-                <div className="break-words">{`Score: ${formatOfflineScore(summary)}`}</div>
-                <div>{`${summary.status_counts.ok} successful / ${summary.observed_item_count} observed items`}</div>
-                <div>{`${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${offlineUnscoredLabel(summary)}`}</div>
-                <div>{`${summary.distinct_case_count} distinct cases · ${summary.items_with_case_key_count} with case keys · ${summary.items_without_case_key_count} without case keys`}</div>
-                <div>{`${summary.trial_item_count} trial items · ${summary.distinct_trial_count} case/trial identities`}</div>
-            </div>
+            {summary && (
+                <div className="text-xs space-y-1">
+                    <div className="break-words">{`Score: ${formatOfflineScore(summary)}`}</div>
+                    <div>{`${summary.status_counts.ok} successful / ${summary.observed_item_count} observed items`}</div>
+                    <div>{`${summary.status_counts.error} errors · ${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${offlineUnscoredLabel(summary)}`}</div>
+                    <div>{`${summary.distinct_case_count} distinct cases · ${summary.items_with_case_key_count} with case keys · ${summary.items_without_case_key_count} without case keys`}</div>
+                    <div>{`${summary.trial_item_count} trial items · ${summary.distinct_trial_count} case/trial identities`}</div>
+                </div>
+            )}
             <dl className="text-xs grid gap-x-4 gap-y-2 @min-[48rem]/main-content:grid-cols-2">
                 {[
                     ['Suite', experiment.suite_key],

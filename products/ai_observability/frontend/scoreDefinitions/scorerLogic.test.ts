@@ -38,6 +38,8 @@ const definition: ScoreDefinitionApi = {
     config: {},
     archived: false,
     current_version: 2,
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     input_scorers: [],
@@ -109,6 +111,57 @@ describe('scorer editor', () => {
         expect(existing.composition?.inputs[0].scorer_version_id).toBe('source-v1')
         logic.unmount()
     })
+
+    it.each([
+        { archived: true, suiteKeys: ['smoke', 'candidate'], expectedAssignment: {} },
+        {
+            archived: false,
+            suiteKeys: [],
+            expectedAssignment: { apply_to_suite_keys: [], suite_version_id: definition.current_version_id },
+        },
+    ])(
+        'only patches changed suite assignments when renaming an experiment scorer (archived: $archived)',
+        async ({ archived, suiteKeys, expectedAssignment }) => {
+            const existing: ScoreDefinitionApi = {
+                ...definition,
+                scope: 'experiment',
+                calculation: 'composite',
+                archived,
+                suite_keys: ['candidate', 'smoke'],
+                composition: {
+                    expression: 'quality',
+                    inputs: [{ alias: 'quality', statistic: 'mean', scorer_version_id: 'source-v1' }],
+                },
+                input_scorers: [
+                    {
+                        alias: 'quality',
+                        definition_id: 'source',
+                        name: 'Quality',
+                        kind: 'numeric',
+                        scorer_version_id: 'source-v1',
+                        version: 1,
+                        latest_version_id: 'source-v1',
+                        latest_version: 1,
+                        config: {},
+                    },
+                ],
+            }
+            retrieve.mockResolvedValue(existing)
+            update.mockResolvedValue({ ...existing, name: 'Release quality' })
+            const logic = scorerLogic({ scorerId: existing.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setDraftField('suiteKeys', suiteKeys)
+            logic.actions.setDraftField('name', 'Release quality')
+            await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
+            expect(update).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), existing.id, {
+                name: 'Release quality',
+                short_name: '',
+                description: '',
+                ...expectedAssignment,
+            })
+        }
+    )
 
     it.each<{
         kind: ScoreDefinitionApi['kind']
@@ -280,6 +333,38 @@ describe('scorer editor', () => {
             expect(logic.values.willCreateVersion).toBe(false)
         }
     )
+
+    it('returns to the original experiment after creating its suite default', async () => {
+        const experimentId = '08b13acc-f998-5208-9d45-4114c633ba9e'
+        create.mockResolvedValue({ ...definition, scope: 'experiment' })
+        const logic = scorerLogic({ scorerId: 'new', experimentId, suiteKey: 'support' })
+        logic.mount()
+        logic.actions.setDraftField('name', 'Support score')
+        logic.actions.setDraftField('inputs', [
+            {
+                alias: 'quality',
+                statistic: 'mean',
+                definition_id: definition.id,
+                scorer_version_id: 'v1',
+                name: 'Quality',
+                kind: 'numeric',
+                version: 1,
+                latest_version: 1,
+                latest_version_id: 'v1',
+                config: {},
+            },
+        ])
+        logic.actions.setDraftField('expression', 'quality')
+        await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
+        expect(create).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ apply_to_suite_keys: ['support'] })
+        )
+        expect(router.values.location.pathname).toBe(
+            `/project/${MOCK_DEFAULT_TEAM.id}${urls.aiObservabilityOfflineEvaluationExperiment(experimentId)}`
+        )
+        logic.unmount()
+    })
 
     it('duplicates a scorer with its boolean polarity without updating the source', async () => {
         const existing: ScoreDefinitionApi = {

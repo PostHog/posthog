@@ -340,6 +340,16 @@ function sesNamedSenderAsUnverified(error: unknown, senderEmail: string): boolea
     )
 }
 
+function sentStatusReason(
+    invocation: CyclotronJobInvocationHogFunction,
+    trackingEnabled: boolean
+): 'untracked' | 'clicks_untracked' | undefined {
+    if (!trackingEnabled) {
+        return 'untracked'
+    }
+    return isClickTrackingEnabled(invocation) ? undefined : 'clicks_untracked'
+}
+
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
     !isTest && 'hogFlow' in invocation
 
@@ -1130,7 +1140,7 @@ export class EmailService {
                     teamId: invocation.teamId,
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
-                    reason: success ? (trackingEnabled ? undefined : 'untracked') : failureReason,
+                    reason: success ? sentStatusReason(invocation, trackingEnabled) : failureReason,
                     sendingDomain,
                     messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })

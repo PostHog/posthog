@@ -30,5 +30,9 @@ export function offlineBreakdownValueLabel(
 }
 
 export function offlineHistoryPointKey(point: OfflineHistoryPointApi): string {
-    return JSON.stringify([point.experiment.id, point.summary.scorer.id, point.breakdown_value ?? null])
+    return JSON.stringify([
+        point.experiment.id,
+        point.summary?.scorer.id ?? point.experiment.experiment_score?.scorer_version_id,
+        point.breakdown_value ?? null,
+    ])
 }
