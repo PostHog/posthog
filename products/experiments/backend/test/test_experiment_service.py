@@ -5991,23 +5991,6 @@ class TestExperimentService(APIBaseTest):
 
         assert set(queryset.values_list("name", flat=True)) == {"Visible"}
 
-    def test_filter_experiments_queryset_includes_deleted_on_restore_update(self) -> None:
-        service = self._service()
-        experiment = service.create_experiment(name="Restore Me", feature_flag_key="restore-me", deleted=True)
-
-        default_queryset = service.filter_experiments_queryset(
-            Experiment.objects.filter(team=self.team),
-            action="update",
-        )
-        restore_queryset = service.filter_experiments_queryset(
-            Experiment.objects.filter(team=self.team),
-            action="update",
-            request_data={"deleted": "false"},
-        )
-
-        assert experiment.id not in default_queryset.values_list("id", flat=True)
-        assert experiment.id in restore_queryset.values_list("id", flat=True)
-
     @parameterized.expand(
         [
             ("draft", {"status": "draft"}, {"Draft"}),
@@ -6266,11 +6249,16 @@ class TestExperimentService(APIBaseTest):
             end_date=now - timedelta(days=3),
         )
 
-        result = service.get_velocity_stats()
+        # Read through the API, so a stats field that the service and the response contract disagree on fails here.
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/stats/")
 
-        assert result["launched_last_30d"] == 2
-        assert result["active_experiments"] == 1
-        assert result["completed_last_30d"] == 1
+        assert response.json() == {
+            "launched_last_30d": 2,
+            "launched_previous_30d": 0,
+            "percent_change": 100.0,
+            "active_experiments": 1,
+            "completed_last_30d": 1,
+        }
 
     def test_get_velocity_stats_percent_change(self):
         service = self._service()

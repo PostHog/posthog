@@ -600,6 +600,18 @@ def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: i
     admission.start_timeseries_recalculation_workflow(recalculation_id, team_id=team_id)
 
 
+# The (value, label) pairs of a run's status and of the triggers that a client may send. drf-spectacular finds the
+# OpenAPI enum name of a choice field by its pairs, so the schema keeps the enum names of the model's classes.
+RECALCULATION_STATUS_CHOICES: list[tuple[str, str]] = [
+    (value, str(label)) for value, label in ExperimentMetricsRecalculation.Status.choices
+]
+RECALCULATION_REQUEST_TRIGGER_CHOICES: list[tuple[str, str]] = [
+    (value, str(label)) for value, label in ExperimentMetricsRecalculation.RequestTrigger.choices
+]
+RECALCULATION_STATUS_PENDING: str = ExperimentMetricsRecalculation.Status.PENDING.value
+RECALCULATION_TRIGGER_AGENT_MCP: str = ExperimentMetricsRecalculation.Trigger.AGENT_MCP.value
+
+
 def request_metrics_recalculation(
     *, team_id: int, experiment_id: int, user_id: int, trigger: str
 ) -> RequestedRecalculation:

@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, fields
 from typing import Any
 
@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.tagged_item import replace_tags_on_object
+from posthog.api.tagged_item import BulkTagActivityContext, apply_bulk_tag_changes, replace_tags_on_object
 from posthog.models import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -40,7 +40,8 @@ from products.feature_flags.backend.facade.filters import stored_payloads
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
-# Heavy JSON columns that the list does not return. The list filters, the status and the list mapper must not read them.
+# Heavy JSON columns that the list does not return and a bulk tag change does not read. The list filters, the status
+# and the list mapper must not read them.
 LIST_DEFERRED_FIELDS = (
     "metrics",
     "metrics_secondary",
@@ -238,6 +239,57 @@ def list_page(
         visible_to(rows, access), action="list", query_params=_query_params(asdict(filters))
     )
     return select_page(strict_fetch(queryset), page)
+
+
+_REF_FIELDS = ("id", "team_id", "created_by_id")
+
+
+def list_refs(*, team: Team, filters: ExperimentListFilters) -> QuerySet[Experiment]:
+    """Every experiment that the list shows for the filters, in the order of the list, with the columns of a ref."""
+    queryset = ExperimentService(team=team, user=None).filter_experiments_queryset(
+        Experiment.objects.filter(team__project_id=team.project_id),
+        action="list",
+        query_params=_query_params(asdict(filters)),
+    )
+    return strict_fetch(queryset.only(*_REF_FIELDS))
+
+
+def _live_among(team: Team, experiment_ids: Collection[int]) -> QuerySet[Experiment]:
+    experiments = Experiment.objects.filter(team__project_id=team.project_id, pk__in=list(experiment_ids))
+    return experiments.exclude(deleted=True)
+
+
+def refs_among(*, team: Team, experiment_ids: Collection[int]) -> QuerySet[Experiment]:
+    """The live experiments of the project among the ids, archived ones included, newest first, with the columns of a
+    ref."""
+    return strict_fetch(_live_among(team, experiment_ids).order_by("-created_at").only(*_REF_FIELDS))
+
+
+def change_tags(
+    *,
+    team: Team,
+    user: User,
+    was_impersonated: bool,
+    experiment_ids: Sequence[int],
+    tag_action: str,
+    tags: Sequence[str],
+) -> list[dict[str, Any]]:
+    experiments = (
+        _live_among(team, experiment_ids)
+        .defer(*LIST_DEFERRED_FIELDS)
+        .prefetch_related(
+            Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+        )
+    )
+    by_id = {experiment.id: experiment for experiment in experiments}
+    return apply_bulk_tag_changes(
+        [by_id[experiment_id] for experiment_id in experiment_ids if experiment_id in by_id],
+        tag_action,
+        list(tags),
+        activity_context=BulkTagActivityContext(
+            scope="Experiment", user=user, was_impersonated=was_impersonated, activity="updated"
+        ),
+    )
 
 
 def resolved_exposure_event(experiment: Experiment) -> str:

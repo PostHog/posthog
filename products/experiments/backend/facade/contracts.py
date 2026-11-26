@@ -1576,6 +1576,27 @@ class ExperimentNotFound(Exception):
 
 
 @frozen
+class ExperimentTagChange:
+    """The tags of one experiment after a bulk tag change, sorted by name."""
+
+    id: int
+    tags: tuple[str, ...]
+
+
+@frozen
+class ExperimentVelocityStats:
+    """How many experiments of the team launched, run and ended, which the experiments page shows. The 30-day windows
+    end today in the team's timezone. Archived and deleted experiments do not count."""
+
+    launched_last_30d: int
+    launched_previous_30d: int
+    # The change from `launched_previous_30d` to `launched_last_30d` in percent, rounded to one decimal.
+    percent_change: float
+    active_experiments: int
+    completed_last_30d: int
+
+
+@frozen
 class FlagCleanupTarget:
     """The repository that a flag-cleanup pull request for an experiment would be opened in, and how it was chosen."""
 

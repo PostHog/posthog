@@ -64,7 +64,6 @@ from posthog.models.property.parse import parse_property_group_data
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.utils import str_to_bool
 
 from products.approvals.backend.actions.experiments import LaunchExperimentAction
 from products.approvals.backend.ownership import scope_by_owner_enabled
@@ -4699,20 +4698,13 @@ class ExperimentService:
         *,
         action: str | None,
         query_params: Mapping[str, Any] | None = None,
-        request_data: Mapping[str, Any] | None = None,
         include_deleted: bool = False,
     ) -> QuerySet[Experiment]:
         """Apply experiment list/detail filtering and ordering rules.
 
-        Deleted experiments stay out unless `include_deleted` is set, or an update sends a falsy `deleted`.
+        Deleted experiments stay out unless `include_deleted` is set.
         """
         query_params = query_params or {}
-        request_data = request_data or {}
-
-        if action in ("partial_update", "update"):
-            deleted_value = request_data.get("deleted")
-            if deleted_value is not None:
-                include_deleted = not str_to_bool(deleted_value)
 
         if not include_deleted:
             queryset = queryset.exclude(deleted=True)
