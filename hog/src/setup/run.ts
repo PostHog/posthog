@@ -3,10 +3,10 @@ import { join } from 'node:path'
 import type { Context } from '@/core/context'
 
 import { AGENTS_FILE, blockStage } from './agents-md'
-import type { ProductId } from './products'
+import { productLabel, type ProductId } from './products'
 import type { DoneStep, EventsContext, SetupInput, SetupResult } from './result'
 import { completed, SetupRun, type Step } from './setup-run'
-import { readState, setupScope, STEP_IDS, type StepId } from './state'
+import { readState, SETUP_COMMAND, setupScope, STEP_IDS, type StepId } from './state'
 import { purpose } from './steps/01-purpose'
 import { login } from './steps/02-login'
 import { project } from './steps/03-project'
@@ -68,7 +68,8 @@ const READ_PROXY = 'hog skills read instrument-reverse-proxy'
 const CONNECTED =
     'PostHog is set up in this folder. The PostHog section in `AGENTS.md` lists the commands for later PostHog work.'
 const NO_EVENTS = "PostHog hasn't received any events yet. Run the app and use it, then run `hog setup` to check again."
-const SUGGEST_PROXY = `If the app uses posthog-js and its \`api_host\` is still a PostHog host, also tell the user that a reverse proxy sends PostHog's browser requests through the app's own domain, so events, feature flags, and surveys keep loading where requests to PostHog's domains are blocked, and that \`${READ_PROXY}\` sets one up. Don't set one up unless they ask: it can need a DNS change and an organization admin.`
+const SUGGEST_PROXY = `If the app uses posthog-js and its \`api_host\` is still a PostHog host, also tell the user, without commands, that a reverse proxy sends PostHog's browser requests through the app's own domain, so events, feature flags, and surveys keep loading where requests to PostHog's domains are blocked, and that you can set one up. Don't set one up unless they ask: it can need a DNS change and an organization admin. If they ask, run \`${READ_PROXY}\` and follow it.`
+const FOLLOW_UPS = `When the user asks for something the message offers, use \`context\`: a product's \`command\` in \`context.products\`, \`hog skills add <name...>\` with names from \`context.skills\`, \`context.mcp.command\` for the MCP server, and \`${SETUP_COMMAND}\` to check for events again.`
 
 const SKILL_WORDS: Partial<Record<ProductId, string>> = {
     'session-replay': 'replay',
@@ -81,43 +82,51 @@ const SKILL_WORDS: Partial<Record<ProductId, string>> = {
     'web-analytics': 'web-analytics',
     'data-warehouse': 'warehouse',
 }
-const MAX_SKILLS = 4
 const MAX_OTHER_PRODUCTS = 5
 
 // The wrap-up the agent sends as it is, so the person gets every part of it whatever the agent's style.
+// A product label inside a sentence, keeping acronyms such as AI.
+function inSentence(label: string): string {
+    return /^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label
+}
+
+function listed(items: string[]): string {
+    return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+
 function doneMessage(run: SetupRun, events: EventsContext | undefined): string {
     const { context, state } = run
     const chosen = state?.products ?? []
-    const products = context.products ?? []
     const skills = context.skills ?? []
     const region = context.host === undefined ? '' : ` on ${context.host}`
 
-    const suggested = chosen
-        .flatMap((id) => {
-            const word = SKILL_WORDS[id]
-            return word ? skills.filter((skill) => skill.id.includes(word)).slice(0, 2) : []
-        })
-        .slice(0, MAX_SKILLS)
-    const others = products.filter((product) => !product.chosen).slice(0, MAX_OTHER_PRODUCTS)
+    const withSkills = chosen.filter((id) => {
+        const word = SKILL_WORDS[id]
+        return word !== undefined && skills.some((skill) => skill.id.includes(word))
+    })
+    // The install sets up product analytics, so it isn't offered again.
+    const others = (context.products ?? [])
+        .filter((product) => !product.chosen && product.id !== 'product-analytics')
+        .slice(0, MAX_OTHER_PRODUCTS)
     const { mcp } = context
 
     return [
         `PostHog is set up in this app, in project ${context.projectId ?? 'unknown'}${region}.`,
         events?.count === 0
-            ? "PostHog hasn't received any events from the app yet. Start the app and click around a few pages, then run `hog setup` to check again."
+            ? "PostHog hasn't received any events from the app yet. Start the app and click around a few pages, then ask me to check again."
             : events?.count
               ? `PostHog has received ${events.count} events since setup started.`
               : '',
         others.length > 0
-            ? `What else PostHog can do: ${others.map((product) => `${product.label} (\`${product.command}\`)`).join(', ')}.`
+            ? `PostHog can also do ${listed(others.map((product) => inSentence(product.label)))}. Ask me to set up any of them.`
             : '',
-        suggested.length > 0
-            ? `Skills you can add for later work, with \`hog skills add <name>\`: ${suggested.map((skill) => skill.id).join(', ')}. \`hog skills search <words>\` finds more.`
-            : 'Find skills for later work with `hog skills search <words>`, and add them with `hog skills add <name>`.',
+        withSkills.length > 0
+            ? `I can add PostHog skills for ${listed(withSkills.map((id) => inSentence(productLabel(id))))} to this project, so later sessions know how to work with them. Ask me if you want them.`
+            : 'I can add PostHog skills to this project, so later sessions know how to work with PostHog. Ask me if you want them.',
         mcp?.foreign
-            ? `The \`posthog\` MCP server in \`${mcp.foreign.path}\` points at another server. \`${mcp.command}\` replaces it with PostHog's.`
+            ? `The \`posthog\` MCP server in \`${mcp.foreign.path}\` points at another server, not PostHog's. Ask me to replace it.`
             : mcp && !mcp.configured
-              ? `Connect PostHog's MCP server to your coding agent with \`${mcp.command}\`.`
+              ? "I can also connect PostHog's MCP server, so I can look at your PostHog data in later sessions. Ask me if you want that."
               : '',
     ]
         .filter(Boolean)
@@ -152,7 +161,7 @@ async function connectedResult(run: SetupRun): Promise<SetupResult> {
             ? finishedForAgent(run)
                 ? {
                       kind: 'done',
-                      instructions: `PostHog is set up. End your turn with a short summary of what you changed in the app, then send the user \`next.message\` as it is. ${SUGGEST_PROXY}`,
+                      instructions: `PostHog is set up. End your turn with a short summary of what you changed in the app, then send the user \`next.message\` as it is. ${FOLLOW_UPS} ${SUGGEST_PROXY}`,
                       message: doneMessage(run, events),
                   }
                 : { kind: 'done', instructions: doneInstructions(events) }

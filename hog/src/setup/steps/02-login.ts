@@ -41,11 +41,18 @@ function userMessage(url: string, code: string | null, project: string, region: 
         "If you don't have a PostHog account yet, you can sign up on that page first.",
         project,
         region,
-        "Tell me once you've approved it.",
+        "I'll carry on as soon as you approve it.",
     ]
         .filter(Boolean)
         .join('\n')
 }
+
+// An agent's tool call times out after a few minutes, so one `hog setup` waits this long at most and
+// returns the same link for the agent to wait on again.
+const AGENT_WAIT_MS = 90_000
+
+// How long an agent keeps calling `hog setup` for one link before it hands the turn back to the person.
+const KEEP_WAITING_MINUTES = 10
 
 function waitingStop(pending: PendingResult, projectId: ProjectId | undefined, region: string): Stop {
     const { url, code, expiresAt, next } = pending
@@ -63,7 +70,7 @@ function waitingStop(pending: PendingResult, projectId: ProjectId | undefined, r
             code,
             expiresAt,
             message: userMessage(url, code, project, region),
-            instructions: `Send the user \`next.message\` as it is, with the full link, then end your turn. When they say they approved, run \`${SETUP_COMMAND}\`.${switchTo}`,
+            instructions: `Send the user \`next.message\` as it is, with the full link, in a message they see now. Then run \`${SETUP_COMMAND}\` without waiting for a reply: it waits for the approval. While it returns this same link, run it again, for up to ${KEEP_WAITING_MINUTES} minutes. If they still haven't approved by then, end your turn and ask them to tell you once they have.${switchTo}`,
         },
     }
 }
@@ -81,10 +88,6 @@ async function switchRegion(run: SetupRun, named: boolean): Promise<void> {
         (state) => state && { ...state, host: REGIONS[region], hostPicked: undefined }
     )
 }
-
-// An agent's tool call times out after a few minutes, so an agent waits for this long at most and then
-// gets the same link back to ask about again.
-const AGENT_WAIT_MS = 90_000
 
 const REJECTED_HINT = `Don't install PostHog without the login, and don't write a placeholder token. Tell the user the login was rejected in the browser, so PostHog isn't set up, and that \`${SETUP_COMMAND}\` gives them a new link when they want to try again. Then end your turn.`
 

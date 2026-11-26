@@ -92,7 +92,9 @@ sequenceDiagram
         Agent->>hog: hog setup --region eu
         hog-->>Agent: wait, with a new link and code
     end
-    Agent->>hog: hog setup (waits up to 90 seconds for the approval)
+    loop Until approved or expired
+        Agent->>hog: hog setup (waits up to 90 seconds for the approval)
+    end
     You->>PH: Log in or sign up, then approve
     PH-->>hog: Token for one project
 
@@ -119,5 +121,5 @@ sequenceDiagram
     hog->>hog: Check whether the agent has PostHog's MCP server
     hog->>hog: Write the final PostHog section in AGENTS.md
     hog-->>Agent: done, with the event count, the products, the skills and the MCP check
-    Agent->>You: At the end of its turn, next.message: what else PostHog can do, hog skills add, and hog mcp add when the server is missing, plus a reverse proxy for a posthog-js app without one
+    Agent->>You: At the end of its turn, next.message: what else PostHog can do, skills, and the MCP server when it is missing, plus a reverse proxy for a posthog-js app without one, each as something to ask the agent for
 ```
