@@ -1,6 +1,8 @@
 //! Binds every fixed routing [`Destination`] to its output: a Kafka topic and
 //! the named producer that carries it.
 
+use std::collections::HashSet;
+use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -232,12 +234,12 @@ impl<R> OutputTable<R> {
         ]
     }
 
-    pub(crate) fn producers(&self) -> Vec<R>
+    pub(crate) fn producers(&self) -> HashSet<R>
     where
-        R: Clone,
+        R: Clone + Eq + Hash,
     {
-        let mut producers = Vec::new();
-        self.map_producers(|producer| producers.push(producer.clone()));
+        let mut producers = HashSet::new();
+        self.map_producers(|producer| producers.insert(producer.clone()));
         producers
     }
 
