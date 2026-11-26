@@ -7,6 +7,13 @@ const WALK_SPEED = 1.1
 const LEAVE_SPEED = 1.8
 const JUMP_TICKS = 46
 
+export interface HogBounds {
+    x: number
+    y: number
+    width: number
+    height: number
+}
+
 export type HogState = 'roam' | 'jump' | 'card' | 'leave' | 'away' | 'enter'
 
 export interface HogWorld {
@@ -213,6 +220,10 @@ export class SeasonalHog {
         }
     }
 
+    bounds(): HogBounds {
+        return { x: this.x - HOG_SIZE / 2 - 1, y: this.y - FEET - 1, width: HOG_SIZE + 2, height: HOG_SIZE + 2 }
+    }
+
     draw(context: CanvasRenderingContext2D, sprites: HogSprites, accessories: string[]): void {
         if (this.state === 'away') {
             return
@@ -274,8 +285,12 @@ export class SeasonalHog {
         if (this.state === 'jump') {
             return
         }
-        this.frame += this.animation === 'walk' ? 0.32 : 0.42
         const length = sprites.animations[this.animation].length
+        this.frame = this.world.reducedMotion
+            ? this.loop
+                ? 0
+                : length
+            : this.frame + (this.animation === 'walk' ? 0.32 : 0.42)
         if (this.frame >= length) {
             if (this.loop) {
                 this.frame %= length

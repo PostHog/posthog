@@ -8,7 +8,7 @@ const sprites: HogSprites = {
     animations: Object.fromEntries(
         HOG_ANIMATIONS.map((animation) => [
             animation,
-            Array.from({ length: FRAME_COUNTS[animation] }, () => ({ x: 0, y: 0, w: 80, h: 80 })),
+            Array.from({ length: FRAME_COUNTS[animation] }, (_, index) => ({ x: index * 80, y: 0, w: 80, h: 80 })),
         ])
     ) as HogSprites['animations'],
     accessories: {},
@@ -62,13 +62,38 @@ describe('SeasonalHog', () => {
     })
 
     it('stays on the page when restored during the farewell wave', () => {
+        const hog = new SeasonalHog(world(false))
+        hog.leave()
+        hog.step(world(false), sprites)
+        hog.enter()
+        for (let i = 0; i < 200; i++) {
+            hog.step(world(false), sprites)
+        }
+        expect(hog.state).toBe('roam')
+    })
+
+    it('leaves at once when dismissed with reduced motion', () => {
         const hog = new SeasonalHog(world(true))
         hog.leave()
         hog.step(world(true), sprites)
-        hog.enter()
-        for (let i = 0; i < 200; i++) {
+        expect(hog.state).toBe('away')
+    })
+
+    it('keeps the same sprite frame with reduced motion', () => {
+        const hog = new SeasonalHog(world(true))
+        hog.wave()
+        const drawn: number[] = []
+        const context = {
+            save: () => undefined,
+            restore: () => undefined,
+            translate: () => undefined,
+            scale: () => undefined,
+            drawImage: (_image: unknown, sx: number) => drawn.push(sx),
+        } as unknown as CanvasRenderingContext2D
+        for (let i = 0; i < 30; i++) {
             hog.step(world(true), sprites)
+            hog.draw(context, sprites, [])
         }
-        expect(hog.state).toBe('roam')
+        expect(new Set(drawn)).toEqual(new Set([0]))
     })
 })

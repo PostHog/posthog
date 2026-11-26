@@ -28,7 +28,6 @@ export function TodaySeasonalHog({
     const { isOpen, dismissed, allDone, doneCount } = useValues(todaySeasonalChecklistLogic)
     const { openChecklist } = useActions(todaySeasonalChecklistLogic)
     const [sprites, setSprites] = useState<HogSprites | null>(null)
-    const [spritesFailed, setSpritesFailed] = useState(false)
     const anchorRef = useRef<HTMLDivElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const buttonRef = useRef<HTMLButtonElement>(null)
@@ -42,7 +41,7 @@ export function TodaySeasonalHog({
         let cancelled = false
         loadHogSprites(getHedgehogModeAssetsUrl()).then(
             (loaded) => !cancelled && setSprites(loaded),
-            () => !cancelled && setSpritesFailed(true)
+            () => undefined
         )
         return () => {
             cancelled = true
@@ -100,11 +99,21 @@ export function TodaySeasonalHog({
         window.addEventListener('resize', resize)
 
         let frame = 0
+        let clearAll = true
+        let previous = hog.bounds()
         const tick = (): void => {
             const current = world()
             hog.step(current, sprites)
-            snowRef.current.step(performance.now(), window.innerWidth, window.innerHeight)
-            context.clearRect(0, 0, window.innerWidth, window.innerHeight)
+            const now = performance.now()
+            snowRef.current.step(now, window.innerWidth, window.innerHeight)
+            const snowing = !snowRef.current.idle(now)
+            if (snowing || clearAll) {
+                context.clearRect(0, 0, window.innerWidth, window.innerHeight)
+                clearAll = snowing
+            } else {
+                context.clearRect(previous.x, previous.y, previous.width, previous.height)
+            }
+            previous = hog.bounds()
             snowRef.current.draw(context, current.card)
             hog.draw(context, sprites, checklist.accessories)
 
@@ -135,32 +144,30 @@ export function TodaySeasonalHog({
         }
     }, [sprites, checklist.accessories, cardRef])
 
-    if (spritesFailed) {
+    if (!sprites) {
         return <TodaySeasonalOpenButton label={checklist.bubble} />
     }
 
     return (
         <>
             <div ref={anchorRef} hidden />
-            {sprites ? (
-                <div data-quill className="TodaySeasonalHog">
-                    <canvas ref={canvasRef} className="TodaySeasonalHog__canvas" aria-hidden="true" />
-                    <div ref={bubbleRef} className="TodaySeasonalHog__bubble" hidden aria-hidden="true">
-                        {checklist.bubble}
-                    </div>
-                    <button
-                        ref={buttonRef}
-                        type="button"
-                        className="TodaySeasonalHog__button"
-                        aria-label={checklist.bubble}
-                        onClick={isOpen ? undefined : openChecklist}
-                        onPointerEnter={(event) => hogRef.current?.hover(true, event.clientX)}
-                        onPointerLeave={(event) => hogRef.current?.hover(false, event.clientX)}
-                        hidden
-                        data-attr="today-seasonal-hog"
-                    />
+            <div data-quill className="TodaySeasonalHog">
+                <canvas ref={canvasRef} className="TodaySeasonalHog__canvas" aria-hidden="true" />
+                <div ref={bubbleRef} className="TodaySeasonalHog__bubble" hidden aria-hidden="true">
+                    {checklist.bubble}
                 </div>
-            ) : null}
+                <button
+                    ref={buttonRef}
+                    type="button"
+                    className="TodaySeasonalHog__button"
+                    aria-label={checklist.bubble}
+                    onClick={isOpen ? undefined : openChecklist}
+                    onPointerEnter={(event) => hogRef.current?.hover(true, event.clientX)}
+                    onPointerLeave={(event) => hogRef.current?.hover(false, event.clientX)}
+                    hidden
+                    data-attr="today-seasonal-hog"
+                />
+            </div>
         </>
     )
 }
