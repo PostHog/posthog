@@ -31,7 +31,8 @@ people per bucket and since the edit.
     conditions the people outside the rollout of any condition count. A server SDK that evaluates the flag locally
     sends no condition, so its people don't count. The SDKs send `$feature_flag_called` once per value of the flag, so a
     person whose value the edit kept sends none after it and doesn't count either. One scan of `$feature_flag_called`
-    per kind of actor finds the reasons of every edit, and joins them to the events by the actor.
+    per kind of actor finds the reasons of every edit, and joins them to the events by the actor. A call counts for
+    the events of its own bucket and of the buckets after it, so a bucket holds only what was known at its end.
   - By the properties of each event against the property filters of the conditions. Person properties come from the
     event, so an event without person processing does not match a person filter. A filter on another flag always
     matches, because the query can't evaluate a flag. A person who matches an earlier condition at 100% rollout gets
@@ -47,7 +48,9 @@ One query per team reads every watched edit: a query per edit would read the sam
 """
 
 import math
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -80,10 +83,29 @@ from products.feature_flags.backend.user_blast_radius import (
 
 logger = structlog.get_logger(__name__)
 
+
+@frozen
+class QueryLimits:
+    timeout_seconds: int
+    max_threads: int
+
+
 # The health check query settings (posthog/temporal/health_checks/query.py). Nobody waits for the result, so the scan of
 # every event of a team leaves CPU to the queries people wait for.
-QUERY_TIMEOUT_SECONDS = 30
-QUERY_MAX_THREADS = 2
+TICK_LIMITS = QueryLimits(timeout_seconds=30, max_threads=2)
+_limits: ContextVar[QueryLimits] = ContextVar("flag_window_query_limits", default=TICK_LIMITS)
+
+
+@contextmanager
+def query_limits(limits: QueryLimits) -> Iterator[None]:
+    """Runs the window queries inside the block with `limits`. A backtest reads the whole span of a window in one
+    query, which the limits of one tick can't cover."""
+    token = _limits.set(limits)
+    try:
+        yield
+    finally:
+        _limits.reset(token)
+
 
 # ClickHouse rejects these when a property filter compares a value it can't cast or compile: CANNOT_PARSE_TEXT,
 # CANNOT_PARSE_DATETIME, TYPE_MISMATCH, CANNOT_PARSE_NUMBER and CANNOT_COMPILE_REGEXP.
@@ -188,6 +210,16 @@ class BucketRange:
     @property
     def buckets(self) -> int:
         return math.ceil((self.end - self.start) / self.bucket)
+
+    def end_of_bucket(self, timestamp: ast.Expr) -> ast.Expr:
+        """The end of the bucket that holds `timestamp`."""
+        return parse_expr(
+            "{bucket} + toIntervalSecond({seconds})",
+            placeholders={
+                "bucket": self.bucket_of(timestamp),
+                "seconds": ast.Constant(value=int(self.bucket.total_seconds())),
+            },
+        )
 
     def bucket_of(self, timestamp: ast.Expr) -> ast.Expr:
         """The start of the bucket that holds `timestamp`, which must not be before the range."""
@@ -339,12 +371,25 @@ def read_flag(edit: WatchedEdit, in_condition: Mapping[ConditionMatch, ast.Expr]
 
 
 def _in_condition(
-    team: Team, edit: WatchedEdit, by_reason: ast.Expr | None, end: datetime, with_properties: bool
+    team: Team,
+    edit: WatchedEdit,
+    by_reason: "_ReasonColumns | None",
+    end: datetime,
+    with_properties: bool,
+    bucket_end: ast.Expr,
 ) -> dict[ConditionMatch, ast.Expr]:
-    """`by_reason` is the column of `_reason_joins` for the edit, or None without watched conditions."""
+    """`by_reason` holds the columns of `_reason_joins` for the edit, or None without watched conditions.
+    `bucket_end` is the end of the bucket of the event."""
     if by_reason is None:
         return {}
-    in_condition = {ConditionMatch.REASON: parse_expr("{by_reason} = 1", placeholders={"by_reason": by_reason})}
+    # A call after the bucket of the event doesn't count for it, so that each bucket holds only what a tick at its end
+    # could know, also when one query reads many buckets.
+    in_condition = {
+        ConditionMatch.REASON: parse_expr(
+            "{called} = 1 AND {first_call} < {bucket_end}",
+            placeholders={"called": by_reason.called, "first_call": by_reason.first_call, "bucket_end": bucket_end},
+        )
+    }
     if not with_properties:
         return in_condition
     try:
@@ -413,12 +458,18 @@ def _join_by_actor(table: ast.SelectQuery, alias: str, actor: Actor) -> ast.Join
     )
 
 
+@frozen
+class _ReasonColumns:
+    called: ast.Expr
+    first_call: ast.Expr
+
+
 def _reason_joins(
     team: Team, edits: Sequence[WatchedEdit], end: datetime
-) -> tuple[list[ast.JoinExpr], dict[str, ast.Expr]]:
-    """The joins that tell, for each edit with watched conditions, whether the actor of an event sent a flag call
-    with a watched reason after the edit, and the column of each edit. One join per kind of actor, so the query reads
-    the flag calls once for all the edits of that kind."""
+) -> tuple[list[ast.JoinExpr], dict[str, _ReasonColumns]]:
+    """The joins that tell, for each edit with watched conditions, whether and when the actor of an event sent a flag
+    call with a watched reason after the edit, and the columns of each edit. One join per kind of actor, so the query
+    reads the flag calls once for all the edits of that kind."""
     watched_by_actor = {
         group_type_index: watched
         for group_type_index, all_edits in edits_by_actor(edits).items()
@@ -428,7 +479,7 @@ def _reason_joins(
         return [], {}
     calls = FlagCalls.of(team)
     joins: list[ast.JoinExpr] = []
-    columns: dict[str, ast.Expr] = {}
+    columns: dict[str, _ReasonColumns] = {}
     for group_type_index, watched in watched_by_actor.items():
         alias = "flag_reasons" if group_type_index is None else f"flag_reasons_{group_type_index}"
         actor = actor_of(group_type_index)
@@ -437,11 +488,11 @@ def _reason_joins(
             select=[
                 ast.Alias(alias="actor", expr=calls.actor_column(group_type_index)),
                 *[
-                    ast.Alias(
-                        alias=f"e{index}",
-                        expr=_called_with_watched_reason(edit, calls, reasons_by_edit[edit.id]),
-                    )
+                    ast.Alias(alias=f"e{index}{suffix}", expr=expr)
                     for index, edit in watched
+                    for suffix, expr in zip(
+                        ("", "_first"), _called_with_watched_reason(edit, calls, reasons_by_edit[edit.id])
+                    )
                 ],
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=list(calls.table))),
@@ -476,7 +527,9 @@ def _reason_joins(
         )
         joins.append(_join_by_actor(subquery, alias, actor))
         for index, edit in watched:
-            columns[edit.id] = ast.Field(chain=[alias, f"e{index}"])
+            columns[edit.id] = _ReasonColumns(
+                called=ast.Field(chain=[alias, f"e{index}"]), first_call=ast.Field(chain=[alias, f"e{index}_first"])
+            )
     return joins, columns
 
 
@@ -488,14 +541,15 @@ def _watched_reasons(edit: WatchedEdit) -> list[str]:
     return reasons
 
 
-def _called_with_watched_reason(edit: WatchedEdit, calls: FlagCalls, reasons: Sequence[str]) -> ast.Expr:
-    return parse_expr(
+def _called_with_watched_reason(
+    edit: WatchedEdit, calls: FlagCalls, reasons: Sequence[str]
+) -> tuple[ast.Expr, ast.Expr]:
+    """Whether the actor sent a call with a watched reason after the edit, and the time of the first one."""
+    watched_call = parse_expr(
         """
-        max(
-            {flag_key} = {edit_flag_key}
-                AND timestamp >= {edited_at}
-                AND properties.$feature_flag_reason IN {reasons}
-        )
+        {flag_key} = {edit_flag_key}
+            AND timestamp >= {edited_at}
+            AND properties.$feature_flag_reason IN {reasons}
         """,
         placeholders={
             "flag_key": calls.flag_key,
@@ -503,6 +557,10 @@ def _called_with_watched_reason(edit: WatchedEdit, calls: FlagCalls, reasons: Se
             "edited_at": ast.Constant(value=edit.edited_at),
             "reasons": constants(reasons),
         },
+    )
+    return (
+        parse_expr("max({watched_call})", placeholders={"watched_call": watched_call}),
+        parse_expr("minIf(timestamp, {watched_call})", placeholders={"watched_call": clone_expr(watched_call)}),
     )
 
 
@@ -555,6 +613,7 @@ def _states(index: int, edit: WatchedEdit, read: FlagRead, counts: Sequence[ast.
 
 def run_window_query(team: Team, query: ast.SelectQuery, query_type: str) -> list[Any]:
     """The result rows of an observation window query, run with the settings that every window query shares."""
+    limits = _limits.get()
     with tags_context(
         product=Product.FEATURE_FLAGS,
         feature=Feature.HEALTH_CHECK,
@@ -573,8 +632,8 @@ def run_window_query(team: Team, query: ast.SelectQuery, query_type: str) -> lis
             ),
             # A query that breaks on timeout returns partial counts, which would read as lower counts.
             settings=HogQLGlobalSettings(
-                max_execution_time=QUERY_TIMEOUT_SECONDS,
-                max_threads=QUERY_MAX_THREADS,
+                max_execution_time=limits.timeout_seconds,
+                max_threads=limits.max_threads,
                 timeout_overflow_mode="throw",
                 # The reason joins and the last values group by actor. On a large team the aggregation goes to disk
                 # instead of failing the counts of every edit.
@@ -640,7 +699,17 @@ class _BucketQuery:
         reason_joins, reason_columns = _reason_joins(self.team, self.edits, end)
         joins = [*(clone_expr(join) for join in self.joins), *reason_joins]
         reads = {
-            edit.id: read_flag(edit, _in_condition(self.team, edit, reason_columns.get(edit.id), end, with_properties))
+            edit.id: read_flag(
+                edit,
+                _in_condition(
+                    self.team,
+                    edit,
+                    reason_columns.get(edit.id),
+                    end,
+                    with_properties,
+                    self.bucket_range.end_of_bucket(ast.Field(chain=["timestamp"])),
+                ),
+            )
             for edit in self.edits
         }
         states_by_edit = {
