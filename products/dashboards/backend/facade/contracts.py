@@ -19,6 +19,7 @@ from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.dashboards.backend.facade.enums import (
+    CachedTileStatus,
     DashboardCreationMode,
     DashboardTemplateOrdering,
     DashboardTemplateScope,
@@ -474,3 +475,35 @@ class QueryBatchInput:
     cache_only: bool = False
     max_data_points: int | None = None
     tile: str | None = None
+
+
+@frozen
+class CachedTileResult:
+    """One entry of the batched cached-tiles read, which returns one per requested tile ID in request order.
+
+    `insight` holds the tile's cached result on a hit and is None otherwise. Its `result` can be cached JSON that
+    is still encoded (`orjson.Fragment`), so this contract is a plain frozen dataclass that never validates or
+    copies the payload."""
+
+    id: int
+    status: CachedTileStatus
+    insight: dict[str, JsonValue] | None = None
+
+
+@frozen
+class DashboardQuerySharingTileEvent:
+    """One tile that a job of the dashboard query stream computed, as the dashboard tile serializer renders it.
+    The stream sends it as a `tile` event, with the job's diagnostics when the request asks for them."""
+
+    tile: dict[str, JsonValue]
+
+
+@frozen
+class DashboardQuerySharingCachedEvent:
+    """The first event of a `dashboard-v2` board stream.
+
+    `tiles` holds every requested tile's cached result in request order, with stale hits marked. `pending` holds
+    the tiles that the stream computes next, in compute order."""
+
+    tiles: list[dict[str, JsonValue]]
+    pending: list[int]

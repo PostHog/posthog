@@ -12,6 +12,7 @@ from django.db import connections
 
 import structlog
 from prometheus_client import Counter
+from pydantic import JsonValue
 
 from posthog.hogql.query import hogql_execution_override
 from posthog.hogql.query_stats import QueryStats, query_stats_scope
@@ -21,6 +22,10 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.errors import QueryErrorCategory
 from posthog.renderers import SafeJSONRenderer
 
+from products.dashboards.backend.facade.contracts import (
+    DashboardQuerySharingCachedEvent,
+    DashboardQuerySharingTileEvent,
+)
 from products.dashboards.backend.query_sharing import DashboardQuerySharing
 from products.dashboards.backend.query_sharing_debug import DashboardQuerySharingDebug, SharingWorkDebug, sharing_debug
 
@@ -43,38 +48,32 @@ CAPACITY_RETRY_DELAY_SECONDS = 0.25
 CAPACITY_RETRY_MAX_DELAY_SECONDS = 2.0
 
 
-class DashboardQuerySharingTileEvent(TypedDict):
+# The JSON object of each SSE data frame. Callers hand the stream contracts, and the stream encodes these shapes.
+class _TileEvent(TypedDict):
     type: Literal["tile"]
-    tile: dict[str, object]
+    tile: dict[str, JsonValue]
     debug: NotRequired[SharingWorkDebug]
 
 
-class DashboardQuerySharingCachedEvent(TypedDict):
+class _CachedEvent(TypedDict):
     type: Literal["cached"]
-    tiles: list[dict[str, object]]
+    tiles: list[dict[str, JsonValue]]
     pending: list[int]
 
 
-class DashboardQuerySharingErrorEvent(TypedDict):
+class _ErrorEvent(TypedDict):
     type: Literal["error"]
 
 
-class DashboardQuerySharingCompleteEvent(TypedDict):
+class _CompleteEvent(TypedDict):
     type: Literal["complete"]
 
 
-type DashboardQuerySharingStreamEvent = (
-    DashboardQuerySharingTileEvent
-    | DashboardQuerySharingCachedEvent
-    | DashboardQuerySharingErrorEvent
-    | DashboardQuerySharingCompleteEvent
-)
+type _StreamEvent = _TileEvent | _CachedEvent | _ErrorEvent | _CompleteEvent
 
 
-def _rejected_for_capacity(event: DashboardQuerySharingStreamEvent) -> bool:
-    if event["type"] != "tile":
-        return False
-    insight = event["tile"].get("insight")
+def _rejected_for_capacity(event: DashboardQuerySharingTileEvent) -> bool:
+    insight = event.tile.get("insight")
     query_status = insight.get("query_status") if isinstance(insight, dict) else None
     return isinstance(query_status, dict) and query_status.get("error_code") == QueryErrorCategory.RATE_LIMITED
 
@@ -83,16 +82,18 @@ class DashboardQuerySharingStream:
     def __init__(
         self,
         *,
-        jobs: Sequence[Callable[[], DashboardQuerySharingStreamEvent]],
+        jobs: Sequence[Callable[[], DashboardQuerySharingTileEvent]],
         team_id: int,
         query_id: str,
         debug_tile_ids: Sequence[int] = (),
-        initial_events: Sequence[DashboardQuerySharingStreamEvent] = (),
+        cached: DashboardQuerySharingCachedEvent | None = None,
         share_queries: bool = True,
         kind: Literal["board", "sharing"] = "sharing",
     ) -> None:
         self._jobs = jobs
-        self._initial_events = initial_events
+        self._initial_events: tuple[_StreamEvent, ...] = (
+            ({"type": "cached", "tiles": cached.tiles, "pending": cached.pending},) if cached is not None else ()
+        )
         self._share_queries = share_queries
         self._kind = kind
         # The board stream waits for the organization's query slots, as the per-tile path's client used to.
@@ -102,9 +103,9 @@ class DashboardQuerySharingStream:
         self._debug_tile_ids = debug_tile_ids
         self._context = copy_context()
         self._sharing = DashboardQuerySharing()
-        self._queue: Queue[DashboardQuerySharingStreamEvent] = Queue()
+        self._queue: Queue[_StreamEvent] = Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._async_queue: asyncio.Queue[DashboardQuerySharingStreamEvent] | None = None
+        self._async_queue: asyncio.Queue[_StreamEvent] | None = None
         self._pool: ThreadPoolExecutor | None = None
         self._futures: list[Future[None]] = []
         self._slots = _stream_slots
@@ -115,7 +116,7 @@ class DashboardQuerySharingStream:
         self._capacity_deadline: float | None = None
         self.closed = Event()
 
-    def _emit(self, event: DashboardQuerySharingStreamEvent) -> None:
+    def _emit(self, event: _StreamEvent) -> None:
         if self._loop is None or self._async_queue is None:
             self._queue.put(event)
             return
@@ -124,7 +125,7 @@ class DashboardQuerySharingStream:
         except RuntimeError:
             pass
 
-    def _run(self, job: Callable[[], DashboardQuerySharingStreamEvent], query_id: str, tile_id: int | None) -> None:
+    def _run(self, job: Callable[[], DashboardQuerySharingTileEvent], query_id: str, tile_id: int | None) -> None:
         token = hogql_execution_override.set(self._sharing.execute if self._share_queries else None)
         debug = DashboardQuerySharingDebug(tile_id) if tile_id is not None else None
         debug_token = sharing_debug.set(debug)
@@ -137,12 +138,13 @@ class DashboardQuerySharingStream:
             with tags_context(team_id=self._team_id, client_query_id=query_id):
                 if debug:
                     with query_stats_scope() as stats:
-                        event = self._run_job(job)
+                        tile_event = self._run_job(job)
                 else:
-                    event = self._run_job(job)
-            if event is None:
+                    tile_event = self._run_job(job)
+            if tile_event is None:
                 return
-            if debug and stats and event["type"] == "tile":
+            event: _TileEvent = {"type": "tile", "tile": tile_event.tile}
+            if debug and stats:
                 # Keep diagnostics on the transport envelope, outside the independently cached tile results.
                 event["debug"] = {
                     "executions": debug.executions,
@@ -167,7 +169,7 @@ class DashboardQuerySharingStream:
                 self._capacity_deadline = monotonic() + CAPACITY_WAIT_SECONDS
             return monotonic() < self._capacity_deadline
 
-    def _run_job(self, job: Callable[[], DashboardQuerySharingStreamEvent]) -> DashboardQuerySharingStreamEvent | None:
+    def _run_job(self, job: Callable[[], DashboardQuerySharingTileEvent]) -> DashboardQuerySharingTileEvent | None:
         event = job()
         delay = CAPACITY_RETRY_DELAY_SECONDS
         while self._wait_for_capacity and _rejected_for_capacity(event) and self._capacity_wait_left():
@@ -243,7 +245,7 @@ class DashboardQuerySharingStream:
             self.closed.set()
 
     @staticmethod
-    def _encode(event: DashboardQuerySharingStreamEvent) -> bytes:
+    def _encode(event: _StreamEvent) -> bytes:
         return b"data: " + SafeJSONRenderer().render(event) + b"\n\n"
 
     def stream(self) -> Generator[bytes]:
