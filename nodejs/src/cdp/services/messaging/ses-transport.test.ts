@@ -1,17 +1,12 @@
+import { LookupAnswer, lookupAnswers, loopbackAddresses } from '~/tests/helpers/mocks/dns.mock'
+
 import http, { Agent, ClientRequest, IncomingMessage, RequestListener, ServerResponse, createServer } from 'node:http'
 import https, { createServer as createTlsServer } from 'node:https'
 import { AddressInfo, Server, Socket } from 'node:net'
 import tls from 'node:tls'
 import { register } from 'prom-client'
 
-import {
-    ENDPOINT_THAT_REFUSES_CONNECTIONS,
-    LookupAnswer,
-    attachmentFile,
-    lookupAnswers,
-    loopbackAddresses,
-    sesTransportFor,
-} from '~/cdp/_tests/email-delivery-fakes'
+import { ENDPOINT_THAT_REFUSES_CONNECTIONS, attachmentFile, sesTransportFor } from '~/cdp/_tests/email-delivery-fakes'
 
 import { SesTransport } from './ses-transport'
 
@@ -228,13 +223,14 @@ describe('SesTransport', () => {
     })
 
     it.each([
-        ['SES refuses the connection', (): string => ENDPOINT_THAT_REFUSES_CONNECTIONS],
+        ['SES refuses the connection', (): string => ENDPOINT_THAT_REFUSES_CONNECTIONS, 'ECONNREFUSED'],
         [
             'every address of the SES host refuses the connection',
             (): string => {
                 lookupAnswers('ses.example.test', loopbackAddresses('127.0.0.1', '127.0.0.2'))
                 return 'http://ses.example.test:1'
             },
+            'ECONNREFUSED 127.0.0.2:1',
         ],
         [
             'the SES host does not resolve',
@@ -242,17 +238,22 @@ describe('SesTransport', () => {
                 lookupAnswers('ses.invalid', notFound)
                 return 'http://ses.invalid'
             },
+            'ENOTFOUND',
         ],
-    ])('when %s, counts a send with files as before_connect, because it never reached SES', async (_name, endpoint) => {
-        transport = sesTransportFor({ endpoint: endpoint() })
-        const labels = { result: 'before_connect' }
-        const before = await metricValue('cdp_ses_send_results_total', labels)
+    ])(
+        'when %s, counts a send with files as before_connect with the reason, because it never reached SES',
+        async (_name, endpoint, reason) => {
+            transport = sesTransportFor({ endpoint: endpoint() })
+            const labels = { result: 'before_connect' }
+            const before = await metricValue('cdp_ses_send_results_total', labels)
 
-        const outcome = await transport.send(withFiles)
+            const outcome = await transport.send(withFiles)
 
-        expect({
-            outcome: outcome.kind === 'not_sent' ? outcome.reason : outcome.kind,
-            counted: (await metricValue('cdp_ses_send_results_total', labels)) - before,
-        }).toEqual({ outcome: 'before_connect', counted: 1 })
-    })
+            expect({
+                outcome: outcome.kind === 'not_sent' ? outcome.reason : outcome.kind,
+                message: 'message' in outcome ? outcome.message : undefined,
+                counted: (await metricValue('cdp_ses_send_results_total', labels)) - before,
+            }).toEqual({ outcome: 'before_connect', message: expect.stringContaining(reason), counted: 1 })
+        }
+    )
 })
