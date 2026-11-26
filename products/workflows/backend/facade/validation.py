@@ -6,6 +6,7 @@ from products.workflows.backend.services import batch_audience_cohorts
 from products.workflows.backend.services.batch_audience_cohorts import find_behavioral_cohort_name
 from products.workflows.backend.services.transactional_steps import (
     added_transactional_email_steps,
+    holds_transactional_step,
     is_transactional_origin,
     keeps_transactional_shape,
     new_reserved_steps,
@@ -61,6 +62,7 @@ __all__ = [
     "find_clock_function",
     "find_group_field",
     "find_realtime_behavioral_cohort",
+    "holds_transactional_step",
     "is_duration",
     "is_signed_duration",
     "is_transactional_origin",

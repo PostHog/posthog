@@ -1078,6 +1078,22 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
 
+    def test_a_transactional_send_workflow_with_broken_wiring_stays_locked(self):
+        flow = HogFlow.objects.get(id=create_code_email_workflow(team_id=self.team.id, key="welcome"))
+        trigger, email, exit_step = deepcopy(flow.actions)
+        HogFlow.objects.filter(id=flow.id).update(
+            edges=[{"from": trigger["id"], "to": exit_step["id"], "type": "continue"}]
+        )
+        wait = {"id": "wait", "name": "Wait", "type": "delay", "config": {"delay_duration": "1h"}}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"status": "draft", "actions": [trigger, wait, email, exit_step]},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+
     def test_a_transactional_send_workflow_can_get_its_steps_back(self):
         flow = HogFlow.objects.get(id=create_code_email_workflow(team_id=self.team.id, key="welcome"))
         sent_steps = deepcopy(flow.actions)

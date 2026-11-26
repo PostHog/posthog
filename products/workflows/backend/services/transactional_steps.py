@@ -35,6 +35,14 @@ def is_transactional_origin(origin_product: str | None) -> bool:
     return origin_product in TRANSACTIONAL_STEPS
 
 
+def holds_transactional_step(origin_product: str, actions: list[dict[str, Any]]) -> bool:
+    step_id, step_type = TRANSACTIONAL_STEPS[origin_product]
+    return any(
+        isinstance(action, dict) and (action.get("id"), action.get("type")) == (step_id, step_type)
+        for action in actions
+    )
+
+
 def keeps_transactional_shape(origin_product: str, actions: list[dict[str, Any]], edges: list[dict[str, Any]]) -> bool:
     """Whether the steps are still the trigger, the one message step, and the exit that the send API runs."""
     step_id, step_type = TRANSACTIONAL_STEPS[origin_product]

@@ -355,6 +355,7 @@ from products.workflows.backend.facade.validation import (
     find_clock_function,
     find_group_field,
     find_realtime_behavioral_cohort,
+    holds_transactional_step,
     is_duration,
     is_signed_duration,
     is_transactional_origin,
@@ -1108,6 +1109,7 @@ SANDBOX_SENDER_SETUP_FAILURES = Counter(
 WORKFLOW_SAVE_ACTIONS = frozenset({"create", "update", "partial_update", "graph", "action_email", "publish"})
 # A proposal's steps reach the live workflow through approval and publish, which compare against the staged draft.
 STEP_AUTHORING_ACTIONS = WORKFLOW_SAVE_ACTIONS | {"proposals"}
+DRAFT_EDIT_ACTIONS = frozenset({"update", "partial_update", "graph", "action_email"})
 
 
 def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: dict) -> Any:
@@ -4392,11 +4394,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if keeps_transactional_shape(origin_product, actions, edges):
                 self._refuse_marketing_category_on_transactional_step(actions)
                 return
-            # A workflow made through the API before it refused transactional origins has another shape, and saves
-            # like any other workflow.
-            if stored is None or keeps_transactional_shape(
-                origin_product, _steps(stored.actions), _steps(stored.edges)
-            ):
+            # The send APIs always store the reserved step. A workflow made through the API before it refused
+            # transactional origins has none, and saves like any other workflow.
+            if stored is None or holds_transactional_step(origin_product, _steps(stored.actions)):
                 raise serializers.ValidationError(
                     {
                         "actions": "This workflow runs a transactional send, so its steps can't change. "
@@ -4407,8 +4407,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             return
         submitted = _steps(data["actions"])
         existing = [_steps(stored.actions)] if stored else []
-        # A suggestion reaches the live workflow through the staged draft, so it counts only the live steps as existing.
-        if stored and getattr(self.context.get("view"), "action", None) != "proposals":
+        # An edit may keep the steps already staged in the draft. Publishing a draft, or suggesting a change, compares
+        # against the live steps alone, because a suggestion or a restored revision reaches the draft unchecked.
+        if stored and getattr(self.context.get("view"), "action", None) in DRAFT_EDIT_ACTIONS:
             existing.append(_steps((stored.draft or {}).get("actions")))
         if reserved := new_reserved_steps(submitted, *existing):
             raise serializers.ValidationError(
