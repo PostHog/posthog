@@ -50,25 +50,70 @@ function SubmissionValue({
     return <span>{typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}</span>
 }
 
-export function NotebookAppSubmission({
-    action,
-    project,
-    workflowId,
-    columns,
-    rows,
-    pendingInputs,
-}: {
+type CellEdits = Record<number, Record<number, EditableValue>>
+
+function displayedValue(edits: CellEdits, row: number, column: number, original: unknown): unknown {
+    return edits[row] && column in edits[row] ? edits[row][column] : original
+}
+
+function submissionError(cause: unknown): string {
+    const detail = cause && typeof cause === 'object' && 'detail' in cause ? cause.detail : null
+    return typeof detail === 'string' ? detail : 'Submission failed. Check your permissions and try again.'
+}
+
+function unavailableReason(
+    cohort: boolean,
+    name: string,
+    selected: number,
+    pending: boolean,
+    completed: boolean
+): string | undefined {
+    if (completed) {
+        return 'Already submitted'
+    }
+    if (pending) {
+        return 'Refresh the results first'
+    }
+    if (!selected) {
+        return 'Select at least one row'
+    }
+    if (selected > 1000) {
+        return 'Select up to 1,000 rows'
+    }
+    if (cohort && !name.trim()) {
+        return 'Enter a cohort name'
+    }
+}
+
+type SubmissionProps = {
     action: NonNullable<NotebookAppBlockApi['submit_action']>
     project: string
     workflowId?: string
     columns: string[]
     rows: unknown[][]
     pendingInputs: boolean
-}): JSX.Element {
+}
+
+export function NotebookAppSubmission(props: SubmissionProps): JSX.Element {
+    const { action, columns, workflowId } = props
+    if (action === 'create_cohort' && !columns.includes('person_id')) {
+        return <LemonBanner type="warning">The SQL result needs a person_id column to create a cohort.</LemonBanner>
+    }
+    if (action === 'run_workflow' && (!workflowId || new Set(columns).size !== columns.length)) {
+        return (
+            <LemonBanner type="warning">
+                Set a workflow ID and use unique SQL column names to run this workflow.
+            </LemonBanner>
+        )
+    }
+    return <SubmissionForm {...props} />
+}
+
+function SubmissionForm({ action, project, workflowId, columns, rows, pendingInputs }: SubmissionProps): JSX.Element {
     const cohort = action === 'create_cohort'
     const [name, setName] = useState('')
     const [selected, setSelected] = useState<number[]>([])
-    const [edits, setEdits] = useState<Record<number, Record<number, EditableValue>>>({})
+    const [edits, setEdits] = useState<CellEdits>({})
     const [sending, setSending] = useState(false)
     const [error, setError] = useState('')
     const [outcome, setOutcome] = useState<{ title: string; link: string }>()
@@ -80,8 +125,9 @@ export function NotebookAppSubmission({
     const busy = sending || !!outcome
     const rowCount = selected.length
     const buttonLabel = cohort ? 'Create cohort' : 'Run workflow'
+    const disabledReason = unavailableReason(cohort, name, rowCount, pendingInputs, !!outcome)
     async function submit(): Promise<void> {
-        if (inFlight.current || busy || pendingInputs || !selected.length || (cohort && !name.trim())) {
+        if (inFlight.current || disabledReason) {
             return
         }
         inFlight.current = true
@@ -93,10 +139,7 @@ export function NotebookAppSubmission({
                 ? []
                 : selected.map((index) =>
                       Object.fromEntries(
-                          columns.map((column, i) => [
-                              column,
-                              edits[index] && i in edits[index] ? edits[index][i] : rows[index][i],
-                          ])
+                          columns.map((column, i) => [column, displayedValue(edits, index, i, rows[index][i])])
                       )
                   )
             const payload = JSON.stringify([name.trim(), personIds, records])
@@ -122,24 +165,13 @@ export function NotebookAppSubmission({
                 setOutcome({ title: 'View workflow runs', link: urls.workflow(workflowId, 'invocations') })
             }
         } catch (cause) {
-            const detail = cause && typeof cause === 'object' && 'detail' in cause ? cause.detail : null
-            setError(typeof detail === 'string' ? detail : 'Submission failed. Check your permissions and try again.')
+            setError(submissionError(cause))
         } finally {
             inFlight.current = false
             setSending(false)
         }
     }
 
-    if (cohort && personColumn === -1) {
-        return <LemonBanner type="warning">The SQL result needs a person_id column to create a cohort.</LemonBanner>
-    }
-    if (!cohort && (!workflowId || new Set(columns).size !== columns.length)) {
-        return (
-            <LemonBanner type="warning">
-                Set a workflow ID and use unique SQL column names to run this workflow.
-            </LemonBanner>
-        )
-    }
     return (
         <div className="flex flex-col gap-3 mb-2">
             <LemonTable
@@ -178,7 +210,7 @@ export function NotebookAppSubmission({
                             <SubmissionValue
                                 label={`${column}, row ${index + 1}`}
                                 original={values[i]}
-                                value={edits[index] && i in edits[index] ? edits[index][i] : values[i]}
+                                value={displayedValue(edits, index, i, values[i])}
                                 editable={!cohort && selected.includes(index)}
                                 disabled={busy}
                                 onEdit={(value) =>
@@ -204,19 +236,7 @@ export function NotebookAppSubmission({
                     type="primary"
                     data-attr="notebook-app-submit-rows"
                     loading={sending}
-                    disabledReason={
-                        outcome
-                            ? 'Already submitted'
-                            : pendingInputs
-                              ? 'Refresh the results first'
-                              : !rowCount
-                                ? 'Select at least one row'
-                                : rowCount > 1000
-                                  ? 'Select up to 1,000 rows'
-                                  : cohort && !name.trim()
-                                    ? 'Enter a cohort name'
-                                    : undefined
-                    }
+                    disabledReason={disabledReason}
                     onClick={() => void submit()}
                 >
                     {buttonLabel}
