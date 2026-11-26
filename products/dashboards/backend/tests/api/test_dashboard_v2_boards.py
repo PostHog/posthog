@@ -165,8 +165,8 @@ class TestDashboardV2Boards(APIBaseTest):
             ("no_schema_version", {"title": "x", "tabs": []}),
             ("too_large", _board(description="x" * MAX_BOARD_SPEC_BYTES)),
             ("nul_character", {**_board(), "tabs": [{"id": "t", "tiles": [{"id": "a\x00b"}]}]}),
-            ("nul_character_deeply_nested", _board(extra=_nested({"note": "a\x00b"}, depth=600))),
             ("not_a_finite_number", _board(extra={"ratio": float("nan")})),
+            ("nested_too_deep", _board(extra=_nested("x", depth=20000))),
         ]
     )
     def test_rejects_a_document_that_is_not_a_version_2_board(self, _name: str, spec: Any) -> None:

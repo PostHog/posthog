@@ -84,23 +84,29 @@ def check_size(spec: dict[str, Any]) -> None:
         raise BoardSpecInvalid(f"The board document is {size} bytes. The limit is {MAX_BOARD_SPEC_BYTES} bytes.")
 
 
-def check_storable(spec: dict[str, Any]) -> None:
-    """Raise `BoardSpecInvalid` for a value Postgres refuses in jsonb, which would otherwise fail the save with a 500."""
-    # A loop over a stack, not recursion, so a deeply nested hostile document cannot exhaust Python's stack.
-    pending: list[Any] = [spec]
-    while pending:
-        value = pending.pop()
+# Deeper than any real board. `json.dumps` recurses once per level, so an unbounded document could crash a save.
+MAX_BOARD_DEPTH = 100
+
+
+def check_storable(spec: Any) -> None:
+    """Refuse a document nested too deep, or holding a value Postgres refuses in jsonb, before it fails a save with a 500.
+
+    The walk uses an explicit stack, because a hostile document can nest deeper than Python's recursion limit.
+    """
+    stack = [(spec, 1)]
+    while stack:
+        value, depth = stack.pop()
         if isinstance(value, str):
             if "\x00" in value:
                 raise BoardSpecInvalid("The board document contains a NUL character (\\u0000), which cannot be saved.")
         elif isinstance(value, float):
             if not math.isfinite(value):
                 raise BoardSpecInvalid("The board document contains NaN or an infinite number, which cannot be saved.")
-        elif isinstance(value, dict):
-            pending.extend(value.keys())
-            pending.extend(value.values())
-        elif isinstance(value, list):
-            pending.extend(value)
+        elif isinstance(value, dict | list):
+            if depth > MAX_BOARD_DEPTH:
+                raise BoardSpecInvalid(f"The board document is nested deeper than {MAX_BOARD_DEPTH} levels.")
+            children = [*value.keys(), *value.values()] if isinstance(value, dict) else value
+            stack.extend((child, depth + 1) for child in children)
 
 
 def title_of(spec: dict[str, Any]) -> str:
