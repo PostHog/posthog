@@ -2769,12 +2769,15 @@ _PATH_DENY_GATES = frozenset({"deny-list", "tier"})
 def _only_a_human_can_approve(parsed: ReviewerVerdict) -> bool:
     """True when the changed paths alone refused the PR, so a re-review of the same files refuses again.
 
-    A deny on migrations alone is excluded: it lifts once the `Migration risk` check passes.
+    A deny on migrations alone counts too. While the `Migration risk` check is pending the engine
+    returns WAIT, not a refusal, so a refusal means the check already reported for this head without
+    lifting the deny.
     """
+    if parsed.verdict not in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
+        return False
     gates = [g for g in parsed.gate_result.get("gates") or [] if isinstance(g, dict)]
     failed = {g.get("gate") for g in gates if not g.get("passed", True)}
-    deny_categories = (parsed.gate_result.get("classification") or {}).get("deny_categories") or []
-    return bool(failed) and failed <= _PATH_DENY_GATES and deny_categories != ["migrations"]
+    return bool(failed) and failed <= _PATH_DENY_GATES
 
 
 def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | None) -> str:
@@ -2788,6 +2791,9 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     ``reasoning``/``showstoppers`` pair is the fallback when it rendered nothing. The headline is
     prepended to both, so the outcome is stated whichever one is available.
     """
+    # A gate refusal is stored as a GATED WAIT, but the engine refused it, so it must not read as a wait.
+    if parsed.gate_blocked and parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
+        verdict = ReviewVerdict.REFUSED
     headline = _VERDICT_HEADLINES.get(verdict, f"**Stamphog review: {verdict}**")
     if _only_a_human_can_approve(parsed):
         headline = _VERDICT_HEADLINES[ReviewVerdict.REFUSED]
