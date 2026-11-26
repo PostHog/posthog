@@ -160,6 +160,7 @@ describe('scorecard', () => {
                     generator_version: '2222222222222222222222222222222222222222',
                     valves_version: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
                     seed: 1,
+                    seed_source: 'card',
                     status: 'failed',
                     status_reason: 'at_least_once failed: run-x-3 email: the edge never received it',
                     started_at: '2026-01-05T10:00:00.000Z',
