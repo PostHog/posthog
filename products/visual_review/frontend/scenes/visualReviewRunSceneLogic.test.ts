@@ -288,6 +288,62 @@ describe('visualReviewRunSceneLogic', () => {
         })
     })
 
+    it('reloads the snapshots when someone decided after the page read them', async () => {
+        const pending = {
+            id: 'snapshot-changed',
+            identifier: 'changed',
+            result: 'changed',
+            review_state: 'pending',
+            current_artifact: { content_hash: 'after' },
+            decision: { state: 'cleared', seq: 2 },
+        }
+        const rejectedSince = { ...pending, review_state: 'rejected', decision: { state: 'rejected', seq: 3 } }
+        let listed = pending
+        let sentBody: Record<string, unknown> | null = null
+        useMocks({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: [
+                    200,
+                    {
+                        id: RUN_ID,
+                        repo_id: 'repo',
+                        run_type: 'storybook',
+                        pr_number: 7,
+                        purpose: 'review',
+                        gate: 'commit_status',
+                        status: 'completed',
+                    },
+                ],
+                [SNAPSHOTS_URL]: () => [200, { count: 1, next: null, previous: null, results: [listed] }],
+            },
+            post: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/reject/`]: async ({ request }) => {
+                    sentBody = (await request.json()) as Record<string, unknown>
+                    listed = rejectedSince
+                    return [
+                        409,
+                        {
+                            detail: 'Someone rejected changed after you read it.',
+                            code: 'decided_since',
+                            snapshots: [{ identifier: 'changed', code: 'decided_since', detail: '', current_seq: 3 }],
+                        },
+                    ]
+                },
+            },
+        })
+        logic.actions.loadRun()
+        logic.actions.loadSnapshots()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => logic.actions.rejectSnapshot(logic.values.snapshots[0], 'Too light'))
+            .toDispatchActions(['decideSnapshotFailure', 'loadSnapshots', 'loadSnapshotsSuccess'])
+            .toMatchValues({ snapshots: [rejectedSince], decidingAction: null })
+        expect(sentBody).toEqual({
+            snapshots: [{ identifier: 'changed', new_hash: 'after', reason: 'Too light' }],
+            expected_seq: 2,
+        })
+    })
+
     it.each([
         {
             name: 'moves a renamed repo path to the run repo',
