@@ -113,8 +113,9 @@ def _id_jag_access_token() -> str:
     )
 
 
-def _request(method: str, path: str, **headers: str) -> Request:
-    django_request = RequestFactory().generic(method, path, **headers)
+def _request(method: str, path: str, authorization: str | None = None) -> Request:
+    headers = {"Authorization": authorization} if authorization else None
+    django_request = RequestFactory().generic(method, path, headers=headers)
     # AuthenticationMiddleware sets this on every real request, and SessionAuthentication reads it.
     django_request.user = AnonymousUser()
     return Request(django_request)
@@ -152,7 +153,7 @@ def test_authenticators_before_id_jag_pass_its_token_on() -> None:
         if id_jag_position is None:
             continue
 
-        request = _request(method, path, HTTP_AUTHORIZATION=f"Bearer {token}")
+        request = _request(method, path, authorization=f"Bearer {token}")
         for authenticator in authenticators[:id_jag_position]:
             if _refuses_requests_without_its_credential(authenticator, method, path):
                 break

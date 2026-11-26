@@ -44,6 +44,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
+from posthog.oauth_provenance import ID_JAG_ORIGIN_HEADER
 from posthog.permissions import ID_JAG_CANNOT_WRITE_TASKS
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE
@@ -1815,14 +1816,20 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIn("Task 1", task_titles)
         self.assertIn("Task 2", task_titles)
 
-    def test_id_jag_token_can_read_tasks_but_not_run_one(self):
+    @parameterized.expand([("id_jag_token",), ("connection_forwarding_for_an_id_jag_token",)])
+    def test_id_jag_token_can_read_tasks_but_not_run_one(self, caller):
         task = self.create_task("Task 1")
-        client = APIClient()
-        token = id_jag_access_token(self.user, self.organization, "task:read task:write")
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        headers: dict[str, str] = {}
+        if caller == "id_jag_token":
+            client = APIClient()
+            token = id_jag_access_token(self.user, self.organization, "task:read task:write")
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        else:
+            client = self._oauth_client("connection-client")
+            headers = {ID_JAG_ORIGIN_HEADER: "1"}
 
-        listed = client.get(f"/api/projects/{self.team.id}/tasks/")
-        run = client.post(f"/api/projects/{self.team.id}/tasks/{task.id}/run/", {}, format="json")
+        listed = client.get(f"/api/projects/{self.team.id}/tasks/", headers=headers)
+        run = client.post(f"/api/projects/{self.team.id}/tasks/{task.id}/run/", {}, format="json", headers=headers)
 
         self.assertEqual(listed.status_code, status.HTTP_200_OK, listed.content)
         self.assertEqual([row["id"] for row in listed.json()["results"]], [str(task.id)])
@@ -15803,7 +15810,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         client = self._oauth_client(client_id) if client_id else self.client
         headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}
 
-        response = client.post(self._command_url(task, run), self._make_user_message(), format="json", **headers)
+        response = client.post(self._command_url(task, run), self._make_user_message(), format="json", headers=headers)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         task.refresh_from_db()

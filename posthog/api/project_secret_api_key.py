@@ -15,12 +15,13 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions import InsufficientScope
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
+from posthog.oauth_provenance import is_id_jag_origin_request
 from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
@@ -115,7 +116,7 @@ ID_JAG_CANNOT_ISSUE_KEYS = (
 def _enforce_caller_may_grant_scopes(request: Request, view: "ProjectSecretAPIKeyViewSet", scopes: list[str]) -> None:
     # A key has no expiry and no owner, so it keeps working after the identity provider revokes the agent or
     # deprovisions the person. Every route that creates, rolls or widens a key calls this function.
-    if isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+    if is_id_jag_origin_request(request):
         raise PermissionDenied(ID_JAG_CANNOT_ISSUE_KEYS)
     _enforce_caller_holds_scopes(request, scopes)
     _enforce_caller_may_grant_billing_read(request, view.team.organization, scopes)

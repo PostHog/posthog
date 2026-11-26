@@ -36,6 +36,7 @@ from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.oauth_provenance import is_id_jag_origin_request
 from posthog.organization_caching import get_cached_organization_membership
 from posthog.project_creation_limits import PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE, member_can_create_projects
 from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
@@ -1115,9 +1116,10 @@ class APIScopePermission(ScopeBasePermission):
             return False
 
         # A task run gets its own credential, with wider scopes and a longer life than the token that started it.
-        # An ID-JAG token lives only as long as the identity provider allows, so it must not start or drive a run.
+        # An ID-JAG token lives only as long as the identity provider allows, so it must not start or drive a run,
+        # directly or through a PostHog connection.
         if (
-            isinstance(authenticator, IDJagAccessTokenAuthentication)
+            is_id_jag_origin_request(request)
             and "task:write" in required_scopes
             and not getattr(view, "id_jag_may_write_tasks", False)
         ):
