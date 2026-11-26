@@ -14,7 +14,12 @@ from django.core.exceptions import ImproperlyConfigured
 from posthog.email import EmailMessage
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, transition_delivery_key
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
+from products.alerts_platform.backend.delivery.transport import (
+    ADD_RECIPIENTS,
+    DeliveryError,
+    DestinationMisconfigured,
+    MessageHandle,
+)
 from products.alerts_platform.backend.delivery.wire import credential_digest
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData
 
@@ -44,7 +49,7 @@ class EmailTransport:
     ) -> MessageHandle | None:
         addresses = target.get("email_addresses") or []
         if not addresses:
-            raise DestinationMisconfigured("This email destination has no recipients.")
+            raise DestinationMisconfigured("This email destination has no recipients.", remedy=ADD_RECIPIENTS)
         try:
             email = EmailMessage(
                 campaign_key=transition_delivery_key(message),

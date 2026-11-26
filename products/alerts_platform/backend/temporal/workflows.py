@@ -197,7 +197,7 @@ async def _log_refused_everywhere(request: AlertDeliveryRequest, error: RefusedE
     """Ends the send without raising, because only the destination's owner can fix the refusal.
 
     A retry is refused the same way. Each send already counts as `misconfigured` and the alert's
-    creator was told, so a failed activity would only fail the workflow and page the platform for
+    creator is told once per destination per day, so a failed activity would only fail the workflow and page the platform for
     a problem it cannot fix.
     """
     await LOGGER.ainfo(

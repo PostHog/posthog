@@ -14,7 +14,7 @@ from posthog.models.user import User
 
 from products.alerts_platform.backend.delivery import refusal_notices
 from products.alerts_platform.backend.delivery.refusal_notices import notify_refused
-from products.alerts_platform.backend.delivery.transport import DestinationRefused
+from products.alerts_platform.backend.delivery.transport import DestinationMisconfigured, DestinationRefused
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.logic import source_access
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
@@ -57,7 +57,7 @@ class TestRefusalNotices(BaseTest):
         destination: str = "destination-1",
         now: datetime = NOW,
         can_view: bool = True,
-        refusal: DestinationRefused = REFUSAL,
+        refusal: DestinationMisconfigured = REFUSAL,
     ) -> list[UUID]:
         looked_up: list[UUID] = []
 
@@ -97,7 +97,8 @@ class TestRefusalNotices(BaseTest):
         assert (event.notification_type, event.body, event.source_url) == (
             "alert_destination_refused",
             "The webhook destination refused the message with status 400. "
-            "Every notification sent there will fail until the destination is fixed.",
+            "Every notification sent there will fail until the destination is fixed. "
+            "Check the destination's URL and the format it accepts, then update the destination on the alert.",
             # The query selects the alert on the insight's alerts page.
             "/project/1/insights/abc123/alerts?alert_id=a1",
         )
@@ -116,15 +117,25 @@ class TestRefusalNotices(BaseTest):
                 ),
                 "Invite it with /invite @PostHog in the channel.",
             ),
+            (
+                "misconfigured",
+                DestinationMisconfigured(
+                    "This email destination has no recipients.",
+                    remedy="Add recipients to the destination on the alert.",
+                ),
+                "Add recipients to the destination on the alert.",
+            ),
         ]
     )
     def test_the_notice_says_what_was_refused_and_how_to_fix_it(
-        self, _name: str, refusal: DestinationRefused, remedy: str
+        self, _name: str, refusal: DestinationMisconfigured, remedy: str
     ) -> None:
         self._notify(self.user, refusal=refusal)
 
         event = stored_notifications_for_team(self.team.id)[0]
-        assert event.body == f"{refusal} Every notification sent there will fail until the destination is fixed."
+        assert (
+            event.body == f"{refusal} Every notification sent there will fail until the destination is fixed. {remedy}"
+        )
         context = self.email.call_args.kwargs["template_context"]
         assert context["refusal"] == str(refusal)
         assert context["remedy"].startswith(remedy)
