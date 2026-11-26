@@ -1,0 +1,54 @@
+classDiagram
+    direction LR
+    class messagingPlacements_ts {
+        <<products/workflows/mcp>>
+        PLACEMENTS: readonly MessagingPlacement[]
+        MESSAGING_HOLDOUT_FLAG
+        areaFlag(area) string
+        placementState(key, flags) PlacementState
+    }
+    class MessagingPlacement {
+        key: MessagingPlacementKey
+        area: MessagingArea
+        variant: string
+        ctas: MessagingCtaKind[]
+        audience: MessagingAudienceKind
+        defaultCopy: MessagingCtaCopy
+    }
+    class MessagingCtaProps {
+        <<web seam>>
+        placement: MessagingPlacementKey
+        context: MessagingCtaContext
+        audience() Promise~MessageAudienceTarget~
+        disabledReason?: string
+    }
+    class messagingCtaLogic {
+        <<inside Workflows>>
+        state: PlacementState
+        attemptId: uuid
+        shown()
+        click(cta)
+    }
+    class HogFlow {
+        <<Django model>>
+        entry_attempt_id: UUID null
+        first_real_send_at: datetime null
+    }
+    class GuidanceRule {
+        <<services/mcp>>
+        flag
+        experiment?: variant, holdoutFlag
+        text(call, payload, attemptId)
+    }
+    class first_real_send_task {
+        <<daily Celery task>>
+        app_metrics2 billable email rows
+        captures workflow first real send
+    }
+    messagingPlacements_ts --> MessagingPlacement
+    MessagingCtaProps --> messagingCtaLogic : renderer mounts
+    messagingCtaLogic --> messagingPlacements_ts : placementState
+    GuidanceRule --> messagingPlacements_ts : placementState
+    messagingCtaLogic --> HogFlow : attempt via editor URL, first save
+    GuidanceRule --> HogFlow : attempt via hint, MCP create
+    first_real_send_task --> HogFlow : sets first_real_send_at

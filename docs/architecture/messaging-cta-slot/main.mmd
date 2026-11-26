@@ -1,0 +1,34 @@
+sequenceDiagram
+    autonumber
+    participant H as Host spot (flags page)
+    participant S as messagingCtaLogic
+    participant F as PostHog analytics
+    participant D as Before you send
+    participant E as Broadcast editor
+    participant A as HogFlow API
+    participant J as First real send task (daily)
+    H->>S: mount MessagingCta(placement, context, audience)
+    S->>F: peek holdout and area flag (local, no request)
+    Note over H,S: spot first visible
+    S->>F: exposure for holdout and area flag (every arm)
+    alt not holdout and variant is this spot
+        S->>S: mint attemptId
+        S->>F: capture messaging cta shown {placement, variant, cta, attemptId}
+        S-->>H: render button, menu item or toast with payload copy
+    else control, holdout or another spot
+        S-->>H: render nothing
+    end
+    H->>S: person clicks
+    S->>F: capture message audience clicked {source, destination, placement, attemptId}
+    S->>H: audience() (runs now, not at render)
+    H-->>S: properties, trigger, source record
+    S->>D: loadMessageAudienceWarnings
+    D-->>S: none, or a note the person continues past
+    S->>E: open editor URL with source and attempt
+    E->>A: first save {entry_attempt_id}
+    A->>F: hog_flow_created {hog_flow_id, entry_attempt_id}
+    E->>A: launch or enable
+    A->>F: hog_flow_activated {hog_flow_id, entry_attempt_id}
+    J->>J: first billable email per workflow in app_metrics2
+    J->>A: set first_real_send_at where it is null
+    J->>F: workflow first real send {hog_flow_id, entry_attempt_id}, rows it updated only

@@ -1,0 +1,210 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "person",
+                    "name": "Person in the app",
+                    "note": "can edit workflows",
+                    "external": true,
+                    "flex": 3,
+                    "seam": []
+                },
+                {
+                    "id": "agent",
+                    "name": "Agent over MCP",
+                    "note": "after cohorts-create",
+                    "external": true,
+                    "flex": 1.4,
+                    "seam": []
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "flags",
+                    "name": "Flags",
+                    "change": "changed",
+                    "seam": []
+                },
+                {
+                    "id": "cohorts",
+                    "name": "Cohorts",
+                    "change": "changed",
+                    "seam": []
+                },
+                {
+                    "id": "insights",
+                    "name": "Insights",
+                    "note": "people modal",
+                    "change": "changed",
+                    "seam": []
+                },
+                {
+                    "id": "replay",
+                    "name": "Replay",
+                    "change": "added",
+                    "seam": []
+                },
+                {
+                    "id": "mcp",
+                    "name": "MCP guidance",
+                    "note": "services/mcp",
+                    "change": "changed",
+                    "flex": 1.4,
+                    "seam": ["evaluate", "GUIDANCE_RULES"]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "slot",
+                    "name": "Messaging CTA slot",
+                    "todayName": "MessageAudience",
+                    "note": "Workflows frontend",
+                    "change": "changed",
+                    "flex": 2.4,
+                    "seam": [
+                        {
+                            "name": "MessagingCta",
+                            "change": "added"
+                        },
+                        "openMessageAudience",
+                        "captureMessageAudienceClicked",
+                        "messageAudienceUrl",
+                        "messageAudienceAccessDisabledReason"
+                    ]
+                },
+                {
+                    "id": "exp",
+                    "name": "PostHog Experiments",
+                    "note": "area flags, holdout, payload copy",
+                    "external": true,
+                    "flex": 1,
+                    "seam": []
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "editors",
+                    "name": "Broadcast and workflow editors",
+                    "note": "Workflows frontend",
+                    "change": "changed",
+                    "flex": 1.4,
+                    "seam": ["urlForNewBroadcastWithAudience", "urlForNewWorkflowWithTrigger"]
+                },
+                {
+                    "id": "backend",
+                    "name": "Workflows backend",
+                    "change": "changed",
+                    "flex": 1,
+                    "seam": ["HogFlow.source_record", "workflow_email_drafts"]
+                },
+                {
+                    "id": "bill",
+                    "name": "Billed sends",
+                    "note": "app_metrics2 per workflow",
+                    "external": true,
+                    "flex": 0.8,
+                    "seam": []
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "person",
+            "to": "cohorts",
+            "label": "views",
+            "fromAt": 0.35
+        },
+        {
+            "from": "agent",
+            "to": "mcp-seam",
+            "label": "tool call"
+        },
+        {
+            "from": "exp",
+            "to": "slot",
+            "fromSide": "left",
+            "toSide": "right",
+            "change": "added"
+        },
+        {
+            "from": "exp",
+            "to": "mcp",
+            "fromSide": "top",
+            "toSide": "bottom",
+            "change": "added",
+            "label": "variant",
+            "labelAt": 0.5
+        },
+        {
+            "from": "flags",
+            "to": "slot-seam",
+            "toAt": 0.1
+        },
+        {
+            "from": "cohorts",
+            "to": "slot-seam",
+            "toAt": 0.32
+        },
+        {
+            "from": "insights",
+            "to": "slot-seam",
+            "toAt": 0.55
+        },
+        {
+            "from": "replay",
+            "to": "slot-seam",
+            "toAt": 0.8,
+            "change": "added"
+        },
+        {
+            "from": "slot",
+            "to": "editors-seam",
+            "label": "handoff",
+            "fromAt": 0.25,
+            "toAt": 0.5
+        },
+        {
+            "from": "editors",
+            "to": "backend-seam",
+            "fromSide": "right",
+            "toSide": "left",
+            "fromAt": 0.5,
+            "toAt": 0.5
+        },
+        {
+            "from": "bill",
+            "to": "backend",
+            "fromSide": "left",
+            "toSide": "right",
+            "fromAt": 0.4,
+            "toAt": 0.4,
+            "change": "added",
+            "labelOffset": [0, -24]
+        }
+    ],
+    "untouched": [
+        {
+            "name": "Surveys",
+            "seam": ["SurveyFollowUpWorkflowButton", "surveyRespondentsBroadcastLogic"],
+            "note": "benchmark, calls MessageAudience"
+        },
+        {
+            "name": "Error Tracking",
+            "seam": ["issueAffectedBroadcastLogic", "issueWorkflow"],
+            "note": "benchmark, calls MessageAudience"
+        },
+        {
+            "name": "Early access",
+            "seam": ["enrolledPeopleAudience"],
+            "note": "calls MessageAudience"
+        }
+    ]
+}

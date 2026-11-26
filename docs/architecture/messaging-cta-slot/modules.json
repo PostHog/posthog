@@ -1,0 +1,325 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "flags",
+                    "name": "Flags",
+                    "change": "changed",
+                    "seam": [],
+                    "chips": [
+                        {
+                            "id": "flags-spots",
+                            "text": "3 spots, one per variant",
+                            "change": "added"
+                        },
+                        {
+                            "id": "flags-aud",
+                            "text": "flag audience resolver",
+                            "change": "changed"
+                        }
+                    ]
+                },
+                {
+                    "id": "cohorts",
+                    "name": "Cohorts",
+                    "change": "changed",
+                    "seam": [],
+                    "chips": [
+                        {
+                            "id": "cohorts-spots",
+                            "text": "toast, header, real-time save",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "insights",
+                    "name": "Insights",
+                    "change": "changed",
+                    "seam": [],
+                    "chips": [
+                        {
+                            "id": "insights-spot",
+                            "text": "people modal spot",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "replay",
+                    "name": "Replay",
+                    "change": "added",
+                    "seam": [],
+                    "chips": [
+                        {
+                            "id": "replay-spots",
+                            "text": "player, list, Email Impact",
+                            "change": "added"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "slot",
+                    "name": "Messaging CTA slot",
+                    "todayName": "MessageAudience",
+                    "note": "products/workflows/frontend",
+                    "change": "changed",
+                    "flex": 2.3,
+                    "seam": [
+                        {
+                            "name": "MessagingCta",
+                            "change": "added"
+                        },
+                        {
+                            "name": "captureMessageAudienceClicked",
+                            "change": "removed"
+                        },
+                        {
+                            "name": "messageAudienceUrl",
+                            "change": "removed"
+                        },
+                        "openMessageAudience",
+                        "MessageAudienceButton"
+                    ],
+                    "chips": [
+                        {
+                            "id": "slot-logic",
+                            "text": "messagingCtaLogic: holdout, variant, copy, shown, attempt ID",
+                            "change": "added",
+                            "wide": true
+                        },
+                        {
+                            "id": "slot-render",
+                            "text": "native renderers: button, menu item, toast",
+                            "change": "added"
+                        },
+                        {
+                            "id": "slot-warn",
+                            "text": "Before you send: counts test sender",
+                            "change": "changed"
+                        },
+                        {
+                            "id": "slot-drafts",
+                            "text": "drafts, AI draft, brand"
+                        }
+                    ]
+                },
+                {
+                    "id": "reg",
+                    "name": "Placement registry",
+                    "note": "products/workflows/mcp",
+                    "change": "added",
+                    "flex": 1,
+                    "seam": ["PLACEMENTS", "placementState"],
+                    "chips": [
+                        {
+                            "text": "key, area flag, calls to action, audience kind"
+                        }
+                    ]
+                },
+                {
+                    "id": "mcp",
+                    "name": "MCP guidance",
+                    "change": "changed",
+                    "flex": 1,
+                    "seam": ["evaluate"],
+                    "chips": [
+                        {
+                            "id": "mcp-rule",
+                            "text": "messaging rule after cohorts-create",
+                            "change": "added"
+                        },
+                        {
+                            "id": "mcp-variant",
+                            "text": "variant + payload read",
+                            "change": "added"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "editors",
+                    "name": "Broadcast and workflow editors",
+                    "change": "changed",
+                    "flex": 1.4,
+                    "seam": ["urlForNewBroadcastWithAudience", "urlForNewWorkflowWithTrigger"],
+                    "chips": [
+                        {
+                            "id": "ed-attempt",
+                            "text": "attempt param \u2192 first save",
+                            "change": "added"
+                        },
+                        {
+                            "id": "ed-session",
+                            "text": "entry_source in sessionStorage",
+                            "change": "removed"
+                        }
+                    ]
+                },
+                {
+                    "id": "backend",
+                    "name": "Workflows backend",
+                    "change": "changed",
+                    "flex": 1.2,
+                    "seam": [
+                        "HogFlowSerializer",
+                        {
+                            "name": "entry_attempt_id",
+                            "change": "added"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "be-field",
+                            "text": "HogFlow.entry_attempt_id, create-only",
+                            "change": "added"
+                        },
+                        {
+                            "id": "be-event",
+                            "text": "hog_flow_created + activated carry it",
+                            "change": "added"
+                        },
+                        {
+                            "id": "be-task",
+                            "text": "first real send task, first_real_send_at",
+                            "change": "added"
+                        },
+                        {
+                            "text": "source_record"
+                        }
+                    ]
+                },
+                {
+                    "id": "later",
+                    "name": "Server draft API",
+                    "note": "later",
+                    "change": "added",
+                    "followUp": true,
+                    "flex": 0.8,
+                    "seam": ["draftFor(placement, context)"]
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "flags",
+            "to": "slot-seam",
+            "toAt": 0.08,
+            "change": "added"
+        },
+        {
+            "from": "cohorts",
+            "to": "slot-seam",
+            "toAt": 0.2,
+            "change": "added"
+        },
+        {
+            "from": "insights",
+            "to": "slot-seam",
+            "toAt": 0.32,
+            "change": "added"
+        },
+        {
+            "from": "replay",
+            "to": "slot-seam",
+            "toAt": 0.44,
+            "change": "added"
+        },
+        {
+            "from": "flags",
+            "to": "slot-seam",
+            "toAt": 0.6,
+            "change": "removed",
+            "kind": "leak",
+            "label": "direct calls",
+            "todayLabel": "direct calls",
+            "labelAt": 0.3,
+            "crossAt": 0.75,
+            "labelOffset": [-30, 0]
+        },
+        {
+            "from": "cohorts",
+            "to": "slot-seam",
+            "change": "removed",
+            "kind": "leak",
+            "label": "direct calls",
+            "fromAt": 0.85,
+            "toAt": 0.85,
+            "bend": 60,
+            "labelAt": 0.45,
+            "crossAt": 0.8,
+            "labelOffset": [40, 0]
+        },
+        {
+            "from": "slot-logic",
+            "to": "reg-seam",
+            "fromSide": "right",
+            "toSide": "left",
+            "change": "added",
+            "toAt": 0.5
+        },
+        {
+            "from": "mcp-rule",
+            "to": "reg",
+            "fromSide": "left",
+            "toSide": "right",
+            "change": "added",
+            "toAt": 0.7,
+            "fromAt": 0.5
+        },
+        {
+            "from": "slot",
+            "to": "editors-seam",
+            "label": "handoff + attempt",
+            "fromAt": 0.3,
+            "toAt": 0.4
+        },
+        {
+            "from": "ed-attempt",
+            "to": "backend-seam",
+            "fromSide": "right",
+            "toSide": "left",
+            "change": "added",
+            "toAt": 0.6
+        },
+        {
+            "from": "slot-drafts",
+            "to": "later-seam",
+            "change": "added",
+            "followUp": true,
+            "fromAt": 0.8,
+            "bend": 120
+        }
+    ],
+    "untouched": [
+        {
+            "name": "Surveys",
+            "seam": ["openMessageAudience", "urlForNewWorkflowWithTrigger"],
+            "note": "benchmark: shown + attempt via old functions"
+        },
+        {
+            "name": "Error Tracking",
+            "seam": ["openMessageAudience", "urlForNewWorkflowWithTrigger"],
+            "note": "benchmark: shown + attempt via old functions"
+        },
+        {
+            "name": "Early access",
+            "seam": ["MessageAudienceButton"],
+            "note": "shown + attempt via the button"
+        },
+        {
+            "name": "PostHog Experiments",
+            "seam": ["xpm-<area>-placement", "xpm-messaging-holdout"],
+            "note": "read by the registry's flags"
+        }
+    ]
+}

@@ -1,0 +1,22 @@
+sequenceDiagram
+    autonumber
+    participant G as Agent
+    participant T as MCP tool executor
+    participant R as Guidance rule (registry key mcp.after_cohorts_create)
+    participant P as PostHog analytics
+    participant A as HogFlow API
+    G->>T: cohorts-create
+    T->>R: evaluate(state, call), success outcome
+    R->>R: read holdout and xpm-mcp-placement from request flags
+    R->>P: $feature_flag_called for both flags, organization group
+    alt treated arm
+        R->>R: mint attemptId, payload text
+        R-->>T: notice: offer a broadcast to this cohort, pass entry_attempt_id
+    else control or holdout
+        R-->>T: no text, outcome flag_off
+    end
+    T->>P: tool call event {mcp_guidance_rule, outcome, attemptId}
+    T-->>G: cohort result plus notice
+    G->>T: broadcasts-create {cohort filter, entry_attempt_id}
+    T->>A: hog_flows_create {entry_attempt_id}
+    A->>P: hog_flow_created {hog_flow_id, entry_attempt_id}

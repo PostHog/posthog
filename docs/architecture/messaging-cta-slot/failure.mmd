@@ -1,0 +1,28 @@
+sequenceDiagram
+    autonumber
+    participant H as Host spot
+    participant S as messagingCtaLogic
+    participant F as PostHog analytics
+    participant D as Before you send
+    participant E as Editor
+    H->>S: person clicks
+    S->>H: audience()
+    alt audience fails
+        H-->>S: error, such as the flag cohort failing to calculate
+        S->>F: capture messaging cta failed {placement, attemptId, stage: audience}
+        S-->>H: error toast with Try again, person stays on the page
+    else audience resolves
+        S->>D: checks: suspension, senders, test sender, cohorts
+        alt a check fails or takes over 5 s
+            D-->>S: stays quiet, the editor checks again
+        else no verified sender, test sender usable
+            D-->>S: test-only note: Continue or Set up email
+        else sending suspended
+            D-->>S: blocker note: Continue or Cancel
+        end
+        alt person left the page while checks ran
+            S-->>S: stop, no navigation
+        else
+            S->>E: open with source and attempt
+        end
+    end
