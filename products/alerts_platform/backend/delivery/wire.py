@@ -105,13 +105,9 @@ def post_json(
             refused = _is_owner_refusal(status, response, owner_refusals)
             response.close()
     except SSRFBlockedError as error:
-        if _host_did_not_resolve(error):
-            raise DeliveryError(
-                f"The {display_name} destination's host name did not resolve.", reason="unreachable"
-            ) from None
         raise DeliveryError(
             f"The {display_name} destination URL points to an address PostHog does not send to.",
-            reason="blocked_address",
+            reason="unreachable" if _host_did_not_resolve(error) else "blocked_address",
         ) from None
     except requests.RequestException as error:
         # Only the class name, and `from None` to keep the original out of the failure chain:

@@ -302,6 +302,16 @@ class TestAmbiguousSend(SimpleTestCase):
         assert not isinstance(raised.value, DeliveryAmbiguous)
         assert raised.value.reason == reason
 
+    def test_an_unresolved_host_reads_as_a_blocked_address(self) -> None:
+        messages = []
+        for error in (SSRFBlockedError(UNRESOLVED_HOST_REASON), SSRFBlockedError("resolves to a private address")):
+            with pinned_post(error=error):
+                with pytest.raises(DeliveryError) as raised:
+                    WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
+            messages.append(str(raised.value))
+
+        assert messages[0] == messages[1]
+
     def test_a_reset_during_the_tls_handshake_is_not_ambiguous(self) -> None:
         with pinned_post(error=_reset_during_tls_handshake()):
             with pytest.raises(DeliveryError) as raised:
