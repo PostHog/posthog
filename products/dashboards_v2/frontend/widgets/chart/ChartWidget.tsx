@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useContext, useMemo } from 'react'
 
 import type { ContentWidget } from '../../dashboard/dashboardTypes'
+import { FiltersContext } from '../../filters/filtersContext'
 import { TimeRangeContext } from '../timeRangeContext'
 import { WidgetLoading } from '../WidgetLoading'
 import { type ChartConfig, chartTargets } from './chartSpec'
@@ -52,10 +53,17 @@ function ChartData({
     states?: ChartStates
 }): JSX.Element {
     const surroundingTime = useContext(TimeRangeContext)
+    const filters = useContext(FiltersContext)
     const time = widget.config.time ?? surroundingTime
     const targets = chartTargets(widget.config)
+    // Filters are left out when empty, so a chart's cached result from before any filter existed still matches.
     const results = useQueryFrames(
-        targets.map(({ query, legend }) => (legend ? { query, time, legend } : { query, time })),
+        targets.map(({ query, legend }) => ({
+            query,
+            time,
+            ...(legend ? { legend } : {}),
+            ...(filters.length > 0 ? { filters } : {}),
+        })),
         runQuery
     )
     // Rebuilt only when a result arrives, so the chart keeps its frames, and skips a redraw, on every other render.

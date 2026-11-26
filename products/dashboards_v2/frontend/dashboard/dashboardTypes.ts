@@ -3,6 +3,7 @@ import type { z } from 'zod'
 import type {
     contentWidgetPartsSchema,
     contentWidgetSchema,
+    dashboardFilterSchema,
     dashboardDocumentSchema,
     dashboardSchema,
     dashboardTabSchema,
@@ -46,6 +47,10 @@ export function spanPx(cells: number, cellPx: number): number {
 export type TilePlace = z.infer<typeof tilePlaceSchema>
 
 export type TimeRange = z.infer<typeof timeRangeSchema>
+
+export type DashboardFilter<Config = unknown> = Omit<z.infer<typeof dashboardFilterSchema>, 'config'> & {
+    config: Config
+}
 
 export type ContentWidgetParts = z.infer<typeof contentWidgetPartsSchema>
 

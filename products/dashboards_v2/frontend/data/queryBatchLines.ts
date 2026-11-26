@@ -25,7 +25,10 @@ export interface QueryBatchLine {
     i: number
     refId?: string
     error?: string
+    /** Set with `error` when a frames request ran but its result has no frame shape: the query's node kind or language. */
+    unsupported_shape?: string
     result?: {
+        /** A frames request always comes back as `frames`, or as a line with `error`. */
         format?: 'frames' | 'result'
         frames?: Frame[]
         canonical?: string
