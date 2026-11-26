@@ -2842,18 +2842,19 @@ describe('EmailService', () => {
                     return emailService.executeSendEmail(next)
                 }
 
-                it.each<[string, FailTheTry[]]>([
-                    ['a download that fails', [downloadFails]],
-                    ['SES refusing the first connection', [sesRefusesItsFirstConnection]],
-                    ['SES throttling the first request', [sesThrottlesOnce]],
+                it.each<[string, number, FailTheTry[]]>([
+                    ['a download that fails', 1, [downloadFails]],
+                    ['SES refusing the first connection', 0, [sesRefusesItsFirstConnection]],
+                    ['SES throttling the first request', 0, [sesThrottlesOnce]],
                     [
                         'a failed ownership check and then a refused connection',
+                        0,
                         [ownershipCheckFails, sesRefusesItsFirstConnection],
                     ],
                 ])(
-                    'claims the workflow limit again for the retry after %s, so the retry parks for the next slot and sends once in it',
-                    async (_cause, failedTries) => {
-                        const emailService = sender()
+                    'claims the workflow limit again for the retry after %s, so the retry parks for the next slot and sends once in it, with %s sends left in a team budget of two',
+                    async (_cause, sendsLeftInTheBudget, failedTries) => {
+                        const emailService = sender({ teamDailyCap: 2 })
                         invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 10, period: 'minute' } }
 
                         const parked = await sendAfterFailedTries(emailService, failedTries)
@@ -2867,6 +2868,7 @@ describe('EmailService', () => {
                             nextSlotWithinSeconds: msToTheNextSlot < 10_000,
                             retried: retried.finished,
                             delivered: deliveredTo(ses, recipient),
+                            sendsLeftInTheBudget: await sendsLeftInTheTeamBudget(emailService),
                         }).toEqual({
                             parked: false,
                             sentBeforeTheNextSlot: 0,
@@ -2878,6 +2880,7 @@ describe('EmailService', () => {
                                     attachments: deliveredFiles.map((file) => file()),
                                 },
                             ],
+                            sendsLeftInTheBudget,
                         })
                     }
                 )
