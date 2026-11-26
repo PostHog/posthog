@@ -9,11 +9,14 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 type Scenario = 'approve' | 'never' | 'denied' | 'quiet'
+// The app each session gets, from `fixtures/`.
+type Fixture = 'storefront' | 'flask-shop'
 
 interface EvalSpec {
     key: string
     title: string
     scenario: Scenario
+    fixture?: Fixture
     // The user is away and approves every login link at once, so the agent can finish in one turn.
     away: boolean
     prompt: string
@@ -145,6 +148,23 @@ const EVALS: EvalSpec[] = [
         ],
     },
     {
+        key: 'flask',
+        title: 'hog setup: Flask server app',
+        scenario: 'approve',
+        fixture: 'flask-shop',
+        away: true,
+        prompt: SETUP_PROMPT,
+        criteria: [
+            ...TRUSTS_HOG,
+            'Before changing app code, the agent ran `hog skills read instrument-integration` and `hog skills read instrument-integration --file references/COMMANDMENTS.md` without `--lines`, and without cutting the output short with `head` or similar. The transcript may shorten long outputs; that alone is not a failure.',
+            '`hog setup` reached the `connected` status.',
+            'The app creates one PostHog Python client per process, with the token and host from environment variables listed in `.env.example` or the env template the project uses, and a missing token logs a warning and keeps the app running instead of raising.',
+            "The server captures an event when someone signs up, with the new user's id as the distinct id, not their email and not one id shared by every visitor.",
+            'The pages load posthog-js (the snippet or the package) with the same project, so pageviews are captured in the browser, and the browser identifies the signed-in user with the same id the server uses.',
+            "The final message tells the user what else PostHog can do, the skills they can add with `hog skills add`, the reverse proxy option, and `hog mcp add`, as hog's last `next` asked.",
+        ],
+    },
+    {
         key: 'eu',
         title: 'hog setup: EU data residency',
         scenario: 'approve',
@@ -222,7 +242,7 @@ const variant = values.variant
 const titled = (title: string): string => (variant ? `${title} [${variant}]` : title)
 
 const here = import.meta.dir
-const fixture = resolve(here, 'fixtures/storefront')
+const fixtures = resolve(here, 'fixtures')
 const dockerfiles = resolve(here, '.generated/env')
 
 interface ModelSettings {
@@ -278,22 +298,28 @@ if (selected.length === 0) {
 }
 
 const resources = await api<{ environments: Titled[]; personas: Titled[] }>('GET', '/api/resources')
-const environments = new Map<Scenario, Titled>()
-for (const scenario of new Set(selected.map((spec) => spec.scenario))) {
+const environments = new Map<string, Titled>()
+const environmentKey = (spec: EvalSpec): string => `${spec.scenario}:${spec.fixture ?? 'storefront'}`
+for (const spec of selected) {
+    const key = environmentKey(spec)
+    if (environments.has(key)) {
+        continue
+    }
+    const { scenario, fixture = 'storefront' } = spec
     const dockerfilePath = join(dockerfiles, variant ? `Dockerfile.${scenario}-${variant}` : `Dockerfile.${scenario}`)
     if (!existsSync(dockerfilePath)) {
         throw new Error(
             variant
-                ? `${dockerfilePath} is missing. Run hog/evals/variant.sh ${variant} <git ref> first.`
+                ? `${dockerfilePath} is missing. Run hog/evals/variant.sh ${variant} first.`
                 : `${dockerfilePath} is missing. Run hog/evals/mock/start.sh first.`
         )
     }
     environments.set(
-        scenario,
+        key,
         await upsert(resources.environments, {
             kind: 'environment',
-            title: titled(`hog evals: storefront, ${scenario} login`),
-            workspacePath: fixture,
+            title: titled(`hog evals: ${fixture}, ${scenario} login`),
+            workspacePath: join(fixtures, fixture),
             executionMode: 'docker',
             dockerfilePath,
         })
@@ -308,7 +334,7 @@ for (const spec of selected) {
         title: titled(spec.title),
         prompt: spec.prompt,
         criteria: spec.criteria.map((description) => ({ description })),
-        environmentId: environments.get(spec.scenario)?.id ?? null,
+        environmentId: environments.get(environmentKey(spec))?.id ?? null,
         personaId: spec.away ? persona.id : null,
         models: values.models.split(',').map((entry) => modelSettings(entry.trim(), count)),
         judge: modelSettings(values.judge, 1),

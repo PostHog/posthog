@@ -75,6 +75,7 @@ Compare more than one session per model: the same build scores a criterion or tw
 | `flags`       | `approve` | A flag for the button label: product choice, skill, flag in PostHog, code with a safe default       |
 | `experiments` | `approve` | An A/B test on the button: experiment skill, experiment in PostHog, variant code and a metric event |
 | `surveys`     | `approve` | A post-signup survey: survey skill, survey in PostHog, targeted at new signups                      |
+| `flask`       | `approve` | A Flask server app: one server client, the signup event with the user's id, posthog-js in the pages |
 | `eu`          | `approve` | `--region eu` before any link, EU hosts in `posthog.json` and posthog-js                            |
 | `denied`      | `denied`  | The agent reports the rejection and doesn't work around it                                          |
 | `quiet`       | `quiet`   | The agent says no events arrived yet and how to send some                                           |
@@ -82,7 +83,7 @@ Compare more than one session per model: the same build scores a criterion or tw
 
 Every setup eval also checks that the agent went through `hog setup` and never tried to approve the login itself, fetch the approval page, or make up keys.
 
-`fixtures/storefront` is the app each session gets: a small Next.js store with a signup form.
+`fixtures/storefront` is the app most sessions get: a small Next.js store with a signup form. The `flask` eval gets `fixtures/flask-shop`, the same store as a Flask app with Jinja templates.
 
 ## Add a scenario or an eval
 
