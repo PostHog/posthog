@@ -3,6 +3,7 @@ import { render, within } from '@testing-library/react'
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
+import { deriveMetricsAlertPreviewSeries } from 'products/alerts/frontend/logic/metricsAlertPreview'
 
 import { AlertPreviewCard, AlertPreviewCardProps } from './AlertPreviewCard'
 
@@ -51,6 +52,34 @@ describe('AlertPreviewCard', () => {
         const container = renderCard(seriesWithMissingAndPresentData)
 
         expect(within(container).queryByText(EMPTY_BREAKDOWN_TEXT)).toBeNull()
+    })
+
+    it.each([
+        ['builder', false, 'Preview'],
+        ['grouped', true, 'All series'],
+    ])('charts a new metrics alert from the %s insight results', (_, grouped, title) => {
+        const points = [
+            { time: '2026-11-25T10:00:00Z', value: 10 },
+            { time: '2026-11-25T11:00:00Z', value: null },
+        ]
+        const results = grouped
+            ? [
+                  { labels: { service: 'api' }, metricName: 'latency', points },
+                  { labels: { service: 'web' }, metricName: 'latency', points },
+              ]
+            : [{ labels: {}, metricName: 'latency', points }]
+        const { container } = render(
+            <AlertPreviewCard
+                alertForm={{ ...alertForm, config: { type: 'MetricsAlertConfig' } } as AlertFormType}
+                trendsValues={null}
+                funnelPreview={null}
+                hogqlPreview={null}
+                metricsPreview={deriveMetricsAlertPreviewSeries({ results }, true)}
+            />
+        )
+
+        expect(within(container).queryByText('No insight data available to preview.')).toBeNull()
+        expect(within(container).getByText(title)).toBeTruthy()
     })
 
     it.each([false, true])('explains when the delayed %s preview runs out of loaded history', (isBreakdown) => {

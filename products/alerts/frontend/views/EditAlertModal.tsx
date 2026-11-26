@@ -185,6 +185,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         thresholdBoundsFormError,
         hogqlAlertPreview,
         funnelAlertPreview,
+        metricsAlertPreview,
+        metricsPreviewResponseLoading,
         hogqlResultColumns,
         hogqlValueColumnOptions,
         hogqlLabelColumnOptions,
@@ -365,6 +367,15 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         }
     }, [alert, alertForm.condition?.type, alertForm.threshold?.configuration?.type, useAlertCheckPreview])
 
+    const metricsPreviewSeries = useMemo(
+        () =>
+            metricsAlertPreview && {
+                ...metricsAlertPreview,
+                labels: metricsAlertPreview.labels.map((label) => formatDate(dayjs(label), 'MMM D, HH:mm')),
+            },
+        [metricsAlertPreview]
+    )
+
     const leadingActions = (
         <AlertLeadingActions
             alertForm={alertForm}
@@ -495,9 +506,10 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             }
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
+            metricsPreview={metricsPreviewSeries}
             checkPreview={checkPreview}
             previewHistoryTooShort={previewHistoryTooShort}
-            loading={!useAlertCheckPreview && (insightLoading || insightDataLoading)}
+            loading={!useAlertCheckPreview && (insightLoading || insightDataLoading || metricsPreviewResponseLoading)}
         />
     )
     const nameError = alertFormSubmitAttempted && !alertForm.name ? 'Enter an alert name.' : undefined
