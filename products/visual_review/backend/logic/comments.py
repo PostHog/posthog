@@ -125,10 +125,13 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     if run.metadata.get("github_comment_id"):
         return
 
-    comment_body = comment_markdown._build_review_prompt_body(run, repo)
     previous: tuple[Run, int] | None = None
 
     try:
+        progress = (
+            review_decisions.review_run(run).progress() if review_decisions.decides_by_pull_request(run) else None
+        )
+        comment_body = comment_markdown._build_review_prompt_body(run, repo, progress)
         previous = _previous_comment(repo, run.pr_number, run.run_type, exclude_run_id=run.id)
 
         response = github_api._github_api_request(

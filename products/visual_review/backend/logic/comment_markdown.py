@@ -17,6 +17,7 @@ from ..facade.enums import ReviewState, SnapshotResult
 from ..models import Artifact, Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
 from . import app_urls
+from .review_decisions import RunProgress
 
 
 def _format_change_counts(changed: int, new: int, removed: int) -> str:
@@ -195,10 +196,30 @@ _EXTENSION_FOOTER = (
 )
 
 
-def _build_review_prompt_body(run: Run, repo: Repo) -> str:
+def _review_prompt_heading(progress: RunProgress | None) -> str:
+    """The prompt's first line.
+
+    It names the accepts from earlier commits that still count, so reviewers see that a push kept them.
+    """
+    if progress is None or progress.approved_on_earlier_commits == 0:
+        return "👋 **Visual changes detected** for this PR."
+    earlier = progress.approved_on_earlier_commits
+    still_count = (
+        "1 change accepted on earlier commits still counts."
+        if earlier == 1
+        else f"{earlier} changes accepted on earlier commits still count."
+    )
+    open_count = progress.needs_review
+    if open_count == 0:
+        return f"👋 **Visual changes detected** for this PR. {still_count}"
+    needs = "1 visual change needs review" if open_count == 1 else f"{open_count} visual changes need review"
+    return f"👋 **{needs}** for this PR. {still_count}"
+
+
+def _build_review_prompt_body(run: Run, repo: Repo, progress: RunProgress | None = None) -> str:
     """Build the markdown body of the PR comment that asks for a visual review."""
     return (
-        "👋 **Visual changes detected** for this PR.\n\n"
+        f"{_review_prompt_heading(progress)}\n\n"
         f"[Review and approve in PostHog Visual Review]({app_urls.run_url(run, repo)})\n\n"
         "If these changes are unexpected, they may be caused by a flaky test or a "
         "broken snapshot on master. Don't approve — rerun the job or wait for a fix.\n\n"

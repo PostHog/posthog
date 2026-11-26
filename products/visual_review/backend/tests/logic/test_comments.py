@@ -19,6 +19,7 @@ from products.visual_review.backend.facade.enums import (
     SnapshotResult,
 )
 from products.visual_review.backend.logic import comment_markdown, comments, github_api
+from products.visual_review.backend.logic.review_decisions import RunProgress
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -943,3 +944,47 @@ class TestReviewDecisionComments:
         body = comment_markdown._build_approval_comment_body(run, repo, None, accepted_by=accepted_by)
 
         assert line in body
+
+    def test_the_review_prompt_counts_the_accepts_that_still_count(self, repo, user, mocker):
+        head = self._run(repo, "h" * 40, {"Button": [], "Card": []})
+        self._run(repo, "s" * 40, {"Button": [_decision("accept", by=user.id, seq=1)]}, superseded_by=head)
+        request = mocker.patch.object(github_api, "_github_api_request", return_value=_GitHubResponse(201, 9001))
+
+        comments._post_review_prompt_comment(head, repo)
+
+        assert request.call_args.kwargs["json"]["body"].startswith(
+            "👋 **1 visual change needs review** for this PR. 1 change accepted on earlier commits still counts.\n"
+        )
+
+
+def _progress(earlier: int, needs_review: int) -> RunProgress:
+    return RunProgress(
+        total=earlier + needs_review,
+        approved=earlier,
+        approved_on_earlier_commits=earlier,
+        approved_via_mcp=0,
+        rejected=0,
+        needs_review=needs_review,
+        tolerated=0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("progress", "heading"),
+    [
+        pytest.param(None, "👋 **Visual changes detected** for this PR.", id="yaml_mode"),
+        pytest.param(_progress(0, 3), "👋 **Visual changes detected** for this PR.", id="nothing_earlier"),
+        pytest.param(
+            _progress(18, 2),
+            "👋 **2 visual changes need review** for this PR. 18 changes accepted on earlier commits still count.",
+            id="partial_review_then_push",
+        ),
+        pytest.param(
+            _progress(4, 0),
+            "👋 **Visual changes detected** for this PR. 4 changes accepted on earlier commits still count.",
+            id="nothing_needs_review",
+        ),
+    ],
+)
+def test_review_prompt_heading(progress, heading):
+    assert comment_markdown._review_prompt_heading(progress) == heading
