@@ -181,6 +181,12 @@ _FILTER_FEATURES: tuple[_FilterFeature, ...] = (_EventName(), _EventPropertyFilt
 
 
 @frozen
+class _JobRange:
+    start: datetime
+    end: datetime
+
+
+@frozen
 class _CountQuery:
     """The count query that Trends generates for one series, reduced to what the rewrite needs."""
 
@@ -278,11 +284,11 @@ class _CountQuery:
         # the rest of that second. A stored hour cannot, so the hour that holds the upper bound stays live.
         return min(today_start, _hour_start(self.upper))
 
-    def job_range(self, stored_until: datetime) -> tuple[datetime, datetime]:
+    def job_range(self, stored_until: datetime) -> _JobRange:
         """The whole UTC days that hold the stored hours. A build job covers whole days."""
         start = self.lower.replace(hour=0)
         end = stored_until if stored_until.hour == 0 else stored_until.replace(hour=0) + timedelta(days=1)
-        return start, end
+        return _JobRange(start=start, end=end)
 
     def stored_select(self, job_ids: list[str], until: datetime) -> ast.SelectQuery:
         conditions: list[ast.Expr] = [
@@ -427,8 +433,8 @@ class _Rewriter(CloningVisitor):
             return Blocker.PARTIAL_HOUR
         if query.lower >= stored_until:
             return Blocker.NO_FINISHED_BUCKET
-        jobs_start, jobs_end = query.job_range(stored_until)
-        if (jobs_end - jobs_start).days > MAX_RANGE_DAYS:
+        jobs = query.job_range(stored_until)
+        if (jobs.end - jobs.start).days > MAX_RANGE_DAYS:
             return Blocker.DATE_RANGE_TOO_LONG
         return None
 
@@ -450,7 +456,7 @@ class _Rewriter(CloningVisitor):
         seconds_left = None if deadline is None else deadline - time.monotonic()
         if seconds_left is not None and seconds_left <= 0:
             return None
-        jobs_start, jobs_end = query.job_range(stored_until)
+        jobs = query.job_range(stored_until)
         filters = [clone_expr(condition) for condition in query.filters]
         # The build compiles queries of its own, which must reach ClickHouse as the executor wrote them.
         hook = hogql_select_rewrite.set(None)
@@ -458,8 +464,8 @@ class _Rewriter(CloningVisitor):
             result = ensure_precomputed(
                 team=team,
                 insert_query=INSERT_QUERY_TEMPLATE,
-                time_range_start=jobs_start,
-                time_range_end=jobs_end,
+                time_range_start=jobs.start,
+                time_range_end=jobs.end,
                 ttl_seconds=parse_ttl_schedule(
                     TTL_SECONDS,
                     team.timezone,
@@ -483,7 +489,7 @@ class _Rewriter(CloningVisitor):
             hogql_select_rewrite.reset(hook)
         # A job can expire while the executor collects its result. A day that no returned job covers would
         # read as zero.
-        if not result.ready or not result.job_ids or not _covers(result.served_windows, jobs_start, jobs_end):
+        if not result.ready or not result.job_ids or not _covers(result.served_windows, jobs):
             return None
         self.count_queries += 1
         self.request.features.update(query.features)
@@ -589,13 +595,13 @@ def _constant_instant(expr: ast.Expr, timezone: ZoneInfo) -> datetime | None:
     return local.astimezone(UTC)
 
 
-def _covers(windows: tuple[ServedWindow, ...], start: datetime, end: datetime) -> bool:
-    covered_until = start
+def _covers(windows: tuple[ServedWindow, ...], jobs: _JobRange) -> bool:
+    covered_until = jobs.start
     for window in sorted(windows, key=lambda window: window.start):
         if window.start > covered_until:
             return False
         covered_until = max(covered_until, window.end)
-    return covered_until >= end
+    return covered_until >= jobs.end
 
 
 def _hour_start(instant: datetime) -> datetime:
