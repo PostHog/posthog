@@ -50,6 +50,8 @@ export type ExecToolState = Pick<
     | 'requestContext'
     | 'sessionContext'
     | 'toolFeatureFlags'
+    | 'isTaskBound'
+    | 'sandboxTaskId'
 > & { allTools: readonly { name: string }[] }
 
 /** Tool availability accounts for the client's scopes and selected features. */
@@ -133,8 +135,11 @@ export class InstructionsBuilder {
                 state.toolFeatureFlags?.[MCP_INBOX_FIRST_FLAG] === true &&
                 INBOX_FIRST_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name)),
             inboxClaimEnabled: state.allTools.some((tool) => tool.name === INBOX_CLAIM_TOOL),
+            // A task or sandbox run is PostHog's own agent, such as a scout. Its job is to query the data itself.
             inboxNudgeEnabled:
                 state.toolFeatureFlags?.[MCP_SELF_DRIVING_NUDGE_FLAG] === true &&
+                !state.isTaskBound &&
+                !state.sandboxTaskId &&
                 state.allTools.some((tool) => tool.name === INBOX_LIST_TOOL),
             metricCatalog: state.metricCatalog,
         }
