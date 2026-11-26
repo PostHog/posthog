@@ -204,7 +204,8 @@ class TestClassifyTaskNeedsRepo:
         kwargs = fake_client.messages.create.call_args.kwargs
         assert kwargs["model"] == CLASSIFIER_MODEL
         assert kwargs["max_tokens"] == 64
-        assert kwargs["temperature"] == 0
+        assert "temperature" not in kwargs
+        assert kwargs["thinking"] == {"type": "disabled"}
         assert kwargs["messages"] == [{"role": "user", "content": self._prompt_of(fake_client)}]
         fake_client.chat.completions.create.assert_not_called()
 

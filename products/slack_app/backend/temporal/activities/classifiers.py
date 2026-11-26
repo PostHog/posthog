@@ -50,7 +50,7 @@ logger = structlog.get_logger(__name__)
 prompts = PromptTemplates(Path(__file__).parent / "prompts")
 
 CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
-CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
+CLASSIFIER_MODEL = "claude-haiku-5-5"
 
 # The classifiers bill the customer's PostHog AI credits, the same as the Slack agent's runs,
 # so they share its product.
@@ -246,7 +246,9 @@ def classify_task_needs_repo(
             model=CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=64,
-            temperature=0,
+            # Haiku 5.5 answers a non-default temperature with a 400, which this function reads as "no repo".
+            # Its default adaptive thinking spends the 64-token cap before the JSON, so thinking is off.
+            thinking={"type": "disabled"},
         )
         reply = "".join(block.text for block in response.content if block.type == "text")
         parsed = extract_json_object(reply) or {}
