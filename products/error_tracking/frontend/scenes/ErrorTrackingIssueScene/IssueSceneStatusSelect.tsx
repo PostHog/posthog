@@ -1,5 +1,6 @@
 import { IconCheck, IconChevronDown } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     Button,
     DropdownMenu,
@@ -17,6 +18,7 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { getIssueStatusConfig, StatusIndicator } from '../../components/Indicators'
 import { IssueResolvedRule } from '../../components/IssueResolvedRule'
+import { IssueStatusSelect } from '../../components/IssueStatusSelect'
 import { RESOLVE_MODES } from '../../components/resolveModes'
 import type { ErrorTrackingIssueReadApi, ResolvedUntilEnumApi } from '../../generated/api.schemas'
 
@@ -37,6 +39,11 @@ export function IssueSceneStatusSelect({
     latestRelease: ErrorTrackingIssueReadApi['latest_release'] | undefined
     onChange: (status: IssueStatus, resolvedUntil?: ResolvedUntilEnumApi) => void
 }): JSX.Element {
+    const showResolveModes = useFeatureFlag('ERROR_TRACKING_RESOLVE_IN_NEXT_RELEASE')
+    if (!showResolveModes) {
+        return <IssueStatusSelect status={status} onChange={onChange} size="default" />
+    }
+
     // An issue resolved before its mode was recorded reopens on the next exception.
     const currentMode = status === 'resolved' ? (resolvedUntil ?? 'next_occurrence') : null
 

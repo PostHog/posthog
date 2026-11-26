@@ -1,11 +1,18 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { IssueSceneStatusSelect } from './IssueSceneStatusSelect'
 
 const meta: Meta<typeof IssueSceneStatusSelect> = {
     title: 'Scenes-App/ErrorTracking/IssueSceneStatusSelect',
     component: IssueSceneStatusSelect,
-    parameters: { layout: 'padded', viewMode: 'story', testOptions: { snapshotBrowsers: [] } },
+    parameters: {
+        layout: 'padded',
+        viewMode: 'story',
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_RESOLVE_IN_NEXT_RELEASE],
+        testOptions: { snapshotBrowsers: [] },
+    },
 }
 export default meta
 

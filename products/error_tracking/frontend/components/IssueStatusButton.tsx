@@ -1,6 +1,7 @@
 import { IconChevronDown } from '@posthog/icons'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     Button,
     ButtonGroup,
@@ -32,6 +33,7 @@ export const IssueStatusButton = ({
     loading?: boolean
 }): JSX.Element => {
     const { trigger, HogfettiComponent } = useHogfetti()
+    const showResolveModes = useFeatureFlag('ERROR_TRACKING_RESOLVE_IN_NEXT_RELEASE')
     const [plainResolve] = RESOLVE_MODES
 
     const resolve = (resolvedUntil: ResolvedUntilEnumApi): void => {
@@ -62,35 +64,40 @@ export const IssueStatusButton = ({
                             <IssueResolvedRule resolvedUntil={plainResolve.value} latestRelease={latestRelease} />
                         </TooltipContent>
                     </Tooltip>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger
-                            render={
-                                <Button
-                                    variant="primary"
-                                    size="icon"
-                                    disabled={loading}
-                                    aria-label="More ways to resolve"
-                                    data-attr="error-tracking-resolve-options"
-                                />
-                            }
-                        >
-                            <IconChevronDown />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            {RESOLVE_MODES.map((mode) => (
-                                <DropdownMenuItem
-                                    key={mode.value}
-                                    description={
-                                        <IssueResolvedRule resolvedUntil={mode.value} latestRelease={latestRelease} />
-                                    }
-                                    onClick={() => resolve(mode.value)}
-                                    data-attr={`error-tracking-resolve-until-${mode.value.replace('_', '-')}`}
-                                >
-                                    {mode.action}
-                                </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    {showResolveModes && (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger
+                                render={
+                                    <Button
+                                        variant="primary"
+                                        size="icon"
+                                        disabled={loading}
+                                        aria-label="More ways to resolve"
+                                        data-attr="error-tracking-resolve-options"
+                                    />
+                                }
+                            >
+                                <IconChevronDown />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                {RESOLVE_MODES.map((mode) => (
+                                    <DropdownMenuItem
+                                        key={mode.value}
+                                        description={
+                                            <IssueResolvedRule
+                                                resolvedUntil={mode.value}
+                                                latestRelease={latestRelease}
+                                            />
+                                        }
+                                        onClick={() => resolve(mode.value)}
+                                        data-attr={`error-tracking-resolve-until-${mode.value.replace('_', '-')}`}
+                                    >
+                                        {mode.action}
+                                    </DropdownMenuItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    )}
                 </ButtonGroup>
             ) : (
                 <Tooltip>
