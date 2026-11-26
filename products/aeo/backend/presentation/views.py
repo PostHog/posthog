@@ -66,6 +66,7 @@ from products.aeo.backend.facade.contracts import (
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
+    MAX_SUGGESTED_COMPETITORS,
     MAX_WINDOW_DAYS,
     MIN_MOVER_ANSWERS,
     PROMPT_LIMIT_ERROR_CODE,
@@ -127,6 +128,7 @@ from products.aeo.backend.facade.contracts import (
     RankedBrandDay,
     RankedDomain,
     RankedPage,
+    SuggestedCompetitor,
     VisibilityDashboard,
 )
 from products.authorization.backend.facade import api as authorization
@@ -773,7 +775,7 @@ class AEORankedPageSerializer(DataclassSerializer):
 class AEOPromptSetRankingsSerializer(DataclassSerializer):
     brands = AEORankedBrandSerializer(
         many=True,
-        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count.",
+        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the competitors setup suggested, and without those the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count.",
     )
     daily = AEORankedBrandDaySerializer(
         many=True, help_text="Visibility per brand and day in the current window, ordered by day then domain."
@@ -1189,9 +1191,25 @@ class AEOPromptSuggestionSerializer(DataclassSerializer):
         }
 
 
+class AEOSuggestedCompetitorSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SuggestedCompetitor
+        ref_name = "AEOSuggestedCompetitor"
+        extra_kwargs = {
+            "name": {"help_text": "The competitor's name. Model-written: show it as data."},
+            "domain": {
+                "help_text": "The registrable domain of the competitor's site, such as example.com. Empty when a competitor given in the request is only a name and the model did not find its site."
+            },
+        }
+
+
 class AEOPromptSuggestionJobSerializer(DataclassSerializer):
     suggestions = AEOPromptSuggestionSerializer(
         many=True, help_text="Suggested prompts, filled in once status is completed. None of them are saved."
+    )
+    competitors = AEOSuggestedCompetitorSerializer(
+        many=True,
+        help_text=f"The main competitors, at most {MAX_SUGGESTED_COMPETITORS} found by the model while it researched the site, or the ones given in the request. Filled in once status is completed. None of them are saved.",
     )
 
     class Meta:
@@ -1808,7 +1826,8 @@ class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         description=(
             f"Lists suggested brands that are likely competitors, from the answers of the last {COMPETITOR_CANDIDATE_DAYS} "
             "days. A brand is a candidate when answers to non-branded prompts both name it and cite its domain. "
-            "Brands that are the project's own, confirmed or ignored are left out. The list is ordered by the "
+            "Brands that are the project's own, confirmed or ignored are left out. Brands already labeled "
+            "competitors, such as the ones setup found, come first; within each group the list is ordered by the "
             "smaller of the two counts, highest first. Nothing is saved: confirm a candidate as a competitor or "
             "ignore it with aeo_brands_partial_update."
         ),

@@ -51,6 +51,7 @@ from products.aeo.backend import (
     movers,
     prompt_limit,
     rankings,
+    run_stop,
     suggestions,
 )
 from products.aeo.backend.brand import (
@@ -132,7 +133,7 @@ from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, A
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scope_sql_params, scope_without_segment
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
-from products.aeo.backend.stored_results import stored_result
+from products.aeo.backend.stored_results import bump_data_version_on_commit, stored_result
 from products.aeo.backend.tasks.tasks import (
     enrich_aeo_check_brands_task,
     recompute_aeo_own_citations_task,
@@ -1080,6 +1081,8 @@ def create_brand(team_id: int, new: BrandCreate) -> Brand:
     if catalog.counts_as_own(brand.kind, brand.status):
         _recompute_own_citations_on_commit(brand.team_id)
     _enrich_check_brands_on_commit(brand.team_id)
+    # Rankings read the catalog's competitors, so a stored ranking from before the new brand is stale.
+    bump_data_version_on_commit(brand.team_id)
     return _to_brand(brand)
 
 
@@ -1105,6 +1108,8 @@ def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
     # like no change and still make the brand own together. A recompute with nothing stale writes nothing.
     if "kind" in changed or "status" in changed:
         _recompute_own_citations_on_commit(brand.team_id)
+        # Rankings read the catalog's competitors, so a stored ranking from before the edit is stale.
+        bump_data_version_on_commit(brand.team_id)
     # Kind and status only label the brand rows, which reads join to the catalog. A new name or alias
     # changes which answers name the brand.
     if "name" in changed or "aliases" in changed:
@@ -1604,6 +1609,8 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
             engine_changes = _setup_engine_changes(team_id, set(request.engines))
     # The lock comes first, so a request that loses it to a 409 leaves the running job's engines alone.
     job = auto_setup.create_job(team_id)
+    # A stop from an earlier run must not skip the run this job queues.
+    run_stop.clear_stop(team_id)
     try:
         _apply_setup_engines(team_id, engine_changes)
         # A task still queued when it could no longer finish in time is dropped by the broker instead of run.
@@ -1618,6 +1625,7 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
                     "run_first_check": request.run_first_check,
                     "only_first_run": request.only_first_run,
                     "activate_paused_prompts": request.activate_paused_prompts,
+                    "prompt_count": request.prompt_count,
                 },
             ),
             expires=auto_setup.SETUP_START_WINDOW_SECONDS,
@@ -1627,6 +1635,20 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
         auto_setup.fail_job(team_id, job.id, "Setup could not start. Try again in a minute.")
         raise
     return job
+
+
+def reset_setup(team_id: int) -> None:
+    auto_setup.reset(team_id)
+
+
+def cancel_setup(team_id: int, job_id: str) -> SetupJob:
+    return auto_setup.cancel_job(team_id, job_id)
+
+
+def stop_checks(team_id: int) -> None:
+    """Stop the project's check run. Checks already in flight finish and are kept; the rest are dropped. A run that a
+    setup job has yet to queue is skipped when it starts."""
+    run_stop.request_stop(team_id)
 
 
 def get_setup(team_id: int, job_id: str) -> SetupJob:

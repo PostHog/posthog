@@ -27,6 +27,7 @@ from products.aeo.backend.facade.contracts import (
     BrandStatus,
     BrandSyncResult,
     CompetitorCandidate,
+    SuggestedCompetitor,
 )
 from products.aeo.backend.models import AEOBrand, AEOCheckCitation, AEOCitationCheck
 from products.aeo.backend.stored_results import bump_data_version_on_commit
@@ -287,6 +288,31 @@ def _add_brands(team_id: int, domains: set[str]) -> BrandSyncResult:
     AEOBrand.objects.for_team(team_id, canonical=True).bulk_create(new_brands, ignore_conflicts=True)
     bump_data_version_on_commit(team_id)
     return BrandSyncResult(domains=len(domains), created=len(new_brands))
+
+
+def add_suggested_competitors(team_id: int, competitors: tuple[SuggestedCompetitor, ...]) -> int:
+    team_id = resolve_effective_team_id(team_id)
+    own = set(own_domains(team_id))
+    wanted = {c.domain: c for c in competitors if c.domain and c.domain not in own}
+    known = set(
+        AEOBrand.objects.for_team(team_id, canonical=True).filter(domain__in=wanted).values_list("domain", flat=True)
+    )
+    new_brands = [
+        AEOBrand(
+            team_id=team_id,
+            name=competitor.name[:BRAND_NAME_MAX_LENGTH] or placeholder_name(domain),
+            domain=domain,
+            kind=BrandKind.COMPETITOR,
+            status=BrandStatus.SUGGESTED,
+            source=BrandSource.MANUAL,
+        )
+        for domain, competitor in sorted(wanted.items())
+        if domain not in known
+    ]
+    if new_brands:
+        AEOBrand.objects.for_team(team_id, canonical=True).bulk_create(new_brands, ignore_conflicts=True)
+        bump_data_version_on_commit(team_id)
+    return len(new_brands)
 
 
 # Answers to non-branded prompts in the window that name each suggested brand and that cite it, counted from
