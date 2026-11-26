@@ -256,6 +256,18 @@ class TestQueriedAccessControlledResources(BaseTest):
                 {"tracing"},
             ),
             (
+                "nested_hogql_property_filter",
+                lambda: DataVisualizationNode(
+                    source=HogQLQuery(
+                        query="select count() from events where {filters}",
+                        filters=HogQLFilters(
+                            properties=[HogQLPropertyFilter(key="1 in (select 1 from posthog.trace_spans)")]
+                        ),
+                    )
+                ),
+                {"tracing"},
+            ),
+            (
                 "hogql_property_filter",
                 lambda: HogQLQuery(
                     query="select count() from events where {filters}",

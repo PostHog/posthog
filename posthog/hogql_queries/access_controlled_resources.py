@@ -465,6 +465,9 @@ def _embedded_hogql(value) -> Iterator[str]:
     if isinstance(value, HogQLQuery):
         if isinstance(value.query, str):
             yield value.query
+        for name, item in value.__dict__.items():
+            if name != "query":
+                yield from _embedded_hogql(item)
     elif isinstance(value, str):
         if "(" not in value:
             return
