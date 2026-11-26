@@ -17,6 +17,7 @@
 | `worker/`             | hog-worker, the Rust program that reads, rewrites and writes build output for `hog error-tracking`. The comment at the top of `src/main.rs` describes every request                     |
 | `release/`            | The release scripts the `Release hog` workflow runs (compile, build-worker, package), `install.sh`, `install.ps1` and the npm launcher. README.md, "Releases", has the flow             |
 | `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload                                                  |
+| `evals/`              | Agent evals that run `hog setup` and `hog skills` in StuntHog against a fake PostHog. Read its README to run them after changing setup output or skills                                 |
 | `src/cli.ts`          | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                                                                 |
 | `src/testing.ts`      | `runHog` and a fake runtime, so tests run the real CLI without a process or a network                                                                                                   |
 
