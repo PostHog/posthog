@@ -24,7 +24,14 @@ from products.dashboards.backend.facade.contracts import (
 )
 from products.dashboards.backend.facade.enums import BoardManagedBy
 from products.dashboards.backend.models.dashboard_v2_board import DashboardV2Board
-from products.dashboards.backend.v2.board_schema import check_size, folder_of, tags_of, title_of, upgrade
+from products.dashboards.backend.v2.board_schema import (
+    check_size,
+    check_storable,
+    folder_of,
+    tags_of,
+    title_of,
+    upgrade,
+)
 
 
 def _live(team_id: int):
@@ -63,6 +70,7 @@ def _detail(board: DashboardV2Board) -> BoardDetail:
 def _prepare(spec: dict[str, Any]) -> dict[str, Any]:
     spec = upgrade(spec)
     check_size(spec)
+    check_storable(spec)
     return spec
 
 
