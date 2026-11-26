@@ -10000,7 +10000,7 @@ Note: Spec has ~230 paths. Excluded inference endpoints (chat/embeddings/ocr/mod
 
 ## MixMax — gaps
 
-Today (19): `appointment_links`, `code_snippets`, `file_requests`, `insights_reports`, `live_feed`, `live_feed_events`, `meeting_types`, `messages`, `polls`, `rules`, `sequence_folders`, `sequence_recipients`, `sequences`, `snippet_tags`, `team_members`, `teams`, `unsubscribes`, `user_preferences`, `users`
+Today (24): `appointment_links`, `code_snippets`, `file_requests`, `insights_reports`, `live_feed`, `live_feed_events`, `meeting_summaries`, `meeting_transcripts`, `meeting_types`, `messages`, `polls`, `qa_forms`, `rules`, `sequence_folders`, `sequence_recipients`, `sequences`, `snippet_tags`, `snippets`, `team_members`, `teams`, `unsubscribes`, `user_preferences`, `users`, `yes_no_questions`
 
 Diffed against: <https://developer.mixmax.com/reference>
 
@@ -10012,10 +10012,10 @@ Diffed against: <https://developer.mixmax.com/reference>
 - [ ] `contact groups and their members (GET /v1/contactgroups, GET /v1/contactgroups/{id}/contacts)` — segment definitions plus the membership join to contacts (medium). Skipped: Mixmax marks both `/contactgroups` operations as deprecated with no replacement, like `/contacts`.
 - [x] `teams and team members (GET /v1/teams, GET /v1/teams/{id}/members)` — org structure lookup that resolves the user IDs we already sync (medium). Added as `teams` and `team_members` (fan-out over `teams`).
 - [x] `unsubscribes (GET /v1/unsubscribes)` — suppression list needed to interpret sequence and message outcomes (medium). Added as `unsubscribes`.
-- [ ] `snippets (GET /v1/snippets)` — message snippets, a distinct resource from the code_snippets table already synced, and the target of the synced snippet_tags (medium)
-- [ ] `yes/no enhancements (GET /v1/yesno)` — recipient responses to yes/no prompts embedded in emails (low)
-- [ ] `Q&A enhancements (GET /v1/qa)` — recipient answers to in-email questions, parallel to the polls table (low)
-- [ ] `meeting transcripts and summaries (GET /v1/meetings/transcripts/{id}, POST /v1/meetings/summaries/search)` — meeting content alongside the meeting_types we sync (low)
+- [x] `snippets (GET /v1/snippets)` — message snippets, a distinct resource from the code_snippets table already synced, and the target of the synced snippet_tags (medium). Added as `snippets` (templates and inline snippets).
+- [x] `yes/no enhancements (GET /v1/yesno)` — recipient responses to yes/no prompts embedded in emails (low). Added as `yes_no_questions`.
+- [x] `Q&A enhancements (GET /v1/qa)` — recipient answers to in-email questions, parallel to the polls table (low). Added as `qa_forms`.
+- [x] `meeting transcripts and summaries (GET /v1/meetings/transcripts/{id}, POST /v1/meetings/summaries/search)` — meeting content alongside the meeting_types we sync (low). Added as `meeting_summaries` (the search is a GET with `skip`/`limit` paging) and `meeting_transcripts` (fan-out over `meeting_summaries`). Both are opt-in.
 
 Note: Slug inventory from the ReadMe reference nav (155 pages); each reported path confirmed by fetching the individual reference page and reading its method/path. Excluded the /v1/salesforce\* proxy family (passthrough to Salesforce, redundant with a Salesforce source) and the /v1/integrations\* app-config family.
 
