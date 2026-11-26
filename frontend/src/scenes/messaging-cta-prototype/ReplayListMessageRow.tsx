@@ -2,13 +2,16 @@
 import { IconLetter } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { PROTOTYPE_SOURCES, useMessagingCtaVariant } from './messagingCtaPrototype'
 import { openSendFromCodeSetup } from './sendFromCodePrototype'
 
 export function ReplayListMessageRow(): JSX.Element | null {
     const variant = useMessagingCtaVariant()
+    const canOpenSetup = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
 
-    if (variant !== 'H') {
+    if (variant !== 'H' || !canOpenSetup) {
         return null
     }
 
