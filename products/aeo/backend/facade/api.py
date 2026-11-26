@@ -54,6 +54,7 @@ from products.aeo.backend import (
     rankings,
     run_stop,
     search_details,
+    shadow,
     suggestions,
     topics,
 )
@@ -1177,6 +1178,7 @@ def create_brand(team_id: int, new: BrandCreate) -> Brand:
 
 def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
     brand = _get_brand_row(team_id, brand_id)
+    previous_kind, previous_status = brand.kind, brand.status
     # Only the fields sent are written, so two people editing different fields do not undo each other.
     changed: list[str] = []
     if change.name is not None:
@@ -1199,6 +1201,18 @@ def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
         _recompute_own_citations_on_commit(brand.team_id)
         # Rankings read the catalog's competitors, so a stored ranking from before the edit is stale.
         bump_data_version_on_commit(brand.team_id)
+        # A person's verdict on a brand is the ground truth the shadow comparison scores models against.
+        transaction.on_commit(
+            lambda: shadow.capture_brand_reviewed(
+                brand.team_id,
+                domain=brand.domain,
+                name=brand.name,
+                kind=brand.kind,
+                status=brand.status,
+                previous_kind=previous_kind,
+                previous_status=previous_status,
+            )
+        )
     # Kind and status only label the brand rows, which reads join to the catalog. A new name or alias
     # changes which answers name the brand.
     if "name" in changed or "aliases" in changed:

@@ -29,7 +29,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.aeo.backend import auto_setup, keyword_suggestions, run_stop, suggestions
+from products.aeo.backend import auto_setup, keyword_suggestions, run_stop, shadow, suggestions
 from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
 from products.aeo.backend.check_brands import enrich_check_brands, enrich_lock, has_stale_brands, has_unresolved_checks
 from products.aeo.backend.credits import out_of_ai_credits
@@ -429,3 +429,23 @@ def enrich_aeo_check_brands_task(self: Task, team_id: int, run_id: str | None = 
             lock.release()
         except LockError:
             logger.warning("aeo_check_brands_enrich_lock_expired", team_id=team_id)
+
+
+SHADOW_SOFT_TIME_LIMIT_SECONDS = 5 * 60
+SHADOW_TIME_LIMIT_SECONDS = SHADOW_SOFT_TIME_LIMIT_SECONDS + 30
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=SHADOW_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=SHADOW_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # The payload carries everything the models read; nothing is written to team tables
+def shadow_aeo_competitors_task(team_id: int, payload: dict) -> None:
+    """Run the models the live competitor read did not use, and capture every model's decisions."""
+    try:
+        shadow.run_from_payload(team_id, payload)
+    except Exception:
+        logger.exception("aeo_shadow_task_failed", team_id=team_id)
+        raise

@@ -1593,6 +1593,9 @@ AEO_JEV_COMPETITORS = get_from_env("AEO_JEV_COMPETITORS", False, type_cast=str_t
 AEO_JEV_TOPICS = get_from_env("AEO_JEV_TOPICS", False, type_cast=str_to_bool)
 # The decision model shares one GPU pool with every other caller, so a setup job keeps few requests in flight.
 AEO_DECISION_CONCURRENCY = get_from_env("AEO_DECISION_CONCURRENCY", 2, type_cast=int)
+# Run the models the live competitor read does not use after the request returns, and record every model's
+# decisions as LLM analytics events, so the two can be compared against what people confirm.
+AEO_DECISION_SHADOW = get_from_env("AEO_DECISION_SHADOW", False, type_cast=str_to_bool)
 CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 CONTENT_AUTOPILOT_SAFETY_MODEL = get_from_env("CONTENT_AUTOPILOT_SAFETY_MODEL", "claude-haiku-4-5")
 

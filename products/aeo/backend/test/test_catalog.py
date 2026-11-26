@@ -5,6 +5,7 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import caches
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -31,6 +32,7 @@ from products.aeo.backend.facade.contracts import (
     SuggestedCompetitor,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
+from products.aeo.backend.suggestions import SUGGESTION_CACHE_ALIAS
 from products.aeo.backend.test.factories import (
     create_brand,
     create_citation_check,
@@ -464,7 +466,13 @@ class TestCompetitorCandidates(BaseTest):
             "beacon.example.org"
         ]
 
-        # With Jev on, a brand the model says is not a competitor leaves the list, whatever its counts.
+    def test_jev_drops_the_brands_it_rejects_and_shadow_queues_every_brand_asked(self) -> None:
+        self._brand("Lantern", "lantern.example.org")
+        self._brand("Beacon", "beacon.example.org")
+        self._answer("Lantern and Beacon.", ["lantern.example.org", "beacon.example.org"])
+        self._answer("Lantern again.", ["lantern.example.org"])
+
+        # A brand the model says is not a competitor leaves the list, whatever its counts.
         model = FakeDecisionModel(lambda text: 0.1 if text.startswith("Lantern") else 0.9)
         with (
             override_settings(AEO_JEV_COMPETITORS=True),
@@ -472,6 +480,21 @@ class TestCompetitorCandidates(BaseTest):
         ):
             assert [c.domain for c in competitor_candidates(self.team.id, limit=20)] == ["beacon.example.org"]
         assert model.requests[0]["site"] == "example.com"
+
+        # Shadow mode hands the same brands and the live verdicts to the task that runs the other models.
+        caches[SUGGESTION_CACHE_ALIAS].clear()
+        with (
+            override_settings(AEO_JEV_COMPETITORS=True, AEO_DECISION_SHADOW=True),
+            patch("products.aeo.backend.decisions.build_system_one_client", return_value=model),
+            patch("products.aeo.backend.tasks.tasks.shadow_aeo_competitors_task.delay") as delay,
+        ):
+            competitor_candidates(self.team.id, limit=20)
+            competitor_candidates(self.team.id, limit=20)
+        assert delay.call_count == 1, "a second read inside the debounce window queues nothing"
+        payload = delay.call_args.args[1]
+        assert payload["live_model"] == "jev"
+        assert payload["live_decisions"] == {"lantern.example.org": False, "beacon.example.org": True}
+        assert [b["domain"] for b in payload["brands"]] == ["lantern.example.org", "beacon.example.org"]
 
 
 class TestListDomainsAcrossTeams(BaseTest):

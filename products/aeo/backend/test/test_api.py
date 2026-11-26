@@ -2102,15 +2102,30 @@ class TestAEOPromptAPI(APIBaseTest):
 
         first_page = self.client.get(f"{url}?limit=2").json()
         second_page = self.client.get(f"{url}?limit=2&offset=2").json()
-        response = self.client.patch(
-            f"{url}{amplitude_id}/",
-            {
-                "kind": "competitor",
-                "status": "confirmed",
-                "aliases": [" Amplitude Analytics ", "Amplitude Analytics"],
-            },
-            format="json",
-        )
+        with (
+            patch("products.aeo.backend.shadow.capture_internal") as capture,
+            patch("products.aeo.backend.shadow.get_team_api_token", return_value="phc_test"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"{url}{amplitude_id}/",
+                {
+                    "kind": "competitor",
+                    "status": "confirmed",
+                    "aliases": [" Amplitude Analytics ", "Amplitude Analytics"],
+                },
+                format="json",
+            )
+        # The person's verdict is the ground truth the shadow models are scored against.
+        reviewed = capture.call_args.kwargs
+        assert reviewed["event_name"] == "aeo brand reviewed"
+        assert {
+            k: reviewed["properties"][k] for k in ("aeo_brand_domain", "aeo_is_competitor", "aeo_previous_kind")
+        } == {
+            "aeo_brand_domain": "amplitude.com",
+            "aeo_is_competitor": True,
+            "aeo_previous_kind": "unknown",
+        }
 
         assert first_page["count"] == 3
         assert [brand["domain"] for brand in first_page["results"] + second_page["results"]] == [
