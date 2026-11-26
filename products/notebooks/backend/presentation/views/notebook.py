@@ -197,7 +197,7 @@ from products.notebooks.backend.sql_v2 import (
     sql_v2_page_lock_key,
 )
 from products.notebooks.backend.sql_v2_direct import cancel_direct_run, sync_direct_run
-from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
+from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run, stored_run_read_scopes
 from products.notebooks.backend.sql_v2_serializers import (
     MAX_VARIABLES_PER_NOTEBOOK,
     NotebookComputeOptionsResponseSerializer,
@@ -983,7 +983,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Without re-checking, a user denied viewer on the warehouse source could read rows a
         # colleague's run pulled from it. Notebook + query access does not imply source access.
         # The same holds for a gated product table the run's query read.
-        assert_read_scopes_readable((run.envelope or {}).get("read_scopes") or [], self.team, user, self.request)
+        assert_read_scopes_readable(stored_run_read_scopes(run.node_type, run.envelope), self.team, user, self.request)
         if not run.connection_id:
             return
         source = get_direct_connection_source(
@@ -2400,10 +2400,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         errored_run_ids = [cell["run_id"] for cell in cells if cell.get("error") and cell.get("run_id")]
         read_scopes_by_run = (
             {
-                str(run_id): read_scopes or []
-                for run_id, read_scopes in NotebookNodeRun.objects.for_team(self.team_id)
+                str(run_id): stored_run_read_scopes(node_type, envelope)
+                for run_id, node_type, envelope in NotebookNodeRun.objects.for_team(self.team_id)
                 .filter(id__in=errored_run_ids)
-                .values_list("id", "envelope__read_scopes")
+                .values_list("id", "node_type", "envelope")
             }
             if errored_run_ids
             else {}

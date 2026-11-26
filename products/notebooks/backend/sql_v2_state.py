@@ -24,6 +24,7 @@ from products.notebooks.backend.facade.contracts import NotebookCellLimitExceede
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.sql_v2_references import _TableReferenceCollector, resolve_sql_v2_references
+from products.notebooks.backend.sql_v2_runs import stored_run_read_scopes
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
     build_notebook_variables,
@@ -369,7 +370,7 @@ def annotate_run_state(
                 error=latest.error or envelope.get("error") or None,
                 # Not part of the response: the view reads it to decide whether this caller may
                 # see the metadata and error, which derive from the rows the run read.
-                read_scopes=envelope.get("read_scopes") or [],
+                read_scopes=stored_run_read_scopes(latest.node_type, latest.envelope),
             )
         if latest.status == NotebookNodeRun.Status.RUNNING:
             cell.status = "running"

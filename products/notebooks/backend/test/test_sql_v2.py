@@ -1711,6 +1711,20 @@ class TestSQLV2RunResult(APIBaseTest):
         self.assertEqual(callback.status_code, 200)
         self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
 
+    @parameterized.expand(
+        [
+            ("kernel_none", NotebookNodeRun.NodeType.PYTHON, "none", 403),
+            ("kernel_viewer", NotebookNodeRun.NodeType.PYTHON, "viewer", 200),
+            ("direct_none", NotebookNodeRun.NodeType.HOGQL, "none", 200),
+        ]
+    )
+    def test_result_stored_before_reads_were_recorded(self, _name, node_type, access_level, expected):
+        _set_tracing_access(self, access_level)
+        run = self._create_run(
+            NotebookNodeRun.Status.DONE, envelope={"first_page": [["GET /api"]]}, node_type=node_type
+        )
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+
     @parameterized.expand([("none", None), ("viewer", "KeyError: 'GET /api'")])
     def test_state_hides_a_kernel_error_from_readers_denied_what_it_read(self, access_level, expected_error):
         _set_tracing_access(self, access_level)
