@@ -2130,3 +2130,36 @@ class TestQueryCostHeaders(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 429
         assert response["Retry-After"] == "5"
         assert not mock_capture.called
+
+
+class TestTracingQueryStatusRetrieval(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def _retrieve(self, headers: dict[str, str] | None = None, params: str = ""):
+        query_status = QueryStatus(id="q1", team_id=self.team.id, complete=True, labels=["tracing-spans"])
+        with patch("posthog.api.query.get_query_status", return_value=query_status):
+            return self.client.get(f"/api/projects/{self.team.id}/query/q1/{params}", headers=headers or {})
+
+    def test_a_span_result_is_not_readable_through_a_share_link(self):
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level="viewer")
+        share = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        self.client.logout()
+        assert self._retrieve(params=f"?sharing_access_token={share.access_token}").status_code == 403
+
+    @parameterized.expand([("none", 403), ("viewer", 200)])
+    def test_a_span_result_is_readable_only_with_tracing_access(self, access_level: str, expected: int):
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level=access_level)
+        assert self._retrieve().status_code == expected
+
+    @parameterized.expand([(["query:read"], 403), (["query:read", "tracing:read"], 200)])
+    def test_a_span_result_needs_the_tracing_scope(self, scopes: list[str], expected: int):
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="spans", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        assert self._retrieve({"Authorization": f"Bearer {value}"}).status_code == expected

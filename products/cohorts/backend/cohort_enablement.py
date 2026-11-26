@@ -19,7 +19,12 @@ from posthog.models.team.team import Team
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
 from products.cohorts.backend.backfill.pinning import pin_behavioral_run
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
-from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
+from products.cohorts.backend.models.backfill import (
+    ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
+    CohortBackfillKind,
+    CohortBackfillRunCohort,
+    CohortBackfillTrigger,
+)
 from products.cohorts.backend.models.cohort import COHORT_REALTIME_SWITCH_FIELDS, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import (
     backfill_ineligibility_reason,
@@ -34,6 +39,7 @@ from products.cohorts.backend.realtime_limits import (
     max_realtime_history_days,
     realtime_cohorts_used,
 )
+from products.cohorts.backend.realtime_state import CohortRealtimeState, resolve_realtime_readiness
 from products.cohorts.backend.realtime_teams import is_processing_team
 
 logger = structlog.get_logger(__name__)
@@ -137,6 +143,40 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
                 queue_cohort_backfill(each, CohortBackfillTrigger.COHORT_CREATED, kind)
 
     return [each.id for each in turned_on]
+
+
+def prepare_again(team_id: int, cohort_id: int) -> list[CohortBackfillKind]:
+    """Queue the builds a cohort that is on still needs, when nothing is preparing it. Returns the kinds it queued.
+
+    Raises ``RealtimeTurnOnRefused`` when the pipeline can't prepare the cohort's criteria, as a turn-on does, or
+    when it can queue nothing, and its subclass ``RealtimeLimitReached`` when the criteria look back further than the
+    project's plan allows.
+    """
+    cohort = Cohort.objects.select_related("team__organization").get(id=cohort_id, team_id=team_id)
+    readiness = resolve_realtime_readiness([cohort]).get(cohort.id)
+    # A reason means the refusal it names holds for the current criteria, so another build would be refused again.
+    if readiness is None or readiness.state != CohortRealtimeState.NEEDS_ATTENTION or readiness.reason is not None:
+        return []
+    # `queue_cohort_backfill` drops a cohort the pipeline can't prepare without an error, so refuse it here instead.
+    _refuse_unless_it_can_be_ready(cohort)
+    _refuse_over_plan_limits(cohort.team, taking_slots=[], history_of=[cohort])
+    # The creators check for an active run, not for a stamp. A task queued for a kind whose run is still active is
+    # refused, or, when that run stamps during the countdown, builds the kind a second time.
+    active = set(
+        CohortBackfillRunCohort.objects.for_team(team_id)
+        .filter(cohort_id=cohort.id, superseded_at__isnull=True, run__status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES)
+        .values_list("run__backfill_kind", flat=True)
+    )
+    queued = [
+        CohortBackfillKind(kind)
+        for kind in sorted(cohort.pending_backfill_kinds() - active)
+        if queue_cohort_backfill(cohort, CohortBackfillTrigger.COHORT_CREATED, CohortBackfillKind(kind))
+    ]
+    if not queued:
+        raise RealtimeTurnOnRefused(
+            "PostHog can't start preparing this cohort again. Contact support to have it prepared."
+        )
+    return queued
 
 
 def refuse_edit_over_plan_limits(cohort: Cohort, *, held_a_slot: bool, can_edit: Callable[[Cohort], bool]) -> None:

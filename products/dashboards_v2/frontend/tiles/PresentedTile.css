@@ -1,0 +1,23 @@
+.PresentedTile {
+    max-width: min(72rem, calc(100vw - 8rem));
+    height: 80vh;
+    padding: 0;
+
+    /* The step buttons sit outside the card, past the dialog's clipped edge, in room the narrower width leaves. */
+    overflow: visible;
+}
+
+.PresentedTile__step {
+    position: absolute;
+    top: 50%;
+    background-color: var(--background);
+    translate: 0 -50%;
+}
+
+.PresentedTile__step--previous {
+    left: -3rem;
+}
+
+.PresentedTile__step--next {
+    right: -3rem;
+}

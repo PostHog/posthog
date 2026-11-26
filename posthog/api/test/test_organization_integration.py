@@ -1,6 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
+import responses
 from parameterized import parameterized
 from rest_framework import status
 
@@ -247,3 +250,27 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         response = self.client.patch(url, data)
 
         self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_405_METHOD_NOT_ALLOWED))
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="client_secret")
+    @responses.activate
+    def test_environment_mapping_is_unchanged_when_vercel_refuses_a_token(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.integration_vercel.config = {"type": "connectable", "environment_mapping": {"production": self.team.pk}}
+        self.integration_vercel.save()
+        responses.add(
+            responses.POST,
+            "https://api.vercel.com/v2/oauth/access_token",
+            status=400,
+            json={"error": {"code": "invalid_client", "message": "Integration disabled"}},
+        )
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/environment-mapping/",
+            {"production": self.team.pk, "preview": self.team.pk},
+        )
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        self.integration_vercel.refresh_from_db()
+        assert self.integration_vercel.config["environment_mapping"] == {"production": self.team.pk}
+        assert not Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()

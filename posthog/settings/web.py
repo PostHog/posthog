@@ -637,7 +637,7 @@ SPECTACULAR_SETTINGS = {
         "posthog.openapi.enum_name_guard.record_enum_hashes",
         "drf_spectacular.hooks.postprocess_schema_enums",
         "posthog.openapi.enum_name_guard.check_enum_name_clashes",
-        "products.dashboards.backend.widget_specs.pydantic_openapi.inject_widget_spec_pydantic_components",
+        "products.dashboards.backend.presentation.pydantic_openapi.inject_widget_spec_pydantic_components",
         "posthog.api.documentation.custom_postprocessing_hook",
         # Runs last so it sees the final post-processed spec. Emits drf-spectacular warnings
         # for self-inconsistencies (default not in enum, required not in properties, $ref siblings)
@@ -861,7 +861,6 @@ SPECTACULAR_SETTINGS = {
                 "ultracode",
                 None,
             ],
-            "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "DataQualityCheckSeverityEnum": ["error", "warn"],
             "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
             "CanvasLayoutSchemaVersionEnum": [(1, 1)],
@@ -1429,9 +1428,13 @@ AI_GATEWAY_INTERNAL_URL = get_from_env("AI_GATEWAY_INTERNAL_URL", "")
 AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 
 # AI gateway inference endpoint: OpenAI-compatible URL (include /v1) + phs_ project
-# secret for routing LLM calls through the gateway. Unset = direct to the provider.
-AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
-AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
+# secret. Unset, every gateway client builder raises. Local dev defaults to the sibling
+# Go gateway and the key `bin/setup-gateway-e2e` registers.
+_LOCAL_AI_GATEWAY = DEBUG and not TEST
+AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "http://localhost:8080/v1" if _LOCAL_AI_GATEWAY else "")
+AI_GATEWAY_API_KEY = get_from_env(
+    "AI_GATEWAY_API_KEY", "phs_localgatewaye2elocalgatewaye2e0001" if _LOCAL_AI_GATEWAY else ""
+)
 
 # Decision model behind the HogQL `jev` function. Per environment, so a
 # different model can be measured without a code change.
@@ -1549,6 +1552,10 @@ try:
     )
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
+
+# The catalog sync probes every catalog server over the network, so CI jobs that start a
+# Celery worker turn it off to keep test runs from reaching third-party hosts.
+MCP_CATALOG_SYNC_ON_WORKER_READY: bool = get_from_env("MCP_CATALOG_SYNC_ON_WORKER_READY", True, type_cast=str_to_bool)
 
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")

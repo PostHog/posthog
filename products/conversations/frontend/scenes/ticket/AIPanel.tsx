@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import type { ReactNode } from 'react'
 
 import { LemonCollapse, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -5,6 +6,7 @@ import { LemonCollapse, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import { aiCitationClickProps } from '../../components/Chat/aiCitationClickProps'
 import {
     type AITriage,
     type AITriageSource,
@@ -67,11 +69,15 @@ function AISourceItem({ source }: { source: AITriageSource }): JSX.Element {
     const title = source.title || source.ref
     const name =
         source.source_id != null ? (
-            <Link to={urls.businessKnowledgeSource(source.source_id)} className="truncate">
+            <Link
+                to={urls.businessKnowledgeSource(source.source_id)}
+                className="truncate"
+                {...aiCitationClickProps('panel', false)}
+            >
                 {title}
             </Link>
         ) : source.url ? (
-            <Link to={source.url} target="_blank" className="truncate">
+            <Link to={source.url} target="_blank" className="truncate" {...aiCitationClickProps('panel', true)}>
                 {title}
             </Link>
         ) : (
@@ -200,6 +206,13 @@ export function AIPanel({ aiTriage }: AIPanelProps): JSX.Element {
         <LemonCollapse
             className="bg-surface-primary"
             defaultActiveKey={hasData ? 'ai_triage' : undefined}
+            onChange={(activeKey) =>
+                // pinned: analytics event name. Dashboards break when it is renamed.
+                posthog.capture('support ai triage panel toggled', {
+                    expanded: activeKey !== null,
+                    ai_triage_result: aiTriage?.result ?? null,
+                })
+            }
             panels={[
                 {
                     key: 'ai_triage',

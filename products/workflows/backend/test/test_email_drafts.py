@@ -88,7 +88,7 @@ class TestEmailDrafts(APIBaseTest):
         )
         assert (body["html"] == "") == (source == "cohort")
 
-    @patch(f"{SERVICE}.build_ai_gateway_anthropic_client")
+    @patch(f"{SERVICE}.build_anthropic_client")
     def test_model_draft_is_escaped_and_carries_the_source_as_data(self, build_client) -> None:
         client = _model_reply(
             {
@@ -121,7 +121,7 @@ class TestEmailDrafts(APIBaseTest):
             ("rate_limited", {"denied": True}),
         ]
     )
-    @patch(f"{SERVICE}.build_ai_gateway_anthropic_client")
+    @patch(f"{SERVICE}.build_anthropic_client")
     @patch(f"{SERVICE}.consume")
     def test_falls_back_to_the_template(self, reason: str, case: dict, consume, build_client) -> None:
         self.organization.is_ai_data_processing_approved = case.get("approved", True)

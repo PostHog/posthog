@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -36,13 +37,36 @@ class TestAiHumanOutcomeAPI(APIBaseTest):
     def _payload(self, outcome: str) -> dict[str, str]:
         return {"message_id": str(self.draft.id), "outcome": outcome}
 
-    def test_records_used(self) -> None:
-        response = self.client.post(self.url, self._payload("used"), format="json")
+    @patch("products.conversations.backend.ai.human_outcome.report_team_action")
+    def test_records_used(self, mock_report) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.url, self._payload("used"), format="json")
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json()["outcome"] == "used"
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
+        mock_report.assert_called_once_with(
+            self.team,
+            "support ai draft outcome recorded",
+            {
+                "ticket_id": str(self.ticket.id),
+                "outcome": "used",
+                "previous_outcome": None,
+                "source": "draft_button",
+                "ai_triage_result": "suggested",
+                "ticket_type": None,
+                "channel_source": "widget",
+            },
+        )
+
+    @patch("products.conversations.backend.ai.human_outcome.report_team_action")
+    def test_repeated_used_reports_the_outcome_once(self, mock_report) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(self.url, self._payload("used"), format="json")
+            self.client.post(self.url, self._payload("used"), format="json")
+
+        assert mock_report.call_count == 1
 
     def test_upgrades_used_to_edited(self) -> None:
         self.client.post(self.url, self._payload("used"), format="json")

@@ -1649,21 +1649,43 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.login_as_other_user()
         assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is False
 
-    def test_rejected_reimpersonation_preserves_read_only_and_reason(self):
-        self.login_as_other_user_read_only()
-        assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is True
+    @parameterized.expand(
+        [
+            ("html_read_only", True, False, ""),
+            ("json_read_only", True, True, ""),
+            ("json_read_write", False, True, ""),
+            ("json_opted_out", False, True, "Retry with read-only access"),
+        ]
+    )
+    def test_rejected_reimpersonation_preserves_mode_and_reason(self, _name, read_only, json_response, reason):
+        if read_only:
+            self.login_as_other_user_read_only()
+        else:
+            self.login_as_other_user()
 
-        # An empty reason is rejected by loginas without changing the session (it redirects back to
-        # the referer). The rejected attempt must not clear the active read-only flag or its reason.
-        self.client.post(
+        if reason:
+            self.other_user.allow_impersonation = False
+            self.other_user.save(update_fields=["allow_impersonation"])
+
+        response = self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            data={"read_only": "false", "reason": ""},
+            data={"read_only": "false" if read_only else "true", "reason": reason},
+            HTTP_ACCEPT="application/json" if json_response else "text/html",
             HTTP_REFERER="/some/page",
         )
 
+        if json_response:
+            assert response.status_code == 403
+            assert response.json() == {"success": False}
+        else:
+            assert response.status_code == 302
+            assert response.headers["Location"] == "/some/page"
+
         user = self.client.get("/api/users/@me/").json()
-        assert user["is_impersonated_read_only"] is True
-        assert user["is_impersonated_reason"] == "Test read-only impersonation"
+        assert user["id"] == self.other_user.id
+        assert user["is_impersonated"] is True
+        assert user["is_impersonated_read_only"] is read_only
+        assert user["is_impersonated_reason"] == ("Test read-only impersonation" if read_only else "Test impersonation")
 
     @parameterized.expand(
         [
@@ -2303,13 +2325,25 @@ class TestImpersonationLoginReasonRequired(APIBaseTest):
         # Should still be logged in as original staff user (impersonation rejected)
         assert self.client.get("/api/users/@me/").json()["email"] == self.user.email
 
-    def test_impersonation_succeeds_with_reason(self):
+    @parameterized.expand([("html", False), ("json", True)])
+    def test_impersonation_succeeds_with_reason(self, _name, json_response):
         """Verify impersonation succeeds when a reason is provided."""
-        self.client.post(
+        self.client = cast(Any, DjangoClient(enforce_csrf_checks=True))
+        self.client.force_login(self.user)
+        csrf_token = "a" * 32
+        self.client.cookies[settings.CSRF_COOKIE_NAME] = csrf_token
+
+        response = self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
             data={"read_only": "true", "reason": "Investigating support ticket #1234"},
-            follow=True,
+            HTTP_ACCEPT="application/json" if json_response else "text/html",
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
+        assert response.status_code == (200 if json_response else 302)
+        if json_response:
+            assert response.json() == {"success": True}
+        assert response.cookies[settings.CSRF_COOKIE_NAME].value != csrf_token
+        assert "Cookie" in response.headers["Vary"]
 
         # Should now be logged in as other user
         assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
@@ -3586,8 +3620,16 @@ def _insight_detail(request: HttpRequest, project_id: int, pk: int) -> HttpRespo
     return HttpResponse()
 
 
+def _dashboard_detail(request: HttpRequest, project_id: int, pk: int) -> HttpResponse:
+    request._pg_queries_labels = {"dashboard_v2": "true", "omit_results": "true", "sql_tiles": "21-50"}  # type: ignore[attr-defined]
+    return HttpResponse()
+
+
 class _PgQueryCountRoutes:
-    urlpatterns = [path("api/projects/<int:project_id>/insights/<int:pk>/", _insight_detail, name="insight-detail")]
+    urlpatterns = [
+        path("api/projects/<int:project_id>/insights/<int:pk>/", _insight_detail, name="insight-detail"),
+        path("api/projects/<int:project_id>/dashboards/<int:pk>/", _dashboard_detail, name="project_dashboards-detail"),
+    ]
 
 
 @override_settings(ROOT_URLCONF=_PgQueryCountRoutes, MIDDLEWARE=["posthog.middleware.QueryTimeCountingMiddleware"])
@@ -3614,6 +3656,25 @@ class TestQueryTimeCountingMiddlewarePgQueryMetric(SimpleTestCase):
             0,
             unit="{query}",
             attributes={"route": "insight-detail", "method": expected_method_label, "status_class": "2xx"},
+        )
+
+    def test_adds_labels_a_view_stashed_on_the_request(self) -> None:
+        client = MagicMock()
+        with patch("posthog.middleware.posthoganalytics.default_client", client):
+            self.client.get("/api/projects/2/dashboards/7/")
+
+        client.metrics.histogram.assert_called_once_with(
+            "api.request.pg_queries",
+            0,
+            unit="{query}",
+            attributes={
+                "route": "project_dashboards-detail",
+                "method": "GET",
+                "status_class": "2xx",
+                "dashboard_v2": "true",
+                "omit_results": "true",
+                "sql_tiles": "21-50",
+            },
         )
 
     @parameterized.expand([("unresolved_api_path", "/api/unknown/"), ("non_api_path", "/insights/7/")])

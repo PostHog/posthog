@@ -354,7 +354,8 @@ describe('Dashboards', { concurrent: false }, () => {
             })
             const dashboard = parseToolResponse(result)
 
-            assertNoInsightResults(dashboard)
+            // The update response confirms the write; dashboard-get serves tile content such as the query.
+            assertNoInsightResults(dashboard, { hasQuery: false })
         })
 
         it('dashboard-create response has no tiles (and therefore no insight results)', async () => {

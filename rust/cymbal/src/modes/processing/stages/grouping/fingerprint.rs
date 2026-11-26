@@ -5,7 +5,7 @@ use sha2::{Digest, Sha512};
 use uuid::Uuid;
 
 use crate::{
-    error::UnhandledError,
+    error::{contain_failure, UnhandledError},
     fingerprinting::{Fingerprint, FingerprintVersion},
     issue_resolution::IssueFingerprintOverride,
     metric_consts::{FINGERPRINT_GENERATOR_OPERATOR, FINGERPRINT_LEGACY_VERSION_USED},
@@ -31,7 +31,7 @@ impl FingerprintGenerator {
     ) -> Result<PipelineItem<Fingerprinted>, UnhandledError> {
         match item {
             Err(error) => Ok(Err(error)),
-            Ok(event) => self.generate(event, ctx).await.map(Ok),
+            Ok(event) => contain_failure(self.name(), self.generate(event, ctx).await),
         }
     }
 

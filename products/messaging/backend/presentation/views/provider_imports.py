@@ -11,6 +11,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -241,6 +242,11 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_project_access("editor")
 
         data = request.validated_data
+        if "automations" in data["steps"]:
+            # Automations become workflow drafts, so they need the property access that editing a workflow needs.
+            permission = CDPPropertyAccessPermission()
+            if not permission.has_permission(request, self):
+                raise PermissionDenied(permission.message)
         # The import runs in the background without this request, so the key's scopes are checked here.
         scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
         if (
@@ -266,8 +272,12 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
             if not self.user_access_control.check_access_level_for_resource("person", "editor"):
                 raise PermissionDenied("You need edit access to persons to import contacts.")
-        if data["provider"] not in {provider.key for provider in self._providers()}:
+        provider = next((provider for provider in self._providers() if provider.key == data["provider"]), None)
+        if provider is None:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
+        # A step whose feature flag is off isn't offered. `start_provider_import` doesn't know the flags.
+        if unknown := sorted(set(data["steps"]) - {step.key for step in provider.steps}):
+            raise ValidationError(f"{provider.label} has no step named {', '.join(unknown)}.")
         try:
             run = start_provider_import(
                 self.team_id,

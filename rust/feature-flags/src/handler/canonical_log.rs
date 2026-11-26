@@ -7,10 +7,11 @@ use crate::metrics::consts::{
     FLAG_BODY_READ_TIME_MS, FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, FLAG_DB_OPERATIONS_PER_REQUEST,
     FLAG_PHASE_DURATION_MS, FLAG_PRE_HANDLER_TIME_MS, FLAG_QUEUE_TIME_MS,
 };
-use crate::team::request_blocklist::BlockReason;
+use crate::team::request_lists::BlockReason;
 use crate::utils::bot_detection::{BotCategory, BotSource};
 use std::cell::RefCell;
 use std::future::Future;
+use std::net::IpAddr;
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -332,9 +333,11 @@ pub struct FlagsCanonicalLogLine {
     /// Which signal fired (UA or IP), set iff `is_bot` is true.
     pub bot_source: Option<BotSource>,
 
-    /// Set when the team's request blocklist refused the request before billing and
+    /// Set when the team's request lists refused the request before billing and
     /// evaluation.
     pub request_blocked_by: Option<BlockReason>,
+    /// The trusted address of a request the lists refused. `ip` can be an address the caller wrote.
+    pub edge_ip: Option<IpAddr>,
 }
 
 impl Default for FlagsCanonicalLogLine {
@@ -392,6 +395,7 @@ impl Default for FlagsCanonicalLogLine {
             bot_category: None,
             bot_source: None,
             request_blocked_by: None,
+            edge_ip: None,
         }
     }
 }
@@ -473,6 +477,7 @@ impl FlagsCanonicalLogLine {
             bot_category = self.bot_category.map(|c| c.as_str()),
             bot_source = self.bot_source.map(|s| s.as_str()),
             request_blocked_by = self.request_blocked_by.map(|r| r.as_str()),
+            edge_ip = self.edge_ip.map(tracing::field::display),
             "canonical_log_line"
         );
     }

@@ -15,10 +15,11 @@ import { residentBacklogOf } from '../backlog/backlog'
 import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, Step, Target, stepsOf } from '../cards'
 import { runManifestOf } from '../cloud/lease'
 import { durationMs } from '../duration'
-import { Environment, defaultStateDir } from '../environment/environment'
+import { Environment, RunConfig, defaultStateDir } from '../environment/environment'
 import { nameOf } from '../environment/identity'
 import {
     ConsumerGroup,
+    INTAKE_GROUPS,
     RoleSpec,
     SES_WEBHOOKS_GROUP,
     consumerGroupsOf,
@@ -32,7 +33,8 @@ import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf
 import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { OfferContext, kafkaEmit } from '../generator/traffic'
-import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
+import { BarResult, WriterCpu, judgeBars, stepReadingsOf } from '../judge/bars'
+import { COUNTER_READ, CounterRead, CounterReading, counterDrift, readCounters } from '../judge/drift'
 import { Convergence, InvariantResult, JournalEntry, JudgeOptions, createJudge } from '../judge/judge'
 import {
     DriveWindow,
@@ -44,22 +46,25 @@ import {
     baselineOf,
     janitorResetsOf,
     measure,
+    phasesOf,
     startSampler,
 } from '../judge/measurements'
 import { Ramp, rampOf, stepRatesOf, watchRamp } from '../judge/ramp'
 import { edgeTruth } from '../judge/truth'
+import { CounterProbe, clickhouseOf, createCounterProbe } from '../probe/counter-probe'
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
 import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
 import { WEBHOOK_HOST } from '../provider-edge'
-import { provenanceOf } from '../scorecard/provenance'
-import { scorecardOf } from '../scorecard/scorecard'
+import { Provenance, provenanceOf } from '../scorecard/provenance'
+import { ScorecardProperties, scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
-import { openLiveLog } from './live'
+import { type RunStop, openLiveLog } from './live'
+import { JudgedRun, Offered, PairRole, ScorecardPair, controlOf, pairOf } from './pair'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import {
     Admission,
@@ -69,6 +74,7 @@ import {
     statusOf,
     unobservedReasonOf,
     unobservedValvesOf,
+    withEvidenceError,
 } from './status'
 
 const CLOUD_RUN_HOST_LABEL = 'run-host'
@@ -76,6 +82,7 @@ const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
     probe: Pick<CyclotronProbe, 'unfinishedJobs' | 'runningJobs'>
+    counters?: CounterProbe
     groups: ConsumerGroup[]
     connect(): Promise<void>
     seed(signal: AbortSignal): Promise<SeedState>
@@ -88,7 +95,9 @@ export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentB
 
 export type RunTarget = { name: Target; open(loaded: LoadedCard, runId: string): TargetRun }
 
-export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError'>
+export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError' | 'pair'>
+
+export type RunWindow = { from: string; to: string }
 
 export type RunResult = {
     runId: string
@@ -99,10 +108,15 @@ export type RunResult = {
     scorecardError?: string
     stored?: true
     storeError?: string
+    pair?: ScorecardPair
+    warmUp?: RunWindow
+    baseline?: RunWindow
     cardId: string
     cardHash: string
     profileHash: string
     topologyHash?: string
+    configHash?: string
+    services?: string[]
     origin: 'local-agent'
     target: Target
     units?: DriveSummary
@@ -113,6 +127,7 @@ export type RunResult = {
     admissions: Admission[]
     bars: BarResult[]
     ramp?: Ramp
+    stopped?: RunStop
     timeline: ValveTimelineEntry[]
     restarts?: RoleExit[]
     startedAt: string
@@ -123,7 +138,20 @@ export type RunResult = {
 export interface Runner {
     up(signal: AbortSignal): Promise<void>
     run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>
+    runPair(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult[]>
     down(): Promise<void>
+}
+
+type Judged = JudgedRun & { loaded: LoadedCard; live: ReturnType<typeof openLiveLog> }
+
+type Saved = {
+    result: RunVerdict
+    scorecard: ScorecardProperties
+    pair?: ScorecardPair
+    loaded: LoadedCard
+    provenance: Provenance
+    saveError?: string
+    written: boolean
 }
 
 const HEALTH_INTERVAL_MS = 5000
@@ -149,6 +177,7 @@ type Outcome = Pick<
     | 'restarts'
     | 'bars'
     | 'ramp'
+    | 'stopped'
 >
 
 export type Probes = { commits(): readonly WriterSample[]; queue(): readonly QueueSample[]; stop(): Promise<Probed> }
@@ -229,16 +258,6 @@ async function errorOf(write: () => Promise<void> | void): Promise<string | unde
     }
 }
 
-function withEvidenceError(verdict: RunVerdict, error: string | undefined): RunVerdict {
-    return error === undefined
-        ? verdict
-        : {
-              ...verdict,
-              status: 'invalid',
-              statusReason: `${verdict.statusReason}; the evidence could not be written: ${error}`,
-          }
-}
-
 type OpenPool = {
     ending: boolean
     end(): Promise<void>
@@ -260,6 +279,8 @@ class SeedingCutShort extends Error {}
 function messageOf(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
 }
+
+const stackOf = (error: unknown): string => (error instanceof Error && error.stack) || messageOf(error)
 
 async function seedWithin(
     loaded: LoadedCard,
@@ -329,6 +350,22 @@ const admittedWindowOf = (
         ? { startedAt: first.startedAt, endedAt: first.endedAt }
         : firstStepOf(window, stepsOf(drive))
 
+const runWindowOf = (from: number, to: number): RunWindow => ({
+    from: new Date(from).toISOString(),
+    to: new Date(to).toISOString(),
+})
+
+function windowsOf(
+    drive: DriveWindow,
+    timeline: readonly ValveTimelineEntry[]
+): Pick<RunResult, 'warmUp' | 'baseline'> {
+    const { baseline } = phasesOf(drive, timeline)
+    return {
+        ...(drive.warmedAt !== undefined && { warmUp: runWindowOf(drive.startedAt, baseline.from) }),
+        baseline: runWindowOf(baseline.from, baseline.to),
+    }
+}
+
 function cdpApiUrlsOf(environment: Environment): string[] {
     const urls = environment
         .roles()
@@ -375,11 +412,16 @@ function localTarget(
             const groups = consumerGroupsOf(specs)
             const eventsTopic = groups[0].topics[0]
             const cyclotronUrl = cyclotronUrlOf(specs[0])
-            const probe = createCyclotronProbe(cyclotronUrl)
+            const intakeGroups = groups.filter(({ group }) => INTAKE_GROUPS.includes(group))
+            const probe = createCyclotronProbe(cyclotronUrl, async () => {
+                const lags = await Promise.all(intakeGroups.map(({ group }) => environment.groupLag(group)))
+                return lags.reduce((total, lag) => total + lag, 0)
+            })
             let producer: KafkaProducerWrapper | undefined
             return {
                 truth: edgeTruth(edgeUrl),
                 probe,
+                counters: createCounterProbe(clickhouseOf(env)),
                 residentBacklog: () => residentBacklogOf(profile, stateDir, cyclotronUrl),
                 fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
                 groups,
@@ -413,6 +455,7 @@ export type RunnerOptions = {
     topologyWithinMs?: number
     topologyEveryMs?: number
     target?: RunTarget
+    counterRead?: CounterRead
 }
 
 export function createRunner(
@@ -423,6 +466,7 @@ export function createRunner(
         topologyWithinMs = TOPOLOGY_WITHIN_MS,
         topologyEveryMs = TOPOLOGY_EVERY_MS,
         target,
+        counterRead = COUNTER_READ,
     }: RunnerOptions = {}
 ): Runner {
     const stateDir = defaultStateDir(env)
@@ -430,6 +474,7 @@ export function createRunner(
     const runTarget = target ?? localTarget(environment, env, stateDir, seedWithinMs, manifest !== undefined)
     let restartRequired: Error | undefined
     let ranManifest = false
+    const host = manifest ? CLOUD_RUN_HOST_LABEL : os.hostname()
 
     const settledWiring = async (
         targets: string[],
@@ -484,29 +529,41 @@ export function createRunner(
         }))
     }
 
-    return {
-        async up(signal) {
-            await environment.up(signal)
-        },
+    function writeSaved(
+        verdict: RunVerdict,
+        loaded: LoadedCard,
+        provenance: Provenance,
+        pair: ScorecardPair | undefined
+    ): Promise<string | undefined> {
+        return errorOf(() =>
+            writeJson(verdict.evidenceDir, SAVED_RUN_FILE, {
+                ...verdict,
+                host,
+                event: scorecardOf(verdict, loaded, provenance, pair),
+            } satisfies SavedRun)
+        )
+    }
 
-        async run(loaded, signal) {
+    const stage = {
+        async judge(loaded: LoadedCard, signal: AbortSignal, role?: PairRole): Promise<Judged> {
             if (restartRequired !== undefined) {
                 throw restartRequired
             }
             const { card, profile } = loaded
-            if (manifest && ranManifest) {
+            const ownsManifest = manifest !== undefined && role !== 'control'
+            if (ownsManifest && ranManifest) {
                 throw new Error(
                     `This runner already ran run ${manifest.runId} from its run manifest; a run host runs one card per manifest.`
                 )
             }
-            ranManifest = manifest !== undefined
-            const runId = manifest?.runId ?? randomUUID()
+            ranManifest ||= ownsManifest
+            const runId = ownsManifest ? manifest.runId : (manifest?.controlRunId ?? randomUUID())
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
             const opened = runTarget.open(loaded, runId)
             const judge = createJudge(opened)
             const valves = createValves()
-            using live = openLiveLog(evidenceDir)
+            const live = openLiveLog(evidenceDir)
             live.write({ type: 'start', at: Date.now(), runId, cardId: card.id, cardHash: loaded.cardHash })
             let outcome: Outcome = {
                 status: 'invalid',
@@ -525,8 +582,16 @@ export function createRunner(
             const judging = new AbortController()
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
+            let counters: CounterReading | undefined
+            let offered: Offered | undefined
             let recorded: Wiring | undefined
+            let runConfig: RunConfig | undefined
             const writerCpuReads: (DriveWindow & { read: WriterCpu })[] = []
+            let phase: RunStop['phase'] = 'connect'
+            const enter = (next: Exclude<RunStop['phase'], 'connect'>, at = Date.now(), driveForMs?: number): void => {
+                phase = next
+                live.write({ type: 'phase', at, phase: next, ...(driveForMs !== undefined && { driveForMs }) })
+            }
             const readWriterCpu = async (window: DriveWindow, readSignal: AbortSignal): Promise<WriterCpu> => {
                 const read = await writerCpuFor(card.bars, window, readSignal)
                 if (card.bars.some(({ name }) => name === 'writer_cpu_under')) {
@@ -536,14 +601,15 @@ export function createRunner(
             }
             try {
                 await opened.connect()
-                live.write({ type: 'phase', at: Date.now(), phase: 'reset' })
+                enter('reset')
                 await environment.reset(profile.settings, profile.replicas).catch((error: unknown) => {
                     restartRequired = new Error(
                         `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
                     )
                     throw error
                 })
-                live.write({ type: 'phase', at: Date.now(), phase: 'seed' })
+                runConfig = await environment.runConfig()
+                enter('seed')
                 const seeded = await opened.seed(signal).catch((error: unknown) => {
                     if (error instanceof SeedingCutShort) {
                         restartRequired = new Error(
@@ -573,13 +639,9 @@ export function createRunner(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
                 probes = await opened.probes(seeded.teamIds)
+                const offers = await opened.offers()
                 const driveStartedAt = Date.now()
-                live.write({
-                    type: 'phase',
-                    at: driveStartedAt,
-                    phase: 'drive',
-                    driveForMs: durationMs(card.drive.for),
-                })
+                enter('drive', driveStartedAt, durationMs(card.drive.for))
                 const sampling = { sampler, probes }
                 void live.follow({
                     timeline: () => valves.timeline(),
@@ -595,10 +657,14 @@ export function createRunner(
                     teams: seeded.teamIds,
                     commits: probes.commits,
                     manifest,
+                    seed: card.seed,
+                    startedAt: driveStartedAt,
+                    endsAt: driveStartedAt + durationMs(card.drive.for),
                 })
-                const offers = await opened.offers()
                 const windowOpen = new AbortController()
-                void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
+                void sleep(Math.max(0, driveStartedAt + durationMs(card.drive.for) - Date.now()), undefined, {
+                    signal: windowOpen.signal,
+                })
                     .then(() => valves.releaseAll())
                     .catch(() => undefined)
                 const liveSignal = AbortSignal.any([signal, judging.signal])
@@ -615,7 +681,7 @@ export function createRunner(
                               samples: () => sampling.sampler.taken(),
                               host: () => sampling.sampler.host(),
                               queue: () => sampling.probes.queue(),
-                              profile,
+                              admission: loaded.admission,
                               writerCpu: (window) => readWriterCpu(window, liveSignal),
                               targetLimit: opened.limit,
                           },
@@ -634,6 +700,7 @@ export function createRunner(
                 const units = await drive(loaded, seeded, recorder, AbortSignal.any([signal, valves.refusal]), {
                     ...offers,
                     runId,
+                    startedAt: driveStartedAt,
                     halt: watch?.halt,
                     gate: watch?.gate,
                 }).finally(() => windowOpen.abort())
@@ -641,14 +708,18 @@ export function createRunner(
                 const driveWindow: DriveWindow = {
                     startedAt: driveStartedAt,
                     endedAt: Math.min(Date.now(), units.steps.at(-1)?.endedAt ?? Infinity),
+                    ...(card.drive.warmUp !== undefined && {
+                        warmedAt: driveStartedAt + durationMs(card.drive.warmUp),
+                    }),
                 }
                 driven = driveWindow
+                offered = { targetUnits: units.targetUnits, offeredUnits: units.offeredUnits }
                 await valves.releaseAll()
-                live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
+                enter('converge')
                 const converged = await judge.converge(durationMs(card.convergeWithin), signal)
                 await pendingJudgments()
                 const stop = watch?.stopped()
-                live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
+                enter('judge')
                 probed = await probes.stop()
                 sampled = await sampler.stop()
                 await live.stop()
@@ -663,8 +734,20 @@ export function createRunner(
                 const { unread } = judge.evidence()
                 const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
                 const invariants = judgedInvariantsOf(checked, convergence)
+                counters = card.measure.some(({ name }) => name === counterDrift.name)
+                    ? await (opened.counters
+                          ? readCounters(
+                                opened.counters,
+                                { teams: seeded.teamIds, from: Date.parse(startedAt) },
+                                counterRead,
+                                signal
+                            )
+                          : { unread: `the ${runTarget.name} target has no counter read` })
+                    : undefined
                 const evidence = {
                     ...judge.evidence(),
+                    counters,
+                    converged: converged.converged,
                     ...sampled,
                     ...probed,
                     sampledFrom: sampler.sampledFrom,
@@ -674,16 +757,17 @@ export function createRunner(
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
-                    profile,
+                    loaded.admission,
                     baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) }),
                     units.steps[0]?.scale
                 )
-                const bars = judgeBars(card.bars, {
+                const barEvidence = {
                     ...evidence,
                     hostCpuCeiling: profile.host?.cpuCeiling,
                     writerCpu: await readWriterCpu(driveWindow, signal),
                     settled: watch?.settled(),
-                })
+                }
+                const bars = judgeBars(card.bars, barEvidence)
                 const ramp = card.drive.stopOnBreak
                     ? rampOf({
                           planned: stepsOf(card.drive),
@@ -705,6 +789,7 @@ export function createRunner(
                               },
                               convergence
                           ),
+                          readings: stepReadingsOf(card.bars, barEvidence),
                       })
                     : undefined
                 const verdict = statusOf({
@@ -723,6 +808,7 @@ export function createRunner(
                 })
                 outcome = {
                     ...verdict,
+                    ...windowsOf(admittedWindowOf(card.drive, driveWindow, units.steps), evidence.timeline),
                     units,
                     convergence,
                     janitorResets,
@@ -746,6 +832,7 @@ export function createRunner(
                     ...outcome,
                     status: 'invalid',
                     statusReason: `the run stopped: ${messageOf(error)}`,
+                    stopped: { phase, stack: stackOf(error) },
                 }
             } finally {
                 judging.abort()
@@ -776,6 +863,8 @@ export function createRunner(
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
                 ...(recorded && recorded.processes.length > 0 ? { topologyHash: recorded.hash } : {}),
+                ...(runConfig?.configHash != null && { configHash: runConfig.configHash }),
+                ...(runConfig?.services != null && { services: runConfig.services }),
                 origin: 'local-agent',
                 target: runTarget.name,
                 timeline: valves.timeline(),
@@ -783,40 +872,115 @@ export function createRunner(
                 endedAt: new Date().toISOString(),
                 evidenceDir,
             }
-            const provenance = provenanceOf()
-            const host = manifest ? CLOUD_RUN_HOST_LABEL : os.hostname()
             const evidenceError = await errorOf(async () => {
                 await opened.writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
+                writeJson(evidenceDir, 'faults.json', { seed: card.seed, faults: valves.fired() })
                 writeJson(evidenceDir, 'metrics.json', sampled)
+                if (loaded.admission.load) {
+                    writeJson(evidenceDir, 'load-targets.json', loaded.admission.load)
+                }
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed, dependencies })
                 if (writerCpuReads.length > 0) {
                     writeJson(evidenceDir, 'writer-cpu.json', writerCpuReads)
                 }
+                if (counters !== undefined) {
+                    writeJson(evidenceDir, 'counters.json', counters)
+                }
                 if (recorded) {
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
                 }
-                writeJson(evidenceDir, SAVED_RUN_FILE, {
-                    ...verdict,
-                    host,
-                    event: scorecardOf(verdict, loaded, provenance),
-                } satisfies SavedRun)
             })
-            const judged = withEvidenceError(verdict, evidenceError)
-            live.write({ type: 'end', at: Date.now(), status: judged.status, statusReason: judged.statusReason })
-            const scorecard = scorecardOf(judged, loaded, provenance)
+            return { verdict, queue: probed.queue, drive: driven, units: offered, loaded, live, evidenceError }
+        },
+
+        async save(judged: Judged, pair?: ScorecardPair): Promise<Saved> {
+            using live = judged.live
+            const { loaded, verdict } = judged
+            const provenance = provenanceOf()
+            const saveError =
+                judged.evidenceError === undefined ? await writeSaved(verdict, loaded, provenance, pair) : undefined
+            const result = withEvidenceError(verdict, judged.evidenceError ?? saveError)
+            live.write({
+                type: 'end',
+                at: Date.now(),
+                status: result.status,
+                statusReason: result.statusReason,
+                ...(result.stopped && { stopped: result.stopped }),
+            })
+            return {
+                result,
+                scorecard: scorecardOf(result, loaded, provenance, pair),
+                pair,
+                loaded,
+                provenance,
+                saveError,
+                written: judged.evidenceError === undefined && saveError === undefined,
+            }
+        },
+
+        async resave(saved: Saved, pair: ScorecardPair): Promise<Saved> {
+            const { loaded, provenance } = saved
+            const rewriteError = saved.written ? await writeSaved(saved.result, loaded, provenance, pair) : undefined
+            const result = withEvidenceError(saved.result, rewriteError)
+            return { ...saved, result, scorecard: scorecardOf(result, loaded, provenance, pair), pair }
+        },
+
+        async publish({ result, scorecard, pair }: Saved, signal: AbortSignal): Promise<RunResult> {
             const written = await publish(scorecard, env, signal)
             const reported = await reportToStore({ scorecard, host }, env)
             return {
-                ...judged,
+                ...result,
                 recorded: written.recorded,
                 captured: written.captured,
                 scorecardError: written.problem,
                 stored: reported.stored || undefined,
                 storeError: reported.problem,
+                ...(pair && { pair }),
             }
+        },
+    }
+
+    return {
+        async up(signal) {
+            await environment.up(signal)
+        },
+
+        async run(loaded, signal) {
+            return stage.publish(await stage.save(await stage.judge(loaded, signal)), signal)
+        },
+
+        async runPair(loaded, signal) {
+            const control = await stage.judge(controlOf(loaded), signal, 'control')
+            const faulted = signal.aborted
+                ? { missing: 'the run was interrupted before the faulted run' }
+                : await stage.judge(loaded, signal).catch((error: unknown) => ({ missing: messageOf(error) }))
+            const pair = pairOf(loaded, control, faulted)
+            const saved = [await stage.save(control, { ...pair, role: 'control' })]
+            if (!('missing' in faulted)) {
+                saved.push(await stage.save(faulted, { ...pair, role: 'faulted' }))
+            }
+            const [savedControl, savedFaulted] = saved
+            const reread = saved.some(({ saveError }) => saveError !== undefined)
+                ? pairOf(
+                      loaded,
+                      { ...control, evidenceError: control.evidenceError ?? savedControl.saveError },
+                      'missing' in faulted
+                          ? faulted
+                          : { ...faulted, evidenceError: faulted.evidenceError ?? savedFaulted?.saveError }
+                  )
+                : undefined
+            const read = []
+            for (const run of saved) {
+                read.push(reread && run.pair ? await stage.resave(run, { ...reread, role: run.pair.role }) : run)
+            }
+            const results = []
+            for (const run of read) {
+                results.push(await stage.publish(run, signal))
+            }
+            return results
         },
 
         async down() {
