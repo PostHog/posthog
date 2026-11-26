@@ -6,6 +6,7 @@ import dataclasses
 from datetime import timedelta
 from itertools import count
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
@@ -44,8 +45,8 @@ from products.commands.backend.logic.commands import (
     PullRequestRef,
 )
 from products.commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
-from products.commands.backend.logic.handlers import handle_loop, handle_qa
-from products.commands.backend.logic.schema import LoopArgs, QaArgs
+from products.commands.backend.logic.handlers import handle_loop, handle_qa, handle_stamp
+from products.commands.backend.logic.schema import LoopArgs, QaArgs, StampArgs
 from products.commands.backend.receivers import on_review_finished
 from products.commands.backend.tasks.tasks import deliver_follow_up, run_slack_command
 from products.error_tracking.backend.facade.api import get_issue
@@ -59,6 +60,8 @@ from products.review_hog.backend.facade.reviews import (
     PRReviewRequestOutcome,
     PRReviewRequestStatus,
 )
+from products.stamphog.backend.facade.contracts import HumanRequestDeliveryDTO, HumanRequestDTO
+from products.stamphog.backend.facade.enums import HumanRequestDeliveryKind, HumanRequestSource, HumanRequestStatus
 from products.tasks.backend.facade.access import DesktopAccessDecision
 
 INSTALLATION_ID = "31337"
@@ -179,11 +182,20 @@ class TestDispatchCommentCommand(BaseTest):
         self._link_github_login()
         github = FakeGitHub()
 
-        with patch(REQUEST_STAMPHOG_REVIEW, return_value=MagicMock(created=True)) as request_review:
+        with patch(REQUEST_STAMPHOG_REVIEW, return_value=MagicMock(created=True, human_request=None)) as request_review:
             outcome = dispatch_comment_command(self._request(), github=github)
 
         assert outcome == "accepted"
-        request_review.assert_called_once_with(self.team.id, user_id=self.user.id, repository=REPOSITORY, pr_number=7)
+        request_review.assert_called_once_with(
+            self.team.id,
+            user_id=self.user.id,
+            repository=REPOSITORY,
+            pr_number=7,
+            human=False,
+            note="",
+            requested_via=HumanRequestSource.GITHUB,
+            requester_slack_user_id="",
+        )
         # A login can pass to another account after a rename; the permission must be for this id.
         assert github.permission_lookups == [self.github_id]
         assert github.reactions == ["eyes", "rocket"]
@@ -424,7 +436,8 @@ class TestDispatchCommentCommand(BaseTest):
         assert outcome == "invalid_arguments"
         request_review.assert_not_called()
         assert github.replies == [
-            "<!-- posthog-github-command:555 -->\n@octo `stamp` doesn't take that option. Use `@posthog stamp`."
+            "<!-- posthog-github-command:555 -->\n@octo `stamp` doesn't take that option. "
+            "Use `@posthog stamp [--human] [<note>]`."
         ]
 
     def test_an_installation_outside_the_rollout_stays_silent(self) -> None:
@@ -450,6 +463,87 @@ class TestDispatchCommentCommand(BaseTest):
 
         assert not outcome.accepted
         assert outcome.message == "Legacy loops have been retired. Use workflows instead."
+
+    @parameterized.expand(
+        [
+            ("from_github", "github", StampArgs(human=True, note="ask Jane about billing"), "Notes only work"),
+            ("from_github_without_human", "github", StampArgs(note="ask Jane about billing"), "Notes only work"),
+            ("without_human", "slack", StampArgs(note="ask Jane about billing"), "Add `--human`"),
+        ]
+    )
+    def test_stamp_refuses_a_note_it_cannot_use(self, _name: str, channel: str, args: StampArgs, expected: str) -> None:
+        context = CommandContext(
+            request=dataclasses.replace(self._command_request(verb="stamp"), channel=channel),
+            subject=_pull_request(),
+            members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
+        )
+
+        with patch(REQUEST_STAMPHOG_REVIEW) as request_review:
+            outcome = handle_stamp(context, args)
+
+        assert not outcome.accepted
+        assert outcome.message.startswith(expected)
+        # A reply on GitHub is public, so it never repeats the note.
+        assert "Jane" not in outcome.message
+        request_review.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("pending", HumanRequestStatus.PENDING, False, "reviews", "If it doesn't approve, this goes to #reviews."),
+            (
+                "pending_without_a_channel_name",
+                HumanRequestStatus.PENDING,
+                False,
+                "",
+                "If it doesn't approve, this goes to the repository's Slack channel.",
+            ),
+            ("open", HumanRequestStatus.OPEN, False, "reviews", "Stamphog didn't approve, so this goes to #reviews."),
+            (
+                "already_posted",
+                HumanRequestStatus.OPEN,
+                True,
+                "reviews",
+                "Already asked in #reviews: https://app.slack.com/archives/C1/p100200",
+            ),
+            (
+                "stamphog_approved",
+                HumanRequestStatus.STAMPHOG_APPROVED,
+                False,
+                "reviews",
+                "Stamphog approved. No one else needs to look.",
+            ),
+        ]
+    )
+    def test_stamp_human_replies_with_where_the_request_stands(
+        self, _name: str, status: HumanRequestStatus, posted: bool, channel_name: str, expected: str
+    ) -> None:
+        human_request = HumanRequestDTO(
+            id=uuid4(),
+            status=status,
+            head_sha="abc123",
+            requested_via=HumanRequestSource.SLACK,
+            note="ask Jane about billing",
+            deliveries=[
+                HumanRequestDeliveryDTO(
+                    kind=HumanRequestDeliveryKind.SLACK_MESSAGE, url="https://app.slack.com/archives/C1/p100200"
+                )
+            ]
+            if posted
+            else [],
+        )
+        context = CommandContext(
+            request=dataclasses.replace(self._command_request(verb="stamp"), channel="slack"),
+            subject=_pull_request(),
+            members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
+        )
+        result = MagicMock(created=True, human_request=human_request, human_request_channel_name=channel_name)
+
+        with patch(REQUEST_STAMPHOG_REVIEW, return_value=result):
+            outcome = handle_stamp(context, StampArgs(human=True, note="ask Jane about billing"))
+
+        assert outcome.accepted
+        assert outcome.message.endswith(expected)
+        assert "Jane" not in outcome.message
 
     @parameterized.expand(
         [
@@ -608,6 +702,44 @@ class TestDispatchCommentCommand(BaseTest):
 
         assert [answer.split("\n")[0] for answer in answers] == ["`recreate` only runs from a pull request comment."]
         assert recreations == []
+
+    def test_a_slack_stamp_passes_the_note_and_the_requester_to_stamphog(self) -> None:
+        self._connect_github_account("acme")
+        slack = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", config={}, sensitive_config={"access_token": "xoxb-x"}
+        )
+        mention = dataclasses.replace(
+            self._slack_mention("stamp", (str(self.organization.id),), integration_id=slack.id),
+            text=f"stamp --human https://github.com/{REPOSITORY}/pull/7 check the billing migration",
+        )
+        human_request = HumanRequestDTO(
+            id=uuid4(), status=HumanRequestStatus.PENDING, head_sha="abc123", requested_via=HumanRequestSource.SLACK
+        )
+        result = MagicMock(created=True, human_request=human_request, human_request_channel_name="reviews")
+        budget = BucketDecision(allowed=True, remaining=0, limit=5, retry_after=60, reset=600)
+        answers: list[str] = []
+
+        with (
+            patch(RUN_SLACK_COMMAND, side_effect=lambda **kwargs: run_slack_command(**kwargs)),
+            patch(SLACK_INSTALLATION_GITHUB, return_value=FakeGitHub()),
+            patch(SLACK_POST, side_effect=lambda *args, **kwargs: answers.append(args[3])),
+            patch(CONSUME_BUDGET, return_value=budget),
+            patch(REQUEST_STAMPHOG_REVIEW, return_value=result) as request_review,
+        ):
+            accept_slack_mention(mention)
+
+        assert request_review.call_args.kwargs == {
+            "user_id": self.user.id,
+            "repository": REPOSITORY,
+            "pr_number": 7,
+            "human": True,
+            "note": "check the billing migration",
+            "requested_via": HumanRequestSource.SLACK,
+            "requester_slack_user_id": "U1",
+        }
+        assert [answer.split("\n")[0] for answer in answers] == [
+            "Stamphog is reviewing. If it doesn't approve, this goes to #reviews."
+        ]
 
     @parameterized.expand(
         [

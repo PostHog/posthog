@@ -1971,6 +1971,8 @@ class QueuedReview:
     created: bool
     # Set only when the request asked for people to review.
     human_request: HumanRequest | None = None
+    # The repository's configured channel name, for replies. Blank unless the request asked for people.
+    human_request_channel_name: str = ""
 
 
 def _evidence_after_refusal(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> str | None:
@@ -2212,7 +2214,14 @@ def request_manual_review(
         human_request_id=str(queued.human_request.id) if queued.human_request is not None else None,
         team_id=team_id,
     )
-    return QueuedReview(run=queued.run, created=queued.created, human_request=queued.human_request)
+    if queued.human_request is None:
+        return QueuedReview(run=queued.run, created=queued.created)
+    return QueuedReview(
+        run=queued.run,
+        created=queued.created,
+        human_request=queued.human_request,
+        human_request_channel_name=repo_config.human_request_slack_channel_name,
+    )
 
 
 def _waits_on_external_review(run: ReviewRun) -> bool:

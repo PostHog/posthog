@@ -67,5 +67,8 @@ def request_review(
         return contracts.ReviewRequestResultDTO(run=run, created=queued.created)
     human_request = human_request_to_dto(project_id, queued.human_request.id)
     return contracts.ReviewRequestResultDTO(
-        run=dataclasses.replace(run, human_request=human_request), created=queued.created, human_request=human_request
+        run=dataclasses.replace(run, human_request=human_request),
+        created=queued.created,
+        human_request=human_request,
+        human_request_channel_name=queued.human_request_channel_name,
     )

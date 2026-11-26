@@ -59,6 +59,7 @@ class GitHubCommentChannel:
             ambiguous=comment.ambiguous,
             requester=f"@{comment.commenter_login}",
             requested_via="a pull request comment",
+            channel="github",
         )
 
     def admit(self) -> Admission | DispatchOutcome:

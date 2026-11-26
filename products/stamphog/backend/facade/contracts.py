@@ -307,6 +307,8 @@ class ReviewRequestResultDTO:
     created: bool
     # Set only when the request asked for people to review. It can be a request that already existed.
     human_request: HumanRequestDTO | None = None
+    # The Slack channel name the repository sends human requests to, without the '#'. Blank when unknown.
+    human_request_channel_name: str = ""
 
 
 @dataclass(frozen=True)

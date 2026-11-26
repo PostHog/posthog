@@ -118,6 +118,10 @@ class CommandRequest:
     requester: str
     # Where they asked, to finish "asked for this run from ...", such as "a pull request comment".
     requested_via: str
+    # Replies on GitHub are public, so a handler checks this before it accepts text meant for fewer people.
+    channel: ChannelName
+    # Blank unless the command came from Slack. Identifies the requester there, unlike `requester`.
+    slack_user_id: str = ""
 
 
 @frozen
