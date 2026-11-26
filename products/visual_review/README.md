@@ -35,6 +35,8 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
 
 - Superseded runs on PR branches go after 3 days, on the default branch after 180 days.
   A run without a PR number counts as default-branch history, because we do not record a repo's real default branch.
+- A superseded run that holds a review decision stays until its branch has had no run for 30 days, because the decision counts on the newest run of its pull request.
+  Then all such runs of the pull request go in one transaction, so a newer undo never disappears while an older accept stays.
 - A PR branch with no run in 30 days loses its latest runs too, except the repo's newest completed full run per run type, which is the last row naming the committed baseline hashes.
   Merge-queue branches (`trunk-merge/`) hold one batch run each and go after 7 days.
 - A run that an active quarantine names as its source stays, so the quarantine can still show where it came from.
@@ -345,8 +347,9 @@ When the repo's commit status gate is on (`Repo.commit_status_gate_enabled`), th
 | ----------------------------------------------------- | --------------------------------------------- |
 | Not finished                                          | `pending`                                     |
 | Failed                                                | `error`                                       |
-| Pull request run with snapshots to review             | `failure`                                     |
-| Pull request run with approved changes, not finalized | `failure`, and the text says to finalize      |
+| Pull request run with a rejected change               | `failure`, and the text names the rejecter    |
+| Pull request run with snapshots to review             | `failure`, and the text counts the accepts    |
+| Pull request run with accepted changes, not finalized | `failure`, and the text says to finalize      |
 | Pull request run that is clean or finalized           | `success`                                     |
 | The same, but an approval it rests on is stale        | `failure`, and the text says to update        |
 | Merge-queue run                                       | `failure` on drift, else `success`            |
@@ -367,7 +370,7 @@ The run stays green when the ledger holds the picture it ends with, or when the 
 After an update, the layer's run shows the change against the ledger, and a new review turns it green.
 In `shadow` mode the verdict is the baseline file's, except for the ledger check below. `ledger` mode needs the gate on.
 
-Run creation and completion, finalizing, approving or tolerating a snapshot, a new quarantine, and "Recompute" all publish the status again.
+Run creation and completion, finalizing, a review decision or a toleration, a new quarantine, and "Recompute" all publish the status again.
 A post that GitHub refuses is retried.
 
 A required status has to arrive on every commit, also on one that needs no visual run.
@@ -383,6 +386,26 @@ With the gate on, in `shadow` mode too, a run that the baseline file classified 
 For each rendered snapshot whose ledger baseline differs from the stored one, the stored render must be the ledger hash, the hash of an open approval, or tolerated against one of them.
 Otherwise the status is `pending` and asks for a new run ("Merge master" when the run's merge-base is older than the ledger), and a merge-queue run fails so that the queue drops it.
 A run without a ledger record is `pending` as a whole. A real change that nobody approved fails as before.
+
+### Review decisions on a pull request
+
+In `ledger` mode a reviewer accepts, rejects or undoes the decision on each changed, new or removed snapshot (`runs/{id}/approve/`, `runs/{id}/reject/`, `runs/{id}/clear/`).
+A decision is about one pair of pictures: the baseline the run compared against and the picture it rendered.
+It is appended to the snapshot's history in `RunSnapshot.metadata["review_decisions"]`, with who decided, how (`web`, `api` or `mcp`), when by the database clock, and a `seq` that orders the decisions of the pull request.
+No table and no column holds them, and `review_state` on the row stays with the classifier, tolerations and finalize.
+
+The newest decision on a pair counts on every completed review run of the same pull request and run type that renders the same pair.
+So accepts made on an earlier push still count on the newest run, and a decision can be made on an older run of the pull request.
+A push that changes either picture needs a new decision; the earlier one shows as `earlier_decision`.
+A decision republishes the status of the pull request's newest run.
+
+- A rejection blocks the gate and finalize, also when the story is quarantined or tolerated, and also when a partial run does not render the story. A rejected pair cannot be tolerated. The pull request gets one comment per run type that lists the open rejections and is edited as they change.
+- Finalize stays manual. It writes the effective decisions onto the newest run's rows and refuses while anything is rejected or needs review. "Accept all" accepts only what nobody decided on, never a rejection. Removals are accepted at finalize unless someone rejected them. Each approval row names the person whose accept counts.
+- Nothing changes while the newest run of the pull request is finalized, nor a pair that a finalized approval row of the pull request holds. Push a new commit to change one.
+- An agent through MCP cannot change a person's decision, and nobody accepts over another person's rejection without `override_rejection`; an agent never does. The MCP marker is set by the client, so this rule is a best effort that fails toward refusing an agent.
+- A caller can pass `expected_seq`, the newest `seq` it read, so a decision made after that read is refused (`409 decided_since`) instead of replaced unseen.
+
+In `yaml` and `shadow` mode an accept marks the row of the run it was made on, as before, and reject and undo are refused.
 
 ### How an approval reaches the default branch
 
