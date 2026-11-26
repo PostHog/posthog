@@ -1,3 +1,4 @@
+import { withMarketingEmailSteps } from '../OptOuts/transactionalCategories'
 import type { HogFlow } from './hogflows/types'
 
 export function prepareWorkflowDuplicate(workflow: HogFlow): Partial<HogFlow> {
@@ -5,6 +6,7 @@ export function prepareWorkflowDuplicate(workflow: HogFlow): Partial<HogFlow> {
         ...workflow,
         name: `${workflow.name} (copy)`,
         status: 'draft',
+        actions: withMarketingEmailSteps(workflow),
     }
 
     delete duplicate.id

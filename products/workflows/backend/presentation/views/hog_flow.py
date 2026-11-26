@@ -1925,6 +1925,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "function_push also accepts sensitive?: <bool> (default false) - when true, the notification is "
             "still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps "
             "no variables, so it can't be rerun. "
+            "Workflow email steps are marketing email: a new function_email or email_sandbox step can't set "
+            "message_category_type to transactional, unless the trigger fires only on support ($conversation_*) "
+            "events. Send transactional email with the transactional email API. "
             "email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, "
             "inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, "
             "html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, "
@@ -3933,7 +3936,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
-        "creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. "
+        "creating a workflow, and never to `transactional_emails`, `transactional_email_keys` or "
+        "`transactional_push`: the transactional send APIs set those. "
         "Filter the list with `?origin_product=`.",
     )
     source_record = serializers.RegexField(
@@ -4382,7 +4386,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     ) -> None:
         """Usage reports count a send as transactional by its step id, so only the workflows the transactional send
         APIs made may hold that step, and they keep the shape those APIs run."""
-        if origin_product and is_transactional_origin(origin_product):
+        # A workflow made through the API before it refused transactional origins has another shape, and saves like
+        # any other workflow.
+        if (
+            origin_product
+            and is_transactional_origin(origin_product)
+            and (stored is None or keeps_transactional_shape(origin_product, stored.actions or [], stored.edges or []))
+        ):
             actions = data.get("actions", stored.actions if stored else [])
             edges = data.get("edges", stored.edges if stored else [])
             if not keeps_transactional_shape(origin_product, actions or [], edges or []):
@@ -4397,12 +4407,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         actions = data.get("actions")
         if not isinstance(actions, list):
             return
-        if reserved := reserved_step_ids(actions):
+        # Only the live steps count as existing: a staged draft can hold an approved suggestion nobody checked.
+        live_steps = (stored.actions or []) if stored else []
+        if reserved := sorted(set(reserved_step_ids(actions)) - set(reserved_step_ids(live_steps))):
             raise serializers.ValidationError(
                 {"actions": f"The step id '{reserved[0]}' is reserved for transactional sends. Use another id."}
             )
-        stored_steps = (stored.actions, (stored.draft or {}).get("actions")) if stored else ()
-        if added := added_transactional_email_steps(actions, *stored_steps):
+        if added := added_transactional_email_steps(actions, live_steps):
             raise serializers.ValidationError(
                 {
                     "actions": f"Email steps in workflows can't be transactional. Choose a marketing category for "

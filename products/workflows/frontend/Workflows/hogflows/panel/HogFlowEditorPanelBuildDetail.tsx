@@ -24,7 +24,7 @@ import { urls } from 'scenes/urls'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySelect'
-import { canPickTransactionalCategory } from 'products/workflows/frontend/OptOuts/transactionalCategories'
+import { transactionalCategoryChoices } from 'products/workflows/frontend/OptOuts/transactionalCategories'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
@@ -154,7 +154,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 >)
                                             }}
                                             value={action.config.message_category_id ?? undefined}
-                                            allowTransactional={canPickTransactionalCategory(
+                                            transactionalCategories={transactionalCategoryChoices(
                                                 action,
                                                 workflow,
                                                 categories

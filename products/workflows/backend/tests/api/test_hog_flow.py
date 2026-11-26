@@ -1021,6 +1021,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("marketing_email", {"category_type": "marketing"}, 201),
             ("support_reply", {"trigger_event": "$conversation_message_sent"}, 201),
             ("support_entry_without_type", {"trigger_event": "$conversation_message_sent", "type": None}, 400),
+            ("event_named_like_support", {"trigger_event": "$conversation_spring_sale"}, 400),
             ("reserved_step_id", {"category_type": "marketing", "step_id": "transactional_email"}, 400),
         ]
     )
@@ -1044,6 +1045,25 @@ class TestHogFlowAPI(APIBaseTest):
         assert kept.status_code == 200, kept.json()
         assert added.status_code == 400, added.json()
         assert "'Follow-up'" in added.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("reserved_step_id", None, "transactional_email"),
+            ("transactional_origin_made_by_a_client", "transactional_emails", "email_1"),
+        ]
+    )
+    def test_a_workflow_saved_before_the_rules_keeps_saving(self, _name, origin_product, step_id):
+        actions = self._email_flow_with_category(category_type="marketing", step_id=step_id)["actions"]
+        stored = HogFlow.objects.create(
+            team=self.team, name="Older workflow", actions=actions, origin_product=origin_product
+        )
+        actions[1]["name"] = "Renamed"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{stored.id}", {"actions": actions}, format="json"
+        )
+
+        assert response.status_code == 200, response.json()
 
     def test_a_support_reply_cannot_keep_a_transactional_email_on_another_trigger(self):
         support_reply = self._email_flow_with_category(trigger_event="$conversation_message_sent")["actions"]

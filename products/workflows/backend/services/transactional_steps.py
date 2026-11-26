@@ -14,9 +14,21 @@ TRANSACTIONAL_STEPS: Final[dict[str, tuple[str, str]]] = {
 }
 RESERVED_STEP_IDS: Final[frozenset[str]] = frozenset({TRANSACTIONAL_EMAIL_ACTION_ID, TRANSACTIONAL_PUSH_ACTION_ID})
 EMAIL_STEP_TYPES: Final[frozenset[str]] = frozenset({"function_email", SANDBOX_EMAIL_ACTION_TYPE})
-# Support replies and ticket updates must reach people who opted out of marketing email.
-SUPPORT_EVENT_PREFIX: Final[str] = "$conversation_"
-SUPPORT_TRIGGER_TYPES: Final[frozenset[str]] = frozenset({"event", "internal-event"})
+# Support replies and ticket updates must reach people who opted out of marketing email. The names of the events the
+# support product emits. Keep in step with CONVERSATION_ANALYTICS_EVENTS in products/conversations/backend/events.py
+# and SUPPORT_EVENTS in nodejs/src/cdp/services/hogflows/hogflow-quota-limiting.ts.
+SUPPORT_EVENTS: Final[frozenset[str]] = frozenset(
+    {
+        "$conversation_ticket_created",
+        "$conversation_ticket_status_changed",
+        "$conversation_ticket_priority_changed",
+        "$conversation_ticket_assigned",
+        "$conversation_ticket_tag_added",
+        "$conversation_message_sent",
+        "$conversation_private_message_sent",
+        "$conversation_message_received",
+    }
+)
 
 
 def is_transactional_origin(origin_product: str | None) -> bool:
@@ -82,19 +94,19 @@ def _triggers_only_on_support_events(actions: list[dict[str, Any]]) -> bool:
     if trigger is None:
         return False
     config = trigger.get("config") or {}
-    filters = config.get("filters") or {}
-    events = filters.get("events") or []
+    filters = config.get("filters") if isinstance(config, dict) else None
+    events = filters.get("events") if isinstance(filters, dict) else None
+    # A lenient draft can store any value here.
+    if not isinstance(events, list) or not events or filters.get("actions"):
+        return False
+    if not all(isinstance(event, dict) for event in events):
+        return False
+    if config.get("type") == "internal-event":
+        # The internal event consumer matches the entry's id alone.
+        return filters.get("source") == "internal-events" and all(event.get("id") in SUPPORT_EVENTS for event in events)
     # The filter compiler matches the event name only on entries of type `events`, so another entry matches any event.
-    return (
-        config.get("type") in SUPPORT_TRIGGER_TYPES
-        and bool(events)
-        and not filters.get("actions")
-        and all(
-            isinstance(event, dict)
-            and event.get("type") == "events"
-            and str(event.get("id") or "").startswith(SUPPORT_EVENT_PREFIX)
-            for event in events
-        )
+    return config.get("type") == "event" and all(
+        event.get("type") == "events" and event.get("id") in SUPPORT_EVENTS for event in events
     )
 
 

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -15,71 +15,79 @@ import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 
 const WORKFLOW_ID = 'wf-transactional-category'
 const EMAIL_NODE_ID = 'transactional_email'
+const MARKETING_EMAIL_NODE_ID = 'email_1'
+const PAGEVIEW_TRIGGER = { type: 'event', filters: { source: 'events', events: [{ id: '$pageview', type: 'events' }] } }
 
 const transactionalEmailWorkflow = (
     messageCategoryId: string | null,
-    stepConfig: Record<string, boolean | string> = {}
-): HogFlow => ({
-    id: WORKFLOW_ID,
-    name: 'Usage spike detected',
-    actions: [
-        {
-            id: 'trigger_node',
-            type: 'trigger',
-            name: 'Trigger',
-            description: '',
-            created_at: 0,
-            updated_at: 0,
-            config: { type: 'api' },
-        } as HogFlow['actions'][number],
-        {
-            id: EMAIL_NODE_ID,
-            type: 'function_email',
-            name: 'Usage spike detected',
-            description: '',
-            created_at: 0,
-            updated_at: 0,
-            config: {
-                template_id: 'template-email',
-                message_category_id: messageCategoryId,
-                message_category_type: 'transactional',
-                ...stepConfig,
-                inputs: {
-                    email: {
-                        templating: 'liquid',
-                        value: {
-                            to: { email: '{{ event.properties.to | raw }}' },
-                            from: { integrationId: 42 },
-                            subject: 'Your usage spiked',
-                            text: 'Usage spiked',
+    messageCategoryType: 'marketing' | 'transactional' = 'transactional',
+    stepConfig: Record<string, boolean> = {}
+): HogFlow => {
+    // A transactional send workflow, or an ordinary event workflow with a marketing email.
+    const emailNodeId = messageCategoryType === 'transactional' ? EMAIL_NODE_ID : MARKETING_EMAIL_NODE_ID
+    const trigger = messageCategoryType === 'transactional' ? { type: 'api' } : PAGEVIEW_TRIGGER
+    return {
+        id: WORKFLOW_ID,
+        name: 'Usage spike detected',
+        actions: [
+            {
+                id: 'trigger_node',
+                type: 'trigger',
+                name: 'Trigger',
+                description: '',
+                created_at: 0,
+                updated_at: 0,
+                config: trigger,
+            } as HogFlow['actions'][number],
+            {
+                id: emailNodeId,
+                type: 'function_email',
+                name: 'Usage spike detected',
+                description: '',
+                created_at: 0,
+                updated_at: 0,
+                config: {
+                    template_id: 'template-email',
+                    message_category_id: messageCategoryId,
+                    message_category_type: messageCategoryType,
+                    ...stepConfig,
+                    inputs: {
+                        email: {
+                            templating: 'liquid',
+                            value: {
+                                to: { email: '{{ event.properties.to | raw }}' },
+                                from: { integrationId: 42 },
+                                subject: 'Your usage spiked',
+                                text: 'Usage spiked',
+                            },
                         },
                     },
                 },
             },
-        },
-        {
-            id: 'exit_node',
-            type: 'exit',
-            name: 'Exit',
-            description: '',
-            created_at: 0,
-            updated_at: 0,
-            config: { reason: 'Default exit' },
-        },
-    ],
-    edges: [
-        { from: 'trigger_node', to: EMAIL_NODE_ID, type: 'continue' },
-        { from: EMAIL_NODE_ID, to: 'exit_node', type: 'continue' },
-    ],
-    conversion: { filters: [] },
-    exit_condition: 'exit_only_at_end',
-    version: 1,
-    status: 'active',
-    team_id: 1,
-    trigger: { type: 'api' } as HogFlow['trigger'],
-    created_at: '2026-11-01T00:00:00.000Z',
-    updated_at: '2026-11-01T00:00:00.000Z',
-})
+            {
+                id: 'exit_node',
+                type: 'exit',
+                name: 'Exit',
+                description: '',
+                created_at: 0,
+                updated_at: 0,
+                config: { reason: 'Default exit' },
+            },
+        ],
+        edges: [
+            { from: 'trigger_node', to: emailNodeId, type: 'continue' },
+            { from: emailNodeId, to: 'exit_node', type: 'continue' },
+        ],
+        conversion: { filters: [] },
+        exit_condition: 'exit_only_at_end',
+        version: 1,
+        status: 'active',
+        team_id: 1,
+        trigger: trigger as HogFlow['trigger'],
+        created_at: '2026-11-01T00:00:00.000Z',
+        updated_at: '2026-11-01T00:00:00.000Z',
+    }
+}
 
 const categories = [
     { id: 'cat-newsletter', key: 'newsletter', name: 'Newsletter', category_type: 'marketing' },
@@ -88,16 +96,21 @@ const categories = [
 
 const emailStepMocks = (
     messageCategoryId: string | null,
-    stepConfig: Record<string, boolean | string> = {}
+    messageCategoryType: 'marketing' | 'transactional' = 'transactional',
+    stepConfig: Record<string, boolean> = {}
 ): Parameters<typeof useMocks>[0] => ({
     get: {
-        '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(messageCategoryId, stepConfig),
+        '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(
+            messageCategoryId,
+            messageCategoryType,
+            stepConfig
+        ),
         '/api/projects/:team_id/hog_function_templates/': () => new Promise(() => {}),
         '/api/environments/:team_id/messaging_categories/': { results: categories, count: 2, next: null },
     },
 })
 
-async function renderEmailStep(): Promise<ReturnType<typeof render>> {
+async function renderEmailStep(emailNodeId: string = EMAIL_NODE_ID): Promise<ReturnType<typeof render>> {
     initKeaTests()
     const props = { id: WORKFLOW_ID }
     logic = workflowLogic(props)
@@ -106,7 +119,7 @@ async function renderEmailStep(): Promise<ReturnType<typeof render>> {
     const editorLogic = hogFlowEditorLogic(props)
     editorLogic.mount()
     await expectLogic(optOutCategoriesLogic()).toDispatchActions(['loadCategoriesSuccess'])
-    editorLogic.actions.setSelectedNodeId(EMAIL_NODE_ID)
+    editorLogic.actions.setSelectedNodeId(emailNodeId)
 
     return render(
         <Provider>
@@ -140,13 +153,14 @@ describe('HogFlowEditorPanelBuildDetail', () => {
     })
 
     it('offers a marketing email step no transactional category', async () => {
-        useMocks(emailStepMocks('cat-newsletter', { message_category_type: 'marketing' }))
-        await renderEmailStep()
+        useMocks(emailStepMocks('cat-newsletter', 'marketing'))
+        await renderEmailStep(MARKETING_EMAIL_NODE_ID)
 
         fireEvent.click(screen.getByText('Newsletter'))
+        const menu = within(document.querySelector('.Popover') as HTMLElement)
 
-        expect(screen.getAllByText('Newsletter')).toHaveLength(2)
-        expect(screen.queryByText('Billing')).not.toBeInTheDocument()
+        expect(menu.getByText('Newsletter')).toBeInTheDocument()
+        expect(menu.queryByText('Billing')).not.toBeInTheDocument()
     })
 
     it('turns off connecting clicks to sessions for this email', async () => {
@@ -164,7 +178,7 @@ describe('HogFlowEditorPanelBuildDetail', () => {
         ['on a step saved as sensitive', { sensitive: true }, false],
         ['on a step with link click tracking off', { click_tracking_enabled: false }, false],
     ])('hides the connect clicks to sessions switch %s', async (_, stepConfig, turnTrackingOff) => {
-        useMocks(emailStepMocks('cat-billing', stepConfig))
+        useMocks(emailStepMocks('cat-billing', 'transactional', stepConfig))
         const { container } = await renderEmailStep()
 
         if (turnTrackingOff) {

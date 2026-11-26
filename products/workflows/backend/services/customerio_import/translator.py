@@ -36,6 +36,10 @@ WORKFLOW_EMAIL_IS_MARKETING = (
     "Customer.io sends this email to unsubscribed people too. Workflow emails skip people who opted out. "
     "Send emails people must get, such as receipts, with the transactional email API."
 )
+TRANSACTIONAL_TOPIC_CATEGORY = (
+    "This email's subscription topic maps to a transactional message category, and workflow emails are marketing "
+    "email. Pick a marketing category, or send this email with the transactional email API."
+)
 _MAX_REENTRY_SECONDS = 3 * 365 * 86400
 # Unit, seconds per unit, and the largest amount a workflow accepts in that unit.
 _DURATION_UNITS: tuple[tuple[str, int, int | None], ...] = (
@@ -722,7 +726,7 @@ class _Builder:
                 config["message_category_type"] = category.category_type
                 return
             if category is not None:
-                self.note(NoteLevel.APPROXIMATED, WORKFLOW_EMAIL_IS_MARKETING, action)
+                self.note(NoteLevel.NEEDS_INPUT, TRANSACTIONAL_TOPIC_CATEGORY, action)
                 return
             self.note(
                 NoteLevel.NEEDS_INPUT,

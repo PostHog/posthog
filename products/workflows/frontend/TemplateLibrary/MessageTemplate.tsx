@@ -368,7 +368,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                 Create a workflow that sends this email to a person each time they do an
                                                 event you pick, without code. Values you pass as variables in the API
                                                 come from the event&apos;s properties instead. The workflow gets its own
-                                                copy of the email, so later edits here don&apos;t change it.
+                                                copy of the email, so later edits here don&apos;t change it. Workflow
+                                                emails are marketing email, so people who opted out don&apos;t get it.
+                                                Send emails everyone must get, such as receipts, with the API.
                                             </p>
                                         </div>
                                     </div>
