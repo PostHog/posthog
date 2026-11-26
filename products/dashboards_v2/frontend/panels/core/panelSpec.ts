@@ -32,8 +32,8 @@ export type PanelSpec<Config, Type extends string = string> = {
     allowedCustomizations?: TileCustomization[]
     /** Leaves the tile out of snapshots of the dashboard, such as an image or a printed page. */
     showOnInteractiveOnly?(panel: ContentPanel<Config>): boolean
-    /** Locks the tile: a person cannot drag, resize, move or remove it. Other tiles can still push it down. */
-    locked?(panel: ContentPanel<Config>): boolean
+    /** False stops a person dragging, resizing, moving or removing the tile, though other tiles can still push it down. Left out, every tile is movable. */
+    movable?(panel: ContentPanel<Config>): boolean
 }
 
 /**
@@ -48,11 +48,11 @@ export type PanelTypeSpec<Type extends string = string> = {
     configError(config: SavedPanel['config']): z.ZodError | null
     allowedCustomizations?: TileCustomization[]
     showOnInteractiveOnly(panel: SavedPanel): boolean
-    locked(panel: SavedPanel): boolean
+    movable(panel: SavedPanel): boolean
 }
 
 export function definePanelSpec<Config, const Type extends string>(spec: PanelSpec<Config, Type>): PanelTypeSpec<Type> {
-    const { configSchema, sizeFor, showOnInteractiveOnly, locked } = spec
+    const { configSchema, sizeFor, showOnInteractiveOnly, movable } = spec
     const checkParsed = (check: ((panel: ContentPanel<Config>) => boolean) | undefined, panel: SavedPanel): boolean => {
         const config = parseOnce(configSchema, panel.config)
         return !!check && config.success && check({ ...panel, config: config.data })
@@ -70,7 +70,10 @@ export function definePanelSpec<Config, const Type extends string>(spec: PanelSp
         },
         allowedCustomizations: spec.allowedCustomizations,
         showOnInteractiveOnly: (panel) => checkParsed(showOnInteractiveOnly, panel),
-        locked: (panel) => checkParsed(locked, panel),
+        movable: (panel) => {
+            const config = parseOnce(configSchema, panel.config)
+            return !movable || !config.success || movable({ ...panel, config: config.data })
+        },
     }
 }
 

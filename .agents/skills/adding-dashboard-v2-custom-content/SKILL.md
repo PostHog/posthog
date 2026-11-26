@@ -3,7 +3,7 @@ name: adding-dashboard-v2-custom-content
 description: >
   Guides putting a product's own React component in a dashboards v2 tile through the custom panel type:
   a content package in the product's folder (`defineContentPackage`), `createCustomPanel({ packages })`,
-  the locked-by-default opt-ins (`movable`, `menuActions`, `showOnInteractiveOnly`) and reading or changing
+  the off-by-default opt-ins (`movable`, `menuActions`, `showOnInteractiveOnly`) and reading or changing
   the dashboard's filters. Use when migrating an existing component, banner, list or prompt from a product
   page into a dashboards v2 tile, adding a new custom content, or reviewing a diff that touches a content
   package. Not for a new kind of chart or panel type (`adding-dashboard-v2-panel-types`).
@@ -44,7 +44,7 @@ Read `products/dashboards_v2/.agents/composing.md` ("Your own component in a til
 4. **Strip its own frame.** Remove the component's card, border, padding that matches the card's, and its title. The tile draws them, and the tile's `title` holds the heading. Hide the tile header with `parts: { header: false }` when the content has its own, such as a callout.
 5. **Fill the tile.** The content gets the tile's height. A list or table scrolls inside itself, and nothing sets a fixed height. Pick `size` so the default tile shows the content without a scrollbar.
 6. **Give it a `Loading`** shaped like the content when it loads data, so an off-screen tile looks like itself. Left out, the tile shows the default loading state.
-7. **Opt in only to what the product wants people to do.** A content is locked by default.
+7. **Opt in only to what the product wants people to do.** By default a content cannot be moved and has an empty menu.
    - `movable: true` lets a person drag, resize, move and remove the tile.
    - `menuActions(actions, context)` returns the built-in actions to show, such as `actions.filter((action) => action.key === 'download-image')`. Left out, the menu is empty.
    - `showOnInteractiveOnly: true` leaves the tile out of images and printed pages. Use it for prompts, buttons and live counters, which mean nothing in a snapshot.

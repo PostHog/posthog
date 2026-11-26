@@ -60,6 +60,6 @@ export function customSpec(
         }),
         allowedCustomizations,
         showOnInteractiveOnly: (panel) => !!contents.get(panel.config.content)?.showOnInteractiveOnly,
-        locked: (panel) => !contents.get(panel.config.content)?.movable,
+        movable: (panel) => !!contents.get(panel.config.content)?.movable,
     }
 }
