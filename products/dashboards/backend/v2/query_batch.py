@@ -67,7 +67,7 @@ from products.dashboards.backend.facade.enums import (
     ResultFormat,
 )
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
-from products.dashboards.backend.v2.frames import frames_for
+from products.dashboards.backend.v2.frames import frames_for, shape_kind
 from products.dashboards.backend.v2.telemetry import (
     TelemetryTargetError,
     assert_can_read_logs,
@@ -242,6 +242,7 @@ _span_refresh_slots = BoundedSemaphore(MAX_QUEUED_SPAN_REFRESHES)
 _FAILED = "The query failed."
 _THROTTLED = "Too many queries are running for this organization. Try again shortly."
 _BUSY = "Too many dashboards are loading at once. Try again shortly."
+_NO_FRAMES = "This {kind} result can't be drawn as a chart."
 _TIMED_OUT = "The dashboard took too long to load. Try again."
 # Marks an entry already read and found stale, so its repeats run without being fetched again.
 _RUN_FRESH = b""
@@ -517,10 +518,13 @@ def _result_line(
                 timezone=shape.timezone,
             )
         except Exception as e:
-            # A result the converter cannot read is still an answer, so it goes back as the runner returned it.
             logger.warning("dashboard_v2_query_batch_frames_failed", exc_info=True)
             capture_exception(e)
-        body["format"] = (ResultFormat.FRAMES if frames is not None else ResultFormat.RESULT).value
+        if frames is None:
+            # A frames request gets frames or an error, so a chart never has to read a runner's own result shape.
+            kind = shape_kind(shape.language, shape.query)
+            return {"i": index, "error": _NO_FRAMES.format(kind=kind), "unsupported_shape": kind}
+        body["format"] = ResultFormat.FRAMES.value
     if frames is not None:
         body["frames"] = frames
         # Freshness and access-control warnings qualify the frames as they do the runner's result.
