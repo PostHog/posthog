@@ -1,3 +1,4 @@
+import csv
 import json
 from typing import Any
 
@@ -214,8 +215,8 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
     @parameterized.expand(
         [
             ("cut_short", {"cut_file_to": 150}),
-            ("cut_short_without_a_stated_length", {"cut_file_to": 150, "state_length": False}),
-            ("cut_at_the_end_of_a_row", {"cut_file_to": 170, "state_length": False}),
+            ("without_a_size_or_checksum", {"state_length": False}),
+            ("cut_at_the_end_of_a_row", {"cut_file_to": 170}),
             ("fewer_than_stated", {"stated_total": 5}),
             ("more_than_stated", {"stated_total": 1}),
             (
@@ -304,10 +305,32 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
 
         assert len(self.customerio.exports) == 2
 
+    def test_a_failed_download_keeps_the_export_for_the_retry(self) -> None:
+        self.workspace.people = [person(1)]
+        self.customerio.failures = [(r"GET /files/.*", 503, {})] * customerio_exports.DOWNLOAD_ATTEMPTS
+        run = self._start()
+        for step in CONTACT_RUN[:3]:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        runs.run_step(self.team.id, run.id, "contacts", attempt=2)
+
+        run.refresh_from_db()
+        assert run.progress["contacts"]["status"] == "completed"
+        assert len(self.customerio.exports) == 1
+
     def test_a_file_larger_than_one_import_takes_is_not_retried(self) -> None:
         self.workspace.people = [person(1)]
 
         with patch.object(customerio_exports, "MAX_DOWNLOAD_BYTES", 10), self.assertRaises(ImportTooLarge):
+            self._run_contacts()
+
+    def test_a_value_past_the_csv_field_limit_is_not_retried(self) -> None:
+        self.workspace.people = [person(1, note="x" * 200)]
+        self.addCleanup(csv.field_size_limit, csv.field_size_limit(100))
+
+        with self.assertRaisesRegex(ImportTooLarge, "larger than PostHog reads"):
             self._run_contacts()
 
     def test_a_key_that_cannot_export_stops_before_any_run(self) -> None:

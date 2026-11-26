@@ -39,6 +39,10 @@ SEGMENT_COLUMN_PREFIX = "_segment:"
 UNFOLLOWED_LINK_MESSAGE = "Customer.io sent a download link PostHog won't follow."
 INCOMPLETE_MESSAGE = "Customer.io's people export arrived incomplete."
 UNREADABLE_MESSAGE = "Customer.io's people export isn't a file PostHog can read."
+UNVERIFIABLE_MESSAGE = (
+    "Customer.io sent its people export without a size or checksum, so PostHog can't tell it's complete."
+)
+FIELD_TOO_LARGE_MESSAGE = "A value in Customer.io's people export is larger than PostHog reads."
 
 
 class ExportError(CustomerIOAPIError):
@@ -47,6 +51,10 @@ class ExportError(CustomerIOAPIError):
 
 class ExportGone(ExportError):
     """This export failed or can't be read. A new one can work."""
+
+
+class DownloadFailed(ExportError):
+    """Downloading the file failed partway. Reading the same export again can work."""
 
 
 class ExportPending(ExportError):
@@ -127,7 +135,7 @@ def open_people_export(client: CustomerIOClient, export: PeopleExport) -> Iterat
         with tempfile.TemporaryFile() as file:
             try:
                 _save_file(client, url, file)
-            except ExportGone:
+            except (ExportGone, DownloadFailed):
                 if attempt == DOWNLOAD_ATTEMPTS:
                     raise
                 time.sleep(2**attempt)
@@ -181,6 +189,8 @@ def _save_file(client: CustomerIOClient, url: str, file: IO[bytes]) -> None:
                 allow_redirects=False,
                 stream=True,
             ) as response:
+                if response.status_code >= 500:
+                    raise DownloadFailed(f"Customer.io's people export returned HTTP {response.status_code}.")
                 if response.status_code != 200:
                     raise ExportGone(f"Customer.io's people export returned HTTP {response.status_code}.")
                 if response.headers.get("Content-Encoding", "identity") != "identity":
@@ -192,7 +202,7 @@ def _save_file(client: CustomerIOClient, url: str, file: IO[bytes]) -> None:
                     if size > MAX_DOWNLOAD_BYTES:
                         raise ExportTooLarge("Customer.io's people export is larger than one import takes.")
                     if time.monotonic() > deadline:
-                        raise ExportGone("Customer.io's people export took too long to download.")
+                        raise DownloadFailed("Customer.io's people export took too long to download.")
                     digest.update(chunk)
                     file.write(chunk)
                 stated = response.headers.get("Content-Length", "")
@@ -200,9 +210,12 @@ def _save_file(client: CustomerIOClient, url: str, file: IO[bytes]) -> None:
     except SSRFBlockedError:
         raise ExportError(UNFOLLOWED_LINK_MESSAGE) from None
     except (requests.RequestException, http.client.HTTPException, OSError) as e:
-        raise ExportGone(f"Couldn't download Customer.io's people export ({type(e).__name__}).") from None
+        raise DownloadFailed(f"Couldn't download Customer.io's people export ({type(e).__name__}).") from None
+    if not stated.isdigit() and not expected_digest:
+        # A file cut inside its last value still parses, so only its size or checksum shows it's whole.
+        raise ExportError(UNVERIFIABLE_MESSAGE)
     if (stated.isdigit() and size != int(stated)) or (expected_digest and digest.digest() != expected_digest):
-        raise ExportGone(INCOMPLETE_MESSAGE)
+        raise DownloadFailed(INCOMPLETE_MESSAGE)
     file.seek(0)
 
 
@@ -221,8 +234,8 @@ def _read_file(file: IO[bytes], total: int, workspace_id: str) -> OpenExport:
     reader = csv.reader(TextIOWrapper(file, encoding="utf-8-sig", newline=""), strict=True)
     try:
         columns = next(reader, [])
-    except (csv.Error, UnicodeDecodeError):
-        raise ExportGone(UNREADABLE_MESSAGE) from None
+    except (csv.Error, UnicodeDecodeError) as e:
+        raise _unreadable(e) from None
     if len(set(columns)) != len(columns) or (total and "cio_id" not in columns):
         raise ExportGone(UNREADABLE_MESSAGE)
     segment_columns = {
@@ -252,7 +265,14 @@ def _read_people(
                 values={k: v for k, v in values.items() if not k.startswith(SEGMENT_COLUMN_PREFIX)},
                 segment_ids=frozenset(segment_id for column, segment_id in segment_columns.items() if column in values),
             )
-    except (csv.Error, UnicodeDecodeError):
-        raise ExportGone(UNREADABLE_MESSAGE) from None
+    except (csv.Error, UnicodeDecodeError) as e:
+        raise _unreadable(e) from None
     if read != total:
         raise ExportGone(f"Customer.io's people export holds {read:,} people, but says it holds {total:,}.")
+
+
+def _unreadable(error: Exception) -> ExportError:
+    # Every new export holds the same value, so a value past the csv module's field limit isn't retried.
+    if isinstance(error, csv.Error) and "field limit" in str(error):
+        return ExportTooLarge(FIELD_TOO_LARGE_MESSAGE)
+    return ExportGone(UNREADABLE_MESSAGE)
