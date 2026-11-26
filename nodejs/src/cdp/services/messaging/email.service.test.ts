@@ -2350,6 +2350,14 @@ describe('EmailService', () => {
             sesAcceptsTracked()
             invocation.state.send = { tracking: { captureEngagement: true, opens: false } }
         }
+        const sensitiveClicksOn = (): void => {
+            sesAcceptsTracked()
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                sensitive: true,
+                click_tracking_enabled: true,
+            }
+        }
         describe('attachments', () => {
             let bucket: BucketProxy
             let pdf: StoredFile
@@ -3238,6 +3246,14 @@ describe('EmailService', () => {
                 codeSendOpensOff,
                 'sent',
                 'untracked',
+            ],
+            [
+                'a sensitive transactional email that turns click tracking back on',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                sensitiveClicksOn,
+                'sent',
+                '',
             ],
             [
                 'a transactional email skipped for a suspended team',
