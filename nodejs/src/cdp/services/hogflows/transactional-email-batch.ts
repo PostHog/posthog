@@ -143,11 +143,6 @@ export const transactionalEmailBatchRequestsTotal = new Counter({
     labelNames: ['outcome'],
 })
 
-export type BatchSlot = {
-    claimFor(organizationId: string): boolean
-    release(): void
-}
-
 export class BatchCapacity {
     private admitted = 0
     private readonly admittedByOrganization = new Map<string, number>()
@@ -159,36 +154,29 @@ export class BatchCapacity {
         this.reserved = Math.max(1, Math.floor(maxRequests / 4))
     }
 
-    admit(): BatchSlot | null {
-        if (this.admitted >= this.maxRequests) {
+    isFull(): boolean {
+        return this.admitted >= this.maxRequests
+    }
+
+    admit(organizationId: string): (() => void) | null {
+        const held = this.admittedByOrganization.get(organizationId) ?? 0
+        if (
+            this.isFull() ||
+            held >= this.maxRequestsPerOrganization ||
+            (held > 0 && this.admitted >= this.maxRequests - this.reserved)
+        ) {
             return null
         }
         this.admitted++
-        let claimedFor: string | null = null
+        this.admittedByOrganization.set(organizationId, held + 1)
         let released = false
-        return {
-            claimFor: (organizationId) => {
-                const held = this.admittedByOrganization.get(organizationId) ?? 0
-                if (
-                    held >= this.maxRequestsPerOrganization ||
-                    (held > 0 && this.admitted > this.maxRequests - this.reserved)
-                ) {
-                    return false
-                }
-                this.admittedByOrganization.set(organizationId, held + 1)
-                claimedFor = organizationId
-                return true
-            },
-            release: () => {
-                if (released) {
-                    return
-                }
-                released = true
-                this.admitted--
-                if (claimedFor !== null) {
-                    this.releaseFor(claimedFor)
-                }
-            },
+        return () => {
+            if (released) {
+                return
+            }
+            released = true
+            this.admitted--
+            this.releaseFor(organizationId)
         }
     }
 

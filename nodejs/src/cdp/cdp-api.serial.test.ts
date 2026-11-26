@@ -5783,6 +5783,16 @@ describe('CDP API', () => {
                     variables: body.variables,
                     recipients,
                 })
+                const sendForAbsentTeam = (pod: express.Application) => {
+                    const absentTeamId = team.id + 100_000
+                    return supertest(pod)
+                        .post(`/api/projects/${absentTeamId}/hog_flows/${hogFlow.id}/${TEMPLATE}`)
+                        .set({
+                            Authorization: `Bearer ${mintToken(absentTeamId, hogFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
+                        })
+                        .send(batchOf(recipient('ed@example.com')))
+                        .then((answer) => answer)
+                }
                 afterEach(async () => {
                     await Promise.all(
                         served.splice(0).map(({ cdpApi, server }) => {
@@ -5805,14 +5815,17 @@ describe('CDP API', () => {
                     const first = sendBatchTo(one, TEMPLATE, batchOf(holder)).then((answer) => answer)
                     await read.reached
                     const overlapping = await sendBatchTo(one, TEMPLATE, batchOf(recipient('cy@example.com')))
+                    const absentOnFullPod = await sendForAbsentTeam(one)
                     expire()
                     const held = await first
                     read.pass()
                     const after = await sendBatchTo(one, TEMPLATE, batchOf(recipient('di@example.com')))
                     read.release()
+                    const absentOnFreePod = await sendForAbsentTeam(one)
 
                     expect([switchedOff.status, switchedOff.body]).toEqual([503, { error: 'over_capacity' }])
                     expect([overlapping.status, overlapping.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([absentOnFullPod.status, absentOnFreePod.status]).toEqual([503, 404])
                     expect([held.status, after.status]).toEqual([200, 200])
                     expect(intakeRunsOf(intakeRecords()).map(({ distinctId }) => distinctId)).toEqual([
                         `person-${holder.to}`,
@@ -5830,10 +5843,7 @@ describe('CDP API', () => {
                     const otherOrg = await flowOf(
                         await createTeam(hub.postgres, await createOrganization(hub.postgres))
                     )
-                    const { app: four } = await servedWith({
-                        CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 4,
-                        CDP_INTAKE_KAFKA_ASYNC_TEAMS: '*',
-                    })
+                    const { app: four } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 4 })
                     const sendAs = ({ teamId, flowId }: { teamId: number; flowId: string }, to: string) =>
                         supertest(four)
                             .post(`/api/projects/${teamId}/hog_flows/${flowId}/${TEMPLATE}`)

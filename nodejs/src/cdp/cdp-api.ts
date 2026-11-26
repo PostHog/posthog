@@ -80,7 +80,6 @@ import {
 import {
     BATCH_PUBLISH_DEADLINE_MS,
     BatchCapacity,
-    BatchSlot,
     BatchSlotRequestSchema,
     CODE_SEND_BATCH_TOKEN_CLAIMS,
     CodeSendBatchRequestSchema,
@@ -1634,7 +1633,7 @@ export class CdpApi {
                 })
             }
             stages.start('auth')
-            let slot: BatchSlot | null = null
+            let release: (() => void) | null = null
             try {
                 if (
                     !this.verifyScopedWorkflowJwt(
@@ -1648,8 +1647,7 @@ export class CdpApi {
                     transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
                     return
                 }
-                slot = this.transactionalEmailBatchCapacity.admit()
-                if (!slot) {
+                if (this.transactionalEmailBatchCapacity.isFull()) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
                 stages.start('load')
@@ -1658,7 +1656,8 @@ export class CdpApi {
                 if (!team) {
                     return refuse('not_found', 404, { error: 'Team not found' })
                 }
-                if (!slot.claimFor(team.organization_id)) {
+                release = this.transactionalEmailBatchCapacity.admit(team.organization_id)
+                if (!release) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
                 stages.start('validate')
@@ -1734,7 +1733,7 @@ export class CdpApi {
                 return refuse('error', 500, { error: 'internal_error' })
             } finally {
                 stages.finish()
-                slot?.release()
+                release?.()
             }
         }
 
