@@ -1,6 +1,7 @@
 from collections.abc import Collection, Sequence
 from typing import Any
 
+from django.db import router
 from django.utils.timezone import now
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -21,9 +22,13 @@ def create_insight_tiles(*, insight_id: int, team_id: int, dashboard_ids: Sequen
     if not dashboard_ids:
         return
     # DashboardTile.save reads the tile's insight, and its dashboard when the insight has legacy filters.
-    # Load both once here, so that placing an insight on N dashboards does not read them N times.
-    insight = Insight.objects_including_soft_deleted.get(pk=insight_id, team_id=team_id)
-    dashboards = Dashboard.objects_including_soft_deleted.in_bulk(dashboard_ids) if insight.filters else {}
+    # Load both once here, so that placing an insight on N dashboards does not read them N times. The
+    # caller may have just created the insight, so read from the writer: a lagging replica would miss it.
+    writer = router.db_for_write(Insight)
+    insight = Insight.objects_including_soft_deleted.using(writer).get(pk=insight_id, team_id=team_id)
+    dashboards = (
+        Dashboard.objects_including_soft_deleted.using(writer).in_bulk(dashboard_ids) if insight.filters else {}
+    )
     for dashboard_id in dashboard_ids:
         tile = DashboardTile(insight=insight, dashboard_id=dashboard_id, team_id=team_id, last_refresh=now())
         if dashboard_id in dashboards:

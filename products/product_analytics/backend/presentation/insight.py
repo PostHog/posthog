@@ -2692,6 +2692,15 @@ class InsightViewSet(
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
                     dashboards_ids = json.loads(dashboards_filter)
+                    if not isinstance(dashboards_ids, list) or not all(
+                        (isinstance(dashboard_id, int) and not isinstance(dashboard_id, bool))
+                        or (isinstance(dashboard_id, str) and dashboard_id.isdigit())
+                        for dashboard_id in dashboards_ids
+                    ):
+                        raise ValidationError(
+                            {"dashboards": "Dashboards must be a list of dashboard IDs, such as [1, 2]."}
+                        )
+                    dashboards_ids = [int(dashboard_id) for dashboard_id in dashboards_ids]
                     if dashboards_ids:
                         # An insight must be on every listed dashboard, so the filter is AND, not OR.
                         insight_ids_by_dashboard = insight_ids_on_dashboards(dashboards_ids)
