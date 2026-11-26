@@ -3,6 +3,7 @@ import typing
 from django.conf import settings
 
 from temporalio import activity, workflow
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -12,6 +13,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.temporal.ai_observability.evaluation_types import STOPPED_EVALUATION_ERROR_TYPES
 from posthog.temporal.common.logger import get_write_only_logger
 
 # Generic temporal metric helpers live in common so other subsystems (e.g. session-replay
@@ -264,7 +266,12 @@ class _EvalsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
                 increment_workflow_finished(status, evaluation_type)
                 return result
 
-            except Exception:
-                status = "FAILED"
-                increment_workflow_finished(status)
+            except Exception as error:
+                # A backfill run stopped by a disabled or deleted evaluation fails on purpose, so it
+                # still counts as a skip.
+                if isinstance(error, ApplicationError) and error.type in STOPPED_EVALUATION_ERROR_TYPES:
+                    details = error.details[0] if error.details else {}
+                    increment_workflow_finished("SKIPPED", details.get("evaluation_type", "llm_judge"))
+                else:
+                    increment_workflow_finished("FAILED")
                 raise

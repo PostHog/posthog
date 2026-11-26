@@ -28,12 +28,13 @@ Load `/manage-dashboard-widgets` and complete the maintenance checklist below wh
 | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `products/dashboards/backend/widgets/**`                                    | New `run_*`, config validation, query wiring                                                   |
 | `products/dashboards/backend/widget_specs/**`                               | Pydantic config models, validation, OpenAPI, registry manifest                                 |
-| `products/dashboards/backend/widget_specs/pydantic_openapi.py`              | `model_json_schema()` injection, `DashboardWidgetConfig` `oneOf` for Orval                     |
+| `products/dashboards/backend/presentation/pydantic_openapi.py`              | `model_json_schema()` injection, `DashboardWidgetConfig` `oneOf` for Orval                     |
 | `products/dashboards/backend/widget_registry.py`                            | Re-exports only — edit `widget_specs/registry.py`                                              |
 | `products/dashboards/backend/widget_catalog.py`                             | Derived catalog — edit `registry.py` `WidgetSpec` for labels/availability                      |
-| `products/dashboards/backend/presentation/widget_openapi_serializers.py`    | Re-exports — OpenAPI serializers derive from `WIDGET_SPECS`                                    |
+| `products/dashboards/backend/presentation/widget_openapi_serializers.py`    | OpenAPI serializers for PATCH, batch writes and the catalog, derived from `WIDGET_SPECS`       |
+| `products/dashboards/backend/facade/widget_configs.py`                      | `WIDGET_CONFIG_MODELS` and `WidgetFilterEntry`, which the OpenAPI serializers read             |
 | `products/dashboards/backend/tests/api/dashboard_openapi_test_helpers.py`   | Dashboard PATCH OpenAPI contract exclusions for `test_dashboard_openapi.py`                    |
-| `bin/build-dashboard-widget-types.py`                                       | `widget-date-from-options.json`, `widget-form-fields.json`, ENUM preflight from `WIDGET_SPECS` |
+| `products/dashboards/scripts/build_widget_types.py`                         | `widget-date-from-options.json`, `widget-form-fields.json`, ENUM preflight from `WIDGET_SPECS` |
 | `tools/openapi-codegen/package.json` (`orval` version)                      | Widget catalog Zod requires Orval 8.14+ `generateReusableSchemas`                              |
 | `tools/openapi-codegen/src/zod-postprocess.mjs`                             | `fixNullDefaults`, `annotatePureZodExports` — shared Orval Zod postprocess                     |
 | `tools/openapi-codegen/src/schema.mjs`                                      | `discoverComponentSchemaNames`, `discoverCatalogEntryConfigPropertyKeys`                       |
@@ -42,7 +43,7 @@ Load `/manage-dashboard-widgets` and complete the maintenance checklist below wh
 | `products/dashboards/frontend/widgets/widgetConfigSchemaParity.test.ts`     | FE Zod keys ↔ `widget-config-property-keys.json`                                               |
 | `posthog/openapi/enum_collisions.py`                                        | Shared enum collision logic for `find_enum_collisions` + CI                                    |
 | `products/dashboards/backend/presentation/views/dashboard.py`               | `run_widgets`, batch add, sharing serializers (generic only)                                   |
-| `products/dashboards/backend/widget_query_throttle.py`                      | Per-team burst/sustained caps on `run_widgets`                                                 |
+| `products/dashboards/backend/presentation/widget_query_throttle.py`         | Per-team burst/sustained caps on `run_widgets`                                                 |
 | `products/dashboards/backend/widget_access.py`                              | RBAC denial copy                                                                               |
 | `products/dashboards/frontend/widgets/**`                                   | Component, edit modal, registry, previews                                                      |
 | `products/dashboards/frontend/widget_types/**`                              | Catalog, `widgetConfigShared.ts` UI labels, availability                                       |
@@ -59,7 +60,6 @@ Load `/manage-dashboard-widgets` and complete the maintenance checklist below wh
 | `products/dashboards/mcp/tools.yaml`                                        | Widget MCP tools                                                                               |
 | `products/dashboards/frontend/tileLayouts.ts`                               | Layout algorithm (only if behavior/docs change)                                                |
 | `posthog/api/test/test_sharing.py`                                          | Shared dashboard widget payload expectations                                                   |
-| `tach.toml` (`products.dashboards` `depends_on`)                            | New product import boundary                                                                    |
 
 Platform-only refactors with **no** behavior or agent-facing surface change may skip narrative updates — still run Verify tests.
 
@@ -79,7 +79,7 @@ Platform-only refactors with **no** behavior or agent-facing surface change may 
 | Debounced tile refresh after filter PATCH  | `constants.ts` `WIDGET_TILE_REFRESH_DEBOUNCE_MS`; `dashboardLogic.tsx`                                                                                                                                           |
 | Header title link / drag `cancel` selector | [list-widget-patterns.md](list-widget-patterns.md); [layout-and-ux.md](layout-and-ux.md) § ⋯ menu parity                                                                                                         |
 | MCP tools or agent flows                   | [mcp.md](mcp.md)                                                                                                                                                                                                 |
-| New product area / tach / UI reuse pattern | [checklist-new-widget-type.md](checklist-new-widget-type.md) §4c                                                                                                                                                 |
+| New product area / UI reuse pattern        | [checklist-new-widget-type.md](checklist-new-widget-type.md) §4c                                                                                                                                                 |
 | Human contributor entry point              | [`products/dashboards/CONTRIBUTING.md`](../../../products/dashboards/CONTRIBUTING.md) registry table / Verify block                                                                                              |
 
 Prefer **editing an existing reference** over adding a new file. Keep `SKILL.md` as the index — move detail into `references/`.

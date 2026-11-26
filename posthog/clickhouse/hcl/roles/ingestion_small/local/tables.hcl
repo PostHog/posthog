@@ -1,6 +1,6 @@
-node "small" {
+node "ingestion_small" {
   macros = {
-    hostClusterRole = "small"
+    hostClusterRole = "ingestion_small"
     hostClusterType = "online"
     replica         = "small"
     shard           = "01"

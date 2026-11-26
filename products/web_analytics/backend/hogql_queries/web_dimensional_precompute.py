@@ -32,6 +32,7 @@ from django.conf import settings
 from posthog.schema import HogQLQueryModifiers, SessionTableVersion
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.sessions_v3 import SESSIONS_V3_COVERAGE_START_BY_REGION
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 
@@ -229,18 +230,21 @@ SELECT
     mat_metadata_backend AS mat_metadata_backend,
     mat_metadata_loggedIn AS mat_metadata_loggedIn,
     channel_type AS channel_type,
+    session_hosts AS session_hosts,
     uniqState(session_person_id) AS persons_uniq_state,
     uniqState(session_id) AS sessions_uniq_state,
     sumState(pageview_count) AS pageviews_count_state,
     sumState(assumeNotNull(toInt(ifNull(is_bounce, 0)))) AS bounces_count_state,
     sumState(session_duration) AS total_session_duration_state,
-    sumState(assumeNotNull(toInt(1))) AS total_session_count_state
+    sumState(assumeNotNull(toInt(1))) AS total_session_count_state,
+    sumState(assumeNotNull(toInt(isNotNull(is_bounce)))) AS bounce_eligible_sessions_state
 FROM (
     SELECT
         any(events.person_id) AS session_person_id,
         events.$session_id AS session_id,
         min(session.$start_timestamp) AS start_timestamp,
         any(events.properties.$host) AS host,
+        arraySort(groupUniqArray(coalesce(events.properties.$host, ''))) AS session_hosts,
         any(events.properties.$device_type) AS device_type,
         any(events.properties.$browser) AS browser,
         any(events.properties.$os) AS os,
@@ -305,7 +309,8 @@ GROUP BY
     has_fbclid,
     mat_metadata_backend,
     mat_metadata_loggedIn,
-    channel_type
+    channel_type,
+    session_hosts
 """
 
 
@@ -374,15 +379,11 @@ DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS: tuple[str, ...] = (
 )
 
 
-# The sessions v3 table holds every session only from the day its backfill reached, per Cloud region.
-# A region missing here has no complete v3 history yet, so a v3 team there gets no dimensional days.
-SESSIONS_V3_COVERAGE_START_BY_REGION: dict[str, datetime] = {
-    "US": datetime(2026, 10, 1, tzinfo=UTC),
-}
 _NO_SESSIONS_COVERAGE = datetime.max.replace(tzinfo=UTC)
 
 
 def sessions_coverage_floor(modifiers: HogQLQueryModifiers) -> datetime | None:
+    # A v3 team in a region without an entry in SESSIONS_V3_COVERAGE_START_BY_REGION gets no dimensional days.
     # A window before the floor builds as if no sessions existed: empty for the stats template, and
     # without entry dimensions or bounces for the rest. The writer must not build it and reads must
     # not serve it. Off Cloud the v3 materialized view fills the table natively, so it has no floor.

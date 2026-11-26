@@ -1,7 +1,7 @@
 import sys
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -196,6 +196,34 @@ class HogQLQuerySettings(BaseModel):
     # ClickHouse formats it back as `a.b` only when the reading query sets this too. The ClickHouse printer sets it
     # on every query that reads that table, and a raw SQL reader of the JSON columns must carry it itself.
     json_type_escape_dots_in_keys: Optional[bool] = None
+
+
+# One node parsing the JSON of a large team's flag calls used 19 to 30 GiB. A small team's read uses under 1 GiB.
+FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES = 8 * 1024**3
+
+
+def cap_flag_call_max_memory_usage(max_memory_usage: int | None) -> int:
+    """The `max_memory_usage` for a query that `HogQLContext.cap_flag_call_memory` marks. A lower limit stays."""
+    return min(
+        max_memory_usage or FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES,
+        FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES,
+    )
+
+
+def cap_flag_call_memory_settings(settings: dict[str, Any]) -> None:
+    """Cap `max_memory_usage` in a ClickHouse settings dict, and spill sorts and aggregations at half the cap."""
+    max_memory_usage = cap_flag_call_max_memory_usage(settings.get("max_memory_usage"))
+    settings["max_memory_usage"] = max_memory_usage
+    spill_after_bytes = max_memory_usage // 2
+    # A missing or 0 threshold leaves ClickHouse to derive one from server memory, which can sit above the cap.
+    # A threshold above the cap never fires. In both cases the query fails at the cap instead of spilling to disk.
+    for threshold_key, ratio_key in (
+        ("max_bytes_before_external_sort", "max_bytes_ratio_before_external_sort"),
+        ("max_bytes_before_external_group_by", "max_bytes_ratio_before_external_group_by"),
+    ):
+        settings[threshold_key] = min(settings.get(threshold_key) or spill_after_bytes, spill_after_bytes)
+        # A non-zero ratio in the user profile stops the byte threshold from firing.
+        settings[ratio_key] = 0
 
 
 # Settings applied on top of all HogQL queries.

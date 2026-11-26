@@ -8,6 +8,10 @@ use std::net::IpAddr;
 
 const X_FORWARDED_FOR: HeaderName = HeaderName::from_static("x-forwarded-for");
 
+/// Our edge proxy writes the client address it computes from its trusted hops into this header.
+/// It replaces any value that the caller sends, but only where our edge is in front of the service.
+const EDGE_CLIENT_IP: HeaderName = HeaderName::from_static("x-posthog-edge-client-ip");
+
 /// The chains that reach the flags service have a few entries, and a caller can send any number.
 pub const MAX_FORWARDED_ADDRESSES: usize = 20;
 
@@ -39,6 +43,17 @@ pub fn parse_entry(entry: &str) -> Option<IpAddr> {
     };
 
     ip_without_port.parse().ok()
+}
+
+pub fn edge_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
+    let mut values = headers.get_all(EDGE_CLIENT_IP).iter();
+    let value = values.next()?.to_str().ok()?;
+    // Our edge sends one value. A second one means that the caller's value is also there. A
+    // proxy can join the two into one line.
+    if values.next().is_some() || value.contains(',') {
+        return None;
+    }
+    parse_entry(value)
 }
 
 /// Right to left, so that padding on the left cannot push the entries our edge appended
@@ -81,6 +96,25 @@ mod tests {
         }
 
         assert_eq!(addresses(&headers).collect::<Vec<_>>(), ips(expected));
+    }
+
+    #[rstest]
+    #[case::one_value(&["203.0.113.7"], Some("203.0.113.7"))]
+    #[case::caller_value_before_the_edge_value(&["203.0.113.7", "198.51.100.1"], None)]
+    #[case::values_joined_into_one_line(&["[2001:db8::1], 198.51.100.1"], None)]
+    fn edge_client_ip_needs_exactly_one_value(
+        #[case] values: &[&'static str],
+        #[case] expected: Option<&str>,
+    ) {
+        let mut headers = HeaderMap::new();
+        for value in values {
+            headers.append(EDGE_CLIENT_IP, HeaderValue::from_static(value));
+        }
+
+        assert_eq!(
+            edge_client_ip(&headers),
+            expected.map(|ip| ip.parse().unwrap())
+        );
     }
 
     #[test]

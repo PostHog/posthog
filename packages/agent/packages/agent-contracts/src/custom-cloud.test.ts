@@ -159,12 +159,9 @@ describe("isCredentialOriginAllowed", () => {
 
   it.each([
     ["https://us.posthog.com/api/users/@me/", "https://us.posthog.com"],
-    [
-      "https://gateway.us.posthog.com/posthog_code/v1/messages",
-      "https://us.posthog.com",
-    ],
+    ["https://ai-gateway.us.posthog.com/v1/messages", "https://us.posthog.com"],
     ["https://mcp.posthog.com/mcp", "https://eu.posthog.com"],
-    ["https://gateway.dev.posthog.dev/x", "https://app.dev.posthog.dev"],
+    ["https://ai-gateway.dev.posthog.dev/x", "https://app.dev.posthog.dev"],
     ["http://localhost:8787/mcp", "http://localhost:8010"],
     ["http://[::1]:8787/mcp", "http://localhost:8010"],
     ["http://localhost:8787/mcp", "http://[::1]:8010"],
@@ -188,7 +185,7 @@ describe("isCredentialOriginAllowed", () => {
     ["https://llm.acme.co.uk/", "https://posthog.acme.co.uk"],
     ["https://us.posthog.com/api", "https://posthog.example.com"],
     ["https://mcp.posthog.com/mcp", "https://app.dev.posthog.dev"],
-    ["https://gateway.dev.posthog.dev/x", "https://us.posthog.com"],
+    ["https://ai-gateway.dev.posthog.dev/x", "https://us.posthog.com"],
     ["http://[::1]:8787/mcp", "https://us.posthog.com"],
     ["https://mcp.posthog.com:8443/mcp", "https://us.posthog.com"],
     ["http://posthog.internal:8000/api/x", "http://posthog.internal:8000"],

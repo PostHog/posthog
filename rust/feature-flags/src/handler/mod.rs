@@ -26,7 +26,7 @@ use crate::{
         FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_BLOCKED_COUNTER,
         FLAG_REQUEST_FAULTS_COUNTER,
     },
-    team::team_models::Team,
+    team::{request_lists::CallerHost, team_models::Team},
     utils::forwarded_for,
 };
 use std::collections::HashMap;
@@ -51,7 +51,9 @@ use common_metrics::{histogram, inc};
 #[instrument(skip_all, fields(request_id = %context.request_id))]
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let start_time = std::time::Instant::now();
-    let (result, metrics_data) = process_request_inner(context).await;
+    // Each caller keeps its own copy of this future, and unoptimized builds then overflow the
+    // 2 MiB thread stack. The box makes the copies pointer-sized.
+    let (result, metrics_data) = Box::pin(process_request_inner(context)).await;
     let total_duration = start_time.elapsed();
 
     record_metrics(&result, metrics_data, total_duration);
@@ -134,6 +136,32 @@ fn record_metrics(
     }
 }
 
+fn refuse_by_request_lists(context: &RequestContext, team: &Team) -> bool {
+    let edge_ip = if *context.state.config.trust_edge_client_ip_header {
+        forwarded_for::edge_client_ip(&context.headers)
+    } else {
+        None
+    };
+    // `context.ip` is the leftmost `X-Forwarded-For` entry, which the caller controls.
+    let Some(reason) = team.request_block_reason(
+        CallerHost::new(context.origin_host.as_deref(), &context.headers),
+        forwarded_for::addresses(&context.headers).chain(std::iter::once(context.ip)),
+        edge_ip,
+    ) else {
+        return false;
+    };
+    with_canonical_log(|log| {
+        log.request_blocked_by = Some(reason);
+        log.edge_ip = edge_ip;
+    });
+    inc(
+        FLAG_REQUEST_BLOCKED_COUNTER,
+        &[("reason".to_string(), reason.as_str().to_string())],
+        1,
+    );
+    true
+}
+
 async fn process_request_inner(
     context: RequestContext,
 ) -> (Result<FlagsResponse, FlagError>, MetricsData) {
@@ -207,22 +235,7 @@ async fn process_request_inner(
         // Internal requests skip the check. Django calls from a private pod IP without an
         // `Origin`, so a team that blocks a private range would see every flag off in its own
         // PostHog app.
-        // `context.ip` is the leftmost `X-Forwarded-For` entry, which the caller controls.
-        let block_reason = if is_internal {
-            None
-        } else {
-            team.request_block_reason(
-                context.origin_host.as_deref(),
-                forwarded_for::addresses(&context.headers).chain(std::iter::once(context.ip)),
-            )
-        };
-        if let Some(reason) = block_reason {
-            with_canonical_log(|log| log.request_blocked_by = Some(reason));
-            inc(
-                FLAG_REQUEST_BLOCKED_COUNTER,
-                &[("reason".to_string(), reason.as_str().to_string())],
-                1,
-            );
+        if !is_internal && refuse_by_request_lists(&context, &team) {
             return Ok(FlagsResponse::minimal(context.request_id));
         }
 

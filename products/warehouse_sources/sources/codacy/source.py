@@ -112,12 +112,12 @@ You can generate an account API token in your [Codacy account settings](https://
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # No v3 list endpoint exposes a server-side updated-since filter, so every table is
-        # full refresh (the per-organization snapshots are small enough for periodic full pulls).
+        # Only the audit log takes a server-side time filter; every other table is full refresh
+        # (the per-organization snapshots are small enough for periodic full pulls).
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
@@ -149,4 +149,6 @@ You can generate an account API token in your [Codacy account settings](https://
             organization=config.organization,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

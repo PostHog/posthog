@@ -88,4 +88,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "Time the channel was last updated.",
         },
     },
+    "meter_usage": {
+        "description": "Daily data volume ingested into SigNoz from the Cost Meter metrics, one row per meter metric, UTC day, service and environment.",
+        "docs_url": "https://signoz.io/docs/cost-meter/query-api/",
+        "columns": {
+            "metric_name": "Meter metric: signoz.meter.log.count, signoz.meter.log.size, signoz.meter.span.count, signoz.meter.span.size or signoz.meter.metric.datapoint.count.",
+            "timestamp": "Start of the UTC day the volume was ingested in.",
+            "service_name": "The service.name resource attribute of the ingested data; empty when not set.",
+            "deployment_environment": "The deployment.environment resource attribute of the ingested data; empty when not set.",
+            "value": "Volume ingested that day: a count of records, spans or datapoints, or a size in bytes.",
+        },
+    },
 }

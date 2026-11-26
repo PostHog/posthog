@@ -1,5 +1,6 @@
 import hmac
 import json
+import time
 
 from unittest.mock import patch
 
@@ -8,15 +9,29 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.ingress.providers import InvalidPayload
 from posthog.ingress.vercel.provider import (
+    MILLISECONDS_PER_SECOND,
     RECEIVING_REGION_CONTEXT_KEY,
     VERCEL_BILLING_EVENT,
+    VERCEL_CLOCK_SKEW_SECONDS,
     VERCEL_DEAUTHORIZATION_EVENT,
+    VERCEL_DELIVERY_MAX_AGE_SECONDS,
     build_vercel_provider,
 )
 from posthog.ingress.verify.schemes import VerificationOutcome
 
 SECRET = "vercel-integration-client-secret"
+DELIVERY_ID = "evt_1"
+EDGE_MARGIN_SECONDS = 60
+
+
+def _created_at(age_seconds: float) -> int:
+    return int((time.time() - age_seconds) * MILLISECONDS_PER_SECOND)
+
+
+def _envelope(event_type: str, payload: dict, **fields: object) -> dict:
+    return {"id": DELIVERY_ID, "type": event_type, "createdAt": _created_at(0), "payload": payload, **fields}
 
 
 def _request(body: bytes, *, signed: bool = True, host: str | None = None) -> HttpRequest:
@@ -30,7 +45,7 @@ def _request(body: bytes, *, signed: bool = True, host: str | None = None) -> Ht
 class TestVercelProvider(SimpleTestCase):
     def setUp(self) -> None:
         self.provider = build_vercel_provider()
-        self.body = json.dumps({"type": "marketplace.invoice.paid", "payload": {"installationId": "icfg_1"}}).encode()
+        self.body = json.dumps(_envelope("marketplace.invoice.paid", {"installationId": "icfg_1"})).encode()
 
     def test_the_signature_is_hmac_sha1_over_the_raw_body(self) -> None:
         # Vercel signs with SHA-1, which no other provider here does, so a digest default that
@@ -66,7 +81,7 @@ class TestVercelProvider(SimpleTestCase):
     def test_the_invoice_family_collapses_to_one_registered_event_type(
         self, _name: str, sent: str, expected: str
     ) -> None:
-        body = json.dumps({"type": sent, "payload": {}}).encode()
+        body = json.dumps(_envelope(sent, {})).encode()
 
         deliveries = self.provider.deliveries(_request(body), json.loads(body), {})
 
@@ -76,7 +91,46 @@ class TestVercelProvider(SimpleTestCase):
         deliveries = self.provider.deliveries(_request(self.body), json.loads(self.body), {})
 
         self.assertEqual(deliveries[0].payload["type"], "marketplace.invoice.paid")
-        self.assertIsNone(deliveries[0].delivery_id)
+        self.assertEqual(deliveries[0].delivery_id, DELIVERY_ID)
+
+    @parameterized.expand(
+        [
+            ("just_created", 0),
+            ("oldest_accepted", VERCEL_DELIVERY_MAX_AGE_SECONDS - EDGE_MARGIN_SECONDS),
+            ("from_a_clock_slightly_ahead", -VERCEL_CLOCK_SKEW_SECONDS + EDGE_MARGIN_SECONDS),
+        ]
+    )
+    def test_a_delivery_inside_the_window_is_accepted(self, _name: str, age_seconds: float) -> None:
+        body = _envelope("marketplace.invoice.paid", {}, createdAt=_created_at(age_seconds))
+
+        deliveries = self.provider.deliveries(_request(json.dumps(body).encode()), body, {})
+
+        self.assertEqual([delivery.delivery_id for delivery in deliveries], [DELIVERY_ID])
+
+    @parameterized.expand(
+        [
+            ("older_than_the_dedup_mark_lives", VERCEL_DELIVERY_MAX_AGE_SECONDS + EDGE_MARGIN_SECONDS, {}),
+            ("further_ahead_than_clock_skew", -VERCEL_CLOCK_SKEW_SECONDS - EDGE_MARGIN_SECONDS, {}),
+            ("created_at_missing", None, {"createdAt": None}),
+            ("created_at_a_string", None, {"createdAt": "1700000000000"}),
+            ("created_at_a_boolean", None, {"createdAt": True}),
+            ("created_at_not_finite", None, {"createdAt": float("nan")}),
+            ("created_at_too_large_for_a_float", None, {"createdAt": 10**400}),
+            ("id_missing", None, {"id": None}),
+            ("id_empty", None, {"id": ""}),
+            ("id_not_a_string", None, {"id": 42}),
+        ]
+    )
+    def test_a_delivery_dedup_cannot_cover_is_refused(
+        self, _name: str, age_seconds: float | None, fields: dict
+    ) -> None:
+        if age_seconds is not None:
+            fields = {"createdAt": _created_at(age_seconds)}
+        envelope = _envelope("marketplace.invoice.paid", {}, **fields)
+        body = {key: value for key, value in envelope.items() if value is not None}
+
+        with self.assertRaises(InvalidPayload):
+            self.provider.deliveries(_request(json.dumps(body).encode()), body, {})
 
     @parameterized.expand([("receiving", "us.posthog.com", "true"), ("other", "eu.posthog.com", "false")])
     def test_a_delivery_says_whether_it_arrived_in_the_region_that_forwards(

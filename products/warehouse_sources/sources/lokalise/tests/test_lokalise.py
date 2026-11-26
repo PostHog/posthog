@@ -59,6 +59,8 @@ def test_cursor_fanout_walk_preserves_project_identity(endpoint: str, id_field: 
         ("comments", "comment_id"),
         ("screenshots", "screenshot_id"),
         ("tasks", "task_id"),
+        ("branches", "branch_id"),
+        ("custom_translation_statuses", "status_id"),
     ],
 )
 def test_page_fanout_walk_stops_at_page_count(endpoint: str, id_field: str) -> None:
@@ -78,6 +80,40 @@ def test_page_fanout_walk_stops_at_page_count(endpoint: str, id_field: str) -> N
         {id_field: 2, "project_id": "project-a"},
         {id_field: 1, "project_id": "project-b"},
     ]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "path", "id_field", "forbidden_team_skipped"),
+    [
+        ("orders", "orders", "order_id", False),
+        ("team_users", "users", "user_id", True),
+    ],
+)
+def test_team_fanout_walks_every_team(endpoint: str, path: str, id_field: str, forbidden_team_skipped: bool) -> None:
+    result = driver().run(
+        endpoint,
+        [
+            page("teams", [{"team_id": 1}, {"team_id": 2}, {"team_id": 3}]),
+            page(endpoint, [{id_field: "a"}], pages=2),
+            page(endpoint, [{id_field: "b"}], pages=2),
+            ScriptedResponse(status=403, json={"error": {"code": 403, "message": "Forbidden"}}),
+            page(endpoint, [{id_field: "a"}]),
+        ],
+    )
+    assert result.paths == [
+        "/api2/teams",
+        f"/api2/teams/1/{path}",
+        f"/api2/teams/1/{path}",
+        f"/api2/teams/2/{path}",
+        *([f"/api2/teams/3/{path}"] if forbidden_team_skipped else []),
+    ]
+    rows = [{id_field: "a", "team_id": 1}, {id_field: "b", "team_id": 1}]
+    if forbidden_team_skipped:
+        assert result.raised is None
+        assert result.rows == [*rows, {id_field: "a", "team_id": 3}]
+    else:
+        assert result.raised is not None
+        assert result.rows == rows
 
 
 @pytest.mark.parametrize("endpoint", ["projects", "keys", "contributors"])

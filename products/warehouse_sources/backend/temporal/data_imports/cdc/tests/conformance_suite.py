@@ -7,6 +7,7 @@ from collections.abc import Iterator
 import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_FLUSH_MAX_EVENTS
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import measure_buffer_backlog
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import CDC_RESET_PENDING_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conformance_kit import (
     ConformanceEngine,
@@ -59,6 +60,22 @@ class CDCConformanceSuite:
             kit.consume(table)
             self._assert_converged(kit, table)
         assert db.confirmed == db.head
+
+    def test_buffer_backlog_counts_files_until_their_table_consumes_them(self, kit: ConformanceKit) -> None:
+        users, orders = kit.schema(USERS), kit.schema(ORDERS)
+        schema_ids = [str(users.id), str(orders.id)]
+        kit.db.commit(insert(USERS, id=1, name="a"), insert(ORDERS, id=10, status="new"))
+        kit.capture()
+
+        assert measure_buffer_backlog(users.team_id, schema_ids).files == 2
+
+        # A consumer deletes the files it settled on its next run.
+        kit.consume(USERS)
+        kit.consume(USERS)
+        backlog = measure_buffer_backlog(users.team_id, schema_ids)
+
+        assert (backlog.files, backlog.oldest_schema_id) == (1, str(orders.id))
+        assert backlog.bytes > 0 and backlog.oldest_written_at is not None
 
     def test_stream_with_no_captured_changes_is_still_released(self, kit: ConformanceKit) -> None:
         kit.db.commit(insert(AUDIT, id=100, note="ignored"))

@@ -132,6 +132,29 @@ CONVERTKIT_ENDPOINTS: dict[str, ConvertKitEndpointConfig] = {
         primary_keys=["starting", "ending"],
         paginated=False,
     ),
+    "email_stats": ConvertKitEndpointConfig(
+        name="email_stats",
+        path="/v4/account/email_stats",
+        # A single object covering the last 90 days up to the moment of the request.
+        data_key="stats",
+        primary_keys=["starting", "ending"],
+        paginated=False,
+    ),
+    "posts": ConvertKitEndpointConfig(
+        name="posts",
+        path="/v4/posts",
+        data_key="posts",
+        partition_key="created_at",
+        # The post body stays out: Kit omits it by default because it makes large listings slow.
+    ),
+    "snippets": ConvertKitEndpointConfig(
+        name="snippets",
+        path="/v4/snippets",
+        data_key="snippets",
+        partition_key="created_at",
+        # Kit returns active snippets only unless archived=true, which returns only archived ones.
+        extra_params={"include_content": "true"},
+    ),
     "sequence_emails": ConvertKitEndpointConfig(
         name="sequence_emails",
         path="/v4/sequences/{sequence_id}/emails",

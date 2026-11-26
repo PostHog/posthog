@@ -646,6 +646,17 @@ export const productRedirects: Record<
     '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
         combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
     '/web/bots': () => urls.webAnalyticsContentAutopilot(),
+    '/messaging': () => urls.workflows(),
+    '/messaging/:tab': ({ tab }) => {
+        if (tab === 'broadcasts') {
+            return urls.broadcasts()
+        }
+        if (tab === 'library' || tab === 'channels' || tab === 'opt-outs') {
+            return urls.workflows(tab)
+        }
+        return urls.workflows()
+    },
+    '/messaging/broadcasts/:id': ({ id }) => urls.broadcast(id ?? ''),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1467,9 +1478,12 @@ export const productUrls = {
             timestamp?: string
         }
     ): string => {
+        const segment = id.replace(/[^A-Za-z0-9\-_~.@()!'|:]/gu, (character) =>
+            character === ' ' ? '%20' : encodeURIComponent(encodeURIComponent(character))
+        )
         const queryParams = new URLSearchParams(params)
         const stringifiedParams = queryParams.toString()
-        return `/ai-observability/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        return `/ai-observability/sessions/${segment}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     aiObservabilityPlayground: (): string => '/ai-observability/playground',
     aiObservabilityDatasets: (): string => '/ai-evals/evaluations/offline/experiments?tab=datasets',
