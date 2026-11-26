@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.db import IntegrityError, OperationalError
 from django.utils import timezone
 
+import redis
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
@@ -636,21 +637,33 @@ class TestCreateJobActivityDeletedSourceOrSchema:
 class TestCreateJobActivityPrepareRunOutputs:
     @parameterized.expand(
         [
-            ("non_billable_run_is_never_limited", False, True, False),
-            ("billable_run_under_quota", True, False, False),
-            ("billable_run_over_quota", True, True, True),
+            ("non_billable_run_is_never_limited", False, True, False, True),
+            ("billable_run_under_quota", True, False, False, True),
+            ("billable_run_over_quota", True, True, True, True),
+            # The quota limiter's Redis stays down past the in-place retries: the run keeps its job
+            # and leaves the check to the separate billing activity instead of failing.
+            (
+                "billable_run_while_quota_redis_is_down",
+                True,
+                redis.exceptions.TimeoutError("Timeout connecting to server"),
+                False,
+                False,
+            ),
         ]
     )
+    @patch("tenacity.nap.time.sleep")
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.activity")
     def test_answers_the_billing_limit_with_the_job_row(
         self,
         _name: str,
         billable: bool,
-        team_limited: bool,
+        team_limited: bool | Exception,
         expect_hit: bool,
+        expect_checked: bool,
         mock_activity: MagicMock,
         _mock_close_connections: MagicMock,
+        _mock_sleep: MagicMock,
     ) -> None:
         mock_activity.info.return_value.workflow_id = "wf-1"
         mock_activity.info.return_value.workflow_run_id = "run-1"
@@ -662,7 +675,7 @@ class TestCreateJobActivityPrepareRunOutputs:
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits.is_team_limited",
-            return_value=team_limited,
+            side_effect=[team_limited] if isinstance(team_limited, bool) else team_limited,
         ):
             result = create_external_data_job_model_activity(
                 CreateExternalDataJobModelActivityInputs(
@@ -670,7 +683,7 @@ class TestCreateJobActivityPrepareRunOutputs:
                 )
             )
 
-        assert result.billing_limit_checked is True
+        assert result.billing_limit_checked is expect_checked
         assert result.hit_billing_limit is expect_hit
         assert ExternalDataJob.objects.filter(schema_id=schema.id).count() == 1
 

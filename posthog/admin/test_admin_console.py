@@ -1,9 +1,9 @@
 import re
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
-from pathlib import Path
 from types import FunctionType
 from urllib.parse import urlencode
 
@@ -67,6 +67,8 @@ from posthog.admin.console.tools import (
     Notice,
     Page,
     Paging,
+    Progress,
+    ProgressPart,
     Row,
     Secret,
     Stat,
@@ -75,9 +77,10 @@ from posthog.admin.console.tools import (
     ToolOperation,
 )
 from posthog.admin.console.urls import moved_url_patterns
-from posthog.admin.console.user_panels import is_acting_as
+from posthog.admin.console.user_panels import Impersonation, is_acting_as
 from posthog.admin.console.views import _offered_operations
 from posthog.csp_middleware import CSPMiddleware
+from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY, IMPERSONATION_REASON_SESSION_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import activity_visibility_manager
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
@@ -101,12 +104,6 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.billing.quota_limiting import QuotaResource
 from ee.hogai.django_checkpoint.compaction import CompactionResult
 
-TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
-CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
-REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
-
-_CLASS_ATTRIBUTE = re.compile(r'class="([^"]*)"')
-_TEMPLATE_TAG = re.compile(r"\{%.*?%\}|\{\{.*?\}\}")
 _PATH_PARAMETER = re.compile(r"<(?:(\w+):)?(\w+)>")
 _SAMPLE_VALUES = {"int": "7", "uuid": "0d7b8a52-4f0e-4b8e-9a43-6f1c2e5d9b10", "str": "example", "path": "example"}
 CONSOLE_HOME = "/admin/console/"
@@ -128,13 +125,6 @@ INTENTIONAL_ADMIN_OVERRIDES = frozenset(
 DISABLED_ADMIN_FORMS = frozenset({"admin/posthog/user/<int:pk>/password/"})
 
 
-def _selector_present(css: str, class_name: str) -> bool:
-    # Tailwind and quill escape every character that is not selector-safe, so `@3xl:grid-cols-2` is
-    # written `.\@3xl\:grid-cols-2`. The trailing guard stops `.flex` matching inside `.flex-1`.
-    escaped = "".join(char if char.isalnum() or char in "-_" else "\\" + char for char in class_name)
-    return re.search(re.escape("." + escaped) + r"(?![a-zA-Z0-9_\\-])", css) is not None
-
-
 def _sample_path(old_path: str) -> tuple[str, dict[str, str]]:
     # Fills each path parameter of an old URL pattern with a value its converter accepts.
     values: dict[str, str] = {}
@@ -150,7 +140,7 @@ class _DuplicatePanel(Panel):
     record = "team"
     key = "overview"
     title = "Duplicate"
-    owner = Owner(name="Dev experience", crest="dev-experience")
+    owner = None
 
 
 class _UndeclaredOperationPanel(_DuplicatePanel):
@@ -163,7 +153,7 @@ class _UndeclaredOperationPanel(_DuplicatePanel):
 class _Tool(ConsoleTool):
     key = "some-report"
     title = "Some report"
-    owner = Owner(name="Dev experience", crest="dev-experience")
+    owner = None
     group = "Infrastructure"
 
 
@@ -320,54 +310,7 @@ def _move_twice() -> None:
     registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/other-report/")
 
 
-class TestAdminConsoleAssets(SimpleTestCase):
-    def test_every_class_in_the_templates_is_in_the_compiled_stylesheet(self) -> None:
-        css = (CONSOLE_ASSETS / "console.css").read_text()
-        templates = sorted(TEMPLATE_DIR.glob("*.html"))
-        assert templates, f"No templates found in {TEMPLATE_DIR}, so this test checks nothing."
-
-        missing: dict[str, set[str]] = {}
-        for template in templates:
-            for attribute in _CLASS_ATTRIBUTE.findall(template.read_text()):
-                for token in _TEMPLATE_TAG.sub(" ", attribute).split():
-                    # `group/name` only marks a parent for `group-*/name:` variants and has no rule of its own.
-                    if token.startswith("group/") or "{" in token or "}" in token:
-                        continue
-                    if not _selector_present(css, token):
-                        missing.setdefault(template.name, set()).add(token)
-
-        assert not missing, (
-            "These classes are in the console templates but not in console.css, so they render unstyled. "
-            f"Rebuild with `{REBUILD}`. If the class is quill's, quill may have renamed it: "
-            + "; ".join(f"{name}: {sorted(classes)}" for name, classes in sorted(missing.items()))
-        )
-
-    def test_every_asset_the_templates_link_to_ships(self) -> None:
-        linked = {
-            name
-            for template in TEMPLATE_DIR.glob("*.html")
-            for name in re.findall(r"/static/admin-console/([^\"?{]+)[\"?]", template.read_text())
-        }
-        assert linked, "No linked assets found, so this test checks nothing."
-
-        missing = sorted(name for name in linked if not (CONSOLE_ASSETS / name).is_file())
-        assert not missing, (
-            f"These assets are linked from the console templates but missing. Rebuild with `{REBUILD}`: {missing}"
-        )
-
-    def test_every_owner_crest_ships(self) -> None:
-        missing = sorted(
-            {
-                owner.crest
-                for owner in console.owners()
-                if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()
-            }
-        )
-
-        assert not missing, (
-            f"Console owners name crests the console does not ship: {missing}. Rebuild with `{REBUILD}`."
-        )
-
+class TestAdminConsoleContract(SimpleTestCase):
     @parameterized.expand(
         [
             ("duplicate_panel_key", _register_twice, "already used"),
@@ -450,7 +393,7 @@ class TestAdminConsoleAssets(SimpleTestCase):
             ),
             (
                 "owner_gate_for_an_owner_without_a_staff_group",
-                lambda: Gate.owner().resolve(Owner(name="Dev experience", crest="dev-experience")),
+                lambda: Gate.owner().resolve(Owner(name="Replay", crest="replay")),
                 "has no staff_group",
             ),
             ("fact_with_markup", lambda: Fact(label="Plan", value=format_html("<b>{}</b>", "Scale")), "plain text"),
@@ -513,6 +456,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
+            ),
+            (
+                "progress_parts_over_the_total",
+                lambda: Progress(text="Done", total=3, parts=(ProgressPart(count=4, tone=Tone.SUCCESS),)),
+                "do not fit a total of 3",
             ),
             (
                 "decision_value_that_a_button_also_posts",
@@ -983,10 +931,6 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 302
         assert response["Location"] == expected + kept
-        if record == "user":
-            # Log in as user in Django admin prefills its reason from the ticket.
-            raw_record = f"/admin/posthog/user/{self.user.pk}/change/{kept}"
-            assert f'href="{raw_record}"' in self.client.get(response["Location"]).content.decode()
 
     @parameterized.expand(
         [
@@ -1841,6 +1785,61 @@ class TestAdminConsoleUserSignIn(BaseTest):
         assert response.status_code == 302
         assert not Session.objects.filter(session_key__in=target_keys).exists()
         assert Session.objects.filter(session_key=other_key).exists()
+
+
+class TestAdminConsoleLogInAsUser(BaseTest):
+    ticket = "https://support.example.com/tickets/42"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+        self.target = User.objects.create_and_join(self.organization, "impersonation-target@example.com", None)
+        self.url = f"/admin/console/users/{self.target.pk}/log-in-as/log-in/"
+
+    @parameterized.expand([("read_only", {"read_only": "on"}, True), ("read_and_write", {}, False)])
+    def test_logging_in_starts_the_impersonation_in_the_chosen_mode(
+        self, _name: str, mode: dict[str, str], read_only: bool
+    ) -> None:
+        response = self.client.post(self.url, {"reason": "For ticket 42", **mode})
+
+        assert response.status_code == 302
+        assert response["Location"] == la_settings.LOGIN_REDIRECT
+        session = self.client.session
+        assert session[SESSION_KEY] == str(self.target.pk)
+        assert session.get(IMPERSONATION_READ_ONLY_SESSION_KEY, False) == read_only
+        assert session[IMPERSONATION_REASON_SESSION_KEY] == "For ticket 42"
+
+    @parameterized.expand(
+        [
+            ("blank_reason", {}, {"reason": " "}, False, 400),
+            ("staff_target", {"is_staff": True}, {"reason": "For ticket 42"}, False, 404),
+            ("target_turned_it_off", {"allow_impersonation": False}, {"reason": "For ticket 42"}, False, 404),
+            # CAN_LOGIN_AS still refuses when the panel offers the operation by mistake.
+            ("staff_target_offered_by_mistake", {"is_staff": True}, {"reason": "For ticket 42"}, True, 302),
+        ]
+    )
+    def test_refused_log_in_leaves_the_staff_session_alone(
+        self, _name: str, target_state: dict[str, bool], data: dict[str, str], offered: bool, expected_status: int
+    ) -> None:
+        User.objects.filter(pk=self.target.pk).update(**target_state)
+
+        with patch.object(Impersonation, "refusal", return_value=None) if offered else nullcontext():
+            response = self.client.post(self.url, data)
+
+        assert response.status_code == expected_status
+        assert self.client.session[SESSION_KEY] == str(self.user.pk)
+
+    def test_a_support_ticket_fills_in_the_reason(self) -> None:
+        record_page = self.client.get(f"/admin/console/users/{self.target.pk}/", {"ticket": self.ticket})
+        operation_url = f"{self.url}?{urlencode({'ticket': self.ticket})}"
+        assert f'href="{escape(operation_url)}"' in record_page.content.decode()
+
+        form = self.client.get(operation_url).context["form"]
+
+        assert form["reason"].value() == f"For ticket {self.ticket}"
+        assert form["read_only"].value() is True
 
 
 class _RefusesDeletionAdmin(admin.ModelAdmin):

@@ -32,6 +32,19 @@ type Config struct {
 	OnError        func(FailureKind)
 }
 
+type Handler struct {
+	handler   http.Handler
+	transport *http.Transport
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.handler.ServeHTTP(w, r)
+}
+
+func (h *Handler) CloseIdleConnections() {
+	h.transport.CloseIdleConnections()
+}
+
 func classifyFailure(err error) FailureKind {
 	var certificateError *tls.CertificateVerificationError
 	var dnsError *net.DNSError
@@ -53,7 +66,7 @@ func classifyFailure(err error) FailureKind {
 	}
 }
 
-func New(config Config) (http.Handler, error) {
+func New(config Config) (*Handler, error) {
 	if !validEndpoint(config.Endpoint) {
 		return nil, errors.New("relay requires an HTTPS origin")
 	}
@@ -113,7 +126,7 @@ func New(config Config) (http.Handler, error) {
 			http.Error(w, "relay upstream unavailable", http.StatusBadGateway)
 		},
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), config.RequestTimeout)
 		defer cancel()
 		deadline, _ := ctx.Deadline()
@@ -139,7 +152,8 @@ func New(config Config) (http.Handler, error) {
 			return
 		}
 		proxy.ServeHTTP(w, r.WithContext(ctx))
-	}), nil
+	})
+	return &Handler{handler: handler, transport: transport}, nil
 }
 
 func validEndpoint(endpoint *url.URL) bool {

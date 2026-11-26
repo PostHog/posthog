@@ -19,8 +19,8 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.models import UntaggedFollowupMode
+from products.slack_app.backend.services.channel_settings import resolve_channel_untagged_question_mode
 from products.slack_app.backend.services.slack_conversations import channel_is_ext_shared
-from products.slack_app.backend.services.slack_settings import resolve_untagged_question_mode
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
     require_workspace_integration,
@@ -232,7 +232,8 @@ def request_untagged_question_confirmation_activity(inputs: PostHogCodeSlackMent
 
     inputs = coerce_mention_workflow_inputs(inputs)
     slack_user_id = inputs.event.get("user")
-    mode = resolve_untagged_question_mode(inputs.slack_team_id, slack_user_id)
+    integration = _load_integration(inputs)
+    mode = resolve_channel_untagged_question_mode(integration, slack_user_id, inputs.event.get("channel"))
     logger.info(
         "slack_app_untagged_question_mode_resolved",
         slack_team_id=inputs.slack_team_id,
@@ -243,7 +244,6 @@ def request_untagged_question_confirmation_activity(inputs: PostHogCodeSlackMent
         logger.info("slack_app_untagged_questions_switched_off_mid_run", slack_team_id=inputs.slack_team_id)
         return True
 
-    integration = _load_integration(inputs)
     if mode == UntaggedFollowupMode.AUTO:
         # Nobody clicks before an automatic answer, so the channel's sharing is read again here.
         # The webhook checked the event envelope, which can be stale by the time a worker runs.

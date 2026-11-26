@@ -1,22 +1,18 @@
 from contextlib import AbstractContextManager
+from datetime import UTC, datetime
 from typing import Any
 
 from unittest.mock import patch
 
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_FLAG
+from django.test import override_settings
+
+# Tests run as a self-hosted deployment with no cutoff, so a test sets one with override_exposure_event_cutoff.
+EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
 
 
-def patch_exposure_event_flag(*, enabled: bool) -> AbstractContextManager[Any]:
-    """Patch posthoganalytics.feature_enabled to return `enabled` for EXPERIMENT_EXPOSURE_EVENT_FLAG.
-
-    Every other flag returns False. A blanket True would also turn on unrelated flag-gated
-    behavior, such as HogQL query modifiers, and change what the test exercises.
-    """
-
-    def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-        return enabled and flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
-
-    return patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled)
+def override_exposure_event_cutoff(*, enabled: bool) -> override_settings:
+    """Sets settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF as PostHog Cloud does, or unsets it as other deployments do."""
+    return override_settings(EXPERIMENT_EXPOSURE_EVENT_CUTOFF=EXPERIMENT_EXPOSURE_EVENT_CUTOFF if enabled else None)
 
 
 def patch_calculation_key_version(key_version: int) -> AbstractContextManager[Any]:

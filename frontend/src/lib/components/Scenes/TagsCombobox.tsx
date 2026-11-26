@@ -18,6 +18,8 @@ import {
 const SCROLL_END_THRESHOLD_PX = 64
 
 type TagsComboboxProps = {
+    /** Id of the text input, so a field label can point at it. */
+    id?: string
     value: string[]
     onChange: (next: string[]) => void
     onOpen?: () => void
@@ -33,6 +35,8 @@ type TagsComboboxProps = {
     placeholder?: string
     autoFocus?: boolean
     disabled?: boolean
+    /** Disables the input and says why in a tooltip. */
+    disabledReason?: React.ReactNode
     /** When true (default), typing a value not in options surfaces a "Create X" entry. */
     allowCustomValues?: boolean
     /** Label used in the "Create X" placeholder, e.g. "tag" → "Create new tag "foo"". */
@@ -52,6 +56,7 @@ export function TagsCombobox(props: TagsComboboxProps): JSX.Element {
 }
 
 function TagsComboboxInner({
+    id,
     value,
     onChange,
     onOpen,
@@ -66,6 +71,7 @@ function TagsComboboxInner({
     placeholder,
     autoFocus,
     disabled,
+    disabledReason,
     allowCustomValues = true,
     customValueNoun = 'tag',
     dataAttr,
@@ -121,9 +127,11 @@ function TagsComboboxInner({
             }}
         >
             <TagsComboboxBody
+                id={id}
                 placeholder={placeholder}
                 autoFocus={autoFocus}
                 disabled={disabled}
+                disabledReason={disabledReason}
                 dataAttr={dataAttr}
                 className={className}
                 createSentinel={showCreateItem ? createSentinel : null}
@@ -140,9 +148,11 @@ function TagsComboboxInner({
 }
 
 function TagsComboboxBody({
+    id,
     placeholder,
     autoFocus,
     disabled,
+    disabledReason,
     dataAttr,
     className,
     createSentinel,
@@ -154,9 +164,11 @@ function TagsComboboxBody({
     onScrollEnd,
     loadingMore,
 }: {
+    id?: string
     placeholder?: string
     autoFocus?: boolean
     disabled?: boolean
+    disabledReason?: React.ReactNode
     dataAttr?: string
     className?: string
     createSentinel: string | null
@@ -171,7 +183,7 @@ function TagsComboboxBody({
     const anchor = useComboboxAnchor()
     return (
         <>
-            <ComboboxChips ref={anchor} className={className}>
+            <ComboboxChips ref={anchor} className={className} disabledReason={disabledReason}>
                 <ComboboxValue>
                     {(values) => (
                         <>
@@ -183,6 +195,7 @@ function TagsComboboxBody({
                                     </ComboboxChip>
                                 ))}
                             <ComboboxChipsInput
+                                id={id}
                                 placeholder={placeholder}
                                 autoFocus={autoFocus}
                                 disabled={disabled}

@@ -34,13 +34,14 @@ describe('buildTrendsBarTimeSeries', () => {
     })
 
     it.each([
-        { compare_label: undefined, expectedColor: RED },
-        { compare_label: 'previous' as const, expectedColor: hexToRGBA(RED, 0.5) },
+        { compare_label: undefined, expectedColor: RED, expectedTag: undefined },
+        { compare_label: 'previous' as const, expectedColor: hexToRGBA(RED, 0.5), expectedTag: 'Previous' },
     ])(
-        'applies getColor and dims compare-previous to 0.5 alpha (compare_label=$compare_label)',
-        ({ compare_label, expectedColor }) => {
+        'applies getColor, and dims and tags compare-previous (compare_label=$compare_label)',
+        ({ compare_label, expectedColor, expectedTag }) => {
             const series = buildTrendsBarTimeSeries([makeResult({ compare_label })], { getColor: () => RED })
             expect(series[0].color).toBe(expectedColor)
+            expect(series[0].legendTag).toBe(expectedTag)
         }
     )
 

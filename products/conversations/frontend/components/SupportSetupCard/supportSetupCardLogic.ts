@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import type { ProductSetupRoute } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,7 +25,7 @@ export interface supportSetupCardLogicActions {
     reportSetupInteraction: (
         action: string,
         mode: ProductEmptyStateMode,
-        route?: null | import('lib/components/ProductEmptyState/productSetupStatusLogic').ProductSetupRoute | undefined,
+        route?: ProductSetupRoute | null | undefined,
         preview?: boolean | undefined,
         wizardSession?:
             | {
@@ -36,7 +37,7 @@ export interface supportSetupCardLogicActions {
         action: string
         mode: ProductEmptyStateMode
         preview: boolean
-        route: null | import('lib/components/ProductEmptyState/productSetupStatusLogic').ProductSetupRoute
+        route: ProductSetupRoute | null
         wizardSession:
             | {
                   phase: string

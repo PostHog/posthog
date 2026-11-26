@@ -353,9 +353,20 @@ const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 // (`pat`, credential-bearing URLs) have names key-based redaction can't recognize.
 const FIVETRAN_UPLOAD_TOOL_NAME = 'warehouse-migration-upload-connections'
 
+// Their results can hold a live credential, including the SCIM token that IdP create and update
+// return when they turn SCIM on. Key-based redaction can't find it in the formatted result text.
+const CREDENTIAL_ISSUING_TOOL_NAMES = [
+    'identity-provider-configs-scim-token-create-execute',
+    'identity-provider-configs-create-execute',
+    'identity-provider-configs-partial-update-execute',
+    'skill-store-install-command',
+    'external-data-destinations-connect-link',
+]
+
 const UNCAPTURED_PAYLOAD_TOOL_NAMES: ReadonlySet<string> = new Set([
     PRESIGNED_UPLOAD_TOOL_NAME,
     FIVETRAN_UPLOAD_TOOL_NAME,
+    ...CREDENTIAL_ISSUING_TOOL_NAMES,
 ])
 
 function carriesUncapturedPayload(toolName: string, input: unknown): boolean {
@@ -390,6 +401,9 @@ type EmailRecipientExposure = 'arguments' | 'arguments-and-result'
 const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new Map([
     ['workflows-transactional-emails-list', 'arguments-and-result'],
     ['workflows-transactional-email-get', 'arguments-and-result'],
+    ['workflows-emails-list', 'arguments-and-result'],
+    ['workflows-email-get', 'arguments-and-result'],
+    ['workflows-email-activity', 'arguments-and-result'],
     ['opt-outs-list', 'arguments-and-result'],
     ['opt-outs-remove', 'arguments-and-result'],
     ['opt-outs-add', 'arguments'],

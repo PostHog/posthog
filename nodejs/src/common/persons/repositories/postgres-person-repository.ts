@@ -812,9 +812,7 @@ export class PostgresPersonRepository
                     UPDATE posthog_person
                     SET is_deleted = true,
                         version = COALESCE(version, 0) + 1,
-                        properties = '{}'::jsonb,
-                        properties_last_updated_at = NULL,
-                        properties_last_operation = NULL
+                        properties = '{}'::jsonb
                     WHERE team_id = $2 AND id = $3 AND is_deleted = false`,
                     [distinctIdRows.map((row) => row.id), teamId, person.id],
                     'undoInsertPerson'
@@ -915,9 +913,7 @@ export class PostgresPersonRepository
                 `UPDATE posthog_person p
                  SET is_deleted = true,
                      version = COALESCE(version, 0) + 1,
-                     properties = '{}'::jsonb,
-                     properties_last_updated_at = NULL,
-                     properties_last_operation = NULL
+                     properties = '{}'::jsonb
                  WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
                    AND NOT EXISTS (
                        SELECT 1 FROM posthog_persondistinctid d

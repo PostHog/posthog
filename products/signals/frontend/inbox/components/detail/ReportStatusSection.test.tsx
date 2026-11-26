@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -8,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
-import { SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { ReportStatusSection } from './ReportStatusSection'
 
 describe('ReportStatusSection', () => {
@@ -54,6 +56,7 @@ describe('ReportStatusSection', () => {
             status: SignalReportStatus.READY,
             priority: 'P1',
             actionability: 'immediately_actionable',
+            repo_slug: 'example/app',
             pull_requests: [
                 {
                     id: 'pr-1',
@@ -99,20 +102,56 @@ describe('ReportStatusSection', () => {
         expect(screen.getByText(label)).toBeInTheDocument()
         expect(screen.getByText('P1')).toBeInTheDocument()
         expect(screen.queryByText('Actionability')).not.toBeInTheDocument()
-        expect(screen.getByText('example/app#42')).toBeInTheDocument()
+        expect(screen.getByText('#42')).toBeInTheDocument()
         expect(screen.getByText('example/sdk#7')).toBeInTheDocument()
-        expect(screen.getByText('Open')).toBeInTheDocument()
-        expect(screen.getAllByText('Merged')).toHaveLength(2)
-        expect(screen.getByText('Approved')).toBeInTheDocument()
-        expect(screen.getByText(/Jun.*11.*2026/)).toBeInTheDocument()
+        expect(screen.getByText('Open · Approved')).toBeInTheDocument()
+        expect(screen.getByText('Merged')).toBeInTheDocument()
+        expect(screen.getByText(/11 Jun/)).toBeInTheDocument()
+    })
+
+    const pullRequest = (number: number): NonNullable<SignalReport['pull_requests']>[number] => ({
+        id: `pr-${number}`,
+        url: `https://github.com/example/app/pull/${number}`,
+        state: 'open',
+        merged: false,
+        review_decision: null,
+        merged_at: null,
+        claim_id: null,
+        attached_at: null,
+        attached_by: null,
     })
 
     it.each([
-        { flag: false, labels: ['Report status', 'Priority'] },
-        { flag: true, labels: ['Repository', 'Priority', 'Actionability', 'Already addressed', 'Report status'] },
-    ])('orders the rows when editable decisions is $flag', ({ flag, labels }) => {
+        { flag: false, pullRequests: [], labels: ['Report status', 'Priority'] },
+        { flag: true, pullRequests: [], labels: ['Report status', 'Priority'] },
+        { flag: true, pullRequests: [pullRequest(42)], labels: ['Report status', 'Priority', 'Pull requests'] },
+    ])(
+        'orders the rows when editable decisions is $flag with $pullRequests.length pull requests',
+        ({ flag, pullRequests, labels }) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS], {
+                [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: flag,
+            })
+            const { container } = render(
+                <ReportStatusSection
+                    report={makeReport({
+                        priority: 'P2',
+                        actionability: 'requires_human_input',
+                        already_addressed: false,
+                        repo_slug: 'example/app',
+                        pull_requests: pullRequests,
+                    })}
+                    onPriorityChange={() => {}}
+                />
+            )
+
+            expect(Array.from(container.querySelectorAll('dt'), (dt) => dt.textContent)).toEqual(labels)
+            expect(screen.getByLabelText('Change report priority')).toBeInTheDocument()
+        }
+    )
+
+    it('summarizes collapsed agent decisions and expands to their rows', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS], {
-            [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: flag,
+            [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: true,
         })
         const { container } = render(
             <ReportStatusSection
@@ -121,14 +160,55 @@ describe('ReportStatusSection', () => {
                     actionability: 'requires_human_input',
                     already_addressed: false,
                     repo_slug: 'example/app',
-                    pull_requests: [],
+                    pull_requests: [pullRequest(42)],
                 })}
-                onPriorityChange={() => {}}
             />
         )
 
-        expect(Array.from(container.querySelectorAll('dt'), (dt) => dt.textContent)).toEqual(labels)
-        expect(screen.getByLabelText('Change report priority')).toBeInTheDocument()
+        await userEvent.click(screen.getByText('example/app · Needs input'))
+
+        expect(Array.from(container.querySelectorAll('dt'), (dt) => dt.textContent)).toEqual([
+            'Report status',
+            'Priority',
+            'Pull requests',
+            'Repository',
+            'Actionability',
+            'Already addressed',
+        ])
+    })
+
+    it('selects a pull request from its line when the report has several', async () => {
+        function StatusWithSelection(): JSX.Element {
+            const [selectedUrl, setSelectedUrl] = useState(pullRequest(1).url)
+            return (
+                <ReportStatusSection
+                    report={makeReport({ repo_slug: 'example/app', pull_requests: [pullRequest(1), pullRequest(2)] })}
+                    selectedPullRequestUrl={selectedUrl}
+                    onSelectPullRequest={setSelectedUrl}
+                />
+            )
+        }
+        render(<StatusWithSelection />)
+
+        expect(screen.getByLabelText('Show #1 in this report')).toHaveAttribute('aria-pressed', 'true')
+        await userEvent.click(screen.getByLabelText('Show #2 in this report'))
+
+        expect(screen.getByLabelText('Show #1 in this report')).toHaveAttribute('aria-pressed', 'false')
+        expect(screen.getByLabelText('Show #2 in this report')).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    })
+
+    it('does not offer selection for a single pull request', () => {
+        render(
+            <ReportStatusSection
+                report={makeReport({ repo_slug: 'example/app', pull_requests: [pullRequest(1)] })}
+                selectedPullRequestUrl={pullRequest(1).url}
+                onSelectPullRequest={() => {}}
+            />
+        )
+
+        expect(screen.getByText('#1')).toBeInTheDocument()
+        expect(screen.queryByLabelText('Show #1 in this report')).not.toBeInTheDocument()
     })
 
     it.each(['user', 'task', 'system'] as const)('hides %s claims', (kind) => {

@@ -20,10 +20,10 @@ export interface FeatureFlagSnippet {
     instantlyAvailableProperties?: boolean
 }
 
-const LOCAL_EVAL_REMINDER = `Remember to set a feature flags secure API key in the SDK to enable local evaluation.
+const LOCAL_EVAL_REMINDER = `Remember to set a project secret API key with the feature_flag:read scope in the SDK to enable local evaluation.
 `
 
-const REMOTE_CONFIG_REMINDER = `Must initialize SDK with a feature flags secure API key to enable remote configuration.`
+const REMOTE_CONFIG_REMINDER = `Must initialize SDK with a project secret API key with the feature_flag:read scope to enable remote configuration.`
 const ENCRYPTED_PAYLOAD_REMINDER = `Encrypted payloads are automatically decrypted on the server before being sent to the client.`
 
 export function NodeJSSnippet({

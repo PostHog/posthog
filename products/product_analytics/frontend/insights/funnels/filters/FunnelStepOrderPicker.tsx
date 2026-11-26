@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { QuillChartOptionSelect } from 'lib/components/ChartOptions/QuillChartOptionSelect'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelsFilter } from '~/queries/schema/schema-general'

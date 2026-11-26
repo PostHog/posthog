@@ -1,10 +1,12 @@
 version: 1
 owners: []
 rules:
+    - match: '/CheatCodes/'
+      owners: team-billing
     - match: '/HogQLEditor/'
       owners: team-data-tools
     - match: '/LiveUserCount/'
-      owners: team-web-analytics
+      owners: team-analytics
     - match: '/MarkdownNotebook/'
       owners: team-data-tools
     # Growth runs the sidebar promotion slot, so every change to it goes to Growth, however small.
@@ -13,6 +15,8 @@ rules:
       sensitive: true
     - match: '/ProductEmptyState/'
       owners: team-growth
+    - match: '/QuillMemberSelectMultiple.test.tsx'
+      owners: team-growth
     - match: '/ReverseProxyChecker/'
       owners: team-platform-features
     - match: '/RichContentEditor/'
@@ -20,7 +24,7 @@ rules:
     - match: '/SkillPicker/'
       owners: team-self-driving
     - match: '/heatmaps/'
-      owners: team-web-analytics
+      owners: team-analytics
     - match:
           - '/Comments/*.test.*'
           - '/Support/*.test.*'
@@ -90,25 +94,28 @@ rules:
           - '/Account/*.test.*'
           - '/ActivityLog/activityDescriptions/*.test.*'
           - '/NotificationsMenu/*.test.*'
+          - '/SocialLoginButton/*.test.*'
           - '/TimeSensitiveAuthentication/*.test.*'
       owners: team-platform-features
     - match:
-          - '/AddToDashboard/*.test.*'
           - '/AnalyticsMetricCard/*.test.*'
           - '/AnnotationsOverlay/*.test.*'
+          - '/CompareFilter/*.test.*'
+          - '/DateDisplay/*.test.*'
+          - '/InsightLabel/*.test.*'
+          - '/Scenes/*.test.*'
+          - '/Sharing/*.test.*'
+          - '/TerraformExporter/*.test.*'
+      owners: team-analytics
+    - match:
+          - '/AddToDashboard/*.test.*'
           - '/Cards/ButtonTileCard/*.test.*'
           - '/Cards/InsightCard/*.test.*'
           - '/Cards/TextCard/*.test.*'
           - '/ChartLegendSeriesMenu/*.test.*'
           - '/ChartOptions/*.test.*'
-          - '/CompareFilter/*.test.*'
-          - '/DateDisplay/*.test.*'
-          - '/InsightLabel/*.test.*'
-          - '/Scenes/*.test.*'
           - '/Scenes/InsightOrDashboard/*.test.*'
-          - '/Sharing/*.test.*'
-          - '/TerraformExporter/*.test.*'
-      owners: team-product-analytics
+      owners: team-dashboards-and-charts
     - match:
           - '/IngestionControls/triggers/triggerGroups/*.test.*'
           - '/ViewRecordingButton/*.test.*'
@@ -119,7 +126,7 @@ rules:
     - match:
           - '/AccountAssignmentFilter/*.test.*'
           - '/PathCleanFilters/*.test.*'
-      owners: team-web-analytics
+      owners: team-analytics
     - match:
           - '/AppMetrics/*.test.*'
           - '/CyclotronJob/*.test.*'

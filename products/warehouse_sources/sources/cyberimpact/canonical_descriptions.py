@@ -146,6 +146,43 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": _DOCS,
         "columns": {**_RECIPIENT_COLUMNS, "clickedOn": "Time the recipient clicked a link in the mailing."},
     },
+    "mailing_deliveries": {
+        "description": "Recipients to whom each sent mailing was delivered, one row per mailing and recipient.",
+        "docs_url": _DOCS,
+        "columns": _RECIPIENT_COLUMNS,
+    },
+    "mailing_unsubscribes": {
+        "description": "Recipients who unsubscribed through the link in each sent mailing, one row per mailing and recipient.",
+        "docs_url": _DOCS,
+        "columns": {**_RECIPIENT_COLUMNS, "unsubscribedOn": "Time the recipient unsubscribed."},
+    },
+    "mailing_hard_bounces": {
+        "description": "Recipients of each sent mailing whose email hard bounced, one row per mailing and recipient.",
+        "docs_url": _DOCS,
+        "columns": {**_RECIPIENT_COLUMNS, "hardBouncedOn": "Time the email hard bounced."},
+    },
+    "mailing_soft_bounces": {
+        "description": "Recipients of each sent mailing whose email soft bounced, one row per mailing and recipient.",
+        "docs_url": _DOCS,
+        "columns": {**_RECIPIENT_COLUMNS, "softBouncedOn": "Time the email soft bounced."},
+    },
+    "mailing_stopped_recipients": {
+        "description": "Recipients who did not get a mailing because its sending was stopped, one row per mailing and recipient.",
+        "docs_url": _DOCS,
+        "columns": _RECIPIENT_COLUMNS,
+    },
+    "member_consents": {
+        "description": "Consent details of each member, one row per member.",
+        "docs_url": _DOCS,
+        "columns": {
+            "member_id": "ID of the member.",
+            "consentType": "Type of consent the account holds for the member, for example implied.",
+            "relationType": "Relation the consent is based on, for example active-clients or express-consent.",
+            "consentDate": "Date the consent was given.",
+            "consentExpiration": "Date the consent expires.",
+            "consentProof": "Free-text proof of the consent.",
+        },
+    },
     "templates": {
         "description": "Email templates of the account.",
         "docs_url": _DOCS,

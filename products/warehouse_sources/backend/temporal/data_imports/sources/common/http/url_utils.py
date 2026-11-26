@@ -153,7 +153,31 @@ def _template_segment(segment: str) -> str:
 
 
 def host_of(url: str) -> str:
+    """Host and port only, because `netloc` keeps any `user:pass@` userinfo and this value is a metric label."""
     try:
-        return urlsplit(url).netloc or "unknown"
+        parts = urlsplit(url)
+        host = parts.hostname
+        if not host:
+            return "unknown"
+        if ":" in host:
+            host = f"[{host}]"
+        return f"{host}:{parts.port}" if parts.port else host
     except Exception:
         return "unknown"
+
+
+def safe_url(url: str) -> str:
+    """Scheme, host, and path only — never the query string, fragment, or userinfo.
+
+    An error message built from a URL can flow into non-retryable-error analytics
+    and error tracking, where tracked-session value redaction doesn't reach. An
+    ``api_key`` auth with ``location: "query"`` carries the secret in the query
+    string, so keep only the parts that are safe to surface."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    if not parts.scheme:
+        # A redirect `Location` can be relative or scheme-relative and still carry a signed query.
+        return f"//{host}{parts.path}" if parts.netloc else parts.path
+    return f"{parts.scheme}://{host}{parts.path}"

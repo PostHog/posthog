@@ -15,7 +15,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
@@ -815,6 +815,51 @@ class TestTable(APIBaseTest):
         assert "no credential" in str(response.json())
         table.refresh_from_db()
         assert table.credential_id is None
+
+    def test_update_does_not_change_a_credential_of_another_team(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        credential = DataWarehouseCredential.objects.create(
+            team=other_team, access_key="original_key", access_secret="original_secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table", format="Parquet", team=self.team, columns={}, credential=credential
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {"credential": {"access_key": "new_key", "access_secret": "new_secret"}},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        credential.refresh_from_db()
+        assert (credential.access_key, credential.access_secret) == ("original_key", "original_secret")
+
+    def test_list_hides_a_credential_of_another_team(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        foreign = DataWarehouseTable.objects.create(
+            name="foreign_credential_table",
+            format="Parquet",
+            team=self.team,
+            columns={},
+            credential=DataWarehouseCredential.objects.create(
+                team=other_team, access_key="key", access_secret="secret"
+            ),
+        )
+        own = DataWarehouseTable.objects.create(
+            name="own_credential_table",
+            format="Parquet",
+            team=self.team,
+            columns={},
+            credential=DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret"),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/warehouse_tables/")
+
+        assert response.status_code == 200, response.json()
+        credentials = {row["id"]: row["credential"] for row in response.json()["results"]}
+        assert credentials[str(foreign.id)] is None
+        assert credentials[str(own.id)]["id"] == str(own.credential_id)
 
     def test_update_table_credential_blank_access_secret(self):
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential

@@ -7,9 +7,52 @@ import pytest
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.temporal.batch_exports import DataInterval, get_data_interval, iter_records
+from products.batch_exports.backend.service import BackfillDetails
+from products.batch_exports.backend.temporal.batch_exports import (
+    DataInterval,
+    get_data_interval,
+    iter_records,
+    reads_recent_events_table,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+
+@pytest.mark.parametrize("use_new_events_schema", [False, True])
+@pytest.mark.parametrize(
+    "interval_minutes,start_days_ago,is_backfill,expected",
+    [
+        (5, 0, False, True),
+        (60, 0, False, True),
+        (60, 20, False, False),
+        (60, 3, True, True),
+        (60, 20, True, False),
+    ],
+    ids=["five-minute-run", "hourly-run", "late-run", "recent-backfill", "old-backfill"],
+)
+def test_reads_recent_events_table(
+    use_new_events_schema: bool,
+    interval_minutes: int,
+    start_days_ago: int,
+    is_backfill: bool,
+    expected: bool,
+):
+    start = dt.datetime.now(tz=dt.UTC).replace(minute=0, second=0, microsecond=0) - dt.timedelta(days=start_days_ago)
+    end = start + dt.timedelta(minutes=interval_minutes)
+    backfill_details = (
+        BackfillDetails(backfill_id=None, start_at=start.isoformat(), end_at=end.isoformat()) if is_backfill else None
+    )
+
+    assert (
+        reads_recent_events_table(
+            team_id=1,
+            interval_start=start.isoformat(),
+            interval_end=end.isoformat(),
+            use_new_events_schema=use_new_events_schema,
+            backfill_details=backfill_details,
+        )
+        == expected
+    )
 
 
 def assert_records_match_events(records, events):
@@ -17,7 +60,7 @@ def assert_records_match_events(records, events):
 
     Naturally, they should match, but with some transformations:
     * We set UTC as a timezone for dates.
-    * We dump dict fields
+    * We parse dict fields, as the tables differ in how they format the JSON text
     """
     all_expected = sorted(events, key=operator.itemgetter("event"))
     all_record = sorted(records, key=operator.itemgetter("event"))
@@ -38,15 +81,16 @@ def assert_records_match_events(records, events):
             ):
                 assert value == dt.datetime.fromisoformat(expected[key.removeprefix("_")]).replace(tzinfo=dt.UTC), msg
             elif isinstance(expected[key], dict):
-                assert value == json.dumps(expected[key]), msg
+                assert value is not None and json.loads(value) == expected[key], msg
             else:
                 assert value == expected[key]
 
 
 @pytest.mark.parametrize("use_native_schema", [False, True])
 @pytest.mark.parametrize("interval_minutes", [5, 60])
-async def test_iter_records(clickhouse_client, use_native_schema, interval_minutes):
+async def test_iter_records(clickhouse_client, use_native_schema, interval_minutes, settings):
     """Test the rows returned by iter_records."""
+    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = use_native_schema
     team_id = randint(1, 1000000)
     data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - dt.timedelta(minutes=interval_minutes)
@@ -75,6 +119,9 @@ async def test_iter_records(clickhouse_client, use_native_schema, interval_minut
         for record in record_batch.to_pylist()
     ]
 
+    if use_native_schema:
+        # The new tables store an event without properties as an empty document.
+        events = [{**event, "properties": event["properties"] or {}} for event in events]
     assert_records_match_events(records, events)
     assert {record["uuid"]: record["person_id"] for record in records} == {
         event["uuid"]: event["person_id"] for event in events

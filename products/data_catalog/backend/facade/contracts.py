@@ -1,12 +1,19 @@
 """Cross-product value contracts exposed by data_catalog."""
 
+from collections.abc import Callable
 from dataclasses import field
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.dataclasses import frozen
+
 from .enums import JudgeRelation, ShapeOutcome, UsageSection, UsageSnapshotStatus
+
+if TYPE_CHECKING:
+    from posthog.models import Team, User
 
 
 @dataclass(frozen=True)
@@ -81,18 +88,15 @@ class TopicCoverage:
 
 
 @dataclass(frozen=True)
-class TopicDefinition:
-    title: str
-    description: str
-
-
-@dataclass(frozen=True)
 class TopicCluster:
     title: str
     description: str
     session_count: int
     people: int
     coverage: TopicCoverage
+    # The tables and views that the topic's sessions read, or None when the scan could not trace one session,
+    # and on scans before the field. The API does not return this field; each read uses it to hide the topic.
+    tables: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -135,6 +139,8 @@ class UncoveredGroup:
     draft_definition: str | None = None
     views: int = 0
     complexity: int = 0
+    # Zero on scans before the field, which ranked by complexity first.
+    priority: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -184,6 +190,8 @@ class ProposedMetric:
     agents: AgentSource | None
     views: int = 0
     complexity: int = 0
+    # Zero on scans before the field, which ranked by complexity first.
+    priority: float = 0.0
     # The fingerprint digests of the merged measures. A read hides the proposal when it hides one of them.
     # The API does not return them.
     fingerprint_digests: list[str] = field(default_factory=list)
@@ -208,8 +216,6 @@ class UsageSnapshotPayload:
     conversations: list[list[str]] | None = None
     adjusted_runs: list[AdjustedRun] | None = None
     topics: list[TopicCluster] | None = None
-    # The whole list, including topics with no sessions this scan, so the next scan keeps them.
-    topic_definitions: list[TopicDefinition] | None = None
     topic_sessions: TopicSessionCounts | None = None
     table_sources: list[TableSource] | None = None
     uncovered: list[UncoveredGroup] | None = None
@@ -232,6 +238,7 @@ class UsageSnapshotSummary:
 @dataclass(frozen=True)
 class UsageSnapshotDetail(UsageSnapshotSummary):
     payload: UsageSnapshotPayload
+    hidden_topics: int = 0
 
 
 @dataclass(frozen=True)
@@ -246,3 +253,23 @@ class MetricUsage:
     runs: MetricRunCounts | None
     adjusted_runs: list[AdjustedRun]
     failed_sections: list[SectionFailure]
+
+
+@frozen
+class DigestRow:
+    """One row of a project's section in the weekly data catalog email; `path` is relative to the project."""
+
+    noun: str
+    count: int
+    new_count: int
+    sample_names: list[str]
+    path: str
+
+
+@frozen
+class DigestSource:
+    """Rows a product adds to the weekly data catalog email, declared in `DIGEST_SOURCES` in `backend/facade/data_catalog_digest.py`."""
+
+    name: str
+    rows: Callable[["Team", "User", datetime], list[DigestRow]]
+    teams_with_rows: Callable[[list["Team"]], set[int]]

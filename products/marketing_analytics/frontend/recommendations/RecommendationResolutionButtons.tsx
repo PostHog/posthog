@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
+import { DETECTED_CHANGE_DESCRIPTIONS } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 
 export function RecommendationResolutionButtons({
@@ -33,6 +34,16 @@ export function RecommendationResolutionButtons({
                 >
                     Restore
                 </LemonButton>
+            </div>
+        )
+    }
+
+    if (recommendation.detectedChange) {
+        return (
+            <div className="flex items-center justify-end whitespace-nowrap">
+                <Tooltip title={DETECTED_CHANGE_DESCRIPTIONS[recommendation.detectedChange]}>
+                    <LemonTag type="success">Applied</LemonTag>
+                </Tooltip>
             </div>
         )
     }

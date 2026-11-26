@@ -1,0 +1,193 @@
+import { z } from 'zod'
+
+import { type FilterSpec, findFilterType, hasFilterOn } from '../filters/filterSpec'
+import { type WidgetSpec, findWidget, sizeOfWidgets } from '../widgets/widgetSpec'
+import {
+    dashboardDocumentSchema,
+    documentContentWidgetSchema,
+    gridTabSchema,
+    linkTabSchema,
+    ONE_GRID_TAB,
+    sectionWidgetSchema,
+    sharedWidgetSchema,
+    tileSchema,
+    widgetRefSchema,
+} from './dashboardSchema'
+import { type ContentWidget, type DashboardFilter, GRID } from './dashboardTypes'
+
+// Deeper than anyone builds by hand, and shallow enough that walking a hostile document cannot overflow the stack.
+export const MAX_SECTION_DEPTH = 10
+
+export interface DashboardProblem {
+    /** Where the problem is, such as `tabs[0].tiles[2].widget.config.query`. */
+    path: string
+    message: string
+}
+
+// The document schemas, with each widget checked only for a `type` at first. A widget's fields depend on its type, so
+// the walk below checks each one against the schema for that type, which gives a clearer problem than a failed union.
+const widgetHeadSchema = z.looseObject({ type: z.string() })
+type WidgetHead = z.infer<typeof widgetHeadSchema>
+const tileHeadSchema = tileSchema.extend({ widget: z.union([widgetHeadSchema, widgetRefSchema]) })
+type TileHead = z.infer<typeof tileHeadSchema>
+const sectionHeadSchema = sectionWidgetSchema.extend({ tiles: z.array(tileHeadSchema) })
+const dashboardHeadSchema = dashboardDocumentSchema.extend({
+    widgets: z.record(z.string(), widgetHeadSchema).optional(),
+    tabs: z
+        .array(z.union([gridTabSchema.extend({ tiles: z.array(tileHeadSchema) }), linkTabSchema]))
+        .refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
+})
+
+function issuesAt(path: string, error: z.ZodError): DashboardProblem[] {
+    return error.issues.map((issue) => ({
+        path: [path, ...issue.path.map((key) => (typeof key === 'number' ? `[${key}]` : `.${String(key)}`))]
+            .join('')
+            .replace(/^\./, ''),
+        message: issue.message,
+    }))
+}
+
+/**
+ * Checks a dashboard document before anything loads it, such as a JSON file in a repo, a document an MCP tool wrote,
+ * or a saved dashboard from the API. `widgets` are the types the host can show, and `filters` the kinds of filter it
+ * supports. An empty result means it is valid.
+ * Overlaps and gaps are not problems, because loading the dashboard settles them.
+ */
+export function validateDashboard(
+    document: unknown,
+    widgets: WidgetSpec[],
+    filters: FilterSpec[] = []
+): DashboardProblem[] {
+    const parsed = dashboardHeadSchema.safeParse(document)
+    if (!parsed.success) {
+        return issuesAt('', parsed.error)
+    }
+    const problems: DashboardProblem[] = []
+    const sizeOf = sizeOfWidgets(widgets)
+    const seenIds = new Set<string>()
+
+    const checkContent = (widget: WidgetHead, path: string, schema: z.ZodType): ContentWidget | null => {
+        const spec = findWidget(widgets, widget.type)
+        if (!spec) {
+            problems.push({
+                path: `${path}.type`,
+                message: `Unknown widget type "${widget.type}". Known types: ${widgets.map((known) => known.type).join(', ')}`,
+            })
+            return null
+        }
+        const fields = schema.safeParse(widget)
+        if (!fields.success) {
+            problems.push(...issuesAt(path, fields.error))
+        }
+        const config = spec.configSchema.safeParse(widget.config)
+        if (!config.success) {
+            problems.push(...issuesAt(`${path}.config`, config.error))
+            return null
+        }
+        return { ...widget, config: config.data } as ContentWidget
+    }
+
+    const shared = new Map(
+        Object.entries(parsed.data.widgets ?? {}).map(([key, widget]) => [
+            key,
+            checkContent(widget, `widgets.${key}`, sharedWidgetSchema),
+        ])
+    )
+
+    // A widget's size can depend on its config, so it is only worked out from a valid one.
+    const checkSize = (widget: ContentWidget | null, tile: TileHead, tilePath: string): void => {
+        if (!widget) {
+            return
+        }
+        const size = sizeOf(widget)
+        if (tile.place.w < size.minW || tile.place.h < size.minH) {
+            problems.push({
+                path: `${tilePath}.place`,
+                message: `This ${widget.type} tile is at least ${size.minW} columns wide and ${size.minH} rows tall`,
+            })
+        }
+    }
+
+    const checkGrid = (tiles: TileHead[], cols: number, path: string, depth: number): void => {
+        tiles.forEach((tile, index) => {
+            const tilePath = `${path}[${index}]`
+            if (seenIds.has(tile.id)) {
+                problems.push({ path: `${tilePath}.id`, message: `The id "${tile.id}" is used by another tile or tab` })
+            }
+            seenIds.add(tile.id)
+            if (tile.place.x + tile.place.w > cols) {
+                problems.push({ path: `${tilePath}.place`, message: `The tile goes past the grid's ${cols} columns` })
+            }
+
+            if (!('type' in tile.widget)) {
+                const { ref } = tile.widget
+                if (!shared.has(ref)) {
+                    problems.push({
+                        path: `${tilePath}.widget.ref`,
+                        message: `There is no widget "${ref}" in the dashboard's widgets`,
+                    })
+                }
+                checkSize(shared.get(ref) ?? null, tile, tilePath)
+                return
+            }
+
+            if (tile.widget.type === 'section') {
+                if (depth >= MAX_SECTION_DEPTH) {
+                    problems.push({
+                        path: `${tilePath}.widget`,
+                        message: `Sections nest at most ${MAX_SECTION_DEPTH} deep`,
+                    })
+                    return
+                }
+                const section = sectionHeadSchema.safeParse(tile.widget)
+                if (!section.success) {
+                    problems.push(...issuesAt(`${tilePath}.widget`, section.error))
+                    return
+                }
+                checkGrid(section.data.tiles, tile.place.w, `${tilePath}.widget.tiles`, depth + 1)
+                return
+            }
+
+            const widget = checkContent(tile.widget, `${tilePath}.widget`, documentContentWidgetSchema)
+            checkSize(widget, tile, tilePath)
+        })
+    }
+
+    const filterIds = new Set<string>()
+    const validFilters: Omit<DashboardFilter, 'id'>[] = []
+    parsed.data.filters?.forEach((filter, index) => {
+        const path = `filters[${index}]`
+        if (filterIds.has(filter.id)) {
+            problems.push({ path: `${path}.id`, message: `The id "${filter.id}" is used by another filter` })
+        }
+        filterIds.add(filter.id)
+        const spec = findFilterType(filters, filter.type)
+        if (!spec) {
+            problems.push({
+                path: `${path}.type`,
+                message: `Unknown filter type "${filter.type}". Known types: ${filters.map((known) => known.type).join(', ')}`,
+            })
+            return
+        }
+        const config = spec.configSchema.safeParse(filter.config)
+        if (!config.success) {
+            problems.push(...issuesAt(`${path}.config`, config.error))
+            return
+        }
+        if (hasFilterOn(validFilters, filter, filters)) {
+            problems.push({ path, message: 'Another filter already narrows this field' })
+        }
+        validFilters.push(filter)
+    })
+
+    parsed.data.tabs.forEach((tab, index) => {
+        if (seenIds.has(tab.id)) {
+            problems.push({ path: `tabs[${index}].id`, message: `The id "${tab.id}" is used by another tile or tab` })
+        }
+        seenIds.add(tab.id)
+        if ('tiles' in tab) {
+            checkGrid(tab.tiles, GRID.columns, `tabs[${index}].tiles`, 0)
+        }
+    })
+    return problems
+}

@@ -265,4 +265,48 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "count": "The number of monthly active users for the month.",
         },
     },
+    "IdentityProviders": {
+        "description": "External identity providers, such as social logins, OpenID Connect and SAML, that users can log in with. Client secrets and API keys are not synced.",
+        "docs_url": "https://fusionauth.io/docs/apis/identity-providers/",
+        "columns": {
+            "id": "Unique identifier for the identity provider.",
+            "name": "The name of the identity provider.",
+            "type": "The type of the identity provider, for example Google, OpenIDConnect or SAMLv2.",
+            "enabled": "Whether the identity provider is enabled.",
+            "applicationConfiguration": "Per-application settings of the identity provider, keyed by application id.",
+            "tenantConfiguration": "Per-tenant settings of the identity provider, keyed by tenant id.",
+            "linkingStrategy": "How a user who logs in with this identity provider is linked to a FusionAuth user.",
+            "insertInstant": "The instant (epoch milliseconds) the identity provider was created.",
+            "lastUpdateInstant": "The instant (epoch milliseconds) the identity provider was last updated.",
+        },
+    },
+    "EntityTypes": {
+        "description": "Entity types, which define the permissions that can be granted on entities of that type.",
+        "docs_url": "https://fusionauth.io/docs/apis/entities/entity-types",
+        "columns": {
+            "id": "Unique identifier for the entity type.",
+            "name": "The name of the entity type.",
+            "permissions": "The permissions defined by the entity type.",
+            "jwtConfiguration": "The JWT settings for entities of this type.",
+            "data": "Custom data stored on the entity type.",
+            "insertInstant": "The instant (epoch milliseconds) the entity type was created.",
+            "lastUpdateInstant": "The instant (epoch milliseconds) the entity type was last updated.",
+        },
+    },
+    "RegistrationReport": {
+        "description": "The number of new registrations across all applications, one row per hour.",
+        "docs_url": "https://fusionauth.io/docs/apis/reports/retrieve-registration-report",
+        "columns": {
+            "interval": "The number of hours since the epoch, in the report timezone of the instance.",
+            "count": "The number of registrations in the hour.",
+        },
+    },
+    "LoginReport": {
+        "description": "The number of logins across all applications, one row per hour.",
+        "docs_url": "https://fusionauth.io/docs/apis/reports/retrieve-login-report",
+        "columns": {
+            "interval": "The number of hours since the epoch, in the report timezone of the instance.",
+            "count": "The number of logins in the hour.",
+        },
+    },
 }

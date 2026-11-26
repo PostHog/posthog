@@ -132,8 +132,9 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
             SourceSchema(
                 name=endpoint,
                 supports_incremental=SIGNOZ_ENDPOINTS[endpoint].supports_incremental,
-                supports_append=SIGNOZ_ENDPOINTS[endpoint].supports_incremental,
+                supports_append=SIGNOZ_ENDPOINTS[endpoint].supports_append,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                should_sync_default=SIGNOZ_ENDPOINTS[endpoint].should_sync_default,
                 description=(
                     "Limited to your SigNoz retention window on initial sync"
                     if endpoint in LIMITED_RETENTION_ENDPOINTS

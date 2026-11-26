@@ -15,6 +15,7 @@ cross the boundary through sibling facade submodules (``sandbox``, ``warm``,
 their data results.
 """
 
+from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
@@ -34,6 +35,13 @@ from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized a
 class DesktopAccessReason(LabeledStrEnum):
     STARTUP_PLAN = "startup_plan", "startup_plan"
     PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
+
+
+class PersonalGitHubRepoAccess(StrEnum):
+    OK = "ok"
+    NOT_CONNECTED = "not_connected"
+    NEEDS_RECONNECT = "needs_reconnect"
+    NO_REPO_ACCESS = "no_repo_access"
 
 
 @dataclass(frozen=True)
@@ -178,6 +186,7 @@ class TaskRunSpend:
     run_id: UUID
     task_id: UUID
     cost_microusd: int | None
+    standard_cost_microusd: int | None
     complete: bool
     is_terminal: bool
     stage: str
@@ -545,6 +554,7 @@ class TaskCommentEntryDTO:
     id: UUID
     content: str
     content_truncated: bool
+    content_offset: int
     content_next_offset: int | None
     author: str | None
     created_at: datetime
@@ -1114,6 +1124,33 @@ class TaskStatusMismatchRow:
 
 
 @dataclass(frozen=True)
+class StaleLiveRunRow:
+    profile: str
+    run_environment: str
+    rule: str
+    count: int
+
+
+@dataclass(frozen=True)
+class SweptRunRow:
+    profile: str
+    count: int
+
+
+@dataclass(frozen=True)
+class FencedRunTokensRow:
+    profile: str
+    outcome: str
+    count: int
+
+
+@dataclass(frozen=True)
+class ReopenedSweptRunsRow:
+    outcome: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 
@@ -1211,3 +1248,22 @@ class AgentEgressRegistrationDTO:
     region: str
     lease_expires_at: datetime
     revoked: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentEgressGitGrantDTO:
+    registration: AgentEgressRegistrationDTO
+    repository: str
+    credential_version: UUID
+    expires_at: datetime
+    token: str = field(repr=False)
+
+
+@dataclass(frozen=True, kw_only=True)
+class RunModelSelection:
+    """The model fields a new run starts with. ``None`` leaves a field to the stored defaults."""
+
+    runtime_adapter: str | None = None
+    model: str | None = None
+    reasoning_effort: str | None = None
+    initial_permission_mode: str | None = None

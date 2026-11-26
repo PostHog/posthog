@@ -84,6 +84,17 @@ class ReviewRequestQueue:
             "pending": [request.requested_head_sha for request in self.pending.values()],
         }
 
+    def requested_modes(self) -> dict[str, list[dict[str, str | bool]]]:
+        """The mode of the active request and of each waiting request, and whether it is an automatic request."""
+
+        def describe(request: ReviewPRWorkflowInputs) -> dict[str, str | bool]:
+            return {"review_mode": request.review_mode, "automatic": request.trigger_source == TRIGGER_AUTOMATIC}
+
+        return {
+            "active": [describe(self.active)] if self.active is not None else [],
+            "pending": [describe(request) for request in self.pending.values()],
+        }
+
     def take(self) -> ReviewPRWorkflowInputs:
         # Explicit requests take precedence over another automatic follow-up.
         key = next(key for key in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH, TRIGGER_AUTOMATIC) if key in self.pending)
@@ -129,6 +140,12 @@ class ReviewPRQueueWorkflow:
     @workflow.query
     def requested_heads(self) -> dict[str, list[str | None]]:
         return self._requests.requested_heads()
+
+    # Read by the automatic dispatch before it chooses a Deep review, because a Deep request that waits or
+    # runs before its turn marker exists only in this state.
+    @workflow.query
+    def requested_modes(self) -> dict[str, list[dict[str, str | bool]]]:
+        return self._requests.requested_modes()
 
     async def _answer_ready_event(self, request: ReviewPRWorkflowInputs, *, turn_succeeded: bool) -> None:
         """Ask stamphog about the head of a ready event once the turn for it ended.

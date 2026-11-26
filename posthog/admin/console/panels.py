@@ -93,9 +93,11 @@ class Gate:
     def owner() -> "Gate":
         return Gate(label="members of the owning team's staff group", check=_unresolved_owner_gate, from_owner=True)
 
-    def resolve(self, owner: Owner) -> "Gate":
+    def resolve(self, owner: Owner | None) -> "Gate":
         if not self.from_owner:
             return self
+        if owner is None:
+            raise ValueError("An operation uses Gate.owner(), but its panel or tool has no owner. Set an Owner.")
         if owner.staff_group is None:
             raise ValueError(
                 f"An operation of {owner.name} uses Gate.owner(), but Owner {owner.name!r} has no staff_group. "
@@ -159,11 +161,16 @@ class Operation:
     preview: RecordPreviewHandler | None = None
     # The run button shows this until the next page loads, for an operation that takes a while.
     pending_label: str = ""
+    # Opened from a support ticket link (`?ticket=<url>`), the reason starts as "For ticket <url>". Staff still read
+    # and submit it, so only an operation whose reason names the ticket anyway opts in.
+    reason_from_ticket: bool = False
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
         if self.preview is not None and self.form_class is None:
             raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
+        if self.reason_from_ticket and (self.form_class is None or "reason" not in self.form_class.base_fields):
+            raise ValueError(f"Operation {self.key!r} fills its reason from the ticket, so it needs a reason field")
 
 
 class ReasonForm(forms.Form):
@@ -180,7 +187,8 @@ class Panel:
     record: ClassVar[str]
     key: ClassVar[str]
     title: ClassVar[str]
-    owner: ClassVar[Owner]
+    # None when no team owns the data behind the panel. The console then shows no owner badge.
+    owner: ClassVar[Owner | None]
     danger: ClassVar[bool] = False
     # A page sorts its panels by order, then by title. Core panels set an order below the default, so they lead.
     order: ClassVar[int] = 100

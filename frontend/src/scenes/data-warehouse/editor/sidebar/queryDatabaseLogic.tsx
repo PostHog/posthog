@@ -49,6 +49,7 @@ import {
     DataWarehouseViewLink,
     QueryTabState,
 } from '~/types'
+import type { DataWarehouseSavedQuery } from '~/types'
 
 import { HOGQL_METRIC_DEFINITION_KIND } from 'products/data_catalog/frontend/common'
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
@@ -92,6 +93,7 @@ import {
     dataWarehouseViewsLogic,
     renameDataWarehouseSavedQuery,
 } from '../../saved_queries/dataWarehouseViewsLogic'
+import type { DataWarehouseSavedQueryUpdate } from '../../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../../saved_queries/savedQueryNameValidation'
 import { draftsLogic } from '../draftsLogic'
 import { MaterializedEndpointIcon, MaterializedViewIcon } from './MaterializedViewIcon'
@@ -1872,7 +1874,7 @@ export interface queryDatabaseLogicActions {
     createDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
-            | (Partial<import('~/types').DataWarehouseSavedQuery> & {
+            | (Partial<DataWarehouseSavedQuery> & {
                   deferCreatedToast?: boolean
                   folder_id?: string | null
                   types: string[][]
@@ -1880,7 +1882,7 @@ export interface queryDatabaseLogicActions {
             | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
-        payload?: Partial<import('~/types').DataWarehouseSavedQuery> & {
+        payload?: Partial<DataWarehouseSavedQuery> & {
             deferCreatedToast?: boolean
             folder_id?: string | null
             types: string[][]
@@ -1890,9 +1892,7 @@ export interface queryDatabaseLogicActions {
     loadDataWarehouseSavedQueryDownstreamReferences: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic
-    updateDataWarehouseSavedQuery: (
-        view: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
-    ) => import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
+    updateDataWarehouseSavedQuery: (view: DataWarehouseSavedQueryUpdate) => DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -1902,10 +1902,10 @@ export interface queryDatabaseLogicActions {
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
-        payload?: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
+        payload?: DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
-        payload?: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+        payload?: DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     ensureAllTableFields: () => {
         value: true

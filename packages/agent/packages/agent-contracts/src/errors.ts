@@ -307,7 +307,11 @@ export function classifyPromptFailure(
 ): PromptFailure {
   const message = getErrorMessage(error) || String(error);
   const limitCause = classifyGatewayLimitError(message, errorDetails);
-  if (limitCause !== null || isRateLimitError(message, errorDetails)) {
+  if (
+    limitCause !== null ||
+    (errorType !== "upstream_rate_limited" &&
+      isRateLimitError(message, errorDetails))
+  ) {
     return {
       kind: "usage_limit",
       message,
@@ -333,6 +337,7 @@ export function classifyPromptFailure(
       "upstream_connection_error",
       "upstream_timeout",
       "upstream_provider_failure",
+      "upstream_rate_limited",
     ].includes(errorType ?? "") ||
       isTransientUpstreamError(message, errorDetails))
   ) {

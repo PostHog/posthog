@@ -1,0 +1,265 @@
+// Line glyphs that swap to a filled glyph on the open pane and play a small motion on hover.
+// A parent opts in with `data-today-rail-active` (fill) and `data-today-rail-hover` (motion trigger).
+
+$ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+$dur-swap: 220ms;
+$dur-hover: 400ms;
+$stagger: 30ms;
+
+// Touch screens fire :hover on tap, which would replay the motion on every tab switch.
+@mixin hovered($modifier) {
+    [data-today-rail-hover]:focus-visible .TodayRailIcon--#{$modifier} {
+        @content;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+        [data-today-rail-hover]:hover .TodayRailIcon--#{$modifier} {
+            @content;
+        }
+    }
+}
+
+.TodayRailIcon {
+    display: block;
+    overflow: visible;
+
+    // Each animated part turns and scales around its own center. The two layers scale around the icon's center.
+    * {
+        transform-origin: center;
+        transform-box: fill-box;
+    }
+
+    .TodayRailIcon__line,
+    .TodayRailIcon__fill {
+        transition:
+            opacity 140ms ease,
+            transform $dur-swap $ease-out;
+        transform-origin: 12px 12px;
+        transform-box: view-box;
+    }
+
+    .TodayRailIcon__line {
+        opacity: 1;
+    }
+
+    .TodayRailIcon__fill {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+}
+
+[data-today-rail-active] .TodayRailIcon {
+    // A solid fill in full foreground reads heavier than the text beside it, so light mode eases it off.
+    color: color-mix(in oklch, var(--foreground) 60%, var(--muted-foreground));
+
+    [theme='dark'] & {
+        color: inherit;
+    }
+
+    .TodayRailIcon__line {
+        opacity: 0;
+        transform: scale(1.05);
+    }
+
+    .TodayRailIcon__fill {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.TodayRailIcon--monitor .TodayRailIcon__pulse,
+.TodayRailIcon--automate .TodayRailIcon__wire {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+}
+
+@include hovered(home) {
+    :is(.TodayRailIcon__line, .TodayRailIcon__fill) {
+        animation: TodayRailIcon__Rise $dur-hover $ease-out;
+    }
+}
+
+@include hovered(chats) {
+    .TodayRailIcon__back {
+        animation: TodayRailIcon__Lift $dur-hover $ease-out;
+    }
+
+    .TodayRailIcon__front {
+        transform-origin: 25% 100%;
+        animation: TodayRailIcon__Tilt $dur-hover $ease-out;
+    }
+}
+
+@include hovered(analytics) {
+    :is(.TodayRailIcon__bar1, .TodayRailIcon__bar2, .TodayRailIcon__bar3) {
+        transform-origin: 50% 100%;
+        animation: TodayRailIcon__Dip $dur-hover $ease-out both;
+    }
+
+    .TodayRailIcon__bar2 {
+        animation-delay: $stagger;
+    }
+
+    .TodayRailIcon__bar3 {
+        animation-delay: $stagger * 2;
+    }
+}
+
+@include hovered(people) {
+    .TodayRailIcon__back {
+        animation: TodayRailIcon__Step $dur-hover $ease-out;
+    }
+
+    .TodayRailIcon__head {
+        animation: TodayRailIcon__Rise $dur-hover $ease-out;
+    }
+}
+
+@include hovered(release) {
+    .TodayRailIcon__cloth {
+        transform-origin: 0% 50%;
+        animation: TodayRailIcon__Flutter $dur-hover $ease-out;
+    }
+}
+
+@include hovered(monitor) {
+    .TodayRailIcon__pulse {
+        animation: TodayRailIcon__Draw $dur-hover $ease-out;
+    }
+}
+
+@include hovered(automate) {
+    .TodayRailIcon__wire {
+        animation: TodayRailIcon__Draw $dur-hover $ease-out;
+    }
+
+    :is(.TodayRailIcon__nodeL, .TodayRailIcon__nodeR) {
+        animation: TodayRailIcon__Press $dur-hover $ease-out $stagger * 2 both;
+    }
+
+    .TodayRailIcon__nodeR {
+        animation-delay: $stagger * 3;
+    }
+}
+
+@include hovered(data) {
+    :is(.TodayRailIcon__cap, .TodayRailIcon__rim, .TodayRailIcon__band) {
+        animation: TodayRailIcon__Rise $dur-hover $ease-out both;
+    }
+
+    .TodayRailIcon__rim {
+        animation-delay: $stagger;
+    }
+
+    .TodayRailIcon__band {
+        animation-delay: $stagger * 2;
+    }
+}
+
+@include hovered(products) {
+    .TodayRailIcon__tile1 {
+        animation: TodayRailIcon__OutTl $dur-hover $ease-out;
+    }
+
+    .TodayRailIcon__tile2 {
+        animation: TodayRailIcon__OutTr $dur-hover $ease-out;
+    }
+
+    .TodayRailIcon__tile3 {
+        animation: TodayRailIcon__OutBl $dur-hover $ease-out;
+    }
+
+    .TodayRailIcon__lens {
+        transform-origin: 16.75px 16.75px;
+        transform-box: view-box;
+        animation: TodayRailIcon__Turn $dur-hover $ease-out;
+    }
+}
+
+// Every motion is one small move out and back: no squash, no overshoot, no second swing.
+@keyframes TodayRailIcon__Rise {
+    40% {
+        transform: translateY(-1.25px);
+    }
+}
+
+@keyframes TodayRailIcon__Lift {
+    40% {
+        transform: translate(0.75px, -0.75px);
+    }
+}
+
+@keyframes TodayRailIcon__Tilt {
+    40% {
+        transform: rotate(-4deg);
+    }
+}
+
+@keyframes TodayRailIcon__Dip {
+    40% {
+        transform: scaleY(0.85);
+    }
+}
+
+@keyframes TodayRailIcon__Step {
+    40% {
+        transform: translateX(0.75px);
+    }
+}
+
+@keyframes TodayRailIcon__Flutter {
+    40% {
+        transform: skewY(-8deg);
+    }
+}
+
+@keyframes TodayRailIcon__Draw {
+    0% {
+        stroke-dashoffset: 1;
+    }
+}
+
+@keyframes TodayRailIcon__Press {
+    40% {
+        transform: scale(0.88);
+    }
+}
+
+@keyframes TodayRailIcon__OutTl {
+    40% {
+        transform: translate(-0.5px, -0.5px);
+    }
+}
+
+@keyframes TodayRailIcon__OutTr {
+    40% {
+        transform: translate(0.5px, -0.5px);
+    }
+}
+
+@keyframes TodayRailIcon__OutBl {
+    40% {
+        transform: translate(-0.5px, 0.5px);
+    }
+}
+
+@keyframes TodayRailIcon__Turn {
+    40% {
+        transform: rotate(-12deg);
+    }
+}
+
+// Keep the fill swap, drop the movement.
+@media (prefers-reduced-motion: reduce) {
+    .TodayRailIcon {
+        * {
+            animation: none !important;
+        }
+
+        .TodayRailIcon__line,
+        .TodayRailIcon__fill {
+            transition: opacity 120ms ease;
+            transform: none !important;
+        }
+    }
+}

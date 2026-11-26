@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -51,6 +52,21 @@ async def support_build_context_activity(input: SupportReplyInput) -> BuildConte
         )
 
 
+def _context_comments(comments: Iterable[Comment]) -> list[Comment]:
+    kept: list[Comment] = []
+    for comment in comments:
+        item_context = comment.item_context or {}
+        if item_context.get("email_forwarded") is True:
+            # The note above a forward is internal, so the AI gets only the forwarded email, as the customer's.
+            content = str(item_context.get("forwarded_email") or "")
+            kept.append(
+                Comment(content=content, item_context={"author_type": "customer"}, created_at=comment.created_at)
+            )
+        elif item_context.get("is_private") is not True:
+            kept.append(comment)
+    return kept
+
+
 def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int = 0) -> BuildContextOutput:
     try:
         UUID(str(ticket_id))
@@ -64,13 +80,13 @@ def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int =
             return BuildContextOutput(ticket_context="", ticket_title="", ticket_gone=True)
         raise Ticket.DoesNotExist
     team = ticket.team
-    comments = list(
+    comments = _context_comments(
         Comment.objects.filter(
             team_id=team_id,
             scope="conversations_ticket",
             item_id=str(ticket.id),
         )
-        .exclude(item_context__is_private=True)
+        .exclude(deleted=True)
         .order_by("created_at")
     )
     context = _build_ticket_context(ticket, comments, team)[:MAX_TICKET_CONTEXT_CHARS]

@@ -4,7 +4,10 @@ from typing import TYPE_CHECKING
 
 import posthoganalytics
 
-from posthog.permissions import _FORCE_ENABLED_FLAGS
+from posthog.permissions import (
+    _FORCE_ENABLED_FLAGS,
+    dashboard_v2_enabled as _dashboard_v2_enabled,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -30,3 +33,7 @@ def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> b
             send_feature_flag_events=False,
         )
     )
+
+
+def dashboard_v2_enabled(team: Team, user: User | None = None) -> bool:
+    return _dashboard_v2_enabled(team, user)

@@ -8,8 +8,11 @@ import { LemonBanner, LemonCheckbox, Link } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { QuillCSPReportingSettings } from './QuillCSPReportingSettings'
 
 export function CSPReportingSettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -26,6 +29,47 @@ export function CSPReportingSettings(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const parameterOptions = [
+        {
+            label: 'version: the version for the current CSP. This helps you track impact of changes to your CSP.',
+            checked: includeVersion,
+            onChange: setIncludeVersion,
+        },
+        {
+            label: 'session_id: the PostHog UUIDv7 session id. Helps you link CSP violations to session replay.',
+            checked: includeSessionId,
+            onChange: setIncludeSessionId,
+        },
+        {
+            label: 'distinct_id: the distinct id for the current user. So you can track which users are being affected',
+            checked: includeDistinctId,
+            onChange: setIncludeDistinctId,
+        },
+        {
+            label: 'sample_rate: the sample rate for the current CSP. Lets you control the volume of reports you ingest.',
+            checked: includeSampleRate,
+            onChange: setIncludeSampleRate,
+        },
+    ]
+    const reportUrl = combineUrl(`${proxyRecord}/report/`, {
+        token: currentTeam?.api_token,
+        v: includeVersion ? 1 : undefined,
+        session_id: includeSessionId ? 'ADD_THE_SESSION_ID' : undefined,
+        distinct_id: includeDistinctId ? 'ADD_THE_DISTINCT_ID' : undefined,
+        sample_rate: includeSampleRate ? '0.5' : undefined,
+    }).url
+
+    if (todayRailNav) {
+        return (
+            <QuillCSPReportingSettings
+                parameterOptions={parameterOptions}
+                reportUrl={reportUrl}
+                restrictedReason={restrictedReason}
+            />
+        )
+    }
 
     return (
         <>
@@ -68,44 +112,21 @@ export function CSPReportingSettings(): JSX.Element {
                     </div>
                 </LemonBanner>
                 <div>
-                    <LemonCheckbox
-                        label="version: the version for the current CSP. This helps you track impact of changes to your CSP."
-                        checked={includeVersion}
-                        onChange={setIncludeVersion}
-                        disabledReason={restrictedReason}
-                    />
-                    <LemonCheckbox
-                        label="session_id: the PostHog UUIDv7 session id. Helps you link CSP violations to session replay."
-                        checked={includeSessionId}
-                        onChange={setIncludeSessionId}
-                        disabledReason={restrictedReason}
-                    />
-                    <LemonCheckbox
-                        label="distinct_id: the distinct id for the current user. So you can track which users are being affected"
-                        checked={includeDistinctId}
-                        onChange={setIncludeDistinctId}
-                        disabledReason={restrictedReason}
-                    />
-                    <LemonCheckbox
-                        label="sample_rate: the sample rate for the current CSP. Lets you control the volume of reports you ingest."
-                        checked={includeSampleRate}
-                        onChange={setIncludeSampleRate}
-                        disabledReason={restrictedReason}
-                    />
+                    {parameterOptions.map((option) => (
+                        <LemonCheckbox
+                            key={option.label}
+                            label={option.label}
+                            checked={option.checked}
+                            onChange={option.onChange}
+                            disabledReason={restrictedReason}
+                        />
+                    ))}
                 </div>
             </div>
             <div className="flex flex-col gap-y-2">
                 <p>Set this URL for both the report-to and report-uri endpoints</p>
                 <CodeSnippet language={Language.Text} wrap={true}>
-                    {
-                        combineUrl(`${proxyRecord}/report/`, {
-                            token: currentTeam?.api_token,
-                            v: includeVersion ? 1 : undefined,
-                            session_id: includeSessionId ? 'ADD_THE_SESSION_ID' : undefined,
-                            distinct_id: includeDistinctId ? 'ADD_THE_DISTINCT_ID' : undefined,
-                            sample_rate: includeSampleRate ? '0.5' : undefined,
-                        }).url
-                    }
+                    {reportUrl}
                 </CodeSnippet>
             </div>
         </>

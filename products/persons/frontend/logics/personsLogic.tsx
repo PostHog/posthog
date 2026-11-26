@@ -15,7 +15,7 @@ import { delay } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
-import { flagCallsListReachesPastRetention } from 'scenes/feature-flags/flagEvaluationsTable'
+import { flagCallsTableReachesPastRetention } from 'scenes/feature-flags/flagCallsListQuery'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -26,7 +26,6 @@ import { TodayPeopleRecent } from '~/layout/today/todayPeople'
 import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { isEventsQuery } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -723,9 +722,7 @@ export const personsLogic = kea<personsLogicType>([
         flagCallsReachPastRetention: [
             (s) => [s.currentTeam, s.flagCallsQuery],
             (currentTeam: TeamPublicType | TeamType | null, flagCallsQuery: DataTableNode | null): boolean =>
-                !!flagCallsQuery &&
-                isEventsQuery(flagCallsQuery.source) &&
-                flagCallsListReachesPastRetention(currentTeam, flagCallsQuery.source),
+                flagCallsTableReachesPastRetention(currentTeam, flagCallsQuery),
         ],
     })),
     listeners(({ actions, values, cache }) => ({

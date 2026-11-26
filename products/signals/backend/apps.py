@@ -104,7 +104,7 @@ def _record_task_spend_delta(
     *,
     team_id: int,
     run_id: UUID,
-    cost_delta_microusd: int,
+    standard_cost_delta_microusd: int,
     origin_product: str,
     accounting_failed: bool = False,
     **kwargs: object,
@@ -117,5 +117,8 @@ def _record_task_spend_delta(
     )
 
     record_task_cost_delta(
-        team_id=team_id, run_id=run_id, cost_delta_microusd=cost_delta_microusd, accounting_failed=accounting_failed
+        team_id=team_id,
+        run_id=run_id,
+        cost_delta_microusd=standard_cost_delta_microusd,
+        accounting_failed=accounting_failed,
     )
