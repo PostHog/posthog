@@ -3,7 +3,7 @@ import json
 import uuid
 import threading
 from contextlib import nullcontext
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -4428,6 +4428,7 @@ def test_a_sandbox_created_after_its_teardown_tears_itself_down(team, stamphog_c
 
 
 EXPRESS_CHANNEL = "C0EXPRESS"
+VERDICT_POSTED_AT = datetime(2026, 1, 5, tzinfo=UTC)
 
 
 def _escalated_engine_output() -> str:
@@ -4807,9 +4808,9 @@ def test_a_head_that_kept_stamphogs_approval_asks_nobody(
         head_sha="sha177a",
         status=ReviewRunStatus.COMPLETED,
         verdict=ReviewVerdict.APPROVED,
-        verdict_posted_at=timezone.now(),
+        verdict_posted_at=VERDICT_POSTED_AT,
         posted_review_id=9,
-        approval_dismissed_at=timezone.now() if approval_dismissed else None,
+        approval_dismissed_at=VERDICT_POSTED_AT if approval_dismissed else None,
         output={"retained_head_shas": ["sha177b"]},
     )
     request = ExpressRequest.objects.for_team(team.id).create(
@@ -4837,7 +4838,7 @@ def test_asking_people_reviews_again_a_head_that_waits(team, stamphog_chain: Sta
         head_sha="sha178a",
         status=ReviewRunStatus.COMPLETED,
         verdict=ReviewVerdict.WAIT,
-        verdict_posted_at=timezone.now(),
+        verdict_posted_at=VERDICT_POSTED_AT,
     )
     stamphog_chain.recorder.register_pr(REPO, 178, _silent_review_pr(178, "sha178a"), _pr_files())
 
@@ -4864,7 +4865,7 @@ def test_asking_again_shows_no_weekly_count_of_the_first_requester(
         head_sha="sha179a",
         status=ReviewRunStatus.COMPLETED,
         verdict=ReviewVerdict.REFUSED,
-        verdict_posted_at=timezone.now(),
+        verdict_posted_at=VERDICT_POSTED_AT,
     )
     # The first requester caused three cards this week, and their request has no card yet.
     for days_ago in (1, 2, 3):

@@ -1,7 +1,7 @@
 import json
 import dataclasses
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -1344,7 +1344,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     ) -> None:
         run_id = self._request().json()["run"]["id"]
         ReviewRun.objects.unscoped().filter(id=run_id).update(
-            status=run_status, verdict=verdict, verdict_posted_at=timezone.now() if posted else None
+            status=run_status, verdict=verdict, verdict_posted_at=datetime(2026, 1, 5, tzinfo=UTC) if posted else None
         )
         self._turn_on_express_requests()
 

@@ -609,7 +609,7 @@ class TestDispatchCommentCommand(BaseTest):
         card_count: int | None = None,
         created: bool = True,
         card_blocked: bool = False,
-        asked_from: str = "slack",
+        asked_from: ChannelName = "slack",
     ) -> None:
         express_request = ExpressRequestDTO(
             id=uuid4(),
