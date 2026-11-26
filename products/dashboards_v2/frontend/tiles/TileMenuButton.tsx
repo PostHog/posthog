@@ -29,7 +29,8 @@ export function TileMenuButton({ className }: { className?: string }): JSX.Eleme
             data-attr="dashboard-v2-tile-menu"
             onClick={openMenu}
         >
-            <IconEllipsis />
+            {/* Quill draws an extra small button's icon at 10px, too small to read as a menu on a tile. */}
+            <IconEllipsis className="size-3.5" />
         </Button>
     )
 }

@@ -29,8 +29,8 @@ from posthog.schema import LLMDetectorModel
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import (
     GatewayNotConfiguredError,
-    build_ai_gateway_anthropic_client,
     build_ai_gateway_openai_client,
+    build_anthropic_client,
     resolve_ai_gateway_config,
 )
 from posthog.tasks.alerts.detector import LLM_DETECTOR_MIN_POINTS, llm_detector_lookback
@@ -198,9 +198,7 @@ class _ModelRequest:
 
 
 def _ask_anthropic(request: _ModelRequest) -> object:
-    client = build_ai_gateway_anthropic_client(
-        ai_product=request.ai_product, trace_id=request.trace_id, team_id=request.team_id
-    )
+    client = build_anthropic_client(ai_product=request.ai_product, trace_id=request.trace_id, team_id=request.team_id)
     with client:
         # One in-request retry absorbs a transient blip inside the check's own budget;
         # the Temporal evaluate retry is the outer net.

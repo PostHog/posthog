@@ -18,6 +18,8 @@ It plays one session at a time, with no event timeline and no search.
    It selects every session in the range, the sessions in `--session-ids-file`, or the sessions a saved recordings filter (`--playlist`) matches.
 3. The quote splits each day into `--shards-per-day` shards by session ID hash, and stores one list per shard under `session_recording_exports/session_ids/<quote_id>/<day>/<shard>.txt`.
    The workflow runs at most `--max-parallel-shards` shards at once, oldest day first, so the sessions closest to expiry go first.
+   Shards fetch from a recording-api pool that only exports use (`RECORDING_API_EXPORT_URL`), so an export never slows playback.
+   The pool scales on the `replay_export_shards` gauge, and a run waits up to 3 minutes for the pods its shards need before the first shard starts.
 4. Each shard reads its list, looks the sessions up in `session_replay_events`, fetches every block from recording-api (decrypted, still snappy-compressed) and writes the session file.
    A shard checkpoints through its heartbeat every 500 sessions, so a retry resumes there.
    Only a 404 from recording-api marks a session `missing`. Any other recording-api error fails the shard, and Temporal retries it from the checkpoint.

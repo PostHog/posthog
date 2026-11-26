@@ -30,9 +30,12 @@ class BunnyEndpointConfig:
     logging_api: bool = False
     # Static query params sent with every request to this endpoint.
     params: dict[str, Any] = field(default_factory=dict)
-    # The envelope key holding the rows of a paginated list response.
-    items_selector: str = "Items"
+    # The envelope key holding the rows of a paginated list response. None when the body itself
+    # is the row list.
+    items_selector: Optional[str] = "Items"
     page_size_param: str = "perPage"
+    # False for an endpoint that answers with every row in one unpaginated body.
+    paginated: bool = True
     # Set when the endpoint is reached once per row of a parent list endpoint, with the parent's
     # id formatted into `path`.
     parent: Optional[BunnyParentConfig] = None
@@ -43,6 +46,9 @@ class BunnyEndpointConfig:
     # only set where the endpoint filters server-side on it.
     timestamp_column: Optional[str] = None
     sort_mode: SortMode = "asc"
+    # Set when the parent is itself a fan-out child (`videos`), so `path` takes the library id as
+    # `id` and the video guid as `video`. The body is one map from segment index to intensity.
+    per_video: bool = False
 
 
 # The statistics endpoints all take the same server-side start filter.
@@ -177,6 +183,49 @@ BUNNY_ENDPOINTS: dict[str, BunnyEndpointConfig] = {
         # Rows arrive grouped by pull zone, so the table as a whole is not in timestamp order.
         sort_mode="desc",
     ),
+    "billing_summary": BunnyEndpointConfig(
+        name="billing_summary",
+        path="/billing/summary",
+        # One row per pull zone with its usage so far in the current month.
+        primary_keys=["PullZoneId"],
+        items_selector=None,
+        paginated=False,
+    ),
+    "pull_zone_optimizer_statistics": BunnyEndpointConfig(
+        name="pull_zone_optimizer_statistics",
+        path="/pullzone/{id}/optimizer/statistics",
+        primary_keys=["PullZoneId", "Timestamp"],
+        partition_key="Timestamp",
+        timestamp_column="Timestamp",
+        parent=BunnyParentConfig(endpoint="pull_zones", id_field="Id", id_column="PullZoneId"),
+        charts={
+            "RequestsOptimizedChart": "RequestsOptimized",
+            "AverageCompressionChart": "AverageCompression",
+            "TrafficSavedChart": "TrafficSaved",
+            "AverageProcessingTimeChart": "AverageProcessingTime",
+        },
+        sort_mode="desc",
+    ),
+    "pull_zone_safehop_statistics": BunnyEndpointConfig(
+        name="pull_zone_safehop_statistics",
+        path="/pullzone/{id}/safehop/statistics",
+        primary_keys=["PullZoneId", "Timestamp"],
+        partition_key="Timestamp",
+        timestamp_column="Timestamp",
+        parent=BunnyParentConfig(endpoint="pull_zones", id_field="Id", id_column="PullZoneId"),
+        charts={"RequestsRetriedChart": "RequestsRetried", "RequestsSavedChart": "RequestsSaved"},
+        sort_mode="desc",
+    ),
+    "pull_zone_origin_shield_queue_statistics": BunnyEndpointConfig(
+        name="pull_zone_origin_shield_queue_statistics",
+        path="/pullzone/{id}/originshield/queuestatistics",
+        primary_keys=["PullZoneId", "Timestamp"],
+        partition_key="Timestamp",
+        timestamp_column="Timestamp",
+        parent=BunnyParentConfig(endpoint="pull_zones", id_field="Id", id_column="PullZoneId"),
+        charts={"ConcurrentRequestsChart": "ConcurrentRequests", "QueuedRequestsChart": "QueuedRequests"},
+        sort_mode="desc",
+    ),
     "videos": BunnyEndpointConfig(
         name="videos",
         path="/library/{id}/videos",
@@ -199,6 +248,15 @@ BUNNY_ENDPOINTS: dict[str, BunnyEndpointConfig] = {
         items_selector="items",
         page_size_param="itemsPerPage",
         parent=BunnyParentConfig(endpoint="video_libraries", id_field="Id", id_column="videoLibraryId"),
+    ),
+    "video_heatmaps": BunnyEndpointConfig(
+        name="video_heatmaps",
+        path="/library/{id}/videos/{video}/heatmap",
+        # A segment index is only meaningful inside its video, and a guid inside its library.
+        primary_keys=["videoLibraryId", "videoGuid", "segment"],
+        stream_api=True,
+        parent=BunnyParentConfig(endpoint="videos", id_field="guid", id_column="videoGuid"),
+        per_video=True,
     ),
     "video_library_statistics": BunnyEndpointConfig(
         name="video_library_statistics",

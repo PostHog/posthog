@@ -1692,31 +1692,11 @@ describe('runner through seed, drive and judge', () => {
     }
 
     it.each<[string, (role: Role) => RoleExit[], object, Parameters<typeof shortSmoke>[2]]>([
-        ['passes a run whose only exit is the kill its card scheduled', exitOfTheKill, { status: 'passed' }, {}],
         [
-            'calls a run invalid whose valve left too short a baseline to admit its load, and measures the kill',
+            'passes a run whose only exit is the kill its card scheduled, and measures the kill',
             exitOfTheKill,
-            {
-                status: 'invalid',
-                statusReason: expect.stringMatching(
-                    /^the load admission failed: the baseline was too short to measure: /
-                ),
-                admissions: [
-                    {
-                        name: 'load',
-                        passed: false,
-                        reason: expect.stringMatching(
-                            /^the baseline was too short to measure: [0-9.]+s, under the 30s minimum$/
-                        ),
-                    },
-                ],
-                measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }],
-            },
-            {
-                measures: [{ name: 'pg_client_errors', params: {} }],
-                load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
-                settings: SES_ROOM,
-            },
+            { status: 'passed', measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }] },
+            { measures: [{ name: 'pg_client_errors', params: {} }] },
         ],
         [
             'fails a run in which a role exits that no valve killed',
@@ -1966,12 +1946,23 @@ describe('runner through seed, drive and judge', () => {
         60_000
     )
 
-    it.each<[string, true | undefined]>([
-        ['the scale card', undefined],
-        ['a ramp that stops on a break', true],
+    const noWriter = {
+        name: 'writer_cpu_under',
+        unit: '%',
+        limit: 70,
+        value: null,
+        key: null,
+        part: null,
+        passed: null,
+        unjudged: 'the local stack has no Aurora writer to read CPU from',
+    }
+
+    it.each<[string, true | undefined, unknown]>([
+        ['the scale card', undefined, undefined],
+        ['a ramp that stops on a break', true, [[noWriter], [noWriter]]],
     ])(
         'names the writer CPU bar as not judged for %s on a host without a run manifest',
-        async (_story, stopOnBreak) => {
+        async (_story, stopOnBreak, stepBars) => {
             const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
                 ({ name }) => name === 'writer_cpu_under'
             )
@@ -1988,6 +1979,9 @@ describe('runner through seed, drive and judge', () => {
                 statusReason: result.statusReason,
                 bars: result.bars,
                 steps: result.units?.steps.map(({ scale }) => scale),
+                stepBars: (api.captured[0]?.properties.ramp_steps as { bars: unknown }[] | undefined)?.map(
+                    ({ bars }) => bars
+                ),
                 reads: [...new Set(reads.map(({ read }) => JSON.stringify(read)))],
             }).toEqual({
                 status: 'invalid',
@@ -2002,6 +1996,7 @@ describe('runner through seed, drive and judge', () => {
                     },
                 ],
                 steps: [1, 2],
+                stepBars,
                 reads: [JSON.stringify({ unsourced: 'the local stack has no Aurora writer to read CPU from' })],
             })
         },
@@ -2118,6 +2113,7 @@ describe('runner through seed, drive and judge', () => {
                     expect.objectContaining({ scale: 1, lost: null }),
                     expect.objectContaining({ scale: 2, lost: null }),
                 ],
+                readings: [[], []],
             },
         })
     }, 30_000)

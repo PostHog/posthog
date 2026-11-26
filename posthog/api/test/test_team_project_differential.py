@@ -207,6 +207,8 @@ FIELD_VALUES: dict[str, Any] = {
         "require_tags": True,
         "blocked_hosts": ["https://Example.com/page"],
         "blocked_ips": ["198.51.100.42/24"],
+        "allowed_hosts": ["https://App.Example.org/"],
+        "allowed_ips": ["203.0.113.9/24"],
     },
     "onboarding_tasks": {"task_x": "completed"},
     "base_currency": "EUR",
@@ -220,6 +222,12 @@ FIELD_VALUES: dict[str, Any] = {
 
 
 class TestWriteParity(DifferentialParityBase):
+    def setUp(self):
+        super().setUp()
+        flag_patch = patch("posthog.api.team.team_config.posthog_feature_flag_enabled", return_value=True)
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+
     def _make_twin(self) -> tuple[Project, Team]:
         project, team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
         return project, team

@@ -9,23 +9,28 @@
     padding-block: 0;
 }
 
-/* A closed section's card is taller than its header, so the header sits in the middle of it. */
-.SectionTile--collapsed {
-    justify-content: center;
-}
-
 /* The header's title row and its actions share one line, centered on it, so the chevron, title and buttons line up. */
 .SectionTile__header {
     /* A quill card header's height, fixed so the header and padding make three grid rows (GRID.sectionChromeRows). */
     box-sizing: border-box;
+    flex-shrink: 0;
+
+    /* Quill's gap before the empty description row would sit the title 2px above the actions. */
+    row-gap: 0;
     align-content: center;
     align-items: center;
     height: 44px;
     padding-block: 0;
+    border-bottom: 0;
 
     > .quill-card__action {
         place-self: center end;
     }
+}
+
+/* Quill shades an expanded button as an open menu's trigger. The toggle's chevron already shows its state. */
+.SectionTile__toggle[aria-expanded='true']:not(:hover) {
+    background-color: transparent;
 }
 
 .SectionTile__body {
@@ -44,4 +49,20 @@
     pointer-events: none;
     border: 1px dashed var(--color-border-primary);
     border-radius: var(--radius);
+}
+
+/* Without its outline, a section reads as a heading over its tiles. */
+.SectionTile--no-border {
+    box-shadow: none;
+
+    /* Without an outline the section is hard to find while editing, so it shows one on hover, as a tile does. */
+    .TileGrid--editable .TileGrid__tile:hover > &,
+    .TileGrid--editable .TileGrid__tile:hover > .TileContextMenu__trigger > & {
+        box-shadow: 0 0 0 1px var(--color-border-primary);
+    }
+}
+
+/* A quill card clips what overflows it, which would cut off a tile dragged out of this section at its edge. */
+.SectionTile:has(.react-draggable-dragging) {
+    overflow: visible;
 }
