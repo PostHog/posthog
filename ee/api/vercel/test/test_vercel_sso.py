@@ -15,6 +15,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.vercel.types import VercelUserClaims
+from ee.vercel.client import SSOTokenResponse
 
 
 class TestConstants:
@@ -30,13 +31,6 @@ class MockFactory:
         return {
             "_validate_client_credentials": Mock(return_value=("test_client_id", "test_client_secret")),
             "_exchange_sso_token": Mock(return_value=Mock(id_token="mock_id_token", error=None)),
-        }
-
-    @staticmethod
-    def failed_token_exchange():
-        return {
-            "_validate_client_credentials": Mock(return_value=("test_client_id", "test_client_secret")),
-            "_exchange_sso_token": Mock(return_value=Mock(error="invalid_code")),
         }
 
     @staticmethod
@@ -303,9 +297,20 @@ class TestSSORedirectFailures:
             assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_sso_redirect_when_token_exchange_fails(self, sso_setup):
-        with mock_vercel_integration(**MockFactory.failed_token_exchange()):
+        with (
+            patch(
+                "ee.vercel.integration.VercelIntegration._validate_client_credentials",
+                return_value=("test_client_id", "test_client_secret"),
+            ),
+            patch(
+                "ee.vercel.integration.VercelAPIClient.sso_token_exchange",
+                return_value=SSOTokenResponse(access_token="", token_type="", error="invalid_code"),
+            ),
+            patch("ee.api.vercel.utils.requests.get") as jwks_fetch,
+        ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
             assert response.status_code == status.HTTP_401_UNAUTHORIZED
+            jwks_fetch.assert_not_called()
 
     def test_sso_redirect_when_token_exchange_returns_none(self, sso_setup):
         with mock_vercel_integration(**MockFactory.token_exchange_returns_none()):

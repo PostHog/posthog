@@ -16,6 +16,7 @@ from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     MessageRecipientPreference,
 )
+from products.messaging.backend.models.message_suppression import MessageSuppression
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
@@ -70,6 +71,48 @@ class TestCustomerIOGlobalUnsubscribes(_CustomerIOTestCase):
         runs.run_step(self.team.id, run.id, "opt_outs", attempt=1)
 
         assert set(self._preferences()) == {f"person-{n}@example.com" for n in range(4)}
+
+
+class TestCustomerIOSkipReasons(_CustomerIOTestCase):
+    def test_opt_outs_it_skips_are_counted_by_reason(self) -> None:
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id,
+            identifier="person-1@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"},
+        )
+        self.workspace.people = [
+            person(0, unsubscribed=True),
+            person(1, unsubscribed=True),
+            person(2, email=None, unsubscribed=True),
+            person(3, email="person-0@example.com", unsubscribed=True),
+        ]
+        run = self._start(["opt_outs"])
+
+        runs.run_step(self.team.id, run.id, "opt_outs", attempt=1)
+
+        run.refresh_from_db()
+        assert run.progress["opt_outs"]["imported"] == 1
+        assert run.progress["opt_outs"]["counts"] == {"no_email": 1, "duplicate_email": 1, "already_opted_out": 1}
+
+    def test_suppressions_it_skips_are_counted_by_reason(self) -> None:
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team_id=self.team.id, identifier="kept@example.com", source="MANUAL", suppressed=True
+        )
+        self.workspace.suppressions = {
+            "bounces": [
+                {"email": "new@example.com"},
+                {"email": "kept@example.com"},
+                {"email": "NEW@example.com"},
+                {"email": "not-an-address"},
+            ]
+        }
+        run = self._start(["suppressions"])
+
+        runs.run_step(self.team.id, run.id, "suppressions", attempt=1)
+
+        run.refresh_from_db()
+        assert run.progress["suppressions"]["imported"] == 1
+        assert run.progress["suppressions"]["counts"] == {"no_address_or_repeat": 2, "already_suppressed": 1}
 
 
 class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):

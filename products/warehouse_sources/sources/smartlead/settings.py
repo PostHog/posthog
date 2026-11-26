@@ -126,6 +126,19 @@ SMARTLEAD_ENDPOINTS: dict[str, SmartleadEndpointConfig] = {
         partition_key="sent_time",
         fanout=_campaign_fanout(),
     ),
+    # Sender mailboxes that rotate on a campaign, as full email account objects. Like
+    # `campaign_sequences`, the docs' JSON example shows an `{ok, data}` envelope while the same
+    # page states "Response Format: array"; `data_selector_required` fails loud on the envelope.
+    "campaign_email_accounts": SmartleadEndpointConfig(
+        name="campaign_email_accounts",
+        path="/campaigns/{campaign_id}/email-accounts",
+        primary_keys=["campaign_id", "id"],
+        # `created_at` is when the mailbox was connected, not when it joined the campaign, and the
+        # docs list no creation field for this endpoint.
+        partition_key=None,
+        redact_fields=("password", "imap_password"),
+        fanout=_campaign_fanout(),
+    ),
     # One aggregate metrics object per campaign. The row's identity is the injected campaign id
     # because the response body's own id field differs between docs and the live API.
     "campaign_analytics": SmartleadEndpointConfig(

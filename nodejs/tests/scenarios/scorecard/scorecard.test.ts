@@ -160,6 +160,7 @@ describe('scorecard', () => {
                     generator_version: '2222222222222222222222222222222222222222',
                     valves_version: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
                     seed: 1,
+                    seed_source: 'card',
                     status: 'failed',
                     status_reason: 'at_least_once failed: run-x-3 email: the edge never received it',
                     started_at: '2026-01-05T10:00:00.000Z',
@@ -264,6 +265,29 @@ describe('scorecard', () => {
         ])
     })
 
+    it.each([
+        ['an unspecified basis', undefined, undefined],
+        ['a measured peak', 'measured_peak', 'measured mix at 1/4 of the observed peak'],
+    ] as const)('records the workload scale and synthetic inputs for %s', (_, scaleBasis, description) => {
+        const loaded = loadText('scaled card', {
+            card: JSON.stringify(SMOKE.card),
+            profile: JSON.stringify({
+                ...SMOKE.profile,
+                traffic: { ...SMOKE.profile.traffic, transactional_email: { ratePerSecond: 2, parks: 1 } },
+                scale: 0.25,
+                scaleBasis,
+                synthetic: ['transactional_email_parks', 'backlog_padding'],
+            }),
+        })
+
+        const scorecard = scorecardOf(RESULT, loaded, PROVENANCE)
+        expect(scorecard).toMatchObject({
+            profile_scale: 0.25,
+            profile_synthetic: ['transactional_email_parks', 'backlog_padding'],
+        })
+        expect(scorecard.profile_load_description).toBe(description)
+    })
+
     it.each<[string, InvariantResult, object]>([
         [
             'keeps an invariant it could not judge out of the failed ones',
@@ -288,6 +312,38 @@ describe('scorecard', () => {
         ],
     ])('%s', (_story, invariant, expected) => {
         expect(scorecardOf({ ...RESULT, invariants: [invariant] }, SMOKE, PROVENANCE)).toMatchObject(expected)
+    })
+
+    it.each<[string, NonNullable<RunResult['alerts']>, object]>([
+        [
+            'counts and names the rules it evaluated, could not evaluate and left out, and the gaps in its evidence',
+            {
+                evaluated: ['SyntheticA', 'SyntheticB'],
+                fired: ['SyntheticB'],
+                unevaluable: [{ rule: 'SyntheticC', selectors: ['synthetic_gone_total'] }],
+                excluded: ['SyntheticD'],
+                gaps: [{ from: 1000, to: 4000, reason: 'missed evaluations', rules: ['SyntheticA'] }],
+            },
+            {
+                alerts_evaluated: ['SyntheticA', 'SyntheticB'],
+                alerts_evaluated_count: 2,
+                alerts_fired: ['SyntheticB'],
+                alerts_fired_count: 1,
+                alerts_unevaluable: [{ rule: 'SyntheticC', selectors: ['synthetic_gone_total'] }],
+                alerts_unevaluable_count: 1,
+                alerts_excluded: ['SyntheticD'],
+                alerts_excluded_count: 1,
+                alerts_gaps: [{ from: 1000, to: 4000, reason: 'missed evaluations', rules: ['SyntheticA'] }],
+                alerts_gaps_count: 1,
+            },
+        ],
+        [
+            'says why it has no alert coverage',
+            { unread: 'the alert engine did not start: no docker' },
+            { alerts_unread: 'the alert engine did not start: no docker' },
+        ],
+    ])('%s', (_story, alerts, expected) => {
+        expect(scorecardOf({ ...RESULT, alerts }, SMOKE, PROVENANCE)).toMatchObject(expected)
     })
 
     it.each<[string, RunResult['ramp'], object]>([

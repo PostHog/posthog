@@ -1673,6 +1673,9 @@ const llmaOfflineExperimentCreate = (): ToolBase<
         if (params.suite_key !== undefined) {
             body['suite_key'] = params.suite_key
         }
+        if (params.experiment_scorer_version_id !== undefined) {
+            body['experiment_scorer_version_id'] = params.experiment_scorer_version_id
+        }
         if (params.dataset_source !== undefined) {
             body['dataset_source'] = params.dataset_source
         }
@@ -2157,6 +2160,46 @@ const llmaOfflineExperimentResultUpdate = (): ToolBase<
         const result = await context.api.request<Schemas.OfflineRevision>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/results/${encodeURIComponent(String(params.result_id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaOfflineExperimentScorePreviewSchema = () => {
+    const AiObservabilityOfflineExperimentsScorePreviewsCreateBody =
+        orvalSchemas.AiObservabilityOfflineExperimentsScorePreviewsCreateBody()
+    const AiObservabilityOfflineExperimentsScorePreviewsCreateParams =
+        orvalSchemas.AiObservabilityOfflineExperimentsScorePreviewsCreateParams()
+    return AiObservabilityOfflineExperimentsScorePreviewsCreateParams.omit({ project_id: true }).extend(
+        AiObservabilityOfflineExperimentsScorePreviewsCreateBody.shape
+    )
+}
+
+const llmaOfflineExperimentScorePreview = (): ToolBase<
+    ReturnType<typeof LlmaOfflineExperimentScorePreviewSchema>,
+    Schemas.ExperimentScorePreview
+> => ({
+    name: 'llma-offline-experiment-score-preview',
+    schema: LlmaOfflineExperimentScorePreviewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaOfflineExperimentScorePreviewSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
+        }
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.ExperimentScorePreview>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/${encodeURIComponent(String(params.id))}/score_previews/`,
             body,
         })
         return result
@@ -2884,6 +2927,12 @@ const llmaScoreDefinitionCreate = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.apply_to_suite_keys !== undefined) {
+            body['apply_to_suite_keys'] = params.apply_to_suite_keys
+        }
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
+        }
         if (params.calculation !== undefined) {
             body['calculation'] = params.calculation
         }
@@ -2963,6 +3012,7 @@ const llmaScoreDefinitionList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
+                scope: params.scope,
                 search: params.search,
                 tag_match: params.tag_match,
                 tags: params.tags,
@@ -2991,6 +3041,9 @@ const llmaScoreDefinitionNewVersion = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionNewVersionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.apply_to_suite_keys !== undefined) {
+            body['apply_to_suite_keys'] = params.apply_to_suite_keys
+        }
         if (params.composition !== undefined) {
             body['composition'] = params.composition
         }
@@ -3039,6 +3092,12 @@ const llmaScoreDefinitionUpdate = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.apply_to_suite_keys !== undefined) {
+            body['apply_to_suite_keys'] = params.apply_to_suite_keys
+        }
+        if (params.suite_version_id !== undefined) {
+            body['suite_version_id'] = params.suite_version_id
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -3077,6 +3136,9 @@ const llmaScoreDefinitionValidate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionValidateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
+        }
         if (params.kind !== undefined) {
             body['kind'] = params.kind
         }
@@ -3749,6 +3811,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-offline-experiment-result-payload-get': llmaOfflineExperimentResultPayloadGet,
     'llma-offline-experiment-result-payload-update': llmaOfflineExperimentResultPayloadUpdate,
     'llma-offline-experiment-result-update': llmaOfflineExperimentResultUpdate,
+    'llma-offline-experiment-score-preview': llmaOfflineExperimentScorePreview,
     'llma-offline-experiment-scorer-summary-list': llmaOfflineExperimentScorerSummaryList,
     'llma-offline-experiment-update': llmaOfflineExperimentUpdate,
     'llma-offline-experiment-upload': llmaOfflineExperimentUpload,

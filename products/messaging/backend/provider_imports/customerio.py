@@ -279,13 +279,30 @@ def _opt_in_warnings(topics: list[dict]) -> tuple[str, ...]:
 
 
 def _save_suppressions(service: CustomerIOImportService, page: SuppressionPage) -> SavedPage:
-    return SavedPage(imported=service.save_suppression_page(page))
+    added = service.save_suppression_page(page)
+    return SavedPage(
+        imported=added,
+        counts=_skip_reasons(
+            no_address_or_repeat=page.entries - len(page.addresses), already_suppressed=len(page.addresses) - added
+        ),
+    )
 
 
 def _save_opt_outs(service: CustomerIOImportService, page: GlobalUnsubscribePage) -> SavedPage:
-    if not page.emails:
-        return SavedPage(imported=0)
-    return SavedPage(imported=service.save_opt_outs(list(page.emails), [ALL_MESSAGE_PREFERENCE_CATEGORY_ID]))
+    unique_emails = len(set(page.emails))
+    changed = service.save_opt_outs(list(page.emails), [ALL_MESSAGE_PREFERENCE_CATEGORY_ID]) if page.emails else 0
+    return SavedPage(
+        imported=changed,
+        counts=_skip_reasons(
+            no_email=page.customers - len(page.emails),
+            duplicate_email=len(page.emails) - unique_emails,
+            already_opted_out=unique_emails - changed,
+        ),
+    )
+
+
+def _skip_reasons(**counts: int) -> dict[str, int]:
+    return {reason: count for reason, count in counts.items() if count}
 
 
 @frozen

@@ -9,3 +9,5 @@ rules:
           - '/unit/posthog/analytics.test.ts'
           - '/tools/projects.integration.test.ts'
       owners: mcp-analytics
+    - match: '/unit/scout-list-tools-size.test.ts'
+      owners: team-self-driving

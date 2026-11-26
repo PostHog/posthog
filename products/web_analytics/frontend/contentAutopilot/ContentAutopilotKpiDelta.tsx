@@ -1,30 +1,30 @@
-import clsx from 'clsx'
-
 import { IconTrending } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 
 import type { KpiDelta } from './promptReport'
 
+const VARIANTS = { up: 'success', down: 'destructive', flat: 'default' } as const
+const ICONS = { up: IconTrending, down: IconTrendingDown, flat: IconTrendingFlat }
+
+/** A change against the period before. The direction already says whether it is better, so a lower position reads as up. */
 export const ContentAutopilotKpiDelta = ({ delta }: { delta: KpiDelta }): JSX.Element => {
-    const Icon =
-        delta.direction === 'flat' ? IconTrendingFlat : delta.direction === 'up' ? IconTrending : IconTrendingDown
+    const Icon = ICONS[delta.direction]
     return (
-        <Tooltip title={delta.tooltip}>
-            <span
-                className={clsx(
-                    'inline-flex items-center gap-0.5 text-xs whitespace-nowrap tabular-nums',
-                    delta.direction === 'flat'
-                        ? 'text-secondary'
-                        : delta.direction === 'up'
-                          ? 'text-success'
-                          : 'text-danger'
-                )}
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <Badge
+                        variant={VARIANTS[delta.direction]}
+                        className="shrink-0 gap-0.5 rounded-full whitespace-nowrap tabular-nums"
+                    />
+                }
             >
                 <Icon />
-                <span>{delta.label}</span>
-            </span>
+                {delta.label}
+            </TooltipTrigger>
+            <TooltipContent>{delta.tooltip}</TooltipContent>
         </Tooltip>
     )
 }

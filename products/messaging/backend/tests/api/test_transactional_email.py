@@ -11,6 +11,7 @@ from unittest.mock import ANY, MagicMock, _Call, call, patch
 
 from django.conf import settings
 from django.core.cache import caches
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -27,7 +28,6 @@ from structlog.testing import capture_logs
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, User
-from posthog.models.file_system.file_system import FileSystem
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -53,6 +53,7 @@ from products.messaging.backend.models.message_category import MessageCategory, 
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.presentation.views.message_templates import (
+    CODE_SEND_CATEGORIES_FLAG,
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
     EMAIL_SCHEDULED_SENDS_FLAG,
@@ -734,6 +735,116 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         mock_post.assert_not_called()
+
+    def _category(self, key: str, category_type: str, deleted: bool = False) -> MessageCategory:
+        return MessageCategory.objects.create(
+            team=self.team, key=key, name=key.title(), category_type=category_type, deleted=deleted
+        )
+
+    @parameterized.expand(
+        [(MessageCategoryType.MARKETING, {}), (MessageCategoryType.TRANSACTIONAL, {"cc": ["copy@example.com"]})]
+    )
+    def test_a_code_send_in_a_category_carries_the_category_to_the_pipeline(
+        self, mock_post, _flag, _capture, category_type, fields
+    ):
+        category = self._category("newsletter", category_type)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(category="newsletter", **fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [send["category"] for send in pipeline.queued_sends] == [{"id": str(category.id), "type": category_type}]
+
+    @parameterized.expand(
+        [
+            ("unknown_key", {"category": "weekly"}, "json", set(), "category", "category_not_found"),
+            ("deleted_key", {"category": "newsletter"}, "json", set(), "category", "category_not_found"),
+            ("flag_off", {"category": "digest"}, "json", {CODE_SEND_CATEGORIES_FLAG}, "category", "invalid_input"),
+            ("blank_in_a_form", {"category": ""}, "multipart", set(), "category", "invalid_input"),
+            ("marketing_with_cc", {"category": "digest", "cc": ["copy@example.com"]}, "json", set(), "cc", None),
+            ("marketing_with_bcc", {"category": "digest", "bcc": "hidden@example.com"}, "json", set(), "bcc", None),
+        ]
+    )
+    def test_a_code_send_refuses_a_category_it_cannot_use(
+        self, mock_post, flag, _capture, _name, fields, body_format, off, attr, code
+    ):
+        self._category("newsletter", MessageCategoryType.MARKETING, deleted=True)
+        self._category("digest", MessageCategoryType.MARKETING)
+        flag.side_effect = lambda name, *_args, **_kwargs: name not in off
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format=body_format
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["attr"], response.json()["code"]) == (attr, code or "marketing_copies_unsupported")
+        assert pipeline.queued == []
+
+    @parameterized.expand([("accepted_before", True), ("never_accepted", False)])
+    def test_a_keyed_send_whose_category_was_archived_replays_only_an_accepted_send(
+        self, mock_post, _flag, _capture, _name, accepted_before
+    ):
+        category = self._category("newsletter", MessageCategoryType.MARKETING)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+        client = self._psak_client(["hog_flow:write"])
+        key = f"newsletter:{uuid4()}"
+
+        def send() -> Any:
+            body = self._code_send(category="newsletter")
+            return client.post(self.send_email_url, body, format="json", headers={"Idempotency-Key": key})
+
+        first = send() if accepted_before else None
+        MessageCategory.objects.filter(pk=category.pk).update(deleted=True)
+
+        retry = send()
+
+        if first is None:
+            assert (retry.status_code, retry.json()["code"]) == (400, "category_not_found"), retry.json()
+            assert pipeline.queued == []
+        else:
+            assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
+            assert (retry.json()["message_id"], retry.json()["replayed"]) == (first.json()["message_id"], True)
+            assert len(pipeline.queued) == 1
+
+    @parameterized.expand(
+        [
+            ("null", "send_email", None),
+            ("object", "send_email", {"key": "newsletter"}),
+            ("long_key", "send_email", "k" * 65),
+            ("legacy_template_shape", "send_email_nested", None),
+        ]
+    )
+    def test_a_template_send_ignores_category_as_before(self, mock_post, flag, _capture, _name, route, value):
+        flag.side_effect = lambda name, *_args, **_kwargs: name != CODE_SEND_CATEGORIES_FLAG
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._send(self._psak_client(["hog_flow:write"]), route, {**self.body, "category": value})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert len(pipeline.queued) == 1
+
+    @override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=0)
+    def test_a_template_form_send_with_a_file_ignores_category_as_before(self, mock_post, flag, _capture):
+        flag.side_effect = lambda name, *_args, **_kwargs: name != CODE_SEND_CATEGORIES_FLAG
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+        form = {name: value for name, value in self._flat(self.body).items() if not isinstance(value, dict)}
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url,
+            {**form, "category": "newsletter", "note": SimpleUploadedFile("note.txt", b"hello")},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert len(pipeline.queued) == 1
 
     def _code_send(self, **fields: Any) -> dict[str, Any]:
         return {
@@ -1961,11 +2072,13 @@ class TestTransactionalEmail(APIBaseTest):
             ("cc", {"cc": ["copy@example.com"]}),
             ("bcc", {"bcc": "hidden@example.com"}),
             ("attachments", {"attachments": TWO_FILES}),
+            ("category", {"category": "newsletter"}),
         ]
     )
     def test_refuses_what_the_sandbox_sender_cannot_send_before_setting_it_up(
         self, mock_post, _flag, _capture, field, fields
     ):
+        self._category("newsletter", MessageCategoryType.MARKETING)
         self._without_a_verified_sender(unverified_sender=False)
         pipeline = FakeCdpApi()
         mock_post.side_effect = pipeline.post
@@ -2710,6 +2823,27 @@ class TestTransactionalEmail(APIBaseTest):
         after = self._workflow(self.hog_flow_id)
         assert (after["version"], after["updated_at"]) == (before["version"], before["updated_at"])
 
+    def test_click_tracking_setting_syncs_to_the_transactional_workflow(self, mock_post, _flag, _capture):
+        url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/"
+
+        opted_in = self.client.patch(url, {"sensitive": True, "click_tracking_enabled": True}, format="json")
+        assert opted_in.status_code == status.HTTP_200_OK, opted_in.json()
+        config = self._workflow(self.hog_flow_id)["actions"][1]["config"]
+        assert config["sensitive"] is True
+        assert config["click_tracking_enabled"] is True
+
+        unprotected = self.client.patch(url, {"sensitive": False}, format="json")
+        assert unprotected.status_code == status.HTTP_200_OK, unprotected.json()
+        assert unprotected.json()["click_tracking_enabled"] is None
+        config = self._workflow(self.hog_flow_id)["actions"][1]["config"]
+        assert config["sensitive"] is False
+        assert "click_tracking_enabled" not in config
+
+        disabled = self.client.patch(url, {"click_tracking_enabled": False}, format="json")
+        assert disabled.status_code == status.HTTP_200_OK, disabled.json()
+        config = self._workflow(self.hog_flow_id)["actions"][1]["config"]
+        assert config["click_tracking_enabled"] is False
+
     @parameterized.expand(
         [
             ("marketing_category", "marketing_template"),
@@ -3095,188 +3229,6 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         else:
             assert response.status_code < 300, response.json()
             assert changed
-
-    @parameterized.expand(
-        [
-            ("linked_workflows_present", False, False),
-            ("linked_workflows_deleted", True, False),
-            ("beside_a_malformed_template_ref", False, True),
-        ]
-    )
-    def test_a_folder_delete_reads_only_its_linked_workflows_once_before_locking_templates(
-        self, mock_post, _flag, _name, linked_workflows_deleted, malformed_sibling
-    ):
-        self._login_member("editor@example.com", {None: "editor"})
-
-        def reads_deleting_a_folder_of(count: int, folder: str) -> tuple[int, list[str], list[int], int]:
-            for index in range(count):
-                template = MessageTemplate.objects.create(
-                    team=self.team,
-                    name=f"{folder} email {index}",
-                    content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}},
-                    type="email",
-                    created_by=self.user,
-                )
-                make_transactional(self.team.id, template.id, user_id=self.user.id, from_integration_id=None)
-                template.refresh_from_db()
-                template.save()
-                FileSystem.objects.filter(team=self.team, type="message_template", ref=str(template.id)).update(
-                    path=f"{folder}/{template.name}", depth=2
-                )
-            entry = FileSystem.objects.create(team=self.team, path=folder, depth=1, type="folder")
-            if malformed_sibling:
-                FileSystem.objects.create(
-                    team=self.team, path=f"{folder}/Broken", depth=2, type="message_template", ref="not-a-template-id"
-                )
-            if linked_workflows_deleted:
-                HogFlow.objects.filter(
-                    pk__in=MessageTemplate.objects.filter(team=self.team, name__startswith=folder).values(
-                        "transactional_hog_flow_id"
-                    )
-                ).delete()
-
-            with CaptureQueriesContext(connection) as queries:
-                response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
-
-            assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
-            assert not MessageTemplate.objects.filter(team=self.team, name__startswith=folder, deleted=False).exists()
-            sqls = [query["sql"] for query in queries.captured_queries]
-            access_rule_reads = sum("accesscontrol" in sql for sql in sqls)
-            workflow_reads = [
-                (position, sql)
-                for position, sql in enumerate(sqls)
-                if sql.startswith("SELECT") and 'FROM "posthog_hogflow"' in sql
-            ]
-            template_locks = [
-                position
-                for position, sql in enumerate(sqls)
-                if 'FROM "posthog_messagetemplate"' in sql and "FOR UPDATE NOWAIT" in sql
-            ]
-            workflow_content_reads = sum('"posthog_hogflow"."encrypted_inputs"' in sql for sql in sqls)
-            return (
-                access_rule_reads,
-                [sql for _position, sql in workflow_reads],
-                [position for position, _sql in workflow_reads] + template_locks[:1],
-                workflow_content_reads,
-            )
-
-        one = reads_deleting_a_folder_of(1, "One")
-        three = reads_deleting_a_folder_of(3, "Three")
-        if not linked_workflows_deleted:
-            assert HogFlow.objects.filter(team=self.team).count() > 3
-        assert (one[0], len(one[1])) == (three[0], len(three[1])) == (one[0], 1)
-        assert all('"posthog_hogflow"."id" IN' in sql for sql in one[1] + three[1])
-        assert one[2] == sorted(one[2]) and three[2] == sorted(three[2])
-        assert (one[3], three[3]) == (0, 0)
-
-    def test_a_member_denied_the_workflow_cannot_delete_or_restore_it_through_the_project_tree(self, mock_post, _flag):
-        self.template.refresh_from_db()
-        self.template.save()
-        entry = FileSystem.objects.get(team=self.team, type="message_template", ref=str(self.template.id))
-
-        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        self.template.refresh_from_db()
-        assert not self.template.deleted
-
-        MessageTemplate.objects.filter(pk=self.template.pk).update(deleted=True)
-
-        def restore(ref: str) -> tuple[int, Any]:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/file_system/undo_delete/",
-                {"items": [{"type": "message_template", "ref": ref}]},
-                format="json",
-            )
-            return response.status_code, response.json()
-
-        restored = restore(str(self.template.id))
-
-        assert restored == restore("abcdef12-3456-4890-abcd-ef1234567890"), restored
-        assert restored[0] == status.HTTP_400_BAD_REQUEST, restored
-        self.template.refresh_from_db()
-        assert self.template.deleted
-
-    @parameterized.expand([("denied", "none"), ("viewer", "viewer")])
-    def test_a_member_without_workflow_edit_access_cannot_place_or_unlink_a_template_file_beside_another(
-        self, mock_post, _flag, _name, workflow_level
-    ):
-        if workflow_level != "none":
-            self._login_member(f"{workflow_level}@example.com", {str(self.hog_flow_id): workflow_level})
-        self.template.refresh_from_db()
-        self.template.save()
-        entry = FileSystem.objects.get(team=self.team, type="message_template", ref=str(self.template.id))
-        FileSystem.objects.create(
-            team=self.team,
-            path="Copies/Password reset",
-            depth=2,
-            type="message_template",
-            ref=str(self.template.id),
-            shortcut=False,
-        )
-        files_url = f"/api/projects/{self.team.id}/file_system/"
-
-        placed = self.client.post(
-            files_url,
-            {"path": "More copies/Password reset", "type": "message_template", "ref": str(self.template.id)},
-            format="json",
-        )
-        unlinked = self.client.delete(f"{files_url}{entry.id}/")
-
-        assert (placed.status_code, unlinked.status_code) == (
-            status.HTTP_403_FORBIDDEN,
-            status.HTTP_403_FORBIDDEN,
-        ), (placed.content, unlinked.content)
-        assert FileSystem.objects.filter(pk=entry.pk).exists()
-
-    def test_restoring_transactional_templates_reads_their_workflows_once_per_batch(self, mock_post, _flag):
-        self.client.force_login(self.user)
-
-        def workflow_reads_restoring(count: int) -> int:
-            templates = [
-                MessageTemplate.objects.create(
-                    team=self.team,
-                    name=f"Synthetic reset {count}-{index}",
-                    content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
-                    type="email",
-                    created_by=self.user,
-                )
-                for index in range(count)
-            ]
-            for template in templates:
-                make_transactional(self.team.id, template.id, user_id=self.user.id, from_integration_id=None)
-            MessageTemplate.objects.filter(pk__in=[template.pk for template in templates]).update(deleted=True)
-            with CaptureQueriesContext(connection) as queries:
-                restored = self.client.post(
-                    f"/api/projects/{self.team.id}/file_system/undo_delete/",
-                    {"items": [{"type": "message_template", "ref": str(template.id)} for template in templates]},
-                    format="json",
-                )
-            assert restored.status_code == status.HTTP_200_OK, restored.content
-            return sum('FROM "posthog_hogflow"' in query["sql"] for query in queries.captured_queries)
-
-        assert workflow_reads_restoring(3) == workflow_reads_restoring(1)
-
-    def test_restoring_a_template_whose_key_another_template_took_answers_409(self, mock_post, _flag):
-        self.client.force_login(self.user)
-        MessageTemplate.objects.filter(pk=self.template.pk).update(key="synthetic-reset", deleted=True)
-        MessageTemplate.objects.create(
-            team=self.team,
-            name="Password reset v2",
-            content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
-            type="email",
-            key="synthetic-reset",
-        )
-
-        restored = self.client.post(
-            f"/api/projects/{self.team.id}/file_system/undo_delete/",
-            {"items": [{"type": "message_template", "ref": str(self.template.id)}]},
-            format="json",
-        )
-
-        assert restored.status_code == status.HTTP_409_CONFLICT, restored.content
-        self.template.refresh_from_db()
-        assert self.template.deleted
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):

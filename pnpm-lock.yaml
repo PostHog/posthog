@@ -673,6 +673,9 @@ importers:
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
+      '@posthog/products-agent-transcripts':
+        specifier: workspace:*
+        version: link:../products/agent_transcripts
       '@posthog/products-ai-gateway':
         specifier: workspace:*
         version: link:../products/ai_gateway
@@ -2522,6 +2525,52 @@ importers:
 
   products/aeo: {}
 
+  products/agent_transcripts:
+    dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.17.7(react@18.3.1)
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.40.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@4.4.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/quill
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 10.6.1(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(supports-color@10.2.2)(typescript@6.0.3)
+      '@testing-library/dom':
+        specifier: '*'
+        version: 10.4.2
+      '@testing-library/user-event':
+        specifier: '*'
+        version: 14.6.8(@testing-library/dom@10.4.2)
+      '@types/react':
+        specifier: 18.3.31
+        version: 18.3.31
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.455.4(@types/react@18.3.31)(react@18.3.1)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+    devDependencies:
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+
   products/ai_gateway:
     dependencies:
       '@posthog/lemon-ui':
@@ -3575,6 +3624,9 @@ importers:
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
         version: 3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -6107,6 +6159,9 @@ importers:
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
+      '@posthog/quill-components':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/components
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.6.1(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(supports-color@10.2.2)(typescript@6.0.3)
@@ -24918,8 +24973,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.543.0:
-    resolution: {integrity: sha512-PQ2pFByPn0ncx4pucbvaj2VOjwXnTjm7BEeYID+J0eXDqcqiua9WqaURE331oqdQtEqDw+OMD3ZeKK5IwVUYQA==}
+  unlayer-types@1.544.0:
+    resolution: {integrity: sha512-bhVVKUFWw7uVEJnETJluwiMtfUX9F3gmCyEWGeTm4b1VSpHpK8fHDmU3W48DINixQCtpASNneauAtw0Hnn2yeA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -46080,7 +46135,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.543.0
+      unlayer-types: 1.544.0
 
   react-grid-layout@2.3.0(patch_hash=0fd37ef7be73646ac1d9299d7f6a57c3e79d375332687b05df556366e9f45615)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -48533,7 +48588,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.543.0: {}
+  unlayer-types@1.544.0: {}
 
   unpipe@1.0.0: {}
 

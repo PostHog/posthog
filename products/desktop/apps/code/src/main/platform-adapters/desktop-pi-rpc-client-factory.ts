@@ -47,7 +47,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     private readonly mcpServerSource: McpServerConnectionSource,
     @inject(AGENT_MCP_APPS) private readonly mcpApps: AgentMcpApps,
     @inject(ROOT_LOGGER) private readonly rootLogger: RootLogger,
-    // Required: an unbound source would silently keep Pi on legacy.
+    // Required: without a source Pi cannot reach a model.
     @inject(GATEWAY_CREDENTIAL_SOURCE)
     private readonly gatewaySource: GatewayCredentialSource,
   ) {}
