@@ -1222,6 +1222,30 @@ class TestGetRowsBatching:
         # First yield must have crossed the row target.
         assert yielded[0].num_rows >= YIELD_TARGET_ROWS
 
+    @parameterized.expand(
+        [
+            ("uint8", pa.uint8(), 200, pa.int16()),
+            ("uint16", pa.uint16(), 40_000, pa.int32()),
+            ("uint32", pa.uint32(), 3_000_000_000, pa.int64()),
+            ("uint64_has_no_wider_signed_type", pa.uint64(), 2**63 + 5, pa.uint64()),
+        ]
+    )
+    def test_widens_unsigned_integers_so_delta_can_store_later_values(self, _name, source_type, big, expected_type):
+        blocks = [
+            pa.RecordBatch.from_arrays(
+                [pa.array([1, 2], type=pa.int64()), pa.array([1, None], type=source_type)], names=["id", "n"]
+            ),
+            pa.RecordBatch.from_arrays(
+                [pa.array([3], type=pa.int64()), pa.array([big], type=source_type)], names=["id", "n"]
+            ),
+        ]
+
+        yielded = self._run_get_rows(blocks)
+
+        assert len(yielded) == 1
+        assert yielded[0].schema.field("n").type == expected_type
+        assert yielded[0].column("n").to_pylist() == [1, None, big]
+
     def test_skips_empty_blocks(self):
         blocks = [self._block(0), self._block(50), self._block(0)]
         yielded = self._run_get_rows(blocks)

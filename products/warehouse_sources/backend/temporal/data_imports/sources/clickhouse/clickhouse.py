@@ -1622,6 +1622,26 @@ def _ticks_to_timestamp(ticks: Sequence[Any], precision: int, timestamp_type: pa
     return pa.array(ticks, type=pa.int64()).cast(timestamp_type)
 
 
+# Delta Lake has no unsigned integers, so delta-rs stores uintN as the signed intN of the same
+# width. The first batch then fixes a column that a later batch with a value above the signed
+# maximum can't be cast into. Widening to the next signed type keeps every value. UInt64 has no
+# wider signed integer and stays as it is.
+_UNSIGNED_TO_SIGNED_WIDER: dict[pa.DataType, pa.DataType] = {
+    pa.uint8(): pa.int16(),
+    pa.uint16(): pa.int32(),
+    pa.uint32(): pa.int64(),
+}
+
+
+def _widen_unsigned_integers(table: pa.Table) -> pa.Table:
+    fields = [
+        field.with_type(_UNSIGNED_TO_SIGNED_WIDER[field.type]) if field.type in _UNSIGNED_TO_SIGNED_WIDER else field
+        for field in table.schema
+    ]
+    target = pa.schema(fields, metadata=table.schema.metadata)
+    return table if target.equals(table.schema) else table.cast(target)
+
+
 def _native_column_to_arrow(
     values: Sequence[Any], field: pa.Field[pa.DataType], datetime64_precision: int | None
 ) -> pa.Array[Any]:
@@ -1958,13 +1978,13 @@ def clickhouse_source(
                         pending_rows += chunk.num_rows
                         pending_bytes += chunk.nbytes
                         if pending_rows >= YIELD_TARGET_ROWS or pending_bytes >= YIELD_TARGET_BYTES:
-                            yield pa.Table.from_batches(pending)
+                            yield _widen_unsigned_integers(pa.Table.from_batches(pending))
                             pending = []
                             pending_rows = 0
                             pending_bytes = 0
 
                 if pending:
-                    yield pa.Table.from_batches(pending)
+                    yield _widen_unsigned_integers(pa.Table.from_batches(pending))
             finally:
                 stream_client.close()
 
