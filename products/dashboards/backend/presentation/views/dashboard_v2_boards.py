@@ -235,13 +235,16 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: BoardVersionSerializer(many=True), 404: _NOT_FOUND})
     @action(methods=["GET"], detail=True)
     def versions(self, request: Request, uid: str, **kwargs: Any) -> Response:
-        """List a board's saved versions, newest first. Every save adds one, so any change can be restored."""
+        """List a board's saved versions, newest first. Every save adds one, and the 50 newest are kept."""
         self.get_object()
-        return facade_page_response(
-            self,
-            lambda page: api.list_board_versions(self.team_id, uid, page),
-            serializer_class=BoardVersionSerializer,
-        )
+        try:
+            return facade_page_response(
+                self,
+                lambda page: api.list_board_versions(self.team_id, uid, page),
+                serializer_class=BoardVersionSerializer,
+            )
+        except BoardNotFound:
+            raise exceptions.NotFound()
 
     @validated_request(
         request_serializer=BoardRestoreSerializer,

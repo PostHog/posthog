@@ -395,7 +395,7 @@ export const getDashboardV2BoardsVersionsListUrl = (
 }
 
 /**
- * List a board's saved versions, newest first. Every save adds one, so any change can be restored.
+ * List a board's saved versions, newest first. Every save adds one, and the 50 newest are kept.
  */
 export const dashboardV2BoardsVersionsList = async (
     projectId: string,

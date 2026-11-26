@@ -28,6 +28,10 @@ from products.dashboards.backend.facade.enums import BoardManagedBy
 from products.dashboards.backend.models.dashboard_v2_board import DashboardV2Board, DashboardV2BoardVersion
 from products.dashboards.backend.v2.board_schema import check_size, folder_of, tags_of, title_of, upgrade
 
+# Each version holds a whole document of up to `MAX_BOARD_SPEC_BYTES`, so history is capped per board to keep its
+# storage bounded however often the board is saved or restored.
+MAX_BOARD_VERSIONS = 50
+
 
 def _live(team_id: int):
     return DashboardV2Board.objects.for_team(team_id).filter(deleted=False)
@@ -108,6 +112,9 @@ def _record_version(board: DashboardV2Board, user_id: int, message: str) -> None
         message=message,
         created_by_id=user_id,
     )
+    DashboardV2BoardVersion.objects.for_team(board.team_id).filter(
+        board=board, version__lte=board.version - MAX_BOARD_VERSIONS
+    ).delete()
 
 
 def create_board(team_id: int, user_id: int, spec: dict[str, Any]) -> BoardDetail:
@@ -173,6 +180,10 @@ def _locked_native(team_id: int, uid: str) -> DashboardV2Board:
 def _save(board: DashboardV2Board, user_id: int, spec: dict[str, Any], base_version: int | None, message: str) -> None:
     if base_version is not None and board.version != base_version:
         raise BoardVersionConflict(current_version=board.version, base_version=base_version)
+    versions = DashboardV2BoardVersion.objects.for_team(board.team_id)
+    if not versions.filter(board=board, version=board.version).exists():
+        # A board saved before history was recorded has no row for its current document. Keep it before replacing it.
+        _record_version(board, board.last_modified_by_id, "")
     board.spec = spec
     board.title = title_of(spec)
     board.tags = tags_of(spec)

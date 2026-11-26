@@ -18,7 +18,7 @@ from posthog.models.user import User
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.facade.contracts import MAX_BOARD_SPEC_BYTES
 from products.dashboards.backend.facade.enums import BoardManagedBy
-from products.dashboards.backend.models.dashboard_v2_board import DashboardV2Board
+from products.dashboards.backend.models.dashboard_v2_board import DashboardV2Board, DashboardV2BoardVersion
 from products.dashboards.backend.v2.board_schema import CURRENT_SCHEMA_VERSION, upgrade
 
 _FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -122,6 +122,18 @@ class TestDashboardV2Boards(APIBaseTest):
         ]
         missing = self.client.post(f"{self._url(uid)}restore/", {"version": 9}, format="json")
         assert missing.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("products.dashboards.backend.v2.boards.MAX_BOARD_VERSIONS", 2)
+    def test_history_keeps_a_board_saved_before_history_and_drops_the_oldest_past_the_cap(self) -> None:
+        uid = self._create(_board("First")).json()["uid"]
+        DashboardV2BoardVersion.objects.for_team(self.team.id).all().delete()
+
+        self.client.patch(self._url(uid), {"spec": _board("Second")}, format="json")
+        assert self.client.post(f"{self._url(uid)}restore/", {"version": 1}, format="json").status_code == 200
+        self.client.patch(self._url(uid), {"spec": _board("Fourth")}, format="json")
+
+        history = self.client.get(f"{self._url(uid)}versions/").json()["results"]
+        assert [row["version"] for row in history] == [4, 3]
 
     def test_update_based_on_an_old_version_is_refused(self) -> None:
         uid = self._create(_board()).json()["uid"]

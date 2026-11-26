@@ -1471,7 +1471,7 @@ def update_board(
 
 
 def list_board_versions(team_id: int, uid: str, page: PageRequest) -> Page[contracts.BoardVersionSummary]:
-    """A live board's saved versions, newest first. Every save, restore included, adds one."""
+    """A live board's saved versions, newest first. Every save, restore included, adds one. Older ones are pruned."""
     return v2_boards.list_versions(team_id, uid, page)
 
 
