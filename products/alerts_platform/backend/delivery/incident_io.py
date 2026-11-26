@@ -17,7 +17,7 @@ from typing import Any, Final
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import dedup_key
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest, post_json
 from products.alerts_platform.backend.facade.contracts import (
     INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE,
@@ -94,8 +94,9 @@ class IncidentIoTransport:
         config_id = target.get("incident_io_alert_source_config_id") or ""
         secret = target.get("incident_io_secret")
         if not INCIDENT_IO_ALERT_SOURCE_CONFIG_ID_RE.fullmatch(config_id) or not secret:
-            raise DeliveryError(
-                "This incident.io destination has no valid alert source ID or secret.", reason="destination_config"
+            raise DestinationMisconfigured(
+                "This incident.io destination has no valid alert source ID or secret.",
+                remedy="Copy the alert source ID and secret from incident.io into the destination on the alert.",
             )
         post_json(
             endpoint(config_id),
