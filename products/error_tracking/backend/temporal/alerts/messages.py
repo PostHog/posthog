@@ -66,6 +66,12 @@ def spike_summary(extra: dict[str, str] | None) -> str | None:
     return f"{current:g} events in the last window vs baseline {baseline:g}"
 
 
+def reopen_summary(extra: dict[str, str] | None) -> str | None:
+    """Shared by the reopened root and reply, so a reopen that opens a thread still names its release."""
+    release_version = (extra or {}).get("reopened_by_release_version")
+    return f"Reopened by release {escape_slack_mrkdwn(release_version)}" if release_version else None
+
+
 def _link_block(inputs: AlertDeliveryWorkflowInputs) -> dict:
     return {
         "type": "actions",
@@ -106,10 +112,13 @@ def _build_blocks(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> list
                 "elements": [{"type": "mrkdwn", "text": f"Status: {escape_slack_mrkdwn(inputs.status)}"}],
             }
         )
+    summary = None
     if inputs.event == "$error_tracking_issue_spiking":
         summary = spike_summary(inputs.extra)
-        if summary:
-            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": summary}]})
+    elif inputs.event == "$error_tracking_issue_reopened":
+        summary = reopen_summary(inputs.extra)
+    if summary:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": summary}]})
     blocks.append(_link_block(inputs))
     return blocks
 
@@ -144,10 +153,8 @@ def build_reply_text(inputs: AlertDeliveryWorkflowInputs) -> str | None:
         case "$error_tracking_issue_unassigned":
             return f"👤 Unassigned{by}"
         case "$error_tracking_issue_reopened":
-            release_version = extra.get("reopened_by_release_version")
-            if release_version:
-                return f"🔄 Reopened by release {escape_slack_mrkdwn(release_version)}"
-            return f"🔄 Reopened{by}"
+            summary = reopen_summary(extra)
+            return f"🔄 {summary}" if summary else f"🔄 Reopened{by}"
         case "$error_tracking_issue_created":
             # A created event can reach an existing thread only as a redelivered
             # opener; the root already tells the story.

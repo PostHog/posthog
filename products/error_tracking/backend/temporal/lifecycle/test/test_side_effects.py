@@ -13,7 +13,7 @@ from posthog.models import Team
 from products.cdp.backend.filters import compile_filters_bytecode
 from products.cdp.backend.internal_events import InternalEventEvent
 from products.error_tracking.backend.logic.assignees import ResolvedAssignee
-from products.error_tracking.backend.temporal.alerts.messages import build_reply_text
+from products.error_tracking.backend.temporal.alerts.messages import build_reply_text, build_root_message
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     IssueCreatedSnapshot,
@@ -378,15 +378,15 @@ def test_reopened_internal_event_says_why_the_issue_reopened(
 
 
 @pytest.mark.parametrize(
-    "version, expected_reply",
+    "version, expected_reply, expected_reason",
     [
-        (None, "🔄 Reopened"),
-        ("2.4.0", "🔄 Reopened by release 2.4.0"),
-        ("2.4.0 <!channel>", "🔄 Reopened by release 2.4.0 &lt;!channel&gt;"),
+        (None, "🔄 Reopened", "new_occurrence"),
+        ("2.4.0", "🔄 Reopened by release 2.4.0", "new_release"),
+        ("2.4.0 <!channel>", "🔄 Reopened by release 2.4.0 &lt;!channel&gt;", "new_release"),
     ],
     ids=["new_occurrence", "new_release", "release_version_is_escaped"],
 )
-def test_reopened_slack_reply_names_the_release(version: str | None, expected_reply: str) -> None:
+def test_reopened_alert_names_the_release(version: str | None, expected_reply: str, expected_reason: str) -> None:
     release = dataclasses.replace(RELEASE, version=version) if version is not None else None
     started: list[AlertDeliveryWorkflowInputs] = []
 
@@ -396,7 +396,18 @@ def test_reopened_slack_reply_names_the_release(version: str | None, expected_re
     ):
         dispatch_issue_reopened_alert_activity(dataclasses.replace(_inputs(), reopened_by_release=release))
 
-    assert build_reply_text(started[0]) == expected_reply
+    alert = started[0]
+    assert build_reply_text(alert) == expected_reply
+    root_context = [
+        element["text"]
+        for block in build_root_message(alert)["blocks"]
+        if block["type"] == "context"
+        for element in block["elements"]
+    ]
+    assert (expected_reply.removeprefix("🔄 ") in root_context) == (release is not None)
+    # Alert and Inbox filters read these extras, so they must carry what the internal event carries.
+    assert alert.extra.get("reopen_reason") == expected_reason
+    assert alert.extra.get("reopened_by_release_id") == (str(release.id) if release else None)
 
 
 def test_dispatch_raises_so_the_activity_retries() -> None:

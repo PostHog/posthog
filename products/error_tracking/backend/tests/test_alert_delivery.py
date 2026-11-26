@@ -821,20 +821,25 @@ class TestAlertFilterEvaluation(AlertTestMixin):
         assert delivered == 1
         client.chat_postMessage.assert_called_once()
 
-    def test_lifecycle_only_properties_are_filterable(self):
+    @parameterized.expand(
+        [
+            ("spike_measurement", "issue_spiking", "computed_baseline", "10", "99"),
+            ("reopen_reason", "issue_reopened", "reopen_reason", "new_release", "new_occurrence"),
+            # A version that reads as a number must stay a string, or "1.10" would match "1.1".
+            ("release_version", "issue_reopened", "reopened_by_release_version", "1.1", "1.10"),
+        ]
+    )
+    def test_lifecycle_only_properties_are_filterable(self, _name, trigger, key, matching_value, other_value):
         client = self._mock_slack()
         self._create_filtered_alert(
-            {"properties": [{"key": "computed_baseline", "value": "10", "type": "event"}]},
-            triggers=["issue_spiking"],
+            {"properties": [{"key": key, "value": matching_value, "type": "event"}]},
+            triggers=[trigger],
         )
         self._patch_exception_properties({})
+        event = f"$error_tracking_{trigger}"
 
-        skipped = deliver_alert_notifications(
-            self._inputs("$error_tracking_issue_spiking", extra={"computed_baseline": "99"})
-        )
-        delivered = deliver_alert_notifications(
-            self._inputs("$error_tracking_issue_spiking", notification_id="n-2", extra={"computed_baseline": "10"})
-        )
+        skipped = deliver_alert_notifications(self._inputs(event, extra={key: other_value}))
+        delivered = deliver_alert_notifications(self._inputs(event, notification_id="n-2", extra={key: matching_value}))
 
         assert (skipped, delivered) == (0, 1)
         client.chat_postMessage.assert_called_once()

@@ -31,6 +31,11 @@ def filters_are_configured(filters: Mapping[str, Any]) -> bool:
     return any(filters.get(key) for key in ("events", "actions", "properties", "filter_test_accounts"))
 
 
+# Only the spike measurements are numbers. Other extras, such as a release version
+# like "1.10", must stay strings to compare as the internal event does.
+NUMERIC_EXTRA_KEYS = frozenset({"computed_baseline", "current_bucket_value"})
+
+
 def _coerce_numeric(value: str) -> object:
     # Extras cross Temporal as strings; numeric filters need real numbers or
     # HogVM compares lexicographically ("9" > "10").
@@ -96,7 +101,10 @@ def evaluate_lifecycle_filters(
     # The producers always emit these keys, null included, and on the CDP plane a null
     # lifecycle value shadows the exception's own property; mirror that so both planes agree.
     lifecycle_properties: dict[str, object] = {
-        **{key: _coerce_numeric(value) for key, value in (inputs.extra or {}).items()},
+        **{
+            key: _coerce_numeric(value) if key in NUMERIC_EXTRA_KEYS else value
+            for key, value in (inputs.extra or {}).items()
+        },
         "name": inputs.issue_name,
         "description": inputs.issue_description,
         "issue_description": inputs.issue_description,
