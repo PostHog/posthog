@@ -16,6 +16,7 @@ export type { MessageTemplate }
 export interface messageTemplatesLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     canLoadMoreTemplates: boolean
+    canRetryTemplates: boolean
     createdByFilter: number | null
     hasActiveFilters: boolean
     hasMoreTemplates: boolean
@@ -28,6 +29,7 @@ export interface messageTemplatesLogicValues {
     templateCountLoading: boolean
     templates: MessageTemplate[]
     templatesLoading: boolean
+    templatesReloadFailed: boolean
     transactionalOnly: boolean
 }
 
@@ -192,6 +194,7 @@ export interface messageTemplatesLogicMeta {
             transactionalOnly: boolean
         ) => MessagingTemplatesListParams
         hasActiveFilters: (listParams: MessagingTemplatesListParams) => boolean
+        canRetryTemplates: (templatesReloadFailed: boolean, templatesLoading: boolean) => boolean
         canLoadMoreTemplates: (
             hasMoreTemplates: boolean,
             templatesLoading: boolean,
@@ -272,6 +275,10 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         loadedListParams: [
             null as MessagingTemplatesListParams | null,
             { templatesPageLoaded: (_, { listParams }) => listParams, listInvalidated: () => null },
+        ],
+        templatesReloadFailed: [
+            false,
+            { loadTemplates: () => false, loadTemplatesFailure: () => true, templatesPageLoaded: () => false },
         ],
         // A failed count shows the guide's template step as not done, rather than hiding the whole guide.
         templateCount: [null as number | null, { loadTemplateCountFailure: (state) => state ?? 0 }],
@@ -393,6 +400,12 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             (s) => [s.listParams],
             ({ search, created_by, tags, transactional }: MessagingTemplatesListParams): boolean =>
                 !!search || created_by !== undefined || !!tags || !!transactional,
+        ],
+        // Paging stays off after a failed reload, so the list offers a first-page retry instead.
+        canRetryTemplates: [
+            (s) => [s.templatesReloadFailed, s.templatesLoading],
+            (templatesReloadFailed: boolean, templatesLoading: boolean): boolean =>
+                templatesReloadFailed && !templatesLoading,
         ],
         canLoadMoreTemplates: [
             (s) => [s.hasMoreTemplates, s.templatesLoading, s.loadedListParams, s.listParams],

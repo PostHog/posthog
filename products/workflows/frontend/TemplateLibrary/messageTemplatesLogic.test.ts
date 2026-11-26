@@ -308,6 +308,29 @@ describe('messageTemplatesLogic', () => {
         expect(names()).toEqual(stored.slice(0, TEMPLATES_PAGE_SIZE).map((t) => t.name))
     })
 
+    it('offers a retry when the reload after a create fails, and pages again once it lands', async () => {
+        stored = many(TEMPLATES_PAGE_SIZE + 1, 'Match')
+        await remount()
+        useMocks({
+            post: { '/api/projects/:team_id/messaging_templates/': () => [201, template('d', 'Fresh', [])] },
+        })
+        holdFirstPages = true
+
+        logic.actions.createTemplate({ template: { name: 'Fresh' } })
+        await waitFor(() => expect(heldFirstPages).toHaveLength(1))
+        heldFirstPages[0](500)
+        await expectLogic(logic).toDispatchActions(['loadTemplatesFailure'])
+        expect(logic.values.canLoadMoreTemplates).toBe(false)
+        expect(logic.values.canRetryTemplates).toBe(true)
+
+        holdFirstPages = false
+        logic.actions.loadTemplates()
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+
+        expect(logic.values.canRetryTemplates).toBe(false)
+        expect(logic.values.canLoadMoreTemplates).toBe(true)
+    })
+
     it('cuts a long search to what the server accepts, without splitting an emoji', async () => {
         await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
         const accepted = 'x'.repeat(TEMPLATE_SEARCH_MAX_LENGTH - 1) + '😀'

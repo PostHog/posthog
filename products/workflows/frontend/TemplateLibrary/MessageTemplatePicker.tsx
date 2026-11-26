@@ -15,9 +15,15 @@ export function MessageTemplatePicker({
     onPick: (template: MessageTemplate) => void
 }): JSX.Element {
     const logic = messageTemplatesLogic({ listKey: 'template-picker' })
-    const { templates, templatesLoading, hasActiveFilters, canLoadMoreTemplates, moreTemplatesLoading } =
-        useValues(logic)
-    const { loadMoreTemplates } = useActions(logic)
+    const {
+        templates,
+        templatesLoading,
+        hasActiveFilters,
+        canLoadMoreTemplates,
+        canRetryTemplates,
+        moreTemplatesLoading,
+    } = useValues(logic)
+    const { loadMoreTemplates, loadTemplates } = useActions(logic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -41,6 +47,13 @@ export function MessageTemplatePicker({
                 <p className="text-secondary m-0" data-attr="template-picker-no-matches">
                     No templates match. Try another search or clear the filters.
                 </p>
+            )}
+            {canRetryTemplates && (
+                <div className="flex justify-center">
+                    <LemonButton type="secondary" onClick={() => loadTemplates()} data-attr="template-picker-reload">
+                        Reload templates
+                    </LemonButton>
+                </div>
             )}
             {canLoadMoreTemplates && (
                 <div className="flex justify-center">

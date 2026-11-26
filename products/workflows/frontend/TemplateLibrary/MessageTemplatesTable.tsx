@@ -39,6 +39,7 @@ export function MessageTemplatesTable(): JSX.Element {
         templatesLoading,
         hasActiveFilters,
         canLoadMoreTemplates,
+        canRetryTemplates,
         moreTemplatesLoading,
         search,
         createdByFilter,
@@ -50,6 +51,7 @@ export function MessageTemplatesTable(): JSX.Element {
         createTemplate,
         duplicateTemplate,
         loadMoreTemplates,
+        loadTemplates,
         setSearch,
         setCreatedByFilter,
         setTransactionalOnly,
@@ -225,6 +227,13 @@ export function MessageTemplatesTable(): JSX.Element {
                 <p className="text-secondary mt-4" data-attr="templates-no-matches">
                     No templates match. Try another search or clear the filters.
                 </p>
+            )}
+            {canRetryTemplates && (
+                <div className="flex justify-center mt-4">
+                    <LemonButton type="secondary" onClick={() => loadTemplates()} data-attr="templates-reload">
+                        Reload templates
+                    </LemonButton>
+                </div>
             )}
             {canLoadMoreTemplates && (
                 <div className="flex justify-center mt-4">
