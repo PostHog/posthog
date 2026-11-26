@@ -45,7 +45,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { setTeamQuotaLimited } from '../../tests/helpers/quota-limits'
 import { forSnapshot } from '../../tests/helpers/snapshots'
-import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from './_tests/builders/hogflow.builder'
 import {
@@ -5275,16 +5275,21 @@ describe('CDP API', () => {
             const stallSuppressionReads = () => {
                 const postgres = api['emailSuppressionService']['postgres']
                 const query = postgres.query.bind(postgres)
-                let reachedRead!: () => void
-                const reached = new Promise<void>((resolve) => (reachedRead = resolve))
                 const held: (() => void)[] = []
+                const waiting: { count: number; reached: () => void }[] = []
+                const reachedTimes = (count: number) =>
+                    new Promise<void>((reached) =>
+                        held.length >= count ? reached() : waiting.push({ count, reached })
+                    )
+                const reached = reachedTimes(1)
                 let holding = true
                 jest.spyOn(postgres, 'query').mockImplementation(((...args: Parameters<typeof query>) => {
                     if (!holding || !String(args[1]).includes('blocks_transactional')) {
                         return query(...args)
                     }
-                    reachedRead()
-                    return new Promise((resolve, reject) => held.push(() => query(...args).then(resolve, reject)))
+                    const read = new Promise((resolve, reject) => held.push(() => query(...args).then(resolve, reject)))
+                    waiting.filter(({ count }) => held.length >= count).forEach(({ reached }) => reached())
+                    return read
                 }) as typeof postgres.query)
                 const release = () => {
                     holding = false
@@ -5293,7 +5298,7 @@ describe('CDP API', () => {
                 releaseStalledReads = release
                 // Later reads go through while the held ones stay held.
                 const pass = () => (holding = false)
-                return { reached, release, pass }
+                return { reached, reachedTimes, release, pass }
             }
             let intakeRecords: () => Buffer[]
 
@@ -5815,39 +5820,42 @@ describe('CDP API', () => {
                     ])
                 })
 
-                it('admits a batch from another team while one team holds its share of the pod', async () => {
-                    const otherTeamId = await createTeam(hub.postgres, team.organization_id)
-                    const otherFlow = await insertHogFlow({
-                        ...transactionalFlow('api', 'active'),
-                        team_id: otherTeamId,
+                it("refuses a batch from an organization holding its share across two teams, and admits another organization's", async () => {
+                    const flowOf = async (teamId: number) => ({
+                        teamId,
+                        flowId: (await insertHogFlow({ ...transactionalFlow('api', 'active'), team_id: teamId })).id,
                     })
-                    const { app: two } = await servedWith({
-                        CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 2,
-                    })
-                    const releaseTeamSlot = served[served.length - 1].cdpApi['transactionalEmailBatchCapacity'].admit(
-                        team.id
-                    )!
+                    const sameOrg = await flowOf(await createTeam(hub.postgres, team.organization_id))
+                    const otherOrg = await flowOf(
+                        await createTeam(hub.postgres, await createOrganization(hub.postgres))
+                    )
+                    const { app: four } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 4 })
+                    served[served.length - 1].cdpApi['refusalDeadline'] = () => new Promise<void>(() => {})
+                    const sendAs = ({ teamId, flowId }: { teamId: number; flowId: string }, to: string) =>
+                        supertest(four)
+                            .post(`/api/projects/${teamId}/hog_flows/${flowId}/${TEMPLATE}`)
+                            .set({
+                                Authorization: `Bearer ${mintToken(teamId, flowId, { claims: { kind: kindOf(TEMPLATE) } })}`,
+                            })
+                            .send(batchOf(recipient(to)))
+                    const read = stallSuppressionReads()
+                    const fresh = () => `ada-${new UUIDT().toString()}@example.com`
 
-                    const sameTeam = await sendBatchTo(two, TEMPLATE, batchOf(recipient('bo@example.com')))
-                    const otherTeam = await supertest(two)
-                        .post(`/api/projects/${otherTeamId}/hog_flows/${otherFlow.id}/${TEMPLATE}`)
-                        .set({
-                            Authorization: `Bearer ${mintToken(otherTeamId, otherFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
-                        })
-                        .send(batchOf(recipient('cy@example.com')))
-                    releaseTeamSlot()
-                    const ada = recipient('ada@example.com')
-                    const afterRelease = await sendBatchTo(two, TEMPLATE, batchOf(ada))
+                    const heldByTeam = sendAs({ teamId: team.id, flowId: hogFlow.id }, fresh()).then((answer) => answer)
+                    const heldBySameOrg = sendAs(sameOrg, fresh()).then((answer) => answer)
+                    await read.reachedTimes(2)
+                    read.pass()
+                    const thirdOfOrg = await sendAs(sameOrg, fresh())
+                    const ofOtherOrg = await sendAs(otherOrg, fresh())
+                    read.release()
+                    const held = await Promise.all([heldByTeam, heldBySameOrg])
 
-                    expect([sameTeam.status, sameTeam.body]).toEqual([503, { error: 'over_capacity' }])
-                    expect([otherTeam.status, otherTeam.body.results]).toEqual([
+                    expect([thirdOfOrg.status, thirdOfOrg.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([ofOtherOrg.status, ofOtherOrg.body.results]).toEqual([
                         200,
                         [{ status: 202, body: expect.objectContaining({ status: 'queued' }) }],
                     ])
-                    expect([afterRelease.status, afterRelease.body.results]).toEqual([
-                        200,
-                        [{ status: 202, body: queuedAs(runIdOf(ada)) }],
-                    ])
+                    expect(held.map(({ status }) => status)).toEqual([200, 200])
                 })
 
                 it.each([

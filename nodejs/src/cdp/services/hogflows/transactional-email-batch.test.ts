@@ -15,32 +15,48 @@ describe('transactional email batch', () => {
     describe('BatchCapacity', () => {
         it('refuses a request over the cap until an admitted one releases', () => {
             const capacity = new BatchCapacity(1)
-            const release = capacity.admit(1)
+            const release = capacity.admit('org-a')
 
             expect(release).not.toBeNull()
-            expect(capacity.admit(2)).toBeNull()
+            expect(capacity.admit('org-b')).toBeNull()
 
             release!()
 
-            expect(capacity.admit(2)).not.toBeNull()
-            expect(capacity.admit(1)).toBeNull()
+            expect(capacity.admit('org-b')).not.toBeNull()
+            expect(capacity.admit('org-a')).toBeNull()
         })
 
         it.each([
             [3, 1],
             [4, 2],
             [8, 4],
-        ])('admits another team while one team holds its share of a cap of %i', (cap, share) => {
+        ])('admits another organization while one holds its share of a cap of %i', (cap, share) => {
             const capacity = new BatchCapacity(cap)
-            const held = Array.from({ length: share }, () => capacity.admit(1))
+            const held = Array.from({ length: share }, () => capacity.admit('org-a'))
 
             expect(held).not.toContain(null)
-            expect(capacity.admit(1)).toBeNull()
-            expect(capacity.admit(2)).not.toBeNull()
+            expect(capacity.admit('org-a')).toBeNull()
+            expect(capacity.admit('org-b')).not.toBeNull()
 
             held[0]!()
 
-            expect(capacity.admit(1)).not.toBeNull()
+            expect(capacity.admit('org-a')).not.toBeNull()
+        })
+
+        it.each([
+            [4, 1],
+            [8, 2],
+            [16, 4],
+        ])('keeps the last slots of a cap of %i for organizations holding none', (cap, reserve) => {
+            const capacity = new BatchCapacity(cap)
+            const share = Math.floor(cap / 2)
+            Array.from({ length: share }, () => capacity.admit('org-a'))
+            const heldByB = Array.from({ length: cap - share - reserve }, () => capacity.admit('org-b'))
+
+            expect(heldByB).not.toContain(null)
+            expect(capacity.admit('org-b')).toBeNull()
+            expect(Array.from({ length: reserve }, (_, i) => capacity.admit(`fresh-${i}`))).not.toContain(null)
+            expect(capacity.admit('fresh-last')).toBeNull()
         })
     })
 

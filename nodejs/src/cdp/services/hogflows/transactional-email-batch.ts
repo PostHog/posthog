@@ -145,32 +145,38 @@ export const transactionalEmailBatchRequestsTotal = new Counter({
 
 export class BatchCapacity {
     private admitted = 0
-    private readonly admittedByTeam = new Map<number, number>()
-    private readonly maxRequestsPerTeam: number
+    private readonly admittedByOrganization = new Map<string, number>()
+    private readonly maxRequestsPerOrganization: number
+    private readonly reserved: number
 
     constructor(private readonly maxRequests: number) {
-        this.maxRequestsPerTeam = Math.max(1, Math.floor(maxRequests / 2))
+        this.maxRequestsPerOrganization = Math.max(1, Math.floor(maxRequests / 2))
+        this.reserved = Math.max(1, Math.floor(maxRequests / 4))
     }
 
-    admit(teamId: number): (() => void) | null {
-        const admittedForTeam = this.admittedByTeam.get(teamId) ?? 0
-        if (this.admitted >= this.maxRequests || admittedForTeam >= this.maxRequestsPerTeam) {
+    admit(organizationId: string): (() => void) | null {
+        const held = this.admittedByOrganization.get(organizationId) ?? 0
+        if (
+            this.admitted >= this.maxRequests ||
+            held >= this.maxRequestsPerOrganization ||
+            (held > 0 && this.admitted >= this.maxRequests - this.reserved)
+        ) {
             return null
         }
         this.admitted++
-        this.admittedByTeam.set(teamId, admittedForTeam + 1)
+        this.admittedByOrganization.set(organizationId, held + 1)
         return () => {
             this.admitted--
-            this.releaseForTeam(teamId)
+            this.releaseFor(organizationId)
         }
     }
 
-    private releaseForTeam(teamId: number): void {
-        const left = (this.admittedByTeam.get(teamId) ?? 1) - 1
+    private releaseFor(organizationId: string): void {
+        const left = (this.admittedByOrganization.get(organizationId) ?? 1) - 1
         if (left > 0) {
-            this.admittedByTeam.set(teamId, left)
+            this.admittedByOrganization.set(organizationId, left)
         } else {
-            this.admittedByTeam.delete(teamId)
+            this.admittedByOrganization.delete(organizationId)
         }
     }
 }

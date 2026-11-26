@@ -1647,7 +1647,13 @@ export class CdpApi {
                     transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
                     return
                 }
-                release = this.transactionalEmailBatchCapacity.admit(parseInt(req.params.team_id))
+                stages.start('load')
+                const teamId = parseInt(req.params.team_id)
+                const team = await this.deps.teamManager.getTeam(teamId)
+                if (!team) {
+                    return refuse('not_found', 404, { error: 'Team not found' })
+                }
+                release = this.transactionalEmailBatchCapacity.admit(team.organization_id)
                 if (!release) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
@@ -1665,19 +1671,14 @@ export class CdpApi {
                 if (exceedsCopyLimits(batch)) {
                     return refuse('too_large', 413, { error: 'too_large' })
                 }
-                const teamId = parseInt(req.params.team_id)
 
                 stages.start('load')
-                const [team, hogFlow, integration] = await Promise.all([
-                    this.deps.teamManager.getTeam(teamId),
+                const [hogFlow, integration] = await Promise.all([
                     this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id),
                     batch.send?.from
                         ? this.deps.integrationManager.getCheckingPrimaryOnMiss(batch.send.from.integrationId)
                         : Promise.resolve(null),
                 ])
-                if (!team) {
-                    return refuse('not_found', 404, { error: 'Team not found' })
-                }
                 // A single send answers 404 here, which Django retries. A batch refuses for good: the workflow is gone
                 // for every recipient.
                 if (!hogFlow || hogFlow.team_id !== team.id || hogFlow.trigger?.type !== 'api') {
