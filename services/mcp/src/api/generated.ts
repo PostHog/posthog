@@ -10829,7 +10829,23 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    export type ErrorTrackingIssueTagColor = typeof ErrorTrackingIssueTagColor[keyof typeof ErrorTrackingIssueTagColor];
+
+
+    export const ErrorTrackingIssueTagColor = {
+      Blue: 'blue',
+      Teal: 'teal',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+      Pink: 'pink',
+      Purple: 'purple',
+    } as const;
+
     export interface ErrorTrackingIssueTag {
+      /** Named color of the tag, or null for a color picked from the label. */
+      color?: ErrorTrackingIssueTagColor | null;
       /** What the tag means, for a tooltip. */
       description: string;
       /** Key of the tag definition. */
@@ -45868,6 +45884,30 @@ export namespace Schemas {
       includeBreakdown?: boolean;
     }
 
+    /**
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple
+     */
+    export type IssueTagColorEnum = typeof IssueTagColorEnum[keyof typeof IssueTagColorEnum];
+
+
+    export const IssueTagColorEnum = {
+      Blue: 'blue',
+      Teal: 'teal',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+      Pink: 'pink',
+      Purple: 'purple',
+    } as const;
+
     export interface ErrorTrackingIssueTagRead {
       /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
@@ -45875,6 +45915,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
       source: string;
     }
@@ -46076,6 +46127,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
       source: string;
       /** Whether the tag is applied to the issue after the change. */
@@ -46089,6 +46151,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
     }
 
     export interface ErrorTrackingIssueTagDefinitionsResponse {
@@ -46128,6 +46201,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means. Shown with the tag. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /** Starts at 1, and goes up by one each time the filters change. */
@@ -46156,6 +46240,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label. Defaults to null.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /**
@@ -46182,6 +46277,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
@@ -93181,6 +93287,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
