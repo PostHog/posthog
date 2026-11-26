@@ -15,9 +15,13 @@ from django.conf import settings
 import requests
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers
+from posthog.llm.gateway_client import AIGatewayConfig
 
-from products.aeo.backend.engines import ANTHROPIC_WEB_SEARCH_TOOL_TYPE
+from products.aeo.backend.engines import (
+    ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+    gateway_request_headers,
+    raise_for_gateway_status,
+)
 
 CALL_TIMEOUT_SECONDS = 120
 # A call with less time than this left would only time out, so the job stops as too slow instead.
@@ -48,16 +52,15 @@ def ask_with_web_search(
     max_searches: int,
 ) -> ClaudeAnswer | None:
     """Claude's final answer, or None when the deadline passes first. Raises `requests.RequestException`
-    or `ValueError` when a call fails. An answer cut off by the token limit keeps its complete items."""
+    or `ValueError` when a call fails, and `AICreditsExhausted` when the gateway refuses the team for lack of
+    AI credits. An answer cut off by the token limit keeps its complete items."""
     messages: list[dict[str, Any]] = [{"role": "user", "content": instructions}]
-    headers = {
-        "Authorization": f"Bearer {gateway.api_key}",
-        "anthropic-version": "2023-06-01",
-        **(
-            ai_gateway_headers(trace_id=trace_id, properties={"team_id": str(team_id), "aeo_feature": aeo_feature})
-            or {}
-        ),
-    }
+    headers = gateway_request_headers(
+        gateway,
+        trace_id=trace_id,
+        properties={"team_id": str(team_id), "aeo_feature": aeo_feature},
+        anthropic=True,
+    )
     deadline = time.monotonic() + DEADLINE_SECONDS
     assistant_content: list[Any] = []
     with requests.Session() as session:
@@ -85,7 +88,7 @@ def ask_with_web_search(
                 },
                 timeout=min(CALL_TIMEOUT_SECONDS, remaining),
             )
-            response.raise_for_status()
+            raise_for_gateway_status(response)
             body = response.json()
             if body.get("stop_reason") != "pause_turn":
                 text = _answer_text(body)
