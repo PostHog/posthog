@@ -17,7 +17,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.logic.saved_metrics import visible_to
+from products.experiments.backend.logic.list_access import visible_to
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -111,7 +111,7 @@ def list_page(
 
 
 def resolved_exposure_event(experiment: Experiment) -> str:
-    # A rule-linked experiment counts the $experiment_exposure events of its rule, whatever the rollout says.
+    # A rule-linked experiment counts the $experiment_exposure events of its rule, whatever the cutoff says.
     if experiment.is_rule_linked:
         return EXPERIMENT_EXPOSURE_EVENT
     # A draft has no start_date, so the setup UI shows the event that the draft would count if it launched now.

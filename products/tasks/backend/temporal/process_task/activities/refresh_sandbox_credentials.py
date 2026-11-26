@@ -79,7 +79,15 @@ def _with_live_credential_state(ctx: TaskProcessingContext) -> TaskProcessingCon
     persisted = TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).values_list("state", flat=True).first() or {}
     live = {key: persisted[key] for key in ("pr_authorship_mode", "slack_actor_user_id") if key in persisted}
     return dataclasses.replace(
-        ctx, state={**(ctx.state or {}), **live, "agent_egress_probe": persisted.get("agent_egress_probe")}
+        ctx,
+        state={
+            **(ctx.state or {}),
+            **live,
+            "agent_egress_probe": persisted.get("agent_egress_probe"),
+            "agent_egress_git_reads": ctx.agent_egress_git_reads
+            or (ctx.state or {}).get("agent_egress_git_reads")
+            or persisted.get("agent_egress_git_reads"),
+        },
     )
 
 

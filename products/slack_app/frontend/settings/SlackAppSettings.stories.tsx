@@ -2,7 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { SlackAppPersonalSettings } from './SlackAppPersonalSettings'
+import { SlackAppSettings } from './SlackAppSettings'
 
 const INTEGRATIONS = {
     results: [{ id: 7, kind: 'slack', display_name: 'Hedgebox', config: {}, created_at: '2023-01-01T00:00:00Z' }],
@@ -30,6 +30,7 @@ const PERSONAL = {
     thread_join_mode: 'allow',
     auto_model_choice: false,
     feature_tips_enabled: true,
+    chatgpt_apps_enabled: null,
 }
 
 function settingsDecorator(personal: Record<string, unknown>): ReturnType<typeof mswDecorator> {
@@ -44,18 +45,23 @@ function settingsDecorator(personal: Record<string, unknown>): ReturnType<typeof
                 workspace: { reactions: REACTIONS, external_channels_enabled: false },
                 personal,
             },
+            '/api/projects/:team_id/slack_app_settings/:id/channels/': { channels: [] },
+            '/api/environments/:team_id/integrations/:id/channels': {
+                channels: [{ id: 'C1', name: 'support', is_private: false, is_ext_shared: false, is_member: true }],
+                lastRefreshedAt: '2023-01-01T00:00:00Z',
+            },
         },
     })
 }
 
-const meta: Meta<typeof SlackAppPersonalSettings> = {
-    title: 'Scenes-App/Slack app/Personal settings',
-    component: SlackAppPersonalSettings,
+const meta: Meta<typeof SlackAppSettings> = {
+    title: 'Scenes-App/Slack app/Settings',
+    component: SlackAppSettings,
     parameters: { mockDate: '2023-01-01', testOptions: { snapshotBrowsers: [] } },
 }
 export default meta
 
-type Story = StoryObj<typeof SlackAppPersonalSettings>
+type Story = StoryObj<typeof SlackAppSettings>
 
 export const Linked: Story = {
     decorators: [settingsDecorator(PERSONAL)],
@@ -63,4 +69,8 @@ export const Linked: Story = {
 
 export const NotLinked: Story = {
     decorators: [settingsDecorator({ ...PERSONAL, slack_user_id: null })],
+}
+
+export const ChatGPTPlanConnected: Story = {
+    decorators: [settingsDecorator({ ...PERSONAL, chatgpt_apps_enabled: false })],
 }

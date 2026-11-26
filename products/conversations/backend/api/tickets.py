@@ -65,6 +65,8 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ComposeTicketBurstThrottle,
     ComposeTicketSustainedThrottle,
+    TicketAiRerunBurstThrottle,
+    TicketAiRerunSustainedThrottle,
     TicketNoteBurstThrottle,
     TicketNoteSustainedThrottle,
 )
@@ -76,6 +78,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.conversations.backend.ai.evidence import citations_for_ticket, hydrate_ai_sources
 from products.conversations.backend.ai.human_outcome import AiDraftHumanOutcome, record_human_outcome
+from products.conversations.backend.ai.rerun import ManualRerunRefused, start_manual_rerun
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
@@ -321,6 +324,12 @@ class AiFeedbackRequestSerializer(serializers.Serializer):
         max_length=len(AiFeedbackReason.choices),
         help_text="Optional reasons for a bad rating. Ignored for a good rating.",
     )
+
+
+class AiRerunResponseSerializer(serializers.Serializer):
+    """Returned when a Support AI run was started for a ticket."""
+
+    workflow_id = serializers.CharField(help_text="ID of the Support AI run that was started.")
 
 
 class AiHumanOutcomeRequestSerializer(serializers.Serializer):
@@ -870,6 +879,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "attachments",
         "ai_feedback",
         "ai_human_outcome",
+        "ai_rerun",
         "note",
         "delete_note",
         "create_note",
@@ -893,6 +903,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 raise PermissionDenied(
                     "Scouts can add private notes but cannot compose emails, upload files or change existing notes."
                 )
+            if self.action == "ai_rerun":
+                raise PermissionDenied("Scouts cannot start Support AI runs.")
             if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
                 raise PermissionDenied("Scouts cannot change customer identity fields.")
 
@@ -2209,6 +2221,44 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 status=drf_status.HTTP_409_CONFLICT,
             )
         return Response(serializer.data, status=drf_status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=None,
+        responses={
+            202: AiRerunResponseSerializer,
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            409: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        # Each accepted request starts LLM and sandbox work, and one person can reach many tickets.
+        throttle_classes=[TicketAiRerunBurstThrottle, TicketAiRerunSustainedThrottle],
+    )
+    def ai_rerun(self, request, *args, **kwargs):
+        """Start a new Support AI run on this ticket. Its output is a private note and is never sent to the customer."""
+        ticket = self.get_object()
+        properties = {**_ticket_action_properties(ticket), "ticket_id": str(ticket.id)}
+        try:
+            workflow_id = start_manual_rerun(ticket, self.team)
+        except ManualRerunRefused as refusal:
+            report_user_action(
+                request.user,
+                "support ai rerun refused",
+                {**properties, "reason": refusal.error_type},
+                team=self.team,
+                request=request,
+            )
+            return Response(
+                TicketErrorSerializer({"detail": refusal.detail, "error_type": refusal.error_type}).data,
+                status=drf_status.HTTP_409_CONFLICT if refusal.conflict else drf_status.HTTP_400_BAD_REQUEST,
+            )
+        report_user_action(request.user, "support ai rerun requested", properties, team=self.team, request=request)
+        return Response(
+            AiRerunResponseSerializer({"workflow_id": workflow_id}).data, status=drf_status.HTTP_202_ACCEPTED
+        )
 
     @extend_schema(
         request=ComposeTicketSerializer,

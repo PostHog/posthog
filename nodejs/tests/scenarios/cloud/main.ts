@@ -24,9 +24,8 @@ const SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
 const PAIR_RUN_RESERVE = '15m'
 
 function defaultController(): Controller {
-    return {
+    const controller: Omit<Controller, 'origin'> = {
         aws: awsCli({ ...process.env, AWS_REGION: REGION, AWS_PAGER: '' }),
-        origin: githubOrigin(),
         now: () => new Date(),
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         onInterrupt: (handler) => {
@@ -37,6 +36,7 @@ function defaultController(): Controller {
         print: (line) => process.stdout.write(`${line}\n`),
         warn: (line) => process.stderr.write(`${line}\n`),
     }
+    return { ...controller, origin: githubOrigin(controller) }
 }
 
 async function run(controller: Controller, inputs: ProfileInputs, cardId: string): Promise<number> {
