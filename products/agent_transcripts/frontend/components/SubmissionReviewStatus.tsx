@@ -1,9 +1,11 @@
-import { TZLabel } from 'lib/components/TZLabel'
+import { Callout, CalloutContent, CalloutDescription, CalloutTitle, Highlight, Text } from '@posthog/quill'
 
 import type { CustomerSubmissionStateApi } from '../generated/api.schemas'
 import { SubmissionStatusEnumApi } from '../generated/api.schemas'
 import type { AgentTranscriptRequestVariant } from '../logics/agentTranscriptVariant'
-import { SubmissionStatusMessage } from './SubmissionStatusMessage'
+import { SubmittedFileItem } from './SubmittedFileItem'
+import { TranscriptHero } from './TranscriptHero'
+import { ApprovedHog, DeclinedHog, InReviewHog } from './transcriptHogs'
 
 export interface SubmissionReviewStatusProps {
     submission: CustomerSubmissionStateApi
@@ -12,36 +14,67 @@ export interface SubmissionReviewStatusProps {
 
 /** What an organization sees once its transcript is uploaded: in review, approved or declined. */
 export function SubmissionReviewStatus({ submission, variant }: SubmissionReviewStatusProps): JSX.Element | null {
+    const fileProps = { fileName: submission.original_filename, submittedAt: submission.submitted_at }
+
     switch (submission.status) {
         case SubmissionStatusEnumApi.Submitted:
             return (
-                <SubmissionStatusMessage title="Your transcript is in review" data-attr="agent-transcript-in-review">
-                    <p className="m-0">
-                        The PostHog team is reviewing <strong translate="no">{submission.original_filename}</strong>,
-                        which you uploaded{' '}
-                        {submission.submitted_at ? <TZLabel time={submission.submitted_at} /> : <span>recently</span>}.
-                    </p>
-                    <p className="m-0">Thanks for sharing it.</p>
-                </SubmissionStatusMessage>
+                <TranscriptHero
+                    hog={<InReviewHog className="size-full" loading="eager" />}
+                    title="Your transcript is in review"
+                    data-attr="agent-transcript-in-review"
+                >
+                    <Text variant="muted" render={<p className="m-0" />}>
+                        The PostHog team is reviewing the file you uploaded. Thanks for sharing it.
+                    </Text>
+                    <SubmittedFileItem {...fileProps} statusLabel="In review" statusVariant="info" />
+                </TranscriptHero>
             )
         case SubmissionStatusEnumApi.Approved:
             return (
-                <SubmissionStatusMessage title="We approved your transcript" data-attr="agent-transcript-approved">
-                    <p className="m-0">
+                <TranscriptHero
+                    hog={<ApprovedHog className="size-full" loading="eager" />}
+                    title={
+                        <>
+                            We{' '}
+                            <Highlight color="green" animate>
+                                approved
+                            </Highlight>{' '}
+                            your transcript
+                        </>
+                    }
+                    data-attr="agent-transcript-approved"
+                >
+                    <Text variant="muted" render={<p className="m-0" />}>
                         {variant === 'test'
                             ? 'Thanks for sharing it. Your $20 code for the PostHog merch store is on its way to your email.'
                             : 'Thanks for sharing it. It helps us improve how agents set up PostHog.'}
-                    </p>
-                </SubmissionStatusMessage>
+                    </Text>
+                    <SubmittedFileItem {...fileProps} statusLabel="Approved" statusVariant="success" />
+                </TranscriptHero>
             )
         case SubmissionStatusEnumApi.Declined:
             return (
-                <SubmissionStatusMessage title="We couldn't use your transcript" data-attr="agent-transcript-declined">
+                <TranscriptHero
+                    hog={<DeclinedHog className="size-full" loading="eager" />}
+                    title="We couldn't use your transcript"
+                    data-attr="agent-transcript-declined"
+                >
+                    <Text variant="muted" render={<p className="m-0" />}>
+                        Thanks for taking the time to share it.
+                    </Text>
                     {submission.review_message && (
-                        <p className="m-0 whitespace-pre-wrap">{submission.review_message}</p>
+                        <Callout className="w-full max-w-md text-left">
+                            <CalloutContent>
+                                <CalloutTitle>Note from the PostHog team</CalloutTitle>
+                                <CalloutDescription className="whitespace-pre-wrap">
+                                    {submission.review_message}
+                                </CalloutDescription>
+                            </CalloutContent>
+                        </Callout>
                     )}
-                    <p className="m-0">Thanks for taking the time to share it.</p>
-                </SubmissionStatusMessage>
+                    <SubmittedFileItem {...fileProps} statusLabel="Declined" statusVariant="default" />
+                </TranscriptHero>
             )
         default:
             return null

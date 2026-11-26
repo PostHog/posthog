@@ -1,20 +1,16 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconChat } from '@posthog/icons'
-import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
-
-import { sceneConfigurations } from 'scenes/scenes'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SubmissionReviewStatus } from '../components/SubmissionReviewStatus'
+import { TranscriptLoadError } from '../components/TranscriptLoadError'
+import { TranscriptPageSkeleton } from '../components/TranscriptPageSkeleton'
 import { TranscriptRequestForm } from '../components/TranscriptRequestForm'
 import { SubmissionStatusEnumApi } from '../generated/api.schemas'
 import { agentTranscriptSceneLogic } from './agentTranscriptSceneLogic'
-
-const LOADING_SKELETON_ROWS = 4
 
 // A submission in one of these has an uploaded file, so the scene shows where its review stands instead of the upload.
 const REVIEW_STATUSES: ReadonlySet<SubmissionStatusEnumApi | null> = new Set([
@@ -23,6 +19,9 @@ const REVIEW_STATUSES: ReadonlySet<SubmissionStatusEnumApi | null> = new Set([
     SubmissionStatusEnumApi.Declined,
 ])
 
+// An outcome screen is only a hog and a few lines, so it sits in the middle of the scene instead of under its top edge.
+const OUTCOME_CLASS = 'flex min-h-[60vh] flex-col justify-center'
+
 export const scene: SceneExport = {
     component: AgentTranscriptScene,
     logic: agentTranscriptSceneLogic,
@@ -30,26 +29,25 @@ export const scene: SceneExport = {
 
 function AgentTranscriptSceneBody(): JSX.Element {
     const { submission, submissionLoadFailed, variant } = useValues(agentTranscriptSceneLogic)
-    const { loadSubmission } = useActions(agentTranscriptSceneLogic)
 
     if (!submission && submissionLoadFailed) {
         return (
-            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSubmission }}>
-                Couldn't load your organization's transcript. Check your connection, then try again.
-            </LemonBanner>
-        )
-    }
-
-    if (!submission) {
-        return (
-            <div className="flex flex-col gap-3" data-attr="agent-transcript-loading">
-                <LemonSkeleton repeat={LOADING_SKELETON_ROWS} />
+            <div className={OUTCOME_CLASS}>
+                <TranscriptLoadError />
             </div>
         )
     }
 
+    if (!submission) {
+        return <TranscriptPageSkeleton />
+    }
+
     if (REVIEW_STATUSES.has(submission.status)) {
-        return <SubmissionReviewStatus submission={submission} variant={variant} />
+        return (
+            <div className={OUTCOME_CLASS}>
+                <SubmissionReviewStatus submission={submission} variant={variant} />
+            </div>
+        )
     }
 
     return <TranscriptRequestForm submission={submission} variant={variant} />
@@ -58,13 +56,14 @@ function AgentTranscriptSceneBody(): JSX.Element {
 export function AgentTranscriptScene(): JSX.Element {
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={sceneConfigurations[Scene.AgentTranscript].name}
-                resourceType={{ type: 'default_icon_type', forceIcon: <IconChat /> }}
-            />
-            <div className="max-w-3xl">
-                <AgentTranscriptSceneBody />
-            </div>
+            <QuillSurfaceContext.Provider value>
+                <div
+                    data-quill
+                    className="@container/agent-transcript mx-auto flex w-full max-w-2xl flex-col py-6 @min-[32rem]/main-content:py-10"
+                >
+                    <AgentTranscriptSceneBody />
+                </div>
+            </QuillSurfaceContext.Provider>
         </SceneContent>
     )
 }

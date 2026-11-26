@@ -1,7 +1,8 @@
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { Text } from '@posthog/quill'
 
 import { TranscriptAgentEnumApi } from '../generated/api.schemas'
 import { TRANSCRIPT_AGENT_LABELS } from '../logics/transcriptAgents'
+import { TranscriptPrompt } from './TranscriptPrompt'
 
 const SESSION_LOG_LOCATIONS: Partial<Record<TranscriptAgentEnumApi, string>> = {
     [TranscriptAgentEnumApi.ClaudeCode]: 'Claude Code keeps them under ~/.claude/projects/.',
@@ -22,8 +23,7 @@ const CONVERSATION_EXPORT_PROMPT =
     'Create a downloadable file called posthog-conversation.md with this whole conversation: every message from me and from you, in order, word for word, including any searches or tools you used. ' +
     "Don't summarize or leave anything out. Replace any passwords, API keys or tokens with [REDACTED]."
 
-// A wrapped prompt runs under the copy button, which sits over the top right corner, so the text keeps clear of it.
-const PROMPT_SNIPPET_CLASS = '[&_pre]:!pr-12'
+const FILE_NAME_CLASS = 'rounded-sm bg-muted px-1 py-0.5 font-mono text-xs'
 
 export interface TranscriptAgentStepsProps {
     agent: TranscriptAgentEnumApi
@@ -38,62 +38,49 @@ export function TranscriptAgentSteps({ agent, onCopy }: TranscriptAgentStepsProp
     if (sessionLogLocation) {
         return (
             <>
-                <p className="m-0">
-                    Paste this prompt into the {label} session where you set up PostHog. If you closed it, resume it
-                    first.
-                </p>
-                <CodeSnippet
-                    language={Language.Text}
-                    wrap
-                    thing="prompt"
-                    onCopy={onCopy}
-                    className={PROMPT_SNIPPET_CLASS}
-                >
-                    {sessionLogPrompt(sessionLogLocation)}
-                </CodeSnippet>
-                <p className="m-0">
-                    Then upload the file it creates, <code>posthog-session-log.jsonl</code>.
-                </p>
+                <Text size="sm" render={<p className="m-0" />}>
+                    Paste this prompt into the <span>{label}</span> session where you set up PostHog. If you closed it,
+                    resume it first.
+                </Text>
+                <TranscriptPrompt prompt={sessionLogPrompt(sessionLogLocation)} onCopy={onCopy} />
+                <Text size="sm" render={<p className="m-0" />}>
+                    Then upload the file it creates, <code className={FILE_NAME_CLASS}>posthog-session-log.jsonl</code>.
+                </Text>
             </>
         )
     }
 
     if (agent === TranscriptAgentEnumApi.Cursor) {
         return (
-            <ol className="m-0 flex flex-col gap-1 pl-5">
+            <Text size="sm" render={<ol className="m-0 flex list-decimal flex-col gap-1 pl-5" />}>
                 <li>Open the Cursor chat where the agent set up PostHog.</li>
                 <li>
                     Open the chat's menu and choose <strong>Export chat</strong>.
                 </li>
                 <li>Save the Markdown file. Remove any passwords, API keys or tokens from it, then upload it below.</li>
-            </ol>
+            </Text>
         )
     }
 
     if (agent === TranscriptAgentEnumApi.ClaudeApp || agent === TranscriptAgentEnumApi.Chatgpt) {
         return (
             <>
-                <p className="m-0">Paste this prompt into the same {label} conversation where you set up PostHog.</p>
-                <CodeSnippet
-                    language={Language.Text}
-                    wrap
-                    thing="prompt"
-                    onCopy={onCopy}
-                    className={PROMPT_SNIPPET_CLASS}
-                >
-                    {CONVERSATION_EXPORT_PROMPT}
-                </CodeSnippet>
-                <p className="m-0">
-                    Then download the file it creates, <code>posthog-conversation.md</code>, and upload it below.
-                </p>
+                <Text size="sm" render={<p className="m-0" />}>
+                    Paste this prompt into the same <span>{label}</span> conversation where you set up PostHog.
+                </Text>
+                <TranscriptPrompt prompt={CONVERSATION_EXPORT_PROMPT} onCopy={onCopy} />
+                <Text size="sm" render={<p className="m-0" />}>
+                    Then download the file it creates, <code className={FILE_NAME_CLASS}>posthog-conversation.md</code>,
+                    and upload it below.
+                </Text>
             </>
         )
     }
 
     return (
-        <p className="m-0">
+        <Text size="sm" render={<p className="m-0" />}>
             Export or save the conversation as a text, Markdown or JSON file. Remove any passwords, API keys or tokens
             from it, then upload it below.
-        </p>
+        </Text>
     )
 }

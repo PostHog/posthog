@@ -1,32 +1,34 @@
+import { Highlight, Text } from '@posthog/quill'
+
+import { AnimatedWizardHog } from 'scenes/onboarding/shared/AnimatedWizardHog'
+
 import type { AgentTranscriptRequestVariant } from '../logics/agentTranscriptVariant'
+import { TranscriptHero } from './TranscriptHero'
+import { TranscriptRewardNote } from './TranscriptRewardNote'
+
+// The hog raises its staff once when the page opens, as it does on the request card.
+const CAST_ON_APPEAR = 1
 
 export interface TranscriptRequestIntroProps {
     variant: AgentTranscriptRequestVariant | null
-    retentionDays: number
 }
 
-export function TranscriptRequestIntro({ variant, retentionDays }: TranscriptRequestIntroProps): JSX.Element {
+export function TranscriptRequestIntro({ variant }: TranscriptRequestIntroProps): JSX.Element {
     return (
-        <section className="flex flex-col gap-3" data-attr="agent-transcript-intro">
-            <p className="m-0">
+        <TranscriptHero
+            hog={<AnimatedWizardHog castKey={CAST_ON_APPEAR} className="size-full" />}
+            title={
+                <>
+                    How did <Highlight animate>your agent</Highlight> set up PostHog?
+                </>
+            }
+            data-attr="agent-transcript-intro"
+        >
+            <Text variant="muted" render={<p className="m-0" />}>
                 You set up PostHog with an AI agent. The transcript of that conversation shows us where the agent did
                 well and where it got stuck, so we can improve how agents set up PostHog.
-            </p>
-            <div className="flex flex-col gap-1">
-                <h2 className="m-0 text-sm font-semibold">What happens to the file</h2>
-                <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
-                    <li>The PostHog team uses it only to improve setup with AI agents.</li>
-                    <li>PostHog staff review each transcript.</li>
-                    <li>
-                        We delete the file <span translate="no">{retentionDays}</span> days after you upload it.
-                    </li>
-                </ul>
-            </div>
-            {variant === 'test' && (
-                <p className="m-0" data-attr="agent-transcript-reward">
-                    When we approve your transcript, we email you a $20 code for the PostHog merch store.
-                </p>
-            )}
-        </section>
+            </Text>
+            {variant === 'test' && <TranscriptRewardNote />}
+        </TranscriptHero>
     )
 }

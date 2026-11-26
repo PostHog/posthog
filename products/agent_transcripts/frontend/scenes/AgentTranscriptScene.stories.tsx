@@ -64,7 +64,7 @@ type Story = StoryObj<{}>
 
 async function chooseAgent(canvasElement: HTMLElement, agentLabel: string): Promise<void> {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByLabelText(agentLabel))
+    await userEvent.click(await canvas.findByRole('button', { name: agentLabel }))
 }
 
 async function uploadTranscript(canvasElement: HTMLElement): Promise<void> {
