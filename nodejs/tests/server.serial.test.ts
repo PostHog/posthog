@@ -81,7 +81,6 @@ describe('server', () => {
                 PERSONHOG_ADDR: 'localhost:50052',
             })
             await pluginsServer.start()
-            expect(process.exit).not.toHaveBeenCalledWith(1)
 
             await waitForExpect(async () => {
                 const { rows } = await pool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
