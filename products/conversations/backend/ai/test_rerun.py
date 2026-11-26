@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,6 +20,7 @@ RERUN_MODULE = "products.conversations.backend.ai.rerun"
 FLAG = "products.conversations.backend.temporal.coordinator._is_master_flag_enabled"
 
 
+@time_machine.travel("2026-11-26T12:00:00Z", tick=False)
 class TestAiRerunAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

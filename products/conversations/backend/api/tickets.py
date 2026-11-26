@@ -2243,11 +2243,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 request=request,
             )
             return Response(
-                {"detail": refusal.detail, "error_type": refusal.error_type},
+                TicketErrorSerializer({"detail": refusal.detail, "error_type": refusal.error_type}).data,
                 status=drf_status.HTTP_409_CONFLICT if refusal.conflict else drf_status.HTTP_400_BAD_REQUEST,
             )
         report_user_action(request.user, "support ai rerun requested", properties, team=self.team, request=request)
-        return Response({"workflow_id": workflow_id}, status=drf_status.HTTP_202_ACCEPTED)
+        return Response(
+            AiRerunResponseSerializer({"workflow_id": workflow_id}).data, status=drf_status.HTTP_202_ACCEPTED
+        )
 
     @extend_schema(
         request=ComposeTicketSerializer,

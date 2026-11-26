@@ -62,6 +62,7 @@ import {
     conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
     conversationsTicketsAiRerunCreate,
+    conversationsTicketsRetrieve,
     conversationsTicketsDestroy,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
@@ -1811,13 +1812,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 cache.disposables.dispose('aiTriagePolling')
                 return
             }
-            let fetched: Ticket
+            let triage: AITriage | undefined
             try {
-                fetched = await api.conversationsTickets.get(ticketId)
+                const fetched = await conversationsTicketsRetrieve(String(getCurrentTeamId()), ticketId)
+                // The serializer types `ai_triage` as unknown JSON. `AITriage` is its documented shape.
+                triage = (fetched.ai_triage ?? undefined) as AITriage | undefined
             } catch {
                 return
             }
-            const triage = fetched.ai_triage
             const runFinished =
                 triage?.status !== 'in_progress' && (triage?.finished_at ?? null) !== cache.aiRerunPreviousFinishedAt
             if (triage && (runFinished || triage.status === 'in_progress')) {
