@@ -388,7 +388,6 @@ mod tests {
         assert_eq!(moments.len(), MAX_MOMENTS_PER_BLOCK);
         assert!(stats.moments_truncated);
 
-        // A page that sends JSON-LD again and again leaves room for the moments after it.
         let mut chatty: Vec<Value> = (0..=MAX_JSON_LD_MOMENTS_PER_BLOCK as i64)
             .map(|i| json_ld(1_000_000 + i, json!({})))
             .collect();

@@ -98,10 +98,7 @@ pub struct BlockStats {
     /// The longest of those lines.
     pub max_written_event_bytes: u64,
 
-    /// posthog-js's `$json_ld` custom events, each a page's schema.org JSON-LD.
     pub json_ld_events: u32,
-    /// The distinct root types of those events, at most [`MAX_JSON_LD_ROOT_TYPES`] in the order the block first saw
-    /// them.
     pub json_ld_root_types: Vec<String>,
 
     /// The surfacing features of the block's events.
