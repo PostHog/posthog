@@ -3108,6 +3108,7 @@ describe('EmailService', () => {
                     () => {
                         bucket.answer = 'hold'
                     },
+                    0,
                 ],
                 [
                     'the SES client never gets its credentials',
@@ -3116,6 +3117,7 @@ describe('EmailService', () => {
                             credentials: () => new Promise<never>(() => {}),
                         })
                     },
+                    1,
                 ],
                 [
                     'SES refuses the connection and the SDK is still backing off',
@@ -3125,6 +3127,7 @@ describe('EmailService', () => {
                             { retryStrategy: oneRetryAfter(2_000) }
                         )
                     },
+                    1,
                 ],
                 [
                     'SES refuses with a throttle and the SDK is still backing off',
@@ -3132,13 +3135,21 @@ describe('EmailService', () => {
                         ses.failWith(sesThrottles)
                         emailService.sesTransport = sesTransportFor(ses, { retryStrategy: oneRetryAfter(2_000) })
                     },
+                    1,
                 ],
             ])(
                 'when %s past the deadline, retries the send later and delivers it with its files once',
-                async (_name, fault) => {
+                async (_name, fault, sesCallsCutOffByTheDeadline) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
                     const ownTransport = emailService.sesTransport
                     fault(emailService)
+                    const sesCallsWithFilesFailed = (): Promise<number> =>
+                        metricTotal(
+                            'cdp_ses_send_duration_ms',
+                            { result: 'error', with_files: 'true' },
+                            'cdp_ses_send_duration_ms_count'
+                        )
+                    const sesCallsFailedBefore = await sesCallsWithFilesFailed()
 
                     const retry = await emailService.executeSendEmail(invocation)
                     expect({
@@ -3146,7 +3157,14 @@ describe('EmailService', () => {
                         error: retry.error,
                         retryLater: retry.invocation.queueScheduledAt!.toMillis() > Date.now(),
                         delivered: deliveredTo(ses, recipient),
-                    }).toEqual({ finished: false, error: undefined, retryLater: true, delivered: [] })
+                        sesCallsCutOff: (await sesCallsWithFilesFailed()) - sesCallsFailedBefore,
+                    }).toEqual({
+                        finished: false,
+                        error: undefined,
+                        retryLater: true,
+                        delivered: [],
+                        sesCallsCutOff: sesCallsCutOffByTheDeadline,
+                    })
 
                     bucket.answer = 'pass'
                     ses.failWith(null)
