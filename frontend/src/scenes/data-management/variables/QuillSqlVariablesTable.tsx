@@ -188,7 +188,8 @@ export function QuillSqlVariablesTable(): JSX.Element {
                         data={sortedVariables}
                         fullWidth
                         size="sm"
-                        pageSize={PAGE_SIZE}
+                        // DataTable shows its pager whenever it has a page size, so a list that fits one page passes none.
+                        pageSize={sortedVariables.length > PAGE_SIZE ? PAGE_SIZE : undefined}
                         getRowId={(variable) => variable.id}
                     />
                 </div>
