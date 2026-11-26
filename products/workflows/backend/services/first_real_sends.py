@@ -58,15 +58,18 @@ def _first_billable_emails(since: datetime) -> dict[tuple[int, UUID], datetime]:
 def capture_first_real_sends(now: datetime) -> int:
     first_sends = _first_billable_emails(now - FIRST_REAL_SEND_LOOKBACK)
     captured = 0
-    failures: list[FirstRealSendCaptureError] = []
+    failed_batches = 0
+    first_error: Exception | None = None
     for batch in batched(first_sends.items(), CANDIDATE_BATCH_SIZE, strict=False):
         try:
             captured += _record_batch(dict(batch))
-        except FirstRealSendCaptureError as error:
-            failures.append(error)
-    logger.info("workflows_first_real_sends_captured", captured=captured, failed_batches=len(failures))
-    if failures:
-        raise failures[0]
+        except Exception as error:
+            logger.exception("workflows_first_real_send_batch_failed")
+            failed_batches += 1
+            first_error = first_error or error
+    logger.info("workflows_first_real_sends_captured", captured=captured, failed_batches=failed_batches)
+    if first_error is not None:
+        raise first_error
     return captured
 
 
