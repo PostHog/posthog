@@ -416,8 +416,7 @@ class _Rewriter(CloningVisitor):
 
     def _blocker(self, query: _CountQuery, team: Team, stored_until: datetime) -> Blocker | None:
         modifiers = self.context.modifiers
-        years = {query.lower.year, query.upper.year}
-        if not _has_whole_hour_offsets(team.timezone, years) or (
+        if not _has_whole_hour_offsets(team.timezone, query.lower, stored_until) or (
             modifiers and modifiers.convertToProjectTimezone is False
         ):
             return Blocker.TIMEZONE
@@ -602,9 +601,11 @@ def _hour_start(instant: datetime) -> datetime:
     return instant.replace(minute=0, second=0, microsecond=0)
 
 
-def _has_whole_hour_offsets(timezone: str, years: set[int]) -> bool:
-    # Checked in January and in July of each year the range touches, because one zone is a whole hour
-    # from UTC for only half the year.
+def _has_whole_hour_offsets(timezone: str, start: datetime, end: datetime) -> bool:
+    # Stored rows are UTC hours, so they only add up into local hours and days while the zone is a whole
+    # hour from UTC. The offset is read at every day of the range, because one zone is a whole hour from
+    # UTC for only half the year, and `is_integer_timezone` looks at today's offset alone.
     zone = ZoneInfo(timezone)
-    offsets = [datetime(year, month, 1, tzinfo=zone).utcoffset() for year in years for month in (1, 7)]
-    return all(offset is not None and offset.total_seconds() % 3600 == 0 for offset in offsets)
+    days = range((end - start).days + 2)
+    offsets = ((start + timedelta(days=day)).astimezone(zone).utcoffset() for day in days)
+    return all(offset is not None and offset % timedelta(hours=1) == timedelta(0) for offset in offsets)
