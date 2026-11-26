@@ -1,6 +1,6 @@
 export type MenuAction = {
     /**
-     * Stable, so a widget type's `menuActions` or a host's `tileActions`, `tilePlacementActions` and `dashboardActions` can
+     * Stable, so a panel type's `menuActions` or a host's `tileActions`, `tilePlacementActions` and `dashboardActions` can
      * find an action by it. Built in for a content tile: `download-image`, `parts`, `background-color`, plus a chart's
      * `chart-type` and `chart-options`. Built in for a section: `rename`, `download-image`, `auto-layout`, `parts`. Built
      * in for where a tile sits: `slideshow`, `move`, `add-to-tab`, `remove`, and `remove` for a section. Built in for the

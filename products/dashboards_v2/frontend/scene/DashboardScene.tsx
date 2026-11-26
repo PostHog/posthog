@@ -15,12 +15,12 @@ import { DashboardView } from '../dashboard/DashboardView'
 import { ANALYTICS_FILTER_TYPES } from '../filters/analytics/analyticsFilterTypes'
 import { useDashboardFilters } from '../filters/useDashboardFilters'
 import { runSampleQuery } from '../fixtures/runSampleQuery'
+import { createChartPanel } from '../panels/chart/createChartPanel'
+import { markdownPanel } from '../panels/markdown/markdownSpec'
 import { createQueryBatchRunner } from '../query/queryBatchRunner'
-import { createChartWidget } from '../widgets/chart/createChartWidget'
-import { markdownWidget } from '../widgets/markdown/markdownSpec'
 import { dashboardSceneLogic } from './dashboardSceneLogic'
 
-const SAMPLE_WIDGETS = [createChartWidget({ runQuery: runSampleQuery }), markdownWidget]
+const SAMPLE_PANELS = [createChartPanel({ runQuery: runSampleQuery }), markdownPanel]
 
 export const scene: SceneExport = {
     component: DashboardScene,
@@ -55,18 +55,18 @@ function DashboardV2(): JSX.Element {
         !!currentTeamId
     // The chart cache is keyed by runner, so a runner per visit drops results checked against this person's access
     // when they leave, instead of showing them again after their access changes.
-    const widgets = useMemo(
+    const panels = useMemo(
         () =>
             runsRealQueries && currentTeamId
                 ? [
-                      createChartWidget({
+                      createChartPanel({
                           runQuery: createQueryBatchRunner(currentTeamId, {
                               context: () => ({ dashboard_tab_id: tabRef.current }),
                           }),
                       }),
-                      markdownWidget,
+                      markdownPanel,
                   ]
-                : SAMPLE_WIDGETS,
+                : SAMPLE_PANELS,
         [runsRealQueries, currentTeamId]
     )
     // TODO(2026-11-25): Offer filters with real queries once the query batch request carries them; until then only the
@@ -81,7 +81,7 @@ function DashboardV2(): JSX.Element {
             sampleData={shouldShowSampleData || forceSampleData}
             dashboard={dashboard}
             activeTabId={activeTabId}
-            widgets={widgets}
+            panels={panels}
             disabledReasonFor={disabledReasonFor}
             onEdit={applyDashboardEdit}
             onActiveTabChange={setActiveTab}

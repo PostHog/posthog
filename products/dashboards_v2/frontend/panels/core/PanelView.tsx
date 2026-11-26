@@ -3,20 +3,20 @@ import { type ComponentType, Suspense, memo, useContext, useLayoutEffect } from 
 import { IconLineGraph, IconPuzzle, IconWarning, IconWrench } from '@posthog/icons'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, IconStack, IconStackItem, Skeleton } from '@posthog/quill'
 
-import type { SavedWidget } from '../../dashboard/document/dashboardTypes'
-import type { WidgetType } from './widgetDefinition'
-import { WidgetErrorBoundary } from './WidgetErrorBoundary'
-import { WidgetHostContext } from './widgetHostContext'
+import type { SavedPanel } from '../../dashboard/document/dashboardTypes'
+import type { PanelType } from './panelDefinition'
+import { PanelErrorBoundary } from './PanelErrorBoundary'
+import { PanelHostContext } from './panelHostContext'
 
-// A widget that suspends before its query starts would otherwise let the load end without it.
+// A panel that suspends before its query starts would otherwise let the load end without it.
 function HoldsLoad(): null {
-    const { timing } = useContext(WidgetHostContext)
+    const { timing } = useContext(PanelHostContext)
     useLayoutEffect(() => timing?.hold(), [timing])
     return null
 }
 
-/** Why a widget shows a message instead of its content. */
-export type WidgetProblem = 'error' | 'unknownType' | 'invalidSettings' | 'failedQuery' | 'empty'
+/** Why a panel shows a message instead of its content. */
+export type PanelProblem = 'error' | 'unknownType' | 'invalidSettings' | 'failedQuery' | 'empty'
 
 function ProblemIcon({ icon, color }: { icon: JSX.Element; color: string }): JSX.Element {
     return (
@@ -27,7 +27,7 @@ function ProblemIcon({ icon, color }: { icon: JSX.Element; color: string }): JSX
 }
 
 // Icons and colors match the quill states on v1 insights, so a tile reads the same on both dashboards.
-const ILLUSTRATIONS: Record<WidgetProblem, JSX.Element> = {
+const ILLUSTRATIONS: Record<PanelProblem, JSX.Element> = {
     error: <ProblemIcon icon={<IconWarning />} color="var(--destructive-foreground)" />,
     unknownType: <ProblemIcon icon={<IconPuzzle />} color="var(--warning-foreground)" />,
     invalidSettings: <ProblemIcon icon={<IconWrench />} color="var(--warning-foreground)" />,
@@ -37,8 +37,8 @@ const ILLUSTRATIONS: Record<WidgetProblem, JSX.Element> = {
 
 const LINE_WIDTHS = ['w-3/4', 'w-full', 'w-5/6', 'w-2/3']
 
-/** Lines of text, which fit any widget better than one block, since the widget's shape is not known yet. */
-export function WidgetLoading(): JSX.Element {
+/** Lines of text, which fit any panel better than one block, since the panel's shape is not known yet. */
+export function PanelLoading(): JSX.Element {
     return (
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden" aria-busy="true">
             {LINE_WIDTHS.map((width) => (
@@ -49,15 +49,15 @@ export function WidgetLoading(): JSX.Element {
 }
 
 /**
- * A title and an optional line of detail in place of a widget's content, such as when it is empty, fails or can't be
+ * A title and an optional line of detail in place of a panel's content, such as when it is empty, fails or can't be
  * shown. A narrow tile gets smaller text and a smaller picture, so the title is never cut off.
  */
-export function WidgetMessage({
+export function PanelMessage({
     problem,
     title,
     description,
 }: {
-    problem?: WidgetProblem
+    problem?: PanelProblem
     title: string
     description?: string
 }): JSX.Element {
@@ -80,47 +80,47 @@ export function WidgetMessage({
 }
 
 /**
- * Memoised on the widget, its definition and `setConfig`, which all keep their identity through every layout edit, so
+ * Memoised on the panel, its definition and `setConfig`, which all keep their identity through every layout edit, so
  * moving tiles never re-renders it.
  */
-export const WidgetView = memo(function WidgetView({
-    widget,
+export const PanelView = memo(function PanelView({
+    panel,
     definition,
     setConfig,
 }: {
-    widget: SavedWidget
-    definition: WidgetType | undefined
+    panel: SavedPanel
+    definition: PanelType | undefined
     setConfig?: (config: unknown) => void
 }): JSX.Element {
-    const { sampleData } = useContext(WidgetHostContext)
+    const { sampleData } = useContext(PanelHostContext)
     if (!definition) {
         return (
-            <WidgetMessage
+            <PanelMessage
                 problem="unknownType"
-                title="This widget type isn't available"
-                description="This dashboard can't show widgets of this type."
+                title="This panel type isn't available"
+                description="This dashboard can't show panels of this type."
             />
         )
     }
-    if (definition.configError(widget.config)) {
+    if (definition.configError(panel.config)) {
         return (
-            <WidgetMessage
+            <PanelMessage
                 problem="invalidSettings"
-                title="This widget's settings aren't valid"
-                description="Its saved settings don't match its widget type."
+                title="This panel's settings aren't valid"
+                description="Its saved settings don't match its panel type."
             />
         )
     }
-    const Loading: ComponentType<{ widget: SavedWidget }> = definition.Loading ?? WidgetLoading
+    const Loading: ComponentType<{ panel: SavedPanel }> = definition.Loading ?? PanelLoading
     const SampleData = sampleData ? definition.SampleData : undefined
-    // One widget that throws or suspends shows its own state, and the rest of the dashboard keeps working.
+    // One panel that throws or suspends shows its own state, and the rest of the dashboard keeps working.
     return (
-        <WidgetErrorBoundary
-            widget={widget}
+        <PanelErrorBoundary
+            panel={panel}
             fallback={
-                <WidgetMessage
+                <PanelMessage
                     problem="error"
-                    title="This widget hit an error"
+                    title="This panel hit an error"
                     description="Refresh the page, and if it keeps happening contact support."
                 />
             }
@@ -129,16 +129,16 @@ export const WidgetView = memo(function WidgetView({
                 fallback={
                     <>
                         <HoldsLoad />
-                        <Loading widget={widget} />
+                        <Loading panel={panel} />
                     </>
                 }
             >
                 {SampleData ? (
-                    <SampleData widget={widget} />
+                    <SampleData panel={panel} />
                 ) : (
-                    <definition.Component widget={widget} setConfig={setConfig} />
+                    <definition.Component panel={panel} setConfig={setConfig} />
                 )}
             </Suspense>
-        </WidgetErrorBoundary>
+        </PanelErrorBoundary>
     )
 })

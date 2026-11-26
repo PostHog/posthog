@@ -14,7 +14,7 @@ import {
 } from './timeRanges'
 
 export type TimeRangePickerProps = {
-    /** Left out, the picker shows that no range overrides the widgets' own. */
+    /** Left out, the picker shows that no range overrides the panels' own. */
     value?: TimeRange
     onChange: (time: TimeRange) => void
     ranges?: QuickRange[]

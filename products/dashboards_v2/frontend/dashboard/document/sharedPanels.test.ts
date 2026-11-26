@@ -1,15 +1,15 @@
 import type { DashboardDocument } from './dashboardTypes'
-import { loadDashboard, saveDashboard } from './sharedWidgets'
+import { loadDashboard, saveDashboard } from './sharedPanels'
 import { everyTile } from './tileTree'
 
-describe('sharedWidgets', () => {
+describe('sharedPanels', () => {
     it.each(['signups', 'constructor', '__proto__'])(
-        "loads a shared widget onto each tile with that tile's own parts, and saves it back once (ref %s)",
+        "loads a shared panel onto each tile with that tile's own parts, and saves it back once (ref %s)",
         (ref) => {
             const document: DashboardDocument = {
                 version: 2,
                 title: 'Test',
-                widgets: { [ref]: { type: 'markdown', title: 'Signups', config: { text: 'hi' } } },
+                panels: { [ref]: { type: 'markdown', title: 'Signups', config: { text: 'hi' } } },
                 tabs: [
                     {
                         id: 'one',
@@ -18,7 +18,7 @@ describe('sharedWidgets', () => {
                             {
                                 id: 'a',
                                 place: { x: 0, y: 0, w: 8, h: 8 },
-                                widget: { ref, parts: { header: false } },
+                                panel: { ref, parts: { header: false } },
                             },
                         ],
                     },
@@ -29,10 +29,10 @@ describe('sharedWidgets', () => {
                             {
                                 id: 's',
                                 place: { x: 0, y: 0, w: 24, h: 10 },
-                                widget: {
+                                panel: {
                                     type: 'section',
                                     title: 'Section',
-                                    tiles: [{ id: 'b', place: { x: 0, y: 0, w: 24, h: 8 }, widget: { ref } }],
+                                    tiles: [{ id: 'b', place: { x: 0, y: 0, w: 24, h: 8 }, panel: { ref } }],
                                 },
                             },
                         ],
@@ -41,7 +41,7 @@ describe('sharedWidgets', () => {
             }
             const loaded = loadDashboard(document)
             expect(
-                loaded.tabs.flatMap((tab) => ('tiles' in tab ? everyTile(tab.tiles) : [])).map((tile) => tile.widget)
+                loaded.tabs.flatMap((tab) => ('tiles' in tab ? everyTile(tab.tiles) : [])).map((tile) => tile.panel)
             ).toEqual([
                 { type: 'markdown', title: 'Signups', config: { text: 'hi' }, ref, parts: { header: false } },
                 expect.objectContaining({ type: 'section' }),
@@ -51,7 +51,7 @@ describe('sharedWidgets', () => {
         }
     )
 
-    it('leaves out a tile whose shared widget is missing', () => {
+    it('leaves out a tile whose shared panel is missing', () => {
         const document: DashboardDocument = {
             version: 2,
             title: 'Test',
@@ -59,7 +59,7 @@ describe('sharedWidgets', () => {
                 {
                     id: 'one',
                     title: 'One',
-                    tiles: [{ id: 'a', place: { x: 0, y: 0, w: 8, h: 8 }, widget: { ref: 'gone' } }],
+                    tiles: [{ id: 'a', place: { x: 0, y: 0, w: 8, h: 8 }, panel: { ref: 'gone' } }],
                 },
             ],
         }
