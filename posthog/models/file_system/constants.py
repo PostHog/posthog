@@ -60,9 +60,10 @@ def workflows_list_v2_enabled(team: "Team", user: "User") -> bool:
 # stored as NULL; they are read as the default ("web"). New rows always store an explicit value.
 DEFAULT_SURFACE = "web"
 
-# Types of retired products. Their rows can stay in the database, but the type has no file system
-# registration and no page to open. The tree hides them, and a delete removes only the row.
-RETIRED_FILE_SYSTEM_TYPES: frozenset[str] = frozenset({"link"})
+# Types the tree no longer files, such as retired products and email templates. Their rows can stay in
+# the database, but the type has no file system registration. The tree hides them, and a delete removes
+# only the row.
+RETIRED_FILE_SYSTEM_TYPES: frozenset[str] = frozenset({"link", "message_template"})
 
 
 def surface_q(surface: str) -> Q:

@@ -454,12 +454,12 @@ class TestFileSystemAPI(APIBaseTest):
         dashboard.refresh_from_db()
         self.assertFalse(dashboard.deleted)
 
-    def _create_retired_row_in_folder(self) -> tuple[FileSystem, FileSystem]:
+    def _create_retired_row_in_folder(self, file_type: str = "link") -> tuple[FileSystem, FileSystem]:
         folder = FileSystem.objects.create(team=self.team, path="Unfiled/Links", type="folder", created_by=self.user)
         retired = FileSystem.objects.create(
             team=self.team,
             path="Unfiled/Links/abc123",
-            type="link",
+            type=file_type,
             ref="0190a1b2-0000-7000-8000-000000000001",
             href="/link/abc123",
             created_by=self.user,
@@ -468,13 +468,18 @@ class TestFileSystemAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("file", False, ""),
-            ("parent_folder", True, ""),
-            ("parent_folder_without_cascading", True, "?recursive=false"),
+            ("file", "link", False, ""),
+            ("parent_folder", "link", True, ""),
+            ("parent_folder_without_cascading", "link", True, "?recursive=false"),
+            ("template_file", "message_template", False, ""),
+            ("template_parent_folder", "message_template", True, ""),
         ]
     )
-    def test_delete_row_of_retired_type(self, _name: str, delete_parent: bool, query: str) -> None:
-        folder, retired = self._create_retired_row_in_folder()
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_delete_row_of_retired_type(
+        self, _name: str, file_type: str, delete_parent: bool, query: str, _mock_flag: MagicMock
+    ) -> None:
+        folder, retired = self._create_retired_row_in_folder(file_type)
 
         target = folder if delete_parent else retired
         response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.pk}/{query}")
