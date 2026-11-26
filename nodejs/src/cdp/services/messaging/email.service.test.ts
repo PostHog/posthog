@@ -2675,6 +2675,7 @@ describe('EmailService', () => {
                             message_id: invocation.id,
                             status: 'sent',
                             reason,
+                            provider_message_id: ses.sent.at(-1)?.messageId,
                         }),
                     ])
                 }
@@ -3529,7 +3530,6 @@ describe('EmailService', () => {
                               status,
                               reason,
                               sending_domain: sendingDomain,
-                              ...(status === 'sent' && { provider_message_id: ses.sent.at(-1)?.messageId }),
                               created_at: createdAt,
                           }),
                       ]
