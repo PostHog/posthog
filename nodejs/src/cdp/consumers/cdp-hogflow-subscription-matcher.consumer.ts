@@ -4,6 +4,7 @@ import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { counterWaitWakeByTriggerEventIgnored, isRunTriggerEvent } from '~/cdp/services/hogflows/pending-wake'
 import {
     StepResume,
     WorkflowStepResumeSchema,
@@ -2468,7 +2469,9 @@ function applyMatchToState(stateBuffer: Buffer, m: MatchedJob): MatchOutcome | n
         // A matched wait_until_condition step resumes the job, tagged so the resume reads as an event
         // match rather than a timeout.
         if (m.stepMatched) {
-            if (updatedState.currentAction) {
+            if (isRunTriggerEvent(updatedState, m.eventUuid)) {
+                counterWaitWakeByTriggerEventIgnored.labels({ path: 'parked' }).inc()
+            } else if (updatedState.currentAction) {
                 updatedState.currentAction = {
                     ...updatedState.currentAction,
                     eventMatched: true,

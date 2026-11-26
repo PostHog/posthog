@@ -731,6 +731,31 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(newState.state.conversionMatched).toBeUndefined()
         })
 
+        it('does not wake a job on the event that started its run', async () => {
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [
+                {
+                    ...matcher.findRows[0],
+                    state: stateBuffer({ event: { uuid: 'event-uuid' }, currentAction: { id: 'wait_node' } }),
+                },
+            ]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
+
+            await matcher.runWake([makeGlobals({})])
+
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
+        })
+
         it('logs the hogflow id alongside the action id when wait-step bytecode evaluation throws', async () => {
             const errorSpy = jest.spyOn(logger, 'error').mockReturnValue(undefined as any)
             const execSpy = jest.spyOn(hogExec, 'execHog').mockRejectedValue(new Error('boom'))
