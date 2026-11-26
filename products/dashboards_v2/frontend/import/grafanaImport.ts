@@ -130,23 +130,181 @@ interface Converter {
     datasourceType: (datasource: unknown) => string | undefined
 }
 
-function convertPanel(panel: Json, converter: Converter, top: number): Tile {
-    const { report } = converter
-    const title = panel.title ? String(panel.title) : undefined
-    const description = panel.description ? String(panel.description) : undefined
-    const id = converter.nextId(title || panel.type || 'panel')
-    const gridPos = panel.gridPos ?? {}
+type ImportedTarget = { refId: string; query: PanelQuery; legend?: string }
+type OriginalQuery = { language: string; text: string }
+
+function tilePlace(gridPos: Json, top: number): Tile['place'] {
     const x = Math.min(23, Math.max(0, int(gridPos.x, 0)))
     const y = Math.max(0, int(gridPos.y, 0) - top)
-    const place = {
+    return {
         x,
         y: toRows(y),
         w: Math.min(24 - x, Math.max(1, int(gridPos.w, 12))),
         h: Math.max(1, toRows(y + Math.max(1, int(gridPos.h, 8))) - toRows(y)),
     }
+}
+
+function targetType(
+    target: Json,
+    expr: string | undefined,
+    panelType: string | undefined,
+    converter: Converter
+): string | undefined {
+    const type = converter.datasourceType(target.datasource) ?? (panelType === 'unknown' ? undefined : panelType)
+    if (expr !== undefined && (type === undefined || type === 'unknown')) {
+        return looksLikeLogql(expr) ? 'loki' : 'prometheus'
+    }
+    return type
+}
+
+/** The query text as the board runs it, with what it needs added to the report and what differs added to `reasons`. */
+function telemetryText(
+    expr: string,
+    refId: string,
+    loki: boolean,
+    converter: Converter,
+    reasons: string[]
+): { text: string; filled: boolean } {
+    let cleaned = expr.replace(/\$\{DS_[A-Z0-9_]+\}/g, '')
+    if (loki) {
+        const windows = fixLogqlWindows(cleaned, LOGQL_WINDOW)
+        cleaned = windows.text
+        if (windows.replaced) {
+            reasons.push(`${refId} uses a ${LOGQL_WINDOW} window where Grafana picked one from the time range.`)
+        }
+    } else {
+        cleaned = stripStepWindows(cleaned)
+    }
+    const filled = fillVariables(cleaned, converter.variables)
+    for (const name of filled.unfilled) {
+        reasons.push(`$${name} has no saved value, so ${refId} keeps it as written and may not run.`)
+    }
+    if (loki) {
+        logqlStreams(filled.text).forEach((stream) => converter.report.require('logStreams', rewriteLogql(stream)))
+        return { text: rewriteLogql(filled.text), filled: filled.unfilled.length === 0 }
+    }
+    for (const name of metricsqlFunctions(filled.text)) {
+        reasons.push(`${refId} uses the MetricsQL function ${name}(), which PostHog may not run.`)
+    }
+    promqlMetrics(filled.text)
+        .filter((name) => !name.startsWith('$'))
+        .forEach((name) => converter.report.require('metrics', name))
+    return { text: filled.text, filled: filled.unfilled.length === 0 }
+}
+
+function telemetryTarget(
+    expr: string,
+    refId: string,
+    legend: string | undefined,
+    loki: boolean,
+    scaleToFraction: boolean,
+    converter: Converter,
+    reasons: string[]
+): ImportedTarget | OriginalQuery {
+    const { text, filled } = telemetryText(expr, refId, loki, converter, reasons)
+    const query: PanelQuery = {
+        language: loki ? 'logql' : 'promql',
+        query: scaleToFraction ? `(${text}) / 100` : text,
+    }
+    if (!panelQuerySchema.safeParse(query).success) {
+        converter.report.query(false)
+        reasons.push(`${refId} is too long for a board query once its variables are filled in.`)
+        return { language: '', text: `-- ${refId}\n${expr}` }
+    }
+    let targetLegend = legend && loki ? logqlLegend(legend) : legend
+    if (targetLegend && targetLegend.length > MAX_LEGEND) {
+        reasons.push(`${refId}'s legend is too long, so it uses the default.`)
+        targetLegend = undefined
+    }
+    converter.report.query(filled)
+    return { refId: refId.slice(0, MAX_REF_ID), query, legend: targetLegend }
+}
+
+function unrunnableQuery(
+    target: Json,
+    refId: string,
+    type: string | undefined,
+    converter: Converter,
+    reasons: string[]
+): OriginalQuery {
+    const text =
+        [target.rawSql, target.expr, target.expression, target.query, target.sqlExpression].find(
+            (candidate) => typeof candidate === 'string' && candidate.trim()
+        ) ?? ''
+    const language = DATASOURCE_NAMES[type ?? ''] ?? type ?? 'an unknown datasource'
+    converter.report.query(false)
+    reasons.push(`${refId} queries ${language}, which PostHog can't run.`)
+    return { language: /sql/i.test(language) ? 'sql' : '', text: `-- ${refId} · ${language}\n${text}` }
+}
+
+function convertTargets(
+    panel: Json,
+    scaleToFraction: boolean,
+    converter: Converter,
+    reasons: string[]
+): { targets: ImportedTarget[]; skipped: OriginalQuery[] } {
+    const targets: ImportedTarget[] = []
+    const skipped: OriginalQuery[] = []
+    const panelType = converter.datasourceType(panel.datasource)
+    for (const [index, target] of (Array.isArray(panel.targets) ? panel.targets : []).entries()) {
+        if (!target || typeof target !== 'object' || target.hide) {
+            continue
+        }
+        const refId = String(target.refId ?? String.fromCharCode(65 + index))
+        const expr = typeof target.expr === 'string' ? target.expr : undefined
+        if (expr !== undefined && !expr.trim()) {
+            continue
+        }
+        const type = targetType(target, expr, panelType, converter)
+        if (expr === undefined || !(PROMETHEUS.has(type ?? '') || type === 'loki')) {
+            skipped.push(unrunnableQuery(target, refId, type, converter, reasons))
+            continue
+        }
+        const legend = target.legendFormat && target.legendFormat !== '__auto' ? String(target.legendFormat) : undefined
+        const converted = telemetryTarget(expr, refId, legend, type === 'loki', scaleToFraction, converter, reasons)
+        if ('refId' in converted) {
+            targets.push(converted)
+        } else {
+            skipped.push(converted)
+        }
+    }
+    return { targets, skipped }
+}
+
+/** Grafana settings the chart can't reproduce, so the tile reads as partial. */
+function droppedSettings(panel: Json, vizType: string): string[] {
+    const reasons: string[] = []
+    const transformations = Array.isArray(panel.transformations)
+        ? panel.transformations.filter((t: Json) => t && !t.disabled)
+        : []
+    if (transformations.length) {
+        const ids = [...new Set(transformations.map((t: Json) => String(t.id)))]
+        reasons.push(`Grafana transformations (${ids.join(', ')}) aren't applied.`)
+    }
+    const calcs = panel.options?.reduceOptions?.calcs
+    if (vizType === 'stat' && Array.isArray(calcs) && calcs.length && !LATEST_REDUCERS.has(String(calcs[0]))) {
+        reasons.push(`It showed the ${calcs[0]} of each series in Grafana. Here it shows the latest value.`)
+    }
+    return reasons
+}
+
+function chartViz(panel: Json, vizType: string, unit: unknown): ChartConfig['viz'] {
+    const format = vizType === 'stat' ? statFormat(unit) : undefined
+    if (format) {
+        return { type: 'stat', options: { format } }
+    }
+    return panel.fieldConfig?.defaults?.custom?.stacking?.mode === 'normal' && vizType === 'bar'
+        ? { type: 'bar', options: { stack: true } }
+        : { type: vizType }
+}
+
+function convertPanel(panel: Json, converter: Converter, top: number): Tile {
+    const title = panel.title ? String(panel.title) : undefined
+    const id = converter.nextId(title || panel.type || 'panel')
+    const place = tilePlace(panel.gridPos ?? {}, top)
     const reasons: string[] = []
     const done = (content: Tile['panel'], status: TileStatus): Tile => {
-        report.tile({ tileId: id, title: title ?? '', from: String(panel.type ?? 'panel'), status, reasons })
+        converter.report.tile({ tileId: id, title: title ?? '', from: String(panel.type ?? 'panel'), status, reasons })
         return importedTile(id, place, content)
     }
 
@@ -156,92 +314,15 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
         return done(notePanel(title, `**Not supported yet:** library panel \`${inline(name)}\`.`, []), 'unsupported')
     }
     if (panel.type === 'text') {
-        return done(
-            {
-                type: 'markdown',
-                ...(title ? { title } : {}),
-                config: { text: String(panel.options?.content ?? panel.content ?? '') },
-            },
-            'mapped'
-        )
+        const text = String(panel.options?.content ?? panel.content ?? '')
+        return done({ type: 'markdown', ...(title ? { title } : {}), config: { text } }, 'mapped')
     }
 
-    const targets: { refId: string; query: PanelQuery; legend?: string }[] = []
-    const skipped: { language: string; text: string }[] = []
-    const panelType = converter.datasourceType(panel.datasource)
     const viz = VIZ[panel.type]
     const unit = panel.fieldConfig?.defaults?.unit ?? panel.format
     // Grafana's `percent` is already 0 to 100, but the stat's percentage format multiplies by 100.
     const scaleToFraction = viz?.type === 'stat' && unit === 'percent'
-    for (const [index, target] of (Array.isArray(panel.targets) ? panel.targets : []).entries()) {
-        if (!target || typeof target !== 'object' || target.hide) {
-            continue
-        }
-        const refId = String(target.refId ?? String.fromCharCode(65 + index))
-        const expr = typeof target.expr === 'string' ? target.expr : undefined
-        let type = converter.datasourceType(target.datasource) ?? (panelType === 'unknown' ? undefined : panelType)
-        if (expr !== undefined && (type === undefined || type === 'unknown')) {
-            type = looksLikeLogql(expr) ? 'loki' : 'prometheus'
-        }
-        if (expr !== undefined && !expr.trim()) {
-            continue
-        }
-        const legend = target.legendFormat && target.legendFormat !== '__auto' ? String(target.legendFormat) : undefined
-        if (expr !== undefined && (PROMETHEUS.has(type ?? '') || type === 'loki')) {
-            const loki = type === 'loki'
-            let cleaned = expr.replace(/\$\{DS_[A-Z0-9_]+\}/g, '')
-            if (loki) {
-                const windows = fixLogqlWindows(cleaned, LOGQL_WINDOW)
-                cleaned = windows.text
-                if (windows.replaced) {
-                    reasons.push(`${refId} uses a ${LOGQL_WINDOW} window where Grafana picked one from the time range.`)
-                }
-            } else {
-                cleaned = stripStepWindows(cleaned)
-            }
-            const filled = fillVariables(cleaned, converter.variables)
-            for (const name of filled.unfilled) {
-                reasons.push(`$${name} has no saved value, so ${refId} keeps it as written and may not run.`)
-            }
-            if (!loki) {
-                for (const name of metricsqlFunctions(filled.text)) {
-                    reasons.push(`${refId} uses the MetricsQL function ${name}(), which PostHog may not run.`)
-                }
-                promqlMetrics(filled.text)
-                    .filter((name) => !name.startsWith('$'))
-                    .forEach((name) => report.require('metrics', name))
-            } else {
-                logqlStreams(filled.text).forEach((stream) => report.require('logStreams', rewriteLogql(stream)))
-            }
-            const text = loki ? rewriteLogql(filled.text) : filled.text
-            const query: PanelQuery = {
-                language: loki ? 'logql' : 'promql',
-                query: scaleToFraction ? `(${text}) / 100` : text,
-            }
-            if (!panelQuerySchema.safeParse(query).success) {
-                report.query(false)
-                skipped.push({ language: '', text: `-- ${refId}\n${expr}` })
-                reasons.push(`${refId} is too long for a board query once its variables are filled in.`)
-                continue
-            }
-            let targetLegend = legend && loki ? logqlLegend(legend) : legend
-            if (targetLegend && targetLegend.length > MAX_LEGEND) {
-                reasons.push(`${refId}'s legend is too long, so it uses the default.`)
-                targetLegend = undefined
-            }
-            report.query(filled.unfilled.length === 0)
-            targets.push({ refId: refId.slice(0, MAX_REF_ID), query, legend: targetLegend })
-            continue
-        }
-        const text =
-            [target.rawSql, target.expr, target.expression, target.query, target.sqlExpression].find(
-                (candidate) => typeof candidate === 'string' && candidate.trim()
-            ) ?? ''
-        const language = DATASOURCE_NAMES[type ?? ''] ?? type ?? 'an unknown datasource'
-        report.query(false)
-        skipped.push({ language: /sql/i.test(language) ? 'sql' : '', text: `-- ${refId} · ${language}\n${text}` })
-        reasons.push(`${refId} queries ${language}, which PostHog can't run.`)
-    }
+    const { targets, skipped } = convertTargets(panel, scaleToFraction, converter, reasons)
 
     if (!viz) {
         reasons.unshift(`Grafana panel type "${panel.type}" has no equivalent yet.`)
@@ -252,14 +333,8 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
         return done(notePanel(title, `**Not supported yet:** ${inline(panel.type)}`, original), 'unsupported')
     }
     if (targets.length === 0) {
-        return done(
-            notePanel(
-                title,
-                `**Not supported yet:** this ${inline(panel.type)} panel has no query PostHog can run.`,
-                skipped
-            ),
-            'unsupported'
-        )
+        const heading = `**Not supported yet:** this ${inline(panel.type)} panel has no query PostHog can run.`
+        return done(notePanel(title, heading, skipped), 'unsupported')
     }
     if (viz.lossy) {
         reasons.unshift(viz.lossy)
@@ -268,21 +343,10 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
         reasons.push(`Only the first ${MAX_TARGETS} of its ${targets.length} queries are kept.`)
         targets.length = MAX_TARGETS
     }
-    if (Array.isArray(panel.transformations) && panel.transformations.some((t: Json) => t && !t.disabled)) {
-        const ids = panel.transformations.filter((t: Json) => t && !t.disabled).map((t: Json) => String(t.id))
-        reasons.push(`Grafana transformations (${[...new Set(ids)].join(', ')}) aren't applied.`)
-    }
-    const calcs = panel.options?.reduceOptions?.calcs
-    if (viz.type === 'stat' && Array.isArray(calcs) && calcs.length && !LATEST_REDUCERS.has(String(calcs[0]))) {
-        reasons.push(`It showed the ${calcs[0]} of each series in Grafana. Here it shows the latest value.`)
-    }
-    const format = viz.type === 'stat' ? statFormat(unit) : undefined
-    const vizConfig: ChartConfig['viz'] = format
-        ? { type: 'stat', options: { format } }
-        : panel.fieldConfig?.defaults?.custom?.stacking?.mode === 'normal' && viz.type === 'bar'
-          ? { type: 'bar', options: { stack: true } }
-          : { type: viz.type }
-    return done(chartPanel(title, description, targets, vizConfig), reasons.length ? 'partial' : 'mapped')
+    reasons.push(...droppedSettings(panel, viz.type))
+    const description = panel.description ? String(panel.description) : undefined
+    const chart = chartPanel(title, description, targets, chartViz(panel, viz.type, unit))
+    return done(chart, reasons.length ? 'partial' : 'mapped')
 }
 
 /**
