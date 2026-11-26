@@ -6,6 +6,13 @@ import { getSqlV2PropsFromQueryProp } from 'scenes/notebooks/Notebook/markdownNo
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
 
+function resultColumnNames(cell: NotebookComponentBlockNode): string[] {
+    const result = { ...cell.props, ...getSqlV2PropsFromQueryProp(cell.props) }.result
+    return result && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.columns)
+        ? result.columns.filter((name): name is string => typeof name === 'string')
+        : []
+}
+
 export function NotebookAppSelectionSettings({
     cell,
     block,
@@ -19,11 +26,7 @@ export function NotebookAppSelectionSettings({
 }): JSX.Element {
     const selection = block.selection
     const inputs = layout.blocks.filter((item) => item.kind === 'input' && item.variable)
-    const result = { ...cell.props, ...getSqlV2PropsFromQueryProp(cell.props) }.result
-    const columns =
-        result && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.columns)
-            ? result.columns.filter((name): name is string => typeof name === 'string')
-            : []
+    const columns = resultColumnNames(cell)
     return (
         <>
             <LemonCheckbox
