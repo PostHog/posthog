@@ -225,7 +225,8 @@ import type {
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type { TasksRunsLogsRetrieveParams } from 'products/logs/frontend/generated/api.schemas'
-import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type { MessagingTemplatesListParams } from 'products/messaging/frontend/generated/api.schemas'
+import type { NotebookCollabCursorApi, NotebookVariableApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
     ColumnConfigurationApi,
@@ -4783,7 +4784,7 @@ const api = {
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
-                variables?: { name: string; type: 'string' | 'number' | 'boolean' | 'date'; value: unknown }[]
+                variables?: NotebookVariableApi[]
                 node_type?: 'hogql' | 'python'
                 output_name?: string
                 connection_id?: string | null
@@ -6409,8 +6410,10 @@ const api = {
         },
     },
     messaging: {
-        async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
-            return await new ApiRequest().messagingTemplates().get()
+        async getTemplates(
+            params: MessagingTemplatesListParams = {}
+        ): Promise<CountedPaginatedResponse<MessageTemplate>> {
+            return await new ApiRequest().messagingTemplates().withQueryString(toParams(params, true)).get()
         },
         async getTemplate(templateId: MessageTemplate['id']): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).get()

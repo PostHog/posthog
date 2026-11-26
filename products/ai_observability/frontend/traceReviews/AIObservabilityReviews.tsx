@@ -21,6 +21,7 @@ import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~/types'
 
+import { ProjectKeyLabel } from '../components/ProjectKeyLabel'
 import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
 import { useTraceDrawerTable } from '../redesign/trace/TraceDrawerRowsHost'
 import { TraceListRow } from '../redesign/trace/traceListRows'
@@ -135,6 +136,9 @@ export function AIObservabilityReviews(): JSX.Element {
             dataIndex: 'reviewed_by',
             key: 'reviewed_by',
             render: function renderReviewedBy(_, review) {
+                if (review.reviewed_by_project_key_id) {
+                    return <ProjectKeyLabel id={review.reviewed_by_project_key_id} />
+                }
                 return review.reviewed_by ? (
                     <div className="flex flex-row items-center flex-nowrap">
                         <ProfilePicture user={review.reviewed_by} size="md" showName />

@@ -139,7 +139,7 @@ export const slotRequestOf = (batch: TransactionalEmailBatchRequest, recipient: 
 
 export const transactionalEmailBatchRequestsTotal = new Counter({
     name: 'cdp_transactional_email_batch_requests_total',
-    help: 'Batch email requests from Django, by outcome: answered (with a result per recipient), over_capacity (the pod, or the team on this pod, already ran its share of batches), batch_unavailable (the team is not on async intake), not_sealing (the pod does not seal transactional email state), or another whole-call refusal, which produces nothing. Recipients count in cdp_transactional_email_requests_total with route batch.',
+    help: 'Batch email requests from Django, by outcome: answered (with a result per recipient), over_capacity (the pod, or the team on this pod, already ran its share of batches), or another whole-call refusal, which produces nothing. Recipients count in cdp_transactional_email_requests_total with route batch.',
     labelNames: ['outcome'],
 })
 

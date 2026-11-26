@@ -25,6 +25,7 @@ from products.access_control.backend.property_access_control import (
 )
 from products.signals.backend.report_metric_query_access import (
     conversion_goal_has_readable_shape,
+    hogql_math_allows_read,
     property_filters_allow_read,
 )
 
@@ -76,46 +77,53 @@ class ReportMetricAccessPolicy:
         if not isinstance(source, Mapping):
             return False
 
-        for item in series:
-            kind = item.get("kind")
-            if kind == "EventsNode":
-                event = item.get("event")
-                if not isinstance(event, str) or not event or not self._token_grants("event_definition"):
-                    return False
-            elif kind == "ActionsNode":
-                action_id = item.get("id")
-                if (
-                    not isinstance(action_id, int)
-                    or isinstance(action_id, bool)
-                    or action_id <= 0
-                    or not self._token_grants("action")
-                    or not self._may_read_action(action_id)
-                ):
-                    return False
-            else:
-                # Current authoring rejects other Trends series. Keep this fail-closed branch for
-                # legacy or manually corrupted rows so report reads never bypass resource gates.
-                return False
-
-            for field in ("properties", "fixedProperties"):
-                if field in item and not self._may_read_property_filters(item[field]):
-                    return False
+        if any(not self._may_read_series_item(item) for item in series):
+            return False
 
         for field in ("properties", "fixedProperties"):
             if field in source and not self._may_read_property_filters(source[field]):
                 return False
 
-        conversion_goal = source.get("conversionGoal")
-        if conversion_goal is not None:
-            if not isinstance(conversion_goal, Mapping) or not conversion_goal_has_readable_shape(conversion_goal):
-                return False
-            if "actionId" in conversion_goal:
-                if not self._may_read_resource_id("action", conversion_goal["actionId"]):
-                    return False
-            elif "customEventName" in conversion_goal:
-                if not self._token_grants("event_definition"):
-                    return False
+        return self._may_read_conversion_goal(source.get("conversionGoal"))
 
+    def _may_read_series_item(self, item: Mapping[str, object]) -> bool:
+        kind = item.get("kind")
+        if kind == "EventsNode":
+            event = item.get("event")
+            if not isinstance(event, str) or not event or not self._token_grants("event_definition"):
+                return False
+        elif kind == "ActionsNode":
+            action_id = item.get("id")
+            if (
+                not isinstance(action_id, int)
+                or isinstance(action_id, bool)
+                or action_id <= 0
+                or not self._token_grants("action")
+                or not self._may_read_action(action_id)
+            ):
+                return False
+        else:
+            # Current authoring rejects other Trends series. Keep this fail-closed branch for
+            # legacy or manually corrupted rows so report reads never bypass resource gates.
+            return False
+
+        if item.get("math") == "hogql" and not hogql_math_allows_read(item.get("math_hogql")):
+            return False
+
+        return all(
+            field not in item or self._may_read_property_filters(item[field])
+            for field in ("properties", "fixedProperties")
+        )
+
+    def _may_read_conversion_goal(self, conversion_goal: object) -> bool:
+        if conversion_goal is None:
+            return True
+        if not isinstance(conversion_goal, Mapping) or not conversion_goal_has_readable_shape(conversion_goal):
+            return False
+        if "actionId" in conversion_goal:
+            return self._may_read_resource_id("action", conversion_goal["actionId"])
+        if "customEventName" in conversion_goal:
+            return self._token_grants("event_definition")
         return True
 
     def may_read_snapshot(self, metric: Mapping[str, object]) -> bool:

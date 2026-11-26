@@ -13,6 +13,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -162,6 +164,88 @@ class TestTickEnrollment(_TickTest):
             [self.team.id] if expected else [],
             expected,
         )
+
+    def _fleet(self) -> dict[str, Team]:
+        # Fixed organization ids, so the 50 percent rollouts below enroll some of them and leave out others.
+        teams: dict[str, Team] = {}
+        for index in range(6):
+            organization = Organization.objects.create(
+                id=uuid.UUID(int=index + 1), name=f"Org {index}", is_ai_data_processing_approved=True
+            )
+            teams[f"source_{index}"] = Team.objects.create(organization=organization, name=f"Source {index}")
+            teams[f"no_source_{index}"] = Team.objects.create(organization=organization, name=f"No source {index}")
+        unapproved = Organization.objects.create(
+            id=uuid.UUID(int=7), name="Unapproved", is_ai_data_processing_approved=False
+        )
+        teams["unapproved"] = Team.objects.create(organization=unapproved, name="Unapproved")
+        for name, team in teams.items():
+            if not name.startswith("no_source"):
+                SignalSourceConfig.objects.create(
+                    team=team, source_product="error_tracking", source_type="issue_created", enabled=True
+                )
+        self.source_team_ids = {team.id for name, team in teams.items() if not name.startswith("no_source")}
+        return teams
+
+    @parameterized.expand(
+        [
+            ("the_tick_off", {}, {"enabled": False}),
+            ("the_summary_off", {"enabled": False}, {}),
+            ("every_approved_team_with_a_source", {}, {}),
+            ("the_summary_listed_organizations", {"enroll_all_approved": False, "organization_ids": (0, 7)}, {}),
+            ("the_summary_rollout", {"enroll_all_approved": False, "self_driving_organization_percentage": 50}, {}),
+            ("the_summary_skip_and_deny_lists", {"skip_team_ids": ("source_0",), "deny_organization_ids": (1,)}, {}),
+            ("the_tick_skip_and_deny_lists", {}, {"skip_team_ids": ["source_0"], "deny_organization_ids": [1]}),
+            ("the_tick_listed_organizations", {}, {"self_driving_organization_percentage": 0, "organization_ids": [2]}),
+            ("the_tick_rollout", {}, {"self_driving_organization_percentage": 50}),
+            (
+                "both_rollouts",
+                {"enroll_all_approved": False, "self_driving_organization_percentage": 50},
+                {"self_driving_organization_percentage": 50},
+            ),
+        ]
+    )
+    def test_the_single_team_check_agrees_with_the_enrollment(
+        self, _name: str, summary: dict[str, Any], tick: dict[str, Any]
+    ) -> None:
+        teams = self._fleet()
+
+        def resolve(key: str, values: Any) -> Any:
+            if key.endswith("organization_ids"):
+                return type(values)(str(uuid.UUID(int=index + 1)) for index in values)
+            if key == "skip_team_ids":
+                return type(values)(teams[name].id for name in values)
+            return values
+
+        self.activity_summary_config = ActivitySummaryConfig(
+            **{
+                "enabled": True,
+                "enroll_all_approved": True,
+                **{key: resolve(key, value) for key, value in summary.items()},
+            }
+        )
+        self.tick = {
+            "enabled": True,
+            "self_driving_organization_percentage": 100,
+            **{key: resolve(key, value) for key, value in tick.items()},
+        }
+        config = self._config()
+        fleet = Team.objects.select_related("organization").filter(id__in=[team.id for team in teams.values()])
+
+        assert sorted(team.id for team in fleet if is_team_enrolled(config, team)) == [
+            team_id for team_id in enrollment(config).team_ids if team_id in {team.id for team in fleet}
+        ]
+
+    def test_the_single_team_check_reads_no_other_team(self) -> None:
+        teams = self._fleet()
+        self.activity_summary_config = ActivitySummaryConfig(enabled=True, self_driving_organization_percentage=100)
+        self.tick = {"enabled": True, "self_driving_organization_percentage": 100}
+        config = self._config()
+        team = Team.objects.select_related("organization").get(id=teams["source_0"].id)
+
+        with CaptureQueriesContext(connection) as queries:
+            assert is_team_enrolled(config, team)
+
+        assert [query["sql"] for query in queries if '"posthog_team"' in query["sql"]] == []
 
 
 class TestTickSelection(_TickTest):

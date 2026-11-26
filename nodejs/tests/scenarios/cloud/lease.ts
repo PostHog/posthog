@@ -6,6 +6,7 @@ import { z } from 'zod'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { SeedOverride } from '../cards/schema'
 import { Admitted, Controller } from './admission'
 import { Aws, AwsError } from './aws'
 import { RunInputs, TTL_HOURS } from './profile'
@@ -22,6 +23,9 @@ export type Manifest = {
     schedules: string[]
     inputs: Record<string, string>
     card: string
+    seed?: number
+    pair?: boolean
+    controlRunId?: string
     readerIdleMaxAcu?: number
     readerMinAcu?: number
 }
@@ -158,8 +162,10 @@ export async function lease(
         schedules: schedulesOf(runId),
         inputs: Object.fromEntries(inputs.map(({ file, sha256 }) => [file, sha256])),
         card: card.id,
+        ...(card.seed !== undefined && { seed: card.seed }),
         readerIdleMaxAcu: profile.readerAcu.idleMax,
         readerMinAcu: profile.readerAcu.min,
+        ...(card.pair && { pair: true, controlRunId: randomUUID() }),
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)
@@ -230,11 +236,22 @@ const HostManifest = StoredManifest.extend({
     account: z.string(),
     readerIdleMaxAcu: z.number().positive().optional(),
     readerMinAcu: z.number().nonnegative().optional(),
+    seed: SeedOverride.optional(),
+    pair: z.boolean().optional(),
+    controlRunId: z.uuid().optional(),
 })
 
 export type RunManifest = Pick<
     Manifest,
-    'runId' | 'account' | 'expiresAt' | 'stackName' | 'readerIdleMaxAcu' | 'readerMinAcu'
+    | 'runId'
+    | 'account'
+    | 'expiresAt'
+    | 'stackName'
+    | 'readerIdleMaxAcu'
+    | 'readerMinAcu'
+    | 'pair'
+    | 'controlRunId'
+    | 'seed'
 >
 
 export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {
@@ -247,8 +264,17 @@ export function runManifestOf(env: NodeJS.ProcessEnv): RunManifest | undefined {
     if (malformed.length > 0 && malformed.every((field) => field === 'readerMinAcu')) {
         throw new LeaseError(`The run manifest at ${file} has no valid readerMinAcu, so it is not used.`)
     }
+    if (malformed.includes('seed')) {
+        throw new LeaseError(`The run manifest at ${file} has an invalid seed.`)
+    }
     if (!parsed.success || parsed.data.stackName !== stackNameOf(parsed.data.runId)) {
         throw new LeaseError(`The run manifest at ${file} does not name a run and its stack, so it is not used.`)
+    }
+    const { pair, runId, controlRunId } = parsed.data
+    if (pair && (controlRunId === undefined || controlRunId === runId)) {
+        throw new LeaseError(
+            `The run manifest at ${file} asks for a pair without a control run id of its own, so it is not used.`
+        )
     }
     return parsed.data
 }

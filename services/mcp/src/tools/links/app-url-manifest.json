@@ -29,6 +29,11 @@
         "params": [],
         "scope": "project"
     },
+    "agentTranscript": {
+        "template": "/agent-transcript",
+        "params": [],
+        "scope": "project"
+    },
     "agenticAccountMismatch": {
         "template": "/agentic/account-mismatch",
         "params": [],
@@ -1276,6 +1281,16 @@
     },
     "mcpAnalyticsToolQuality": {
         "template": "/mcp-analytics/tool-quality",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsUser": {
+        "template": "/mcp-analytics/users/{distinctId}",
+        "params": ["distinctId"],
+        "scope": "project"
+    },
+    "mcpAnalyticsUsers": {
+        "template": "/mcp-analytics/users",
         "params": [],
         "scope": "project"
     },

@@ -53,7 +53,7 @@ One-shot-only selections do not use a sandbox provider.
 Do not pass `--provider`, `--max-sandboxes`, or other sandbox-only flags for them; preflight rejects those flags rather than ignoring them.
 
 The harness also limits the team-cloning and case-seeding phase separately from sandbox concurrency.
-That setup limit is one on an ordinary local machine and automatically increases to four when either `CODER` or `CI` is set.
+That setup limit is one on an ordinary local machine and automatically increases to two on Coder or four on other CI machines. Use `--team-setup-concurrency` to override it for one run.
 The higher limit lets managed development and CI environments prepare cases in parallel while keeping local ClickHouse memory use conservative.
 
 ## Local setup with Docker
@@ -126,7 +126,7 @@ The first Modal run builds the eval image remotely.
 Later runs reuse that image until its Dockerfile, build context, or bundled local skills change.
 Keep the local process and network connection alive because the remote sandbox calls back into the services running on the local machine.
 
-Modal concurrency is unbounded by default, so always choose an intentional `--max-sandboxes` value before running a product or domain with many cases:
+Modal defaults to twelve concurrent sandboxes on Coder and is unbounded elsewhere. Pass an explicit cap to control model spend and load on local services:
 
 ```bash
 hogli evals '<product-or-domain>' --provider modal --max-sandboxes 4

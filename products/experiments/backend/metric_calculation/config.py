@@ -8,8 +8,8 @@ Building a config does not schedule or run a calculation.
 A config does not pin the events and warehouse rows, the definitions a metric references (actions,
 cohorts, warehouse tables, property types), the team's HogQL modifiers, or the clock that the maturity
 filters read. The same config can therefore give a different result later. Equality and the key also leave out
-which event the `experiment-exposure-event` flag picks as the default exposure event, so a result stays
-reusable for its window when that flag changes for the team.
+which event `settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF` picks as the default exposure event, so a result stays
+reusable for its window when that setting changes.
 
 The settings factories reset a value that the calculation ignores to its default: the CUPED lookback without
 CUPED, and the sequential tuning parameter without sequential testing. So such a value does not split equal
@@ -105,12 +105,9 @@ KEY_VERSIONS = (1, CALCULATION_KEY_VERSION)
 # two keys.
 _KEY_FLOAT_DIGITS = 12
 
-# Stands for the default exposure event in the key. The `experiment-exposure-event` flag picks that event, and each
-# process evaluates the flag locally (`resolve_default_exposure_event`). A key that hashed the picked event would
-# change at each rollout step of the flag, and two processes that evaluate the flag differently would file and look
-# up the results of one experiment under two keys. A stored result therefore stays reusable for its window when the
-# flag changes. To make results computed with the old default event stop counting for reuse when the new event
-# ships to every team, treat the switch as an engine change and bump CALCULATION_KEY_VERSION.
+# Stands for the default exposure event in the key, so that setting or moving
+# `settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF` does not re-key every affected experiment. To stop reusing results
+# computed with the old event, bump CALCULATION_KEY_VERSION.
 _DEFAULT_EXPOSURE_EVENT_IN_KEY = "$default_exposure_event"
 
 # Fields of a stored metric definition that do not describe what the metric computes: its identity, its
@@ -211,10 +208,10 @@ def team_experiments_configs(team_ids: Collection[int]) -> dict[int, TeamExperim
 
 
 def _resolve_exposure(
-    exposure_criteria: dict[str, Any] | None, team: "Team", start_date: datetime | None
+    exposure_criteria: dict[str, Any] | None, start_date: datetime | None
 ) -> ExposureQueryParams | None:
     try:
-        return get_exposure_config_params_for_builder(exposure_criteria, team, start_date)
+        return get_exposure_config_params_for_builder(exposure_criteria, start_date)
     except (pydantic.ValidationError, ExposedHogQLError):
         # The builder refuses a warehouse-native exposure, which has no ClickHouse query params.
         return None
@@ -321,8 +318,8 @@ class ExperimentCalculationSettings:
     variants: tuple[str, ...]
     baseline: str
     excluded_variants: tuple[str, ...]
-    # What the query runner resolves from the stored exposure criteria. The `experiment-exposure-event` flag picks its
-    # default exposure event, so equality and the key read `normalized_exposure` instead. None when the stored
+    # What the query runner resolves from the stored exposure criteria. `settings.EXPERIMENT_EXPOSURE_EVENT_CUTOFF`
+    # picks its default exposure event, so equality and the key read `normalized_exposure` instead. None when the stored
     # criteria do not parse or name a warehouse-native exposure. The query runner rejects such an experiment.
     exposure: ExposureQueryParams | None = field(compare=False)
     # The stored exposure criteria as `normalize_exposure` returns them.
@@ -382,7 +379,7 @@ class ExperimentCalculationSettings:
         else:
             variants = _variant_keys(rule.variants, excluded)
             aggregation_group_type_index = rule.assign_variant_by
-        exposure = _resolve_exposure(exposure_criteria, team, start_date)
+        exposure = _resolve_exposure(exposure_criteria, start_date)
         test_account_filters = team.test_account_filters
         stats: BayesianSettings | FrequentistSettings
         if resolve_stats_method(stats_config) == "frequentist":

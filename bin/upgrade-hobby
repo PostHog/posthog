@@ -2,6 +2,11 @@
 
 set -e
 
+# docker-compose reads its settings from .env, but a variable set in the calling shell wins over .env.
+# A shell set up for another compose project, such as the PostHog dev stack, can carry these.
+# COMPOSE_PROJECT_NAME would point this upgrade at that project's containers and volumes.
+unset COMPOSE_PROJECT_NAME COMPOSE_FILE COMPOSE_PROFILES CADDY_HOST CADDY_TLS_BLOCK
+
 echo "Upgrading PostHog. This will cause a few minutes of downtime."
 read -r -p "Do you want to upgrade PostHog? [y/N] " response
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
@@ -177,6 +182,15 @@ for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET \
         echo "Added missing $key to .env file"
     fi
 done
+# A Fernet key: exactly 32 characters, read as bytes, so 24 random bytes in base64 rather than hex.
+# Any existing line is kept, even an empty one, because replacing a key makes queued sends unreadable.
+if ! grep -q "CDP_SEALED_STATE_KEYS" .env; then
+    # The earlier `set -a` is off by now, so the new key needs an explicit export to reach the Compose renderer.
+    export CDP_SEALED_STATE_KEYS=$(openssl rand -base64 24)
+    # The leading newline keeps the key off an unterminated last line.
+    printf '\nCDP_SEALED_STATE_KEYS=%s\n' "$CDP_SEALED_STATE_KEYS" >> .env
+    echo "Added missing CDP_SEALED_STATE_KEYS to .env file"
+fi
 # .env holds Django's SECRET_KEY and the object storage keys, so only its owner may read it.
 chmod 600 .env || echo "Could not restrict .env to its owner. Run: chmod 600 .env"
 

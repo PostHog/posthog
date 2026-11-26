@@ -167,6 +167,7 @@ class TestBatchedQuotaRun(BaseTest):
         ]
         counts["teams_with_sandbox_compute_cpu_millicore_seconds_in_period"] = []
         counts["teams_with_sandbox_compute_memory_mib_seconds_in_period"] = []
+        self.counts = counts
         self.enterContext(
             patch(
                 "posthog.usage_counters.UsageCounterService.fetch_report",
@@ -193,6 +194,21 @@ class TestBatchedQuotaRun(BaseTest):
                     self.redis.zscore("@posthog/quota-limits/events", team.api_token)
                     == result.quota_limited_orgs["events"][str(org.id)]
                 )
+
+    def test_ai_compute_credits_count_toward_the_ai_credits_quota(self) -> None:
+        org = self.orgs[0]
+        team = self.teams[str(org.id)][0]
+        Organization.objects.filter(id=org.id).update(
+            usage={**self.usage, "ai_credits": {"usage": 0, "limit": 1000, "todays_usage": 0}}
+        )
+        self.counts[UsageCounter.AI_CREDITS.value] = [(team.id, 40)]
+        self.counts["teams_with_ai_compute_credits_used_in_period"] = [(team.id, 25)]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            update_all_orgs_billing_quotas()
+
+        org.refresh_from_db()
+        assert org.usage["ai_credits"]["todays_usage"] == 65
 
     def test_exhausted_later_batch_leaves_redis_unchanged_and_next_run_recovers(self) -> None:
         old_team = self.teams[str(self.orgs[0].id)][0]

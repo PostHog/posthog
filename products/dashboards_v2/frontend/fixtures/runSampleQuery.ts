@@ -1,4 +1,11 @@
-import type { DataFrame, RunQuery, WidgetQuery } from '../widgets/chart/vizTypes'
+import { PropertyOperator } from '~/types'
+
+import { type AnalyticsPropertyFilter, analyticsPropertyFilters } from '../filters/analytics/analyticsPropertyFilters'
+import type { DataFrame, RunQuery } from '../query/queryTypes'
+import type { WidgetQuery } from '../dashboard/document/dashboardSchema'
+
+// TODO(2026-11-25): Delete once the scene always runs real queries through the query batch runner.
+// Without both v2 query flags, the scene draws charts from these seeded sample frames.
 
 const DAYS = 14
 
@@ -10,15 +17,70 @@ function seededRandom(seed: string): () => number {
     }
 }
 
+function queryText(query: WidgetQuery): string {
+    return typeof query.query === 'string' ? query.query : JSON.stringify(query.query)
+}
+
 function seriesNames(query: WidgetQuery): string[] {
-    const text = typeof query.query === 'string' ? query.query : JSON.stringify(query.query)
-    return / by (?!day)|breakdown|sum by|serviceNames/.test(text) ? ['Chrome', 'Safari', 'Firefox'] : ['Value']
+    return / by (?!day\b)|by day, |breakdown|sum by|serviceNames/.test(queryText(query))
+        ? ['Chrome', 'Safari', 'Firefox']
+        : ['Value']
+}
+
+// A rate drawn as a count reads as 272,300% on a percentage stat.
+function isRatio(query: WidgetQuery): boolean {
+    return /_rate\b/.test(queryText(query))
+}
+
+// Only "is" and "is not" on the browser narrow the sample series, which is enough to see a filter apply.
+function keepsSeries(filter: AnalyticsPropertyFilter, name: string): boolean {
+    if (!Array.isArray(filter.value)) {
+        return true
+    }
+    const listed = filter.value.map(String).includes(name)
+    if (filter.operator === PropertyOperator.IsNot) {
+        return !listed
+    }
+    return filter.operator === PropertyOperator.Exact ? listed : true
+}
+
+/**
+ * A `-- sample: <case>` comment in a query's text picks how the sample runner answers, so the kitchen sink can show
+ * every tile state. The queries that carry one fail or come back empty on the real runner too.
+ */
+export type SampleCase = 'empty' | 'error' | 'slow' | 'stale' | 'malformed'
+
+const SLOW_MS = 4000
+
+function sampleCase(query: WidgetQuery): SampleCase | null {
+    const match = /-- sample: (empty|error|slow|stale|malformed)/.exec(queryText(query))
+    return match ? (match[1] as SampleCase) : null
 }
 
 // Draws charts for people outside the dashboard-v2 query flags, and for stories. The data is made up from each
 // query's text, so the same query always draws the same chart.
-export const runSampleQuery: RunQuery = async ({ query, time }) => {
-    const random = seededRandom(JSON.stringify({ query, time }))
+export const runSampleQuery: RunQuery = async (request) => {
+    switch (sampleCase(request.query)) {
+        case 'empty':
+            return { frames: [{ fields: [{ name: 'value', type: 'number', values: [] }] }] }
+        case 'error':
+            throw new Error('Unable to resolve field: missing_column')
+        case 'malformed':
+            // A runner that breaks its contract, so the widget throws and its error boundary catches it.
+            return { frames: [{ name: 'Broken' } as DataFrame] }
+        case 'slow':
+            await new Promise((resolve) => setTimeout(resolve, SLOW_MS))
+            return sampleFrames(request)
+        case 'stale':
+            return { ...sampleFrames(request), fetchedAt: '2026-11-20T09:00:00Z', stale: true }
+        default:
+            return sampleFrames(request)
+    }
+}
+
+function sampleFrames({ query, time, legend, filters = [] }: Parameters<RunQuery>[0]): { frames: DataFrame[] } {
+    const random = seededRandom(JSON.stringify({ query, time, filters }))
+    const browser = analyticsPropertyFilters(filters).filter((filter) => filter.key === '$browser')
     const today = new Date('2026-11-23T00:00:00Z')
     const days = Array.from({ length: DAYS }, (_, index) => {
         const day = new Date(today)
@@ -26,16 +88,20 @@ export const runSampleQuery: RunQuery = async ({ query, time }) => {
         return day.toISOString().slice(0, 10)
     })
     const base = 200 + Math.round(random() * 2000)
-    const frames = seriesNames(query).map(
+    const names = seriesNames(query)
+    const shown = names.length > 1 ? names.filter((name) => browser.every((filter) => keepsSeries(filter, name))) : names
+    const frames = shown.map(
         (name, position): DataFrame => ({
-            name,
+            name: legend ? legend.replace(/\{\{\s*[\w.]+\s*\}\}/g, name) : name,
             fields: [
                 { name: 'time', type: 'time', values: days },
                 {
                     name: 'value',
                     type: 'number',
                     values: days.map((_, index) =>
-                        Math.round((base / (position + 1)) * (0.75 + 0.5 * random()) * (1 + index / (DAYS * 2)))
+                        isRatio(query)
+                            ? +(0.05 + 0.3 * random()).toFixed(3)
+                            : Math.round((base / (position + 1)) * (0.75 + 0.5 * random()) * (1 + index / (DAYS * 2)))
                     ),
                 },
             ],

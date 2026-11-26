@@ -790,6 +790,7 @@ services:
             - discovery.type=single-node
             - ES_JAVA_OPTS=-Xms256m -Xmx256m
             - xpack.security.enabled=false
+            - ingest.geoip.downloader.enabled=false
         image: elasticsearch:7.17.28
         healthcheck:
             test:
@@ -836,6 +837,7 @@ services:
             - ENABLE_ES=true
             - ES_SEEDS=elasticsearch
             - ES_VERSION=v7
+            - TEMPORAL_VERSION_CHECK_DISABLED=1
         depends_on:
             elasticsearch:
                 condition: service_healthy

@@ -59,6 +59,12 @@ tools:
         operation: transactional_email_log_impact_retrieve
         enabled: false
         disabled_reason: The Impact tab is behind the workflows-email-impact flag; the tool follows once the tab ships
+        agent_note: >
+            When link_tagging_enabled is false, the project's email links don't carry ph_workflow_run, so no pageview
+            can be connected to the email, and sessions is null. sessions counts the sessions with a pageview from the
+            email's links. Tell the user, and offer to turn link tagging on. Only after the user agrees, call
+            project-settings-update with workflows_config set to {"email_workflow_run_link_tag_enabled": true}. Sends
+            from while link tagging was off stay unconnected.
     workflows-transactional-email-results:
         operation: transactional_email_log_results_retrieve
         enabled: true

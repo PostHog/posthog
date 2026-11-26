@@ -31,9 +31,15 @@ def _cache_key(session_key: str) -> str:
     return f"radar_login_attempt:{hashlib.sha256(session_key.encode()).hexdigest()}"
 
 
-def remember_login_attempt(request: HttpRequest, attempt_id: str, user_pk: int, valid_for_seconds: int) -> None:
+def remember_login_attempt(
+    request: HttpRequest, attempt_id: str, user_pk: int, valid_for_seconds: int, challenge_completed: bool = False
+) -> None:
     """Keep the attempt of a correct password until the session signs in as that user."""
-    _store_pending(request, {"attempt_id": attempt_id, "user_pk": user_pk}, valid_for_seconds)
+    _store_pending(
+        request,
+        {"attempt_id": attempt_id, "user_pk": user_pk, "challenge_completed": challenge_completed},
+        valid_for_seconds,
+    )
 
 
 def extend_login_attempt(request: HttpRequest, valid_for_seconds: int) -> None:
@@ -93,8 +99,9 @@ def report_radar_login_success(sender: Any, user: Any, request: Optional[HttpReq
     if time.time() > float(pending.get("expires_at") or 0):
         return
     attempt_id = str(pending.get("attempt_id") or "")
+    challenge_completed = pending.get("challenge_completed") is True
     # posthog.tasks imports every task module, so it loads at a login that has an attempt, not at startup
     from posthog.tasks.workos_radar import queue_attempt_success  # noqa: PLC0415
 
     # The second-factor views sign in inside a transaction, so the report waits for the commit
-    transaction.on_commit(lambda: queue_attempt_success(attempt_id))
+    transaction.on_commit(lambda: queue_attempt_success(attempt_id, challenge_completed))

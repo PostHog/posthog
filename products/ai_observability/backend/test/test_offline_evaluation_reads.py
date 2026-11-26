@@ -89,6 +89,181 @@ class TestOfflineEvaluationReads(TestCase):
         )
         self.now = timezone.now()
 
+    def test_experiment_score_resolves_observed_versions_and_pools_by_successful_item(self) -> None:
+        experiment = self._experiment()
+        definition = ScoreDefinition.objects.create(
+            team=self.team, name="Overall", scope="experiment", kind="numeric", calculation="composite"
+        )
+        spec = {"alias": "quality", "scorer_version_id": str(self.numeric.id), "statistic": "mean"}
+
+        def pin(policy: str) -> None:
+            experiment.experiment_scorer_version = definition.create_new_version(
+                config={},
+                composition={"expression": "quality", "inputs": [{**spec, "version_policy": policy}]},
+                created_by=None,
+            )
+            experiment.save(update_fields=["experiment_scorer_version"])
+
+        first = self._item(experiment)
+        self._result(first, self.numeric_v2, 0.75)
+        pin("run")
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual(score.value, 0.75)
+        self.assertEqual(score.inputs[0].sources[0].version_id, self.numeric_v2.id)
+        for other_status in ("error", "skipped", "not_applicable"):
+            item = self._item(experiment)
+            self._result(item, self.numeric, 0.0)
+            self._result(item, self.numeric_v2, status=other_status)
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual((score.status, score.value), ("mixed_versions", None))
+        self.assertEqual([source.successful_items for source in score.inputs[0].sources], [3, 1])
+        pin("combine")
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual((score.status, score.value), ("ok", 0.75 / 4))
+        self._result(first, self.numeric, 1.0)
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual((score.status, score.value), ("overlapping_items", None))
+        pin("exact")
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual(score.value, 0.25)
+        experiment.status = OfflineExperiment.Status.FAILED
+        experiment.save(update_fields=["status"])
+        failed = self.service.get_experiment(experiment.id).experiment_score
+        assert failed is not None
+        self.assertEqual((failed.status, failed.value), ("failed", None))
+
+    def test_only_successful_versions_contribute_and_pending_and_formula_errors_have_no_verdict(self) -> None:
+        run = self._experiment(status="uploading")
+        definition = ScoreDefinition.objects.create(
+            team=self.team, name="Ratio", scope="experiment", kind="numeric", calculation="composite"
+        )
+        run.experiment_scorer_version = definition.create_new_version(
+            config={},
+            composition={
+                "expression": "1 / quality",
+                "inputs": [{"alias": "quality", "scorer_version_id": str(self.numeric.id), "statistic": "mean"}],
+            },
+            created_by=None,
+        )
+        run.save(update_fields=["experiment_scorer_version"])
+
+        def check(expected: str):
+            score = self.service.get_experiment(run.id).experiment_score
+            assert score is not None
+            self.assertEqual((score.status, score.value, score.passed), (expected, None, None))
+            return score
+
+        check("pending")
+        run.status = "completed"
+        run.finished_at = self.now
+        run.save(update_fields=["status", "finished_at"])
+        self._result(self._item(run), self.numeric, status="error")
+        self._result(self._item(run), self.numeric_v2, status="skipped")
+        empty = check("no_successful_items")
+        self.assertEqual([s.successful_items for s in empty.inputs[0].sources], [0, 0])
+        self._result(self._item(run), self.numeric, 0.0)
+        invalid = check("formula_error")
+        self.assertEqual(invalid.inputs[0].status, "ok")
+        self.assertEqual([s.successful_items for s in invalid.inputs[0].sources], [1, 0])
+
+    def test_pooled_pass_rate_uses_exact_counts_at_the_threshold(self) -> None:
+        run = self._experiment()
+        newer = self.boolean.definition.create_new_version(config={}, created_by=None)
+        for version, values in [(self.boolean, [True, False]), (newer, [True, False, False])]:
+            for value in values:
+                self._result(self._item(run), version, value)
+        scorer = ScoreDefinition.objects.create(
+            team=self.team, scope="experiment", name="Gate", calculation="composite", kind="numeric"
+        )
+        run.experiment_scorer_version = scorer.create_new_version(
+            config={"passing_rule": {"operator": "gte", "threshold": 0.4}},
+            composition={
+                "expression": "rate",
+                "inputs": [
+                    {
+                        "alias": "rate",
+                        "statistic": "pass_rate",
+                        "version_policy": "combine",
+                        "scorer_version_id": str(self.boolean.id),
+                    }
+                ],
+            },
+            created_by=None,
+        )
+        run.save(update_fields=["experiment_scorer_version"])
+        score = self.service.get_experiment(run.id).experiment_score
+        assert score is not None
+        self.assertEqual((score.status, score.value, score.passed), ("ok", 0.4, True))
+
+    def test_pooled_mean_stays_finite_at_the_numeric_limit(self) -> None:
+        experiment = self._experiment()
+        formula = ScoreDefinition.objects.create(
+            team=self.team, scope="experiment", name="Pooled quality", calculation="composite", kind="numeric"
+        )
+        experiment.experiment_scorer_version = formula.create_new_version(
+            config={},
+            composition={
+                "expression": "quality",
+                "inputs": [
+                    {
+                        "alias": "quality",
+                        "statistic": "mean",
+                        "version_policy": "combine",
+                        "scorer_version_id": str(self.numeric.id),
+                    }
+                ],
+            },
+            created_by=None,
+        )
+        experiment.save(update_fields=["experiment_scorer_version"])
+        third = self.numeric.definition.create_new_version(config={}, created_by=None)
+        for version, count in [(self.numeric, 12), (self.numeric_v2, 2), (third, 12)]:
+            for _ in range(count):
+                self._result(self._item(experiment), version, float_info.max)
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual((score.status, score.value), ("ok", float_info.max))
+
+    def test_formula_uses_category_rate_and_boolean_polarity_and_keeps_missing_inputs_unset(self) -> None:
+        experiment = self._experiment()
+        boolean = self.boolean.definition.create_new_version(config={"true_is_failure": True}, created_by=None)
+        source = str(boolean.id)
+        inputs = [
+            {"alias": "passed", "statistic": "pass_rate", "scorer_version_id": source},
+            {"alias": "flagged", "statistic": "true_rate", "scorer_version_id": source},
+            {
+                "alias": "alpha",
+                "statistic": "category_rate",
+                "category": "a",
+                "scorer_version_id": str(self.categorical.id),
+            },
+        ]
+
+        def preview():
+            return self.service.preview_experiment_score(
+                experiment.id,
+                composition={"expression": "0.5 * passed + 0.3 * flagged + 0.2 * alpha", "inputs": inputs},
+                kind="numeric",
+                config={},
+            )
+
+        first = self._item(experiment)
+        second = self._item(experiment)
+        self._result(first, boolean, True)
+        self._result(second, boolean, True)
+        missing = preview()
+        self.assertEqual((missing.status, missing.value), ("missing_input", None))
+        self._result(first, self.categorical, ["a"])
+        self._result(second, self.categorical, ["b"])
+        score = preview()
+        self.assertEqual({row.alias: row.value for row in score.inputs}, {"passed": 0, "flagged": 1, "alpha": 0.5})
+        self.assertEqual(score.value, 0.4)
+
     def _experiment(
         self,
         *,
@@ -298,6 +473,7 @@ class TestOfflineEvaluationReads(TestCase):
         )
         history = self.service.scorer_history(definition.id, OfflineReadQuery())
         for point in history.results:
+            assert point.summary is not None
             self.assertEqual(point.summary, summaries[point.summary.scorer.id])
 
     @parameterized.expand(
@@ -369,7 +545,10 @@ class TestOfflineEvaluationReads(TestCase):
                 version.definition_id, OfflineReadQuery(breakdown=OfflineHistoryBreakdown.MODEL)
             )
             self.assertEqual(page.count, 2)
-            groups = {point.breakdown_value: point.summary for point in page.results}
+            groups = {}
+            for point in page.results:
+                assert point.summary is not None
+                groups[point.breakdown_value] = point.summary
             self.assertEqual(groups["model-a"].observed_item_count, 1)
             self.assertEqual(groups["model-b"].observed_item_count, 3)
             self.assertEqual(groups["model-a"].status_counts.ok, 1)
@@ -387,6 +566,7 @@ class TestOfflineEvaluationReads(TestCase):
                 self.assertEqual([category.rate for category in groups["model-b"].categories], [0.0, 1.0, 0.0])
 
         whole = self.service.scorer_history(self.numeric.definition_id, OfflineReadQuery()).results[0].summary
+        assert whole is not None
         self.assertEqual((whole.mean, whole.observed_item_count, whole.missing_result_count), (0.5, 4, 1))
         self.assertEqual(self.service.get_item(experiment.id, inherited.id).model_version, "model-a")
         self.assertEqual(self.service.get_item(experiment.id, override.id).model_version, "model-b")
@@ -416,6 +596,7 @@ class TestOfflineEvaluationReads(TestCase):
             point = page.results[0]
             self.assertEqual(point.experiment.id, experiment.id)
             self.assertEqual(point.breakdown_value, "model-a" if breakdown == OfflineHistoryBreakdown.MODEL else None)
+            assert point.summary is not None
             self.assertEqual(point.summary.mean, float(index + 1))
             self.assertEqual(point.summary.status_counts.ok, 1)
             self.assertEqual(point.summary.observed_item_count, 2)
@@ -442,6 +623,7 @@ class TestOfflineEvaluationReads(TestCase):
             point = page.results[0]
             values.append(point.breakdown_value)
             missing_count = models.index(point.breakdown_value) + 1
+            assert point.summary is not None
             self.assertEqual(point.summary.observed_item_count, missing_count + 1)
             self.assertEqual(point.summary.distinct_case_count, missing_count + 1)
             self.assertEqual(point.summary.missing_result_count, missing_count)
@@ -478,6 +660,7 @@ class TestOfflineEvaluationReads(TestCase):
         page = self.service.scorer_history(self.numeric.definition_id, OfflineReadQuery(breakdown=breakdown))
         self.assertEqual(page.count, 1)
         self.assertEqual(page.results[0].breakdown_value, value)
+        assert page.results[0].summary is not None
         self.assertEqual(page.results[0].summary.observed_item_count, 2)
 
     def test_history_pages_experiment_version_groups_by_execution_time(self) -> None:
@@ -499,6 +682,7 @@ class TestOfflineEvaluationReads(TestCase):
             page = self.service.scorer_history(self.numeric.definition_id, query)
             self.assertEqual(page.count, 4)
             point = page.results[0]
+            assert point.summary is not None
             seen.append((point.experiment.id, point.summary.scorer.id))
             self.assertEqual(
                 point.summary,

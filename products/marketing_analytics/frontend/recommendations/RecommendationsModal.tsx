@@ -28,6 +28,7 @@ import { RecommendationResolutionButtons } from './RecommendationResolutionButto
 import {
     IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
+    conversionSourceLabel,
     isResolved,
     RECOMMENDATION_CATEGORY_LABELS,
     RECOMMENDATION_RULE_DESCRIPTIONS,
@@ -185,6 +186,8 @@ export function RecommendationsModal(): JSX.Element {
         selectedGroupTotals,
         dataNodeProps,
         dataGaps,
+        serverDataGaps,
+        conversionSource,
         disclaimer,
     } = useValues(recommendationsLogic)
     const { reportRecommendationsActionClicked, setShowResolved, selectRule, closeRecommendations } =
@@ -214,9 +217,10 @@ export function RecommendationsModal(): JSX.Element {
                     <span>Recommendations</span>
                     <BindLogic logic={dataNodeLogic} props={dataNodeProps}>
                         <span className="flex items-center gap-2 text-sm font-normal">
-                            {dataGaps.length > 0 && (
+                            {dataGaps.length + serverDataGaps.length > 0 && (
                                 <RecommendationDataGapButton
                                     gaps={dataGaps}
+                                    serverGaps={serverDataGaps}
                                     dataAttr="marketing-recommendations-modal-data-gaps"
                                     location="modal_data_gaps"
                                 />
@@ -236,6 +240,9 @@ export function RecommendationsModal(): JSX.Element {
                 <span className="flex flex-wrap items-center gap-2">
                     <span>{`${activeRecommendations.length} for the selected sources and dates`}</span>
                     <ImpactTotals totals={totals} />
+                    {conversionSource && (
+                        <span className="text-secondary">{conversionSourceLabel(conversionSource)}</span>
+                    )}
                     {resolvedCount > 0 && (
                         <LemonButton
                             size="xsmall"

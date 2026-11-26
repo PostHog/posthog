@@ -46,6 +46,7 @@ export interface OfflineTrendPanel {
     xDomain?: [number, number]
     yDomain?: [number, number]
     passingRule: ReturnType<typeof offlineNumericPassingRule>
+    passingRuleVersion?: number
 }
 
 export type OfflineScoreSummary = Pick<
@@ -106,7 +107,7 @@ export function previousOfflinePeriod(range: OfflineDateRange): OfflineDateRange
     return { dateFrom: dayjs(range.dateFrom).subtract(duration, 'millisecond').toISOString(), dateTo: range.dateFrom }
 }
 
-export function offlineScoreMetricLabel(scorer: OfflineScorerVersionReadApi): string {
+export function offlineScoreMetricLabel(scorer: Pick<OfflineScorerVersionReadApi, 'kind'>): string {
     if (scorer.kind === 'numeric') {
         return 'Mean score'
     }
@@ -134,7 +135,7 @@ export function aggregateOfflineScoreHistory(points: OfflineHistoryPointApi[]): 
     if (!first) {
         return null
     }
-    const successful = points.map(({ summary }) => summary).filter((summary) => summary.status_counts.ok > 0)
+    const successful = points.flatMap(({ summary }) => (summary && summary.status_counts.ok > 0 ? [summary] : []))
     const count = successful.reduce((total, summary) => total + summary.status_counts.ok, 0)
     const graded = offlineScoreHasPassingRule(first.scorer)
         ? successful.filter((summary) => summary.pass_count != null && summary.fail_count != null)
@@ -245,7 +246,8 @@ export function getOfflineHistoryCoverage(page: OfflineHistoryPageApi, timezone:
 export function buildOfflineTrendPanels(
     periods: OfflineTrendPeriod[],
     combineVersions = false,
-    breakdown?: OfflineHistoryBreakdown
+    breakdown?: OfflineHistoryBreakdown,
+    passingRuleVersionId?: string
 ): OfflineTrendPanel[] {
     const durations = periods.map((period) =>
         period.dateFrom && period.dateTo ? Date.parse(period.dateTo) - Date.parse(period.dateFrom) : null
@@ -257,7 +259,14 @@ export function buildOfflineTrendPanels(
     for (const [periodIndex, period] of periods.entries()) {
         for (const point of period.points) {
             const { summary } = point
-            const scorer = summary.scorer
+            const runScore = point.experiment.experiment_score
+            const scorer = summary?.scorer ?? runScore
+            if (!scorer || (!summary && scorer.kind !== 'numeric')) {
+                continue
+            }
+            const metricLabel = summary ? offlineScoreMetricLabel(scorer) : 'Experiment score'
+            const versionId = 'scorer_version_id' in scorer ? scorer.scorer_version_id : scorer.id
+            const passingRule = offlineNumericPassingRule(scorer)
             const configuration = combineVersions
                 ? `${scorer.definition_id}:${scorer.kind}`
                 : `${scorer.kind}:${JSON.stringify(scorer.config)}`
@@ -266,10 +275,10 @@ export function buildOfflineTrendPanels(
             if (!panel) {
                 panel = {
                     key: panelKey,
-                    label: `${periods.length > 1 && !elapsed ? `${period.label} · ` : ''}${offlineScoreMetricLabel(scorer)}`,
+                    label: `${periods.length > 1 && !elapsed ? `${period.label} · ` : ''}${metricLabel}`,
                     series: [],
                     percentage: scorer.kind !== 'numeric',
-                    passingRule: offlineNumericPassingRule(scorer),
+                    passingRule: passingRuleVersionId ? null : passingRule,
                     elapsed,
                     xDomain:
                         period.dateFrom && period.dateTo
@@ -279,17 +288,20 @@ export function buildOfflineTrendPanels(
                             : undefined,
                 }
                 panels.set(panelKey, panel)
+            }
+            if (passingRuleVersionId === versionId) {
+                panel.passingRule = passingRule
+                panel.passingRuleVersion = scorer.version
             } else if (
+                !passingRuleVersionId &&
                 combineVersions &&
-                !(
-                    panel.passingRule?.operator === offlineNumericPassingRule(scorer)?.operator &&
-                    panel.passingRule?.threshold === offlineNumericPassingRule(scorer)?.threshold
-                )
+                (panel.passingRule?.operator !== passingRule?.operator ||
+                    panel.passingRule?.threshold !== passingRule?.threshold)
             ) {
                 panel.passingRule = null
             }
             const metrics =
-                scorer.kind === 'categorical'
+                summary && scorer.kind === 'categorical'
                     ? summary.categories.map((category) => ({
                           key: category.key,
                           label: category.label,
@@ -298,14 +310,20 @@ export function buildOfflineTrendPanels(
                     : [
                           {
                               key: 'score',
-                              label: offlineScoreMetricLabel(scorer),
-                              value: scorer.kind === 'numeric' ? summary.mean : summary.pass_rate,
+                              label: metricLabel,
+                              value: summary
+                                  ? scorer.kind === 'numeric'
+                                      ? summary.mean
+                                      : summary.pass_rate
+                                  : runScore?.status === 'ok' && typeof runScore.value === 'number'
+                                    ? runScore.value
+                                    : null,
                           },
                       ]
             for (const metric of metrics) {
                 const key = JSON.stringify([
                     period.key,
-                    scorer.id,
+                    versionId,
                     metric.key,
                     breakdown ? (point.breakdown_value ?? null) : null,
                 ])
