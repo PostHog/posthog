@@ -3,7 +3,7 @@
 import dataclasses
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError
@@ -12,7 +12,6 @@ from django.db.models.expressions import OrderBy
 from django.db.models.functions import Lower
 
 import structlog
-from rest_framework import serializers
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.full_text_search import build_rank
@@ -132,11 +131,8 @@ def _check_template_groups(write: contracts.DashboardTemplateWrite) -> None:
 
     try:
         validate_template_groups(write.customization, write.tiles)
-    except serializers.ValidationError as error:
-        # validate_template_groups rejects one field, `customization` or `tiles`, with one message.
-        ((field, messages),) = cast(dict[str, Any], error.detail).items()
-        message = messages[0] if isinstance(messages, list) else messages
-        raise contracts.DashboardTemplateWriteRejected(str(message), field=field) from error
+    except contracts.DashboardCustomizationRejected as rejected:
+        raise contracts.DashboardTemplateWriteRejected(rejected.message, field=rejected.field) from rejected
 
 
 def _check_organization_template_name(
