@@ -8,7 +8,7 @@ import { parse, stringify } from 'yaml'
 
 import { PROFILES_DIR } from '../cards'
 import { startAlerts } from './alerts'
-import { selectorsOf } from './selectors'
+import { readsOf, selectorsOf } from './selectors'
 
 const ENGINE_MS = 120_000
 const GROUP_INTERVAL_MS = 1000
@@ -77,6 +77,7 @@ describe('alerts on a scenario run', () => {
                             alert: 'SyntheticNeedsMissingSeries',
                             expr: 'WITH (lost = sum(synthetic_lost_total{kind="gone"})) sum(synthetic_queue_depth) > 0 and on() lost > 0',
                         },
+                        { alert: 'SyntheticOffsetBeforeRun', expr: 'sum(synthetic_queue_depth offset 1h) > 100' },
                         { alert: 'SyntheticLeftOut', expr: 'sum(synthetic_queue_depth) > 0' },
                         { record: 'synthetic:queue_depth:sum', expr: 'sum(synthetic_queue_depth)' },
                         { record: 'up', expr: 'vector(1)' },
@@ -106,6 +107,7 @@ describe('alerts on a scenario run', () => {
                     evaluated: ['SyntheticQueueSeen'],
                     unevaluable: [
                         { rule: 'SyntheticNeedsMissingSeries', selectors: ['synthetic_lost_total{kind="gone"}'] },
+                        { rule: 'SyntheticOffsetBeforeRun', selectors: ['synthetic_queue_depth offset 3600s'] },
                         { rule: 'SyntheticNeverEvaluated', selectors: [], error: neverEvaluated },
                     ],
                     excluded: ['SyntheticLeftOut'],
@@ -117,6 +119,12 @@ describe('alerts on a scenario run', () => {
                         rule: 'SyntheticNeedsMissingSeries',
                         state: 'unevaluable',
                         selectors: ['synthetic_lost_total{kind="gone"}'],
+                    },
+                    {
+                        type: 'rule',
+                        rule: 'SyntheticOffsetBeforeRun',
+                        state: 'unevaluable',
+                        selectors: ['synthetic_queue_depth offset 3600s'],
                     },
                     {
                         type: 'rule',
@@ -158,6 +166,39 @@ describe('selectorsOf', () => {
         ['infinity and NaN as operands', 'clamp_max(x, inf) > 0 or y != nan', ['x', 'y']],
     ])('%s', (_, expr, selectors) => {
         expect(selectorsOf(expr)).toEqual(selectors)
+    })
+})
+
+describe('readsOf', () => {
+    it.each([
+        [
+            'an offset after a range and after a bare selector',
+            'rate(x{a="b"}[1h] offset 15m) + y offset 1h30m',
+            [
+                { selector: 'x{a="b"}', offsetSeconds: 900 },
+                { selector: 'y', offsetSeconds: 5400 },
+            ],
+        ],
+        [
+            'a subquery offset reaches every selector inside it',
+            'max_over_time((sum(rate(z[5m])) + v offset 1m)[10m:1m] offset 30m) + w',
+            [
+                { selector: 'z', offsetSeconds: 1800 },
+                { selector: 'v', offsetSeconds: 1860 },
+                { selector: 'w', offsetSeconds: 0 },
+            ],
+        ],
+        ['a negative offset', 'q offset -5m', [{ selector: 'q', offsetSeconds: -300 }]],
+        [
+            'one selector read with two offsets',
+            'x - x offset 1d',
+            [
+                { selector: 'x', offsetSeconds: 0 },
+                { selector: 'x', offsetSeconds: 86400 },
+            ],
+        ],
+    ])('%s', (_, expr, reads) => {
+        expect(readsOf(expr)).toEqual(reads)
     })
 })
 

@@ -3,7 +3,7 @@ import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
 import { Engine, ScrapeTarget, startEngine } from './engine'
-import { selectorsOf } from './selectors'
+import { readsOf } from './selectors'
 
 const SCRAPE_INTERVAL_MS = 5000
 const NEVER_EVALUATED = 'vmalert did not evaluate it during the run'
@@ -55,13 +55,21 @@ function withoutExcluded(file: string, exclude: string[]): { rules: string; excl
 async function missingSelectorsOf(engine: Engine, query: string, since: number): Promise<string[]> {
     const { expr } = Expanded.parse(await engine.metrics('/expand-with-exprs', { query, format: 'json' }))
     const missing = []
-    for (const selector of selectorsOf(expr)) {
-        const end = `${Math.ceil(Date.now() / 1000)}`
-        const { data } = Series.parse(
-            await engine.metrics('/api/v1/series', { 'match[]': selector, start: `${since}`, end, limit: '1' })
-        )
-        if (data.length === 0) {
-            missing.push(selector)
+    for (const { selector, offsetSeconds } of readsOf(expr)) {
+        // An offset reads samples from before now, and the metrics store holds none from before the run.
+        const end = Math.ceil(Date.now() / 1000 - offsetSeconds)
+        const found =
+            end > since &&
+            Series.parse(
+                await engine.metrics('/api/v1/series', {
+                    'match[]': selector,
+                    start: `${since}`,
+                    end: `${end}`,
+                    limit: '1',
+                })
+            ).data.length > 0
+        if (!found) {
+            missing.push(offsetSeconds === 0 ? selector : `${selector} offset ${offsetSeconds}s`)
         }
     }
     return missing
