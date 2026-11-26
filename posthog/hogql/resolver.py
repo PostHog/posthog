@@ -15,6 +15,7 @@ from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
@@ -3173,7 +3174,12 @@ class Resolver(CloningVisitor):
             return None
         try:
             database_field = field_type.resolve_database_field(self.context)
+            database_table = field_type.table_type.resolve_database_table(self.context)
         except Exception:
+            return None
+        # A direct query runs on the external database, which may accept text with no digits,
+        # such as 'infinity' in Postgres.
+        if isinstance(database_table, DirectSQLTable) and not isinstance(database_table, DirectClickHouseTable):
             return None
         if isinstance(database_field, DateTimeDatabaseField):
             return "dates and times"

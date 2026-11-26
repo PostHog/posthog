@@ -19,6 +19,7 @@ from posthog.hogql.compilation import COMPILATION_TIMEOUT_SECONDS
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
@@ -2497,6 +2498,22 @@ class TestResolver(BaseTest):
     def test_date_literal_comparison_allows(self, _name, query, dialect):
         expr = self._select(query)
         resolve_types(expr, self.context, dialect=dialect)
+
+    def test_date_literal_guard_skipped_for_direct_postgres_tables(self):
+        self.database.tables.add_child(
+            TableNode(
+                name="orders",
+                table=DirectPostgresTable(
+                    name="orders",
+                    fields={"created_at": DateTimeDatabaseField(name="created_at")},
+                    external_data_source_id="source-id",
+                    postgres_schema="public",
+                    postgres_table_name="orders",
+                ),
+            )
+        )
+        expr = self._select("SELECT created_at FROM orders WHERE created_at < 'infinity'")
+        resolve_types(expr, self.context, dialect="hogql")
 
     @parameterized.expand(
         [
