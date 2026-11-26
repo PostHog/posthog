@@ -1,4 +1,5 @@
 import math
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -240,6 +241,7 @@ def _ensure(
     end: datetime,
     run_inserts: bool,
     wait_timeout_seconds: float | None = None,
+    deadline: float | None = None,
 ) -> LazyComputationResult:
     properties = _properties(runner, series)
     return ensure_precomputed(
@@ -271,14 +273,12 @@ def _ensure(
         wait_timeout_seconds=wait_timeout_seconds,
         read_after_write=run_inserts,
         cache_key_context={"engine": "series_values_v1"},
-        insert_settings=None
-        if wait_timeout_seconds is None
-        else {"max_execution_time": max(1, math.ceil(wait_timeout_seconds))},
+        insert_deadline=deadline,
     )
 
 
 def _read_values(
-    runner: TrendsQueryRunner, *, job_ids: list[str], start: datetime, end: datetime
+    runner: TrendsQueryRunner, *, job_ids: list[str], start: datetime, end: datetime, max_seconds: float | None
 ) -> dict[datetime, int]:
     sql = f"""
 SELECT {_BUCKET_EXPRS[_interval(runner)]} AS bucket, sum(value) AS value
@@ -298,7 +298,9 @@ GROUP BY bucket
                 "range_start": start,
                 "range_end": end,
             },
-            settings=_READ_SETTINGS,
+            settings=_READ_SETTINGS
+            if max_seconds is None
+            else {**_READ_SETTINGS, "max_execution_time": max(1, math.ceil(max_seconds))},
             workload=runner.workload,
             team_id=runner.team.pk,
         )
@@ -344,7 +346,9 @@ def _series_dict(runner: TrendsQueryRunner, values: dict[datetime, int]) -> dict
 
 def precomputed_series_values(
     runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None
-) -> PrecomputedSeriesValues | SeriesValuesUnavailable:
+) -> ClosedSeriesValues | SeriesValuesUnavailable:
+    # One deadline for the build and the read, so the call cannot outlast the caller's budget.
+    deadline = None if wait_timeout_seconds is None else time.monotonic() + wait_timeout_seconds
     series = _counted_series(runner)
     if isinstance(series, SeriesValuesUnavailable):
         return series
@@ -383,14 +387,22 @@ def precomputed_series_values(
         end=range_end,
         run_inserts=run_inserts,
         wait_timeout_seconds=wait_timeout_seconds,
+        deadline=deadline,
     )
     # A job can expire while the executor collects its result. A day that no returned job covers would
     # read as zero.
     if not result.ready or not result.job_ids or not _covers(result.served_windows, range_start, range_end):
         return SeriesValuesUnavailable(reason=Blocker.NOT_READY)
 
+    seconds_left = None if deadline is None else deadline - time.monotonic()
+    if seconds_left is not None and seconds_left <= 0:
+        return SeriesValuesUnavailable(reason=Blocker.NOT_READY)
     stored = _read_values(
-        runner, job_ids=[str(job_id) for job_id in result.job_ids], start=read_start_utc, end=read_end_utc
+        runner,
+        job_ids=[str(job_id) for job_id in result.job_ids],
+        start=read_start_utc,
+        end=read_end_utc,
+        max_seconds=seconds_left,
     )
     finished_buckets = [bucket.replace(tzinfo=None) for bucket in buckets if live_from is None or bucket < live_from]
     return PrecomputedSeriesValues(
