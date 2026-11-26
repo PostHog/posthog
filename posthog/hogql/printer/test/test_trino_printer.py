@@ -601,6 +601,11 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("toDate(created_at) - (SELECT max(id) FROM users)", "date_add('day', CAST(-((SELECT max("),
         ("toLastDayOfMonth(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), last_day_of_month("),
         ("toMonday(created_at) + 7", "date_add('day', CAST(7 AS BIGINT), CAST(date_trunc('week'"),
+        (
+            "toDate(created_at) - INTERVAL 2 DAY + id",
+            'date_add(\'day\', CAST("users"."id" AS BIGINT), (CAST("users"."created_at" AS DATE) - ',
+        ),
+        ("INTERVAL 1 MONTH + toDate(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), ("),
         ("now('UTC')", "SELECT at_timezone(now(), "),
         (
             "toDateTime64(id, 3, 'UTC')",
