@@ -105,28 +105,46 @@ export function importNewRelic(input: unknown): ImportResult {
                 .map((query: Json) => String(query?.query ?? '').trim())
                 .filter(Boolean)
             const translations = queries.map((nrql) => ({ nrql, result: translateNrql(nrql) }))
+            const viz = VIZ[vizId]
+            const overTime = viz !== undefined && viz.viz.type !== 'stat'
             const targets: { refId: string; query: PanelQuery }[] = []
             const failed: string[] = []
             let time: TimeRange | undefined
             for (const [index, { nrql, result }] of translations.entries()) {
+                const prefix = queries.length > 1 ? `Query ${index + 1}: ` : ''
                 report.query(result.ok)
                 result.events.forEach((event) => report.require('events', event))
                 if (!result.ok) {
                     failed.push(nrql)
-                    reasons.push(`${queries.length > 1 ? `Query ${index + 1}: ` : ''}${result.reason}`)
+                    reasons.push(`${prefix}${result.reason}`)
                     continue
                 }
                 const translation: NrqlTranslation = result
+                // Line and bar charts only draw values over time so far.
+                if (overTime && !translation.timeseries) {
+                    failed.push(nrql)
+                    reasons.push(`${prefix}It has no TIMESERIES, and this chart only draws values over time so far.`)
+                    continue
+                }
+                // A chart sends one time range to all its queries.
+                const queryTime = translation.since ?? NEW_RELIC_DEFAULT_TIME
+                if (time && !sameTime(time, queryTime)) {
+                    failed.push(nrql)
+                    reasons.push(`${prefix}It asks for a different time range than the chart's first query.`)
+                    continue
+                }
+                time = queryTime
                 translation.properties.forEach((property) => report.require('properties', property))
                 reasons.push(...translation.notes)
-                time ??= translation.since ?? NEW_RELIC_DEFAULT_TIME
-                targets.push({
-                    refId: String.fromCharCode(65 + targets.length),
-                    query: { language: 'hogql', query: translation.hogql },
-                })
+                // Line and bar charts draw the first number of each query, so each column gets its own query.
+                for (const hogql of (overTime && translation.hogqlPerColumn) || [translation.hogql]) {
+                    targets.push({
+                        refId: String.fromCharCode(65 + targets.length),
+                        query: { language: 'hogql', query: hogql },
+                    })
+                }
             }
 
-            const viz = VIZ[vizId]
             if (!viz || targets.length === 0) {
                 if (!viz) {
                     reasons.unshift(`New Relic's ${vizId} has no equivalent yet.`)
@@ -153,7 +171,7 @@ export function importNewRelic(input: unknown): ImportResult {
             }
             if (targets.length > MAX_TARGETS) {
                 targets.length = MAX_TARGETS
-                reasons.push(`Only the first ${MAX_TARGETS} queries are kept.`)
+                reasons.push(`Only the first ${MAX_TARGETS} queries or columns are kept.`)
             }
             const description = widget?.description ? String(widget.description) : undefined
             return finish(
