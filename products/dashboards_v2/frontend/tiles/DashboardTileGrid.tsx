@@ -1,14 +1,14 @@
 import './DashboardTileGrid.css'
 
 import clsx from 'clsx'
-import { type ComponentProps, memo, useCallback, useRef } from 'react'
+import { type ComponentProps, memo, useCallback, useContext, useRef } from 'react'
 
 import { type Tile, type TilePlace, isSectionWidget } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import { findTile } from '../dashboard/tileTree'
 import type { DropTarget } from '../grid/dropTargets'
 import { type OnSectionRows, TileGrid } from '../grid/TileGrid'
-import { useTileMounted } from '../grid/tileMounting'
+import { CapturingTileContext, TileMountContext, useTileMounted } from '../grid/tileMounting'
 import { ContentTile } from './ContentTile'
 import { type SectionGridProps, SectionTile } from './SectionTile'
 
@@ -41,10 +41,8 @@ interface TileFrameProps {
 /** What a grid cell holds. Memoised on the tile, so a drag in a grid re-renders none of its tiles. */
 const TileFrame = memo(function TileFrame({ tile, columnPx, editable, onSectionRows }: TileFrameProps): JSX.Element {
     const { id, widget } = tile
-    if (!isSectionWidget(widget)) {
-        return <WindowedContentTile id={id} widget={widget} editable={editable} />
-    }
-    return (
+    const capturing = useContext(CapturingTileContext) === id
+    const content = isSectionWidget(widget) ? (
         <SectionTile
             id={id}
             widget={widget}
@@ -54,7 +52,10 @@ const TileFrame = memo(function TileFrame({ tile, columnPx, editable, onSectionR
             onSectionRows={onSectionRows}
             renderGrid={renderSectionGrid}
         />
+    ) : (
+        <WindowedContentTile id={id} widget={widget} editable={editable} />
     )
+    return capturing ? <TileMountContext.Provider value={null}>{content}</TileMountContext.Provider> : content
 })
 
 function renderSectionGrid(props: SectionGridProps): JSX.Element {

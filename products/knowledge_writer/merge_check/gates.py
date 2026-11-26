@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from collections import Counter
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ FACTS_SOURCE = f"model:{FACTS_MODEL}"
 GATHER_SOURCE = "gather"
 RULE_GATE_SOURCE = "rule_gate"
 MAX_LISTED_PAGE_URLS = 5
+AUTHOR_FLAGGED_MARKER = "behind-feature-flag"
+RELEASE_STATUS_MARKER = re.compile(r"release-status:\s*([a-z]+(?:-[a-z]+)*)")
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,7 @@ def rule_gates(evidence: MergeEvidence) -> GateResult:
         bool(evidence.docs_versions) and shipping_version is not None and shipping_version not in evidence.docs_versions
     )
     has_docs_pages = bool(evidence.editable_pages or evidence.not_editable_page_urls)
+    is_marked_flagged_by_author = author_marks_flagged(evidence.body)
     rows = [
         CriterionResult(
             criterion="code_changed",
@@ -43,6 +47,13 @@ def rule_gates(evidence: MergeEvidence) -> GateResult:
             source=RULE_GATE_SOURCE,
             evidence="\n".join(writer_docs_pull_requests),
             effect=CriterionEffect.BLOCKS if writer_docs_pull_requests else CriterionEffect.NEUTRAL,
+        ),
+        CriterionResult(
+            criterion="author_release_status",
+            value=str(is_marked_flagged_by_author).lower(),
+            source=RULE_GATE_SOURCE,
+            evidence=AUTHOR_FLAGGED_MARKER if is_marked_flagged_by_author else "",
+            effect=CriterionEffect.BLOCKS if is_marked_flagged_by_author else CriterionEffect.NEUTRAL,
         ),
         CriterionResult(
             criterion="other_docs_pr",
@@ -112,17 +123,18 @@ def fact_gates(facts: MergeFacts | None, *, are_quotes_verified: bool) -> GateRe
     is_flagged = release_state.value == ReleaseState.FLAGGED_OR_UNRELEASED
     is_flag_only_on_marker = is_flagged and release_state.rests_only_on_release_marker
     rows = [
-        fact_row(
-            "release_state", release_state.value, release_state.quote, blocks=is_flagged and not is_flag_only_on_marker
+        fact_hint_row("release_state", release_state.value, release_state.quote, would_block=is_flagged),
+        fact_hint_row(
+            "audience",
+            facts.audience.value,
+            facts.audience.quote,
+            would_block=facts.audience.value != Audience.CUSTOMER,
         ),
-        fact_row(
-            "audience", facts.audience.value, facts.audience.quote, blocks=facts.audience.value != Audience.CUSTOMER
-        ),
-        fact_row(
+        fact_hint_row(
             "doc_impact",
             facts.doc_impact.value,
             facts.doc_impact.quote,
-            blocks=facts.doc_impact.value not in DOCS_DOC_IMPACTS,
+            would_block=facts.doc_impact.value not in DOCS_DOC_IMPACTS,
         ),
         fact_row(
             "generated_only",
@@ -130,11 +142,11 @@ def fact_gates(facts: MergeFacts | None, *, are_quotes_verified: bool) -> GateRe
             facts.generated_only.quote,
             blocks=facts.generated_only.value,
         ),
-        fact_row(
+        fact_hint_row(
             "no_public_page_fits",
             str(facts.no_public_page_fits.value).lower(),
             facts.no_public_page_fits.quote,
-            blocks=facts.no_public_page_fits.value,
+            would_block=facts.no_public_page_fits.value,
         ),
     ]
     return GateResult(
@@ -152,6 +164,20 @@ def fact_row(criterion: str, value: str, quote: str, *, blocks: bool) -> Criteri
         evidence=quote,
         effect=CriterionEffect.BLOCKS if blocks else CriterionEffect.SUPPORTS,
     )
+
+
+def fact_hint_row(criterion: str, value: str, quote: str, *, would_block: bool) -> CriterionResult:
+    return CriterionResult(
+        criterion=criterion,
+        value=value,
+        source=FACTS_SOURCE,
+        evidence=quote,
+        effect=CriterionEffect.NEUTRAL if would_block else CriterionEffect.SUPPORTS,
+    )
+
+
+def author_marks_flagged(body: str) -> bool:
+    return RELEASE_STATUS_MARKER.findall(body) == [AUTHOR_FLAGGED_MARKER]
 
 
 def first_blocking_criterion(rows: list[CriterionResult]) -> str | None:

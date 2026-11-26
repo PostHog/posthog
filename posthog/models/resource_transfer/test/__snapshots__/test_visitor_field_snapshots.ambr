@@ -558,6 +558,7 @@
     'last_error_at',
     'last_realtime_cohort_calculation_at',
     'objects',
+    'pending_backfill_kinds',
     'pending_version',
     'people',
     'person_filters_shape_hash',

@@ -102,6 +102,7 @@ rules:
     - match:
           - '/frontend/src/lib/lemon-ui/'
           - '/frontend/src/lib/ui/'
+          - '/frontend/src/lib/uiSounds/'
       owners: platform-ux
     # Platform UX owns the nav rail and the UI rules file, so every change to them goes to that team, however small.
     - match:

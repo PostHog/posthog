@@ -96,7 +96,7 @@ async def _settle_generation(
         if gateway is None or not request_id or team_id is None or signal_id is None:
             return None
         cost = await asyncio.wait_for(_wait_for_gateway_cost(request_id, gateway), timeout=_usage_wait_seconds())
-        cost_microusd = cost.cost_microusd
+        cost_microusd = cost.standard_cost_microusd
         return cost_to_spend(cost_microusd)
     except TimeoutError:
         logger.warning("signals.spend.usage_wait_expired", stage=stage, team_id=team_id, signal_id=signal_id)
