@@ -182,8 +182,8 @@ export const VALVES: ValveDefinition[] = [
 
 const POLL_MS = 1000
 
-function neverAppliedOf({ when }: ValveEntry): string {
-    if (when === undefined) {
+function neverAppliedOf({ when }: ValveEntry, armed: boolean): string {
+    if (when === undefined || !armed) {
         return 'never applied: released before its offset'
     }
     return when.name === 'edge_accepted'
@@ -225,10 +225,14 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             })
         }
 
+        let armed = entry.at === undefined
         const due = async (): Promise<boolean> => {
             if (entry.at !== undefined) {
                 await sleep(durationMs(entry.at), undefined, { signal: released.signal }).catch(() => undefined)
-                return true
+                armed = !released.signal.aborted
+                if (entry.when === undefined || !armed) {
+                    return entry.when === undefined
+                }
             }
             if (entry.when!.name === 'edge_accepted') {
                 boundary = await context.environment.actuate({ kind: 'edge.fault', rule: heldAnswerRule() })
@@ -255,7 +259,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             record.error ??= withProbeFailure(
                 isDue && entry.when?.name === 'edge_accepted'
                     ? 'never applied: the drive ended before the valve applied'
-                    : neverAppliedOf(entry)
+                    : neverAppliedOf(entry, armed)
             )
             await releaseBoundary()
             return
