@@ -18,6 +18,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import structlog
+from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationNotFound
@@ -67,8 +68,30 @@ _STATUS_LINES: dict[HumanRequestStatus, str] = {
 _STATUSES_WITH_BUTTONS = frozenset({HumanRequestStatus.OPEN, HumanRequestStatus.PENDING})
 
 
+# Slack errors that a retry cannot fix: the card or the channel is gone, or the integration lost access.
+_PERMANENT_SLACK_ERRORS = frozenset(
+    {
+        "account_inactive",
+        "cant_update_message",
+        "channel_not_found",
+        "invalid_auth",
+        "invalid_blocks",
+        "is_archived",
+        "message_not_found",
+        "not_authed",
+        "token_revoked",
+    }
+)
+
+
 class HumanRequestSlackError(Exception):
-    """The card could not be posted: no Slack integration, or the app cannot reach the channel."""
+    """The card could not be posted or edited, and a retry would fail the same way."""
+
+
+def _raise_if_permanent(e: SlackApiError) -> None:
+    error = str(e.response.get("error") or "")
+    if error in _PERMANENT_SLACK_ERRORS:
+        raise HumanRequestSlackError(f"Slack refused the card: {error}") from e
 
 
 @frozen
@@ -303,20 +326,36 @@ def _slack(team_id: int, integration_id: int) -> SlackIntegration:
 
 
 def post_card(card: HumanRequestCard, channel_id: str, channel_name: str) -> str:
-    """Post the card and return its ts. Raises ``HumanRequestSlackError`` when Slack cannot take it."""
+    """Post the card and return its ts.
+
+    Raises ``HumanRequestSlackError`` when Slack cannot take it, and lets a transient Slack error through
+    so the task retries.
+    """
     slack = _slack(card.team_id, card.integration_id)
     try:
         ts = post_with_join(slack, channel_id, card_blocks(card), card_text(card), channel_name=channel_name or None)
     except SlackPostRefused as e:
         raise HumanRequestSlackError(str(e)) from e
+    except SlackApiError as e:
+        _raise_if_permanent(e)
+        raise
     if not ts:
         raise HumanRequestSlackError(f"Slack returned no ts for the card in {channel_id}")
     return ts
 
 
 def update_card(card: HumanRequestCard, channel_id: str, ts: str) -> None:
-    """Edit the posted card in place. It must go through the integration that posted it."""
-    update_message(_slack(card.team_id, card.integration_id), channel_id, ts, card_blocks(card), card_text(card))
+    """Edit the posted card in place. It must go through the integration that posted it.
+
+    Raises ``HumanRequestSlackError`` when Slack cannot take the edit, and lets a transient Slack error
+    through so the task retries.
+    """
+    slack = _slack(card.team_id, card.integration_id)
+    try:
+        update_message(slack, channel_id, ts, card_blocks(card), card_text(card))
+    except SlackApiError as e:
+        _raise_if_permanent(e)
+        raise
 
 
 def ping_lookers(card: HumanRequestCard, channel_id: str, ts: str, *, reviewing: bool) -> None:

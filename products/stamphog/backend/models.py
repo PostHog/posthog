@@ -483,7 +483,8 @@ class HumanRequest(ProductTeamModel):
     requested_via = models.CharField(max_length=16, choices=HumanRequestSource.choices)
     # Blank unless the request came from Slack.
     requester_slack_user_id = models.CharField(max_length=64, blank=True, default="")
-    # Only a Slack request carries a note. Pull request comments are public, so the note never goes to GitHub.
+    # A request from a pull request comment never carries a note, because pull request comments are public.
+    # The note never goes to GitHub.
     note = models.CharField(max_length=200, blank=True, default="")
     # The GitHub login of the person whose approval of head_sha set APPROVED.
     approved_by_login = models.CharField(max_length=255, blank=True, default="")

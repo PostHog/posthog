@@ -70,7 +70,7 @@ def _queue_human_request_refreshes(payload: Mapping[str, Any], installation_id: 
 
 def _refresh_human_requests_on_pull_request(delivery: WebhookDelivery) -> None:
     payload = delivery.payload
-    if payload.get("action") not in HUMAN_REQUEST_PR_ACTIONS and not _is_base_retarget(payload):
+    if payload.get("action") not in HUMAN_REQUEST_PR_ACTIONS:
         return
     _queue_human_request_refreshes(payload, delivery.context.get("installation_id", ""))
 

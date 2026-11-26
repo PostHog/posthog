@@ -4559,6 +4559,13 @@ def test_a_verdict_reaches_a_waiting_request_only_once_github_shows_it(
     if not silent:
         assert "billing change" in _rendered(cards[0]["blocks"])
 
+    # No stamphog verdict follows a withheld one, so a later refresh asks people, and the card hides what the
+    # silent run found.
+    request = _refresh(request)
+    assert request.status == HumanRequestStatus.OPEN
+    (card,) = _cards()
+    assert ("billing change" in _rendered(card["blocks"])) is not silent
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain: StamphogChain) -> None:
@@ -4601,6 +4608,47 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
     assert request.status == HumanRequestStatus.MERGED
     assert "Merged." in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
     assert len(_cards()) == 1
+
+    # Slack answers an edit of a deleted card with message_not_found, which no retry can fix.
+    fakes.FakeSlackIntegration.posted_messages.clear()
+    assert _refresh(request).status == HumanRequestStatus.MERGED
+
+
+@pytest.mark.parametrize(
+    "review_mode, expect_status, expect_cards",
+    [
+        # Label mode with no label: nothing reviews the new head, so the request opens and its card is posted.
+        pytest.param(ReviewMode.LABEL, HumanRequestStatus.OPEN, 1, id="push_nothing_reviews"),
+        # The review of the new head is queued but has not started. A refresh that ran before the run existed
+        # would read the head as unreviewed and post the card.
+        pytest.param(ReviewMode.ALL, HumanRequestStatus.PENDING, 0, id="push_stamphog_reviews"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_push_refreshes_a_human_request_once_stamphog_decided_the_new_head(
+    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, expect_status: HumanRequestStatus, expect_cards: int
+) -> None:
+    repo_config = _human_repo_config(team.id)
+    repo_config.review_mode = review_mode
+    repo_config.save()
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=176, author_login="devex-dev"
+    )
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha176a", status=ReviewRunStatus.REVIEWING
+    )
+    request = HumanRequest.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha176a", requested_via=HumanRequestSource.API
+    )
+    stamphog_chain.recorder.register_pr(REPO, 176, _silent_review_pr(176, "sha176b"), _pr_files())
+    stamphog_chain.recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+
+    with patch("products.stamphog.backend.tasks.tasks._start_review_workflow"):
+        stamphog_chain.post_webhook(_synchronize_event(176, "devex-dev", "sha176b"), delivery_id=str(uuid.uuid4()))
+
+    request.refresh_from_db()
+    assert (request.status, request.head_sha) == (expect_status, "sha176b")
+    assert len(_cards()) == expect_cards
 
 
 def _click(

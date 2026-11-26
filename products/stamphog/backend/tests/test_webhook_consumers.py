@@ -151,11 +151,12 @@ class TestStamphogGitHubWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("synchronize", {}, True),
+            # The review task refreshes after a head change or a retarget, once it decided on a run.
+            ("synchronize", {}, False),
             ("closed", {}, True),
-            ("reopened", {}, True),
+            ("reopened", {}, False),
             ("review_requested", {}, True),
-            ("edited", {"changes": {"base": {"ref": {"from": "main"}}}}, True),
+            ("edited", {"changes": {"base": {"ref": {"from": "main"}}}}, False),
             ("edited", {"changes": {"title": {"from": "Old"}}}, False),
             ("opened", {}, False),
             ("labeled", {}, False),

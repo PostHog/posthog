@@ -93,7 +93,10 @@ from products.stamphog.backend.models import (
     StamphogInstallation,
     StamphogRepoConfig,
 )
-from products.stamphog.backend.tasks.human_requests import queue_human_request_refresh
+from products.stamphog.backend.tasks.human_requests import (
+    queue_human_request_refresh,
+    refresh_human_requests_for_pull_request,
+)
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
 
@@ -1179,6 +1182,30 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> None:
     """Turn one verified pull_request webhook delivery into a queued ReviewRun."""
+    _process_pull_request_event(payload, delivery_id)
+    # A human request reads "no run at the head" as "no review is coming" and opens its card, so it is
+    # refreshed only after this delivery created the head's run or skipped the head. A retry raises
+    # above, and its own attempt refreshes once it decides.
+    if payload.get("action") in _HEAD_CHANGING_ACTIONS or _is_base_retarget(payload):
+        _refresh_human_requests_after_review_decision(payload)
+
+
+def _refresh_human_requests_after_review_decision(payload: dict[str, Any]) -> None:
+    repository = (payload.get("repository") or {}).get("full_name")
+    pr_number = (payload.get("pull_request") or {}).get("number")
+    if not repository or not isinstance(pr_number, int):
+        return
+    try:
+        refresh_human_requests_for_pull_request(
+            repository=repository,
+            pr_number=pr_number,
+            installation_id=str((payload.get("installation") or {}).get("id", "")),
+        )
+    except Exception:
+        logger.exception("stamphog_human_request_refresh_after_review_failed", repo=repository, pr_number=pr_number)
+
+
+def _process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> None:
     if delivery_id and _is_duplicate_pr_event(delivery_id):
         logger.info("stamphog_pr_event_duplicate_skipped", delivery_id=delivery_id)
         return
@@ -2154,7 +2181,8 @@ def request_manual_review(
     if human is not None and not repo_config.human_request_enabled:
         raise ReviewRequestRefusedError(
             ReviewRequestRefusal.HUMAN_REQUEST_OFF,
-            "Asking people isn't turned on for this repository. A manager can turn it on in Stamphog settings.",
+            "Asking people isn't turned on for this repository. A manager can turn it on through the API by "
+            "setting human_request_enabled and a Slack channel in the repository's auto-approval config.",
         )
     repo = repo_config.repository
     try:

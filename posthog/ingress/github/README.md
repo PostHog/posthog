@@ -62,7 +62,8 @@ The task checks the commenter's write access with GitHub and their linked PostHo
 See `products/commands/README.md`.
 
 The two `stamphog_human_request_*` consumers keep a request for a person to review in step with its pull request.
-The `stamphog` app's pushes, closes, reopens, review requests and base retargets, and the `posthog` app's submitted and dismissed reviews, each queue one task.
+The `stamphog` app's closes and review requests, and the `posthog` app's submitted and dismissed reviews, each queue one task.
+A push, a reopen or a base retarget is refreshed by `stamphog_review`'s task once it decided whether Stamphog reviews the new head, because a request reads a head with no run as one that no review is coming for.
 The `stamphog` app gets no review events, so a person's approval arrives through the `posthog` app.
 The task refreshes every active request for that repository and pull request number, in each project that has one, and reads the state from GitHub with the stamphog token.
 A delivery from the `posthog` app carries the wrong installation for stamphog, so that task matches on the repository alone.

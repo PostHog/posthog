@@ -77,8 +77,8 @@ class OpenedHumanRequest:
 def status_for_run(run: ReviewRun) -> HumanRequestStatus:
     """What a request waits for while ``run`` is stamphog's newest review of the request's head.
 
-    Only a verdict that GitHub already has counts, so a verdict that a silent run withheld leaves the
-    request PENDING.
+    Only a verdict that GitHub already has counts, so a run that has not posted one leaves the request
+    PENDING. ``stamphog_status_at_head`` never passes a silent run that withheld its verdict.
     """
     if run.status == ReviewRunStatus.FAILED:
         return HumanRequestStatus.OPEN if run.may_publish() else HumanRequestStatus.PENDING
@@ -158,19 +158,24 @@ def stamphog_status_at_head(
     """What stamphog's newest review of ``head_sha`` means for a request, and that run.
 
     No review that still counts means stamphog will not answer this head, for example after a push in
-    label mode, so the request opens rather than waiting forever.
+    label mode, so the request opens rather than waiting forever. A silent run counts only once it
+    posted its approval. Until then it can show nothing, and no stamphog verdict follows a withheld one.
+
+    The review path queues the refresh for a push only after it created the head's run or decided to
+    skip the head, so "no run" here means that no run is coming.
     """
-    run = (
+    runs = (
         ReviewRun.objects.for_team(pull_request.team_id)
         .using(using)
         .filter(pull_request=pull_request, head_sha=head_sha)
         .exclude(status=ReviewRunStatus.SUPERSEDED)
         .order_by("-created_at")
-        .first()
     )
-    if run is None:
-        return HumanRequestStatus.OPEN, None
-    return status_for_run(run), run
+    for run in runs:
+        if run.is_silent and run.verdict_posted_at is None:
+            continue
+        return status_for_run(run), run
+    return HumanRequestStatus.OPEN, None
 
 
 def human_approver(reviews: list[dict[str, Any]], head_sha: str, author_login: str) -> str:
@@ -320,8 +325,8 @@ def _post_once(request: HumanRequest, card: HumanRequestCard, head_sha: str, *, 
                 card, repo_config.human_request_slack_channel_id, repo_config.human_request_slack_channel_name
             )
         except HumanRequestSlackError as e:
-            # A missing integration or a channel the app cannot join needs a person, so a retry would fail the same
-            # way. The next refresh tries again.
+            # A missing integration, a channel the app cannot join, or a Slack refusal such as a revoked token needs a
+            # person, so a retry would fail the same way. The next refresh tries again.
             logger.warning("stamphog_human_request_post_refused", human_request_id=str(request.id), error=str(e))
             delivery.state = HumanRequestDelivery.State.FAILED
             delivery.save(update_fields=["state", "updated_at"])
@@ -374,47 +379,56 @@ def refresh(team_id: int, human_request_id: str) -> None:
 
     Idempotent: a retry, or a second refresh for the same state, posts nothing new. Every read that
     decides a post is pinned to the writer.
+
+    Refreshes of one request run one at a time under the request's row lock, which is held across the
+    GitHub reads and the Slack call. Without it, a refresh that read GitHub before a push or a merge
+    could write its older state, or edit the card to it, after a newer refresh finished.
     """
     db = router.db_for_write(HumanRequest)
-    request = (
-        HumanRequest.objects.for_team(team_id)
-        .using(db)
-        .select_related("pull_request__repo_config")
-        .filter(id=human_request_id)
-        .first()
-    )
-    if request is None:
-        return
+    with transaction.atomic(using=db):
+        request = (
+            HumanRequest.objects.for_team(team_id)
+            .using(db)
+            .select_related("pull_request__repo_config")
+            # Only the request row: a lock on the pull request row would block the review path's upsert.
+            .select_for_update(of=("self",))
+            .filter(id=human_request_id)
+            .first()
+        )
+        if request is None:
+            return
+        _refresh_locked(request, using=db)
+
+
+def _refresh_locked(request: HumanRequest, *, using: str) -> None:
+    team_id = request.team_id
     pull_request = request.pull_request
     repo_config = pull_request.repo_config
     client = StamphogGitHubClient(repo_config.installation_id)
     pr = client.get_pr(repo_config.repository, pull_request.pr_number)
     head_sha = pr["head"]["sha"]
-    state = _next_state(request, client, pr, using=db)
+    state = _next_state(request, client, pr, using=using)
 
     if request.status in ACTIVE_HUMAN_REQUEST_STATUSES:
-        # Only an active request moves, so a final state is never rewritten.
-        HumanRequest.objects.for_team(team_id).using(db).filter(
-            id=request.id, status__in=ACTIVE_HUMAN_REQUEST_STATUSES
-        ).update(
+        HumanRequest.objects.for_team(team_id).using(using).filter(id=request.id).update(
             status=state.status, head_sha=head_sha, approved_by_login=state.approved_by_login, updated_at=timezone.now()
         )
 
     delivery = (
         HumanRequestDelivery.objects.for_team(team_id)
-        .using(db)
+        .using(using)
         .filter(human_request=request, kind=HumanRequestDeliveryKind.SLACK_MESSAGE)
         .first()
     )
     lookers = list(
         HumanRequestParticipant.objects.for_team(team_id)
-        .using(db)
+        .using(using)
         .filter(human_request=request, looking=True)
         .order_by("created_at")
     )
 
     if delivery is None or delivery.state != HumanRequestDelivery.State.POSTED or delivery.integration_id is None:
-        _post_if_open(request, pr, state, lookers, head_sha, using=db)
+        _post_if_open(request, pr, state, lookers, head_sha, using=using)
         return
 
     card = _card(
@@ -433,14 +447,11 @@ def refresh(team_id: int, human_request_id: str) -> None:
         return
     if head_sha == request.pinged_head_sha:
         return
-    # Claimed before the reply, so two refreshes of one push reply once. A failed reply is not sent again.
-    claimed = (
-        HumanRequest.objects.for_team(team_id)
-        .using(db)
-        .filter(id=request.id, pinged_head_sha=request.pinged_head_sha)
-        .update(pinged_head_sha=head_sha, updated_at=timezone.now())
+    # Recorded before the reply, so a failed reply is not sent again.
+    HumanRequest.objects.for_team(team_id).using(using).filter(id=request.id).update(
+        pinged_head_sha=head_sha, updated_at=timezone.now()
     )
-    if claimed and lookers and state.status in _REVIEWABLE_STATUSES:
+    if lookers and state.status in _REVIEWABLE_STATUSES:
         ping_lookers(
             card, delivery.channel_id, delivery.message_ts, reviewing=state.status == HumanRequestStatus.PENDING
         )
