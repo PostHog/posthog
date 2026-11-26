@@ -35,6 +35,145 @@ pub fn ease_out() -> Easing {
 pub fn ease_move() -> Easing {
     Easing::cubic_bezier(0.77, 0., 0.175, 1.).expect("fixed design-system curve")
 }
+pub fn ease_layout() -> Easing {
+    Easing::cubic_bezier(0.4, 0., 0.2, 1.).expect("fixed design-system curve")
+}
+/// A clipped vertical reveal. Keep it mounted while open: settled, it lays its
+/// content out normally and records the height, so a close starts from the
+/// real height instead of an unmeasured first frame. The content fades faster
+/// than the clip moves, so the moving edge never cuts through solid text.
+pub fn fold(id: impl Into<ElementId>, progress: f32, child: AnyElement) -> AnyElement {
+    let progress = progress.clamp(0., 1.);
+    let child = if progress >= 1. {
+        child
+    } else {
+        div()
+            .w_full()
+            .opacity(progress * progress)
+            .child(child)
+            .into_any_element()
+    };
+    Fold {
+        id: id.into(),
+        progress,
+        child,
+    }
+    .into_any_element()
+}
+
+struct Fold {
+    id: ElementId,
+    progress: f32,
+    child: AnyElement,
+}
+
+#[derive(Clone, Copy, Default)]
+struct FoldHeight(Option<Pixels>);
+
+impl IntoElement for Fold {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for Fold {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let mut style = Style::default();
+        style.size.width = relative(1.).into();
+        if self.progress >= 1. {
+            let child = self.child.request_layout(window, cx);
+            return (window.request_layout(style, [child], cx), ());
+        }
+        let height = window.with_element_state(
+            id.expect("a fold has an id"),
+            |state: Option<FoldHeight>, _| {
+                let state = state.unwrap_or_default();
+                (state.0, state)
+            },
+        );
+        style.size.height = (height.unwrap_or_default() * self.progress).into();
+        (window.request_layout(style, None, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        let measured = if self.progress >= 1. {
+            bounds.size.height
+        } else {
+            self.child
+                .layout_as_root(
+                    size(
+                        AvailableSpace::Definite(bounds.size.width),
+                        AvailableSpace::MinContent,
+                    ),
+                    window,
+                    cx,
+                )
+                .height
+        };
+        let changed = window.with_element_state(
+            id.expect("a fold has an id"),
+            |state: Option<FoldHeight>, _| {
+                (
+                    state.and_then(|s| s.0) != Some(measured),
+                    FoldHeight(Some(measured)),
+                )
+            },
+        );
+        if changed && self.progress < 1. {
+            window.request_animation_frame();
+        }
+        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            if self.progress >= 1. {
+                self.child.prepaint(window, cx);
+            } else {
+                self.child.prepaint_at(bounds.origin, window, cx);
+            }
+        });
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        _: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            self.child.paint(window, cx);
+        });
+    }
+}
+
 pub fn tokens(input: InputOrigin) -> MotionTokens {
     let instant = input == InputOrigin::Keyboard;
     let mut tokens = MotionTokens::default();
@@ -118,7 +257,7 @@ pub fn pane(
         policy.duration_normal
     };
     Presence::new(id.into(), present)
-        .transition(Transition::new(duration).easing(policy.easing_move.clone()))
+        .transition(Transition::new(duration).easing(ease_layout()))
         .sample(window, cx)
 }
 
@@ -179,7 +318,7 @@ mod tests {
     }
     #[::core::prelude::v1::test]
     fn curves_are_monotonic() {
-        for curve in [ease_out(), ease_move()] {
+        for curve in [ease_out(), ease_move(), ease_layout()] {
             assert_eq!(curve.sample(0.), 0.);
             assert_eq!(curve.sample(1.), 1.);
             let mut previous = 0.;

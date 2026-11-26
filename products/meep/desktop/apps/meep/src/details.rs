@@ -3341,16 +3341,11 @@ impl Desktop {
                         cx.notify()
                     })),
             );
-        Some(if shown >= 1. {
-            bar.into_any_element()
-        } else {
-            meep_ui::gpui_kit::base::MotionReveal::new(
-                ElementId::Name(SharedString::from(format!("briefing-{id}"))),
-                shown,
-                div().w_full().child(bar).into_any_element(),
-            )
-            .into_any_element()
-        })
+        Some(ui::motion::fold(
+            ElementId::Name(SharedString::from(format!("briefing-{id}"))),
+            shown,
+            bar.into_any_element(),
+        ))
     }
     fn virtual_topic_chat(
         &self,

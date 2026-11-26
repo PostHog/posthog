@@ -1,5 +1,4 @@
 use super::*;
-use meep_ui::gpui_kit::base::MotionReveal;
 use meep_ui::gpui_kit::component::ActiveTheme;
 use std::{cell::Cell, collections::HashMap, time::Instant};
 
@@ -34,7 +33,7 @@ impl Folds {
             return to;
         };
         let tokens = cx.theme().motion_tokens();
-        let (duration, easing) = (tokens.duration_normal, &tokens.easing_move);
+        let (duration, easing) = (tokens.duration_slow, ui::motion::ease_layout());
         let Some(at) = fold.at.get() else {
             fold.at.set(Some(Instant::now()));
             return if duration.is_zero() { to } else { fold.from };
@@ -68,22 +67,16 @@ impl Folds {
         if progress <= 0. && !open {
             return None;
         }
-        let content = content();
-        Some(if progress >= 1. {
-            content
-        } else {
-            MotionReveal::new(
-                ElementId::Name(SharedString::from(format!("fold:{part}"))),
-                progress,
-                div().w_full().child(content).into_any_element(),
-            )
-            .into_any_element()
-        })
+        Some(ui::motion::fold(
+            ElementId::Name(SharedString::from(format!("fold:{part}"))),
+            progress,
+            content(),
+        ))
     }
 
     pub fn moving(&mut self, cx: &App) -> bool {
         let tokens = cx.theme().motion_tokens();
-        let longest = tokens.duration_normal;
+        let longest = tokens.duration_slow;
         self.0.retain(|_, f| {
             f.at.get().map_or(f.toggled.elapsed() < longest * 2, |at| {
                 at.elapsed() < longest

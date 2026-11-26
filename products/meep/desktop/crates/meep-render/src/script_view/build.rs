@@ -138,12 +138,7 @@ impl Build {
                 if progress <= 0. {
                     return div().into_any_element();
                 }
-                gpui_kit::base::MotionReveal::new(
-                    id,
-                    progress,
-                    self.container(ui::column(), node, window, cx),
-                )
-                .into_any_element()
+                ui::motion::fold(id, progress, self.container(ui::column(), node, window, cx))
             }
             kind @ ("page" | "column" | "row" | "box" | "reading" | "card") => {
                 let base = container_base(kind).unwrap_or_else(div);

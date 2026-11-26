@@ -707,7 +707,7 @@ impl Desktop {
         &self,
         w: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Option<(f32, f32, Div)> {
+    ) -> Option<(f32, f32, f32, Div)> {
         let Page::View(id) = self.page else {
             return None;
         };
@@ -726,7 +726,12 @@ impl Desktop {
             },
             None,
         );
-        Some((width, motion.progress, self.view_panel(view, w, cx)))
+        Some((
+            width,
+            motion.progress,
+            if wanted { 1. } else { 0. },
+            self.view_panel(view, w, cx),
+        ))
     }
     fn view_panel(&self, v: &View, w: &mut Window, cx: &mut Context<Self>) -> Div {
         let selected = self

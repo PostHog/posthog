@@ -2395,6 +2395,8 @@ pub(super) fn side_pane(
         .py(px(meep_shell::GUTTER))
         .overflow_hidden()
         .flex_shrink_0()
+        .flex()
+        .justify_end()
         .w(px((width + meep_shell::GUTTER) * progress.clamp(0., 1.)))
         .child(
             meep_shell::pane(content)
@@ -2490,8 +2492,11 @@ impl Render for Desktop {
         } else if !overview_presence.should_render() {
             self.overview_leaving = None;
         }
-        self.pane_motion
-            .set((rail, overview_presence.progress.clamp(0., 1.)));
+        let overview = overview_presence.progress.clamp(0., 1.);
+        let rail_target = if rail_wanted { 1. } else { 0. };
+        let overview_target = if overview_topic.is_some() { 1. } else { 0. };
+        self.pane_motion.set((rail, overview));
+        self.pane_target.set((rail_target, overview_target));
         // The layout row stretches the pane; a full height plus its gutters
         // would push its bottom edge past the window.
         let mut main = ui::column()
@@ -2660,8 +2665,10 @@ impl Render for Desktop {
             self.ensure_view_models(w, cx);
         }
         let mut view_panel = None;
-        if let Some((width, progress, content)) = self.active_view_panel(w, cx) {
+        let mut view_shift = 0.;
+        if let Some((width, progress, target, content)) = self.active_view_panel(w, cx) {
             if w.viewport_size().width > px(super::overview::DOCK_MIN) {
+                view_shift = (width + meep_shell::GUTTER) * (target - progress.clamp(0., 1.));
                 view_panel = Some(side_pane("view-chat-slot", width, progress, content));
             } else {
                 main = main
@@ -2705,6 +2712,14 @@ impl Render for Desktop {
             .should_render()
             .then(|| sheet_open.or(self.sheet_leaving.clone()))
             .flatten();
+        let sidebar_width = if settings_open {
+            meep_ui::design::current().sidebar
+        } else {
+            TOPIC_SIDEBAR_WIDTH
+        };
+        let main_shift = (sidebar_width - meep_shell::GUTTER) * (rail_target - rail)
+            + view_shift
+            + (super::overview::WIDTH + meep_shell::GUTTER) * (overview_target - overview);
         let root = meep_shell::root();
         #[cfg(feature = "demo-driver")]
         let root = root.children(super::demo_driver::cursor());
@@ -2729,11 +2744,13 @@ impl Render for Desktop {
                         l.child(slot.child(list))
                     })
                     .child(
-                        meep_shell::pane(main.when(settings_open, |m| {
-                            m.relative()
-                                .left(px(ui::motion::travel(arrival, 8.)))
-                                .opacity(arrival)
-                        }))
+                        meep_shell::pane(div().flex().flex_1().min_w_0().min_h_0().child(
+                            main.mr(px(main_shift)).when(settings_open, |m| {
+                                m.relative()
+                                    .left(px(ui::motion::travel(arrival, 8.)))
+                                    .opacity(arrival)
+                            }),
+                        ))
                         .my(px(meep_shell::GUTTER))
                         .mr(px(meep_shell::GUTTER))
                         .ml(px(meep_shell::GUTTER * (1. - rail))),

@@ -1447,7 +1447,7 @@ impl Desktop {
     }
     /// The width the topic's own pane gets beside the sidebar and the Overview.
     pub(super) fn topic_pane_width(&self, w: &Window) -> Pixels {
-        let (rail, overview) = self.pane_motion.get();
+        let (rail, overview) = self.pane_target.get();
         w.viewport_size().width
             - px(super::navigation::TOPIC_SIDEBAR_WIDTH * rail)
             - px((super::overview::WIDTH + meep_shell::GUTTER) * overview)

@@ -522,7 +522,7 @@ pub trait TranscriptHost: Sized + 'static {
                                 .child(body)
                                 .child(copy_button),
                         );
-                    disclosure = disclosure.child(gpui_kit::base::MotionReveal::new(
+                    disclosure = disclosure.child(ui::motion::fold(
                         reveal_id,
                         progress,
                         details.into_any_element(),

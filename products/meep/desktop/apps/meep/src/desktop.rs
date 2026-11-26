@@ -206,6 +206,7 @@ pub(super) struct Desktop {
     pub folds: super::folds::Folds,
     pub pane_motion: std::cell::Cell<(f32, f32)>,
     /// In a narrow window, whether the Overview is shown over the page.
+    pub pane_target: std::cell::Cell<(f32, f32)>,
     pub overview_overlay: bool,
     pub overview_open: BTreeSet<(TopicId, Tab)>,
     /// Topics whose “needs you” briefing was put away this session.
@@ -566,6 +567,7 @@ impl Desktop {
             folds: Default::default(),
             pane_motion: std::cell::Cell::new((1., 0.)),
             overview_overlay: false,
+            pane_target: std::cell::Cell::new((1., 0.)),
             overview_open: BTreeSet::new(),
             briefing_dismissed: BTreeSet::new(),
             files: false,
