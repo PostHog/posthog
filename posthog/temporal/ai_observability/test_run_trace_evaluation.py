@@ -327,13 +327,24 @@ class TestFormatTraceForJudge:
     def test_bounds_output_to_max_chars(self):
         # 400 large generations would blow well past the cap without sampling.
         events = [
-            create_trace_event("$ai_generation", **{"$ai_input": f"question {i} " + ("x" * 2_000)}) for i in range(400)
+            create_trace_event(
+                "$ai_generation",
+                **{
+                    "$ai_input": [
+                        {"role": "system", "content": "Pick a repo"},
+                        {"role": "user", "content": f"question {i} " + ("x" * 2_000)},
+                    ]
+                },
+            )
+            for i in range(400)
         ]
 
         transcript = format_trace_for_judge(create_trace(events)).text
 
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
         assert "SAMPLED VIEW" in transcript
+        # Sampling could drop the message a reference points at, so the sampled render repeats messages instead.
+        assert "Same as" not in transcript
 
     @pytest.mark.parametrize("message_property", ["$ai_input", "$ai_output_choices"])
     @pytest.mark.parametrize("event_count,message_count", [(50, 1), (1, 50)])
@@ -1130,6 +1141,53 @@ class TestExecuteTraceLLMJudgeActivity:
         assert "critical evidence" in retry_prompt
         assert "eHh4eHh4" not in retry_prompt
         assert "input_truncated" not in result
+
+    @pytest.mark.django_db(transaction=True)
+    def test_overflow_with_images_retries_the_shorter_transcript_with_the_images_first(
+        self, setup_data: dict[str, Any], active_key_config: None
+    ) -> None:
+        screenshot = {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}}
+        prompt = "start " + "x" * 100_000 + " critical evidence " + "y" * 100_000 + " end"
+        trace = create_trace(
+            [
+                create_trace_event(
+                    "$ai_generation",
+                    **{"$ai_input": [{"role": "user", "content": [screenshot, {"type": "text", "text": prompt}]}]},
+                )
+            ]
+        )
+
+        class PromptTooLong(Exception):
+            status_code = 400
+
+        overflow = ContextWindowExceededError("prompt is too long")
+        overflow.__cause__ = PromptTooLong("prompt is too long")
+        response = MagicMock()
+        response.parsed = BooleanEvalResult(verdict=True, reasoning="ok")
+        response.usage = MagicMock(input_tokens=1, output_tokens=1, total_tokens=2)
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
+                return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=1),
+            ),
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+        ):
+            mock_client = mock_client_class.return_value
+            mock_client.complete.side_effect = [overflow, response]
+
+            result = execute_trace_llm_judge_activity(
+                ExecuteTraceEvaluationInputs(
+                    evaluation=evaluation_dict(setup_data),
+                    team_id=setup_data["team"].id,
+                    trace_id="trace-123",
+                    window_start=FROZEN_NOW.isoformat(),
+                )
+            )
+
+        retry = mock_client.complete.call_args_list[1][0][0].messages[0]["content"]
+        assert AttachmentPart(mime_type="image/png", data=b"hi") in retry
+        assert result["verdict"] is True
+        assert result["input_truncated"] is True
 
     @pytest.mark.parametrize(
         "trace_state",

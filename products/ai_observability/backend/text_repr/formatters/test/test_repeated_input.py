@@ -24,6 +24,18 @@ def _tool_call(arguments: dict[str, object], **extra: object) -> dict[str, objec
             _tool_call({"signature": "invalid"}), _tool_call({"signature": "valid"}), False, id="tool_argument"
         ),
         pytest.param(_text("hi"), _text("hi!"), False, id="text"),
+        pytest.param(
+            {"role": "tool", "content": [{"signature": "pending"}]},
+            {"role": "tool", "content": [{"signature": "verified"}]},
+            False,
+            id="untyped_tool_result",
+        ),
+        pytest.param(
+            {"role": "tool", "content": {"signature": "pending"}},
+            {"role": "tool", "content": {"signature": "verified"}},
+            False,
+            id="tool_result_object",
+        ),
     ],
 )
 def test_ignores_transport_metadata_only(earlier: object, later: object, repeated: bool) -> None:

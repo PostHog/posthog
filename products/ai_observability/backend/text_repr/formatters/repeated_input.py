@@ -5,8 +5,8 @@ from posthog.dataclasses import frozen
 
 # Kept in sync with TRANSPORT_METADATA_KEYS in products/ai_observability/frontend/messageSignature.ts. Callers
 # change these fields between calls without changing the message, for example Anthropic incremental caching
-# moves `cache_control` to the newest message on every call. Only message and content block fields are
-# ignored, so a tool argument with one of these names still counts.
+# moves `cache_control` to the newest message on every call. They are ignored only on a message, a dict with a
+# role, and on its content blocks, dicts with a type, so a tool payload with one of these names still counts.
 _TRANSPORT_METADATA_KEYS = frozenset({"cache_control", "signature", "caller"})
 _BLOCK_LIST_KEYS = frozenset({"content", "parts"})
 _STRING_CHUNK_CHARS = 1 << 16
@@ -32,7 +32,8 @@ def _digest(message: Any) -> bytes:
             continue
         value, level = item
         if isinstance(value, dict):
-            keys = sorted((key for key in value if level == "payload" or key not in _TRANSPORT_METADATA_KEYS), key=str)
+            transport = (level == "message" and "role" in value) or (level == "block" and "type" in value)
+            keys = sorted((key for key in value if not (transport and key in _TRANSPORT_METADATA_KEYS)), key=str)
             hasher.update(b"{%d" % len(keys))
             stack.append(b"}")
             for key in reversed(keys):
@@ -69,9 +70,8 @@ class RepeatedInputHistory:
     The inputs are kept as a trie of message digests, so a lookup costs one digest per message.
     """
 
-    def __init__(self, generations: int = 0) -> None:
-        # Generations numbered before this history, which the next generation's number continues from.
-        self.generations = generations
+    def __init__(self) -> None:
+        self.generations = 0
         self._nodes: dict[tuple[int, bytes], int] = {}
         self._latest_generation: dict[int, int] = {}
 

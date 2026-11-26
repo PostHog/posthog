@@ -382,9 +382,12 @@ def format_session_for_judge(traces: list[LLMTrace], media_marker: MediaMarker |
             "preserve_generation_output": preserve_generation_output,
             "include_line_numbers": True,
             "max_length": None if preserve_generation_output else per_trace_budget,
-            # One history for the whole session, so a chat that resends its history in every trace shows it once.
-            "repeated_input_history": RepeatedInputHistory(),
         }
+        if preserve_generation_output:
+            # One history for the whole session, so a chat that resends its history in every trace shows it once.
+            # The last pass samples lines anywhere, so it renders every message to keep no reference whose
+            # message the sample dropped.
+            options["repeated_input_history"] = RepeatedInputHistory()
         if media_marker is not None:
             # One marker for the whole session, so an image repeated across traces is attached once.
             options["media_marker"] = media_marker
@@ -395,10 +398,6 @@ def format_session_for_judge(traces: list[LLMTrace], media_marker: MediaMarker |
             rendered_length += len(header) + (2 if sections else 0)
             if preserve_generation_output:
                 options["max_render_length"] = JUDGE_SESSION_MAX_CHARS - rendered_length
-            if not preserve_generation_output:
-                # This pass samples each trace's lines, so a later trace must not point at a message an earlier
-                # trace's sample dropped. Generation numbers keep counting across traces.
-                options["repeated_input_history"] = RepeatedInputHistory(options["repeated_input_history"].generations)
             trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
             try:
                 text, _ = format_trace_text_repr(trace_dict, hierarchy, options)

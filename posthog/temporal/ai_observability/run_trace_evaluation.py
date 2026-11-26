@@ -627,7 +627,8 @@ def format_trace_for_judge(
     del options["max_render_length"]
     options["preserve_generation_output"] = False
     options["max_length"] = max_chars
-    options["repeated_input_history"] = RepeatedInputHistory()
+    # Sampling drops lines anywhere, so it could keep a reference and drop the message it points at.
+    del options["repeated_input_history"]
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
     return JudgeTranscript(text=text, truncated=True)
 
@@ -736,6 +737,8 @@ def run_trace_llm_judge(
             allows_na=allows_na,
             backfill=inputs.backfill_id is not None,
             attachment_prompt=attachment_prompt,
+            # The 150k retry keeps the attachments, so a judge asked about a screenshot still sees it.
+            retry_without_attachments_on_overflow=len(sent.text) <= JUDGE_TRACE_FALLBACK_MAX_CHARS,
         )
         if sent.truncated:
             result["input_truncated"] = True

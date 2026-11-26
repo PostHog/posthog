@@ -11,6 +11,7 @@ These budgets include transcript headers and line numbers, but exclude the evalu
 
 The budgets do not depend on the selected judge model, with one exception.
 When a judge model rejects a trace transcript that is longer than 150,000 characters because it exceeds the model's context window, the evaluation renders the trace again with a 150,000-character budget and sends that instead.
+When the rejected prompt carried images or files, the shorter transcript keeps them, so a judge asked about a screenshot still sees it. Only a rejection of that shorter prompt falls back to the text without attachments.
 The run is skipped with `context_window_exceeded` only when the shorter transcript is also rejected.
 The `LLMA_JUDGE_TRACE_MAX_CHARS` environment variable sets the trace budget on the evaluation workers, and must be at least 150,000.
 
@@ -32,8 +33,8 @@ Its other messages keep their original numbers.
 Agent loops send the whole conversation again on every call, so without this a trace with seven generations repeats its first prompt seven times.
 The match is against every earlier generation, so sub-agent calls between two steps of an orchestrator do not break it.
 A session evaluation matches across all of the session's traces, so a chat that resends its history in every trace shows it once.
-The last fallback, which samples lines in each trace, matches only within a trace, so no reference points at a line that another trace's sample dropped.
-Messages must be equal in every field except `cache_control`, `signature` and `caller` on the message or its content blocks, which callers change between calls without changing the message.
+The last fallback samples lines, so it shows every message in full and never points at an earlier one, because the sample could drop the message a reference points at.
+Messages must be equal in every field except `cache_control`, `signature` and `caller` on the message or its typed content blocks, which callers change between calls without changing the message. Tool results and other payloads keep those keys.
 A message that differs in any other field renders in full.
 
 Trace and session evaluations first render a text representation with message truncation and line sampling disabled.
