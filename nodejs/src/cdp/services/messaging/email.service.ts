@@ -807,6 +807,7 @@ export class EmailService {
         let senderNotVerified = false
         let messageId: string | undefined
         let teamBudgetCharged = false
+        let workflowRateClaimed = false
 
         try {
             const decision = await this.decideSend(invocation, params, storedIntegration, addLog)
@@ -830,7 +831,7 @@ export class EmailService {
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
             const sendStep = sendStepOf(invocation)
-            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
+            workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
@@ -1027,6 +1028,7 @@ export class EmailService {
                     ...invocation.queueMetadata,
                     attachmentLoadRetries: retries,
                     ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                    ...(workflowRateClaimed ? { workflowRateClaimed: sendStepOf(invocation) } : {}),
                 }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                 addLog(
