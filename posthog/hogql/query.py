@@ -374,6 +374,12 @@ class HogQLQueryExecutor:
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
 
+        rewrite = hogql_select_rewrite.get()
+        if rewrite is not None:
+            with self.timings.measure("select_rewrite"):
+                assert self.hogql_context is not None
+                self.select_query = rewrite(self.select_query, self.hogql_context)
+
     @tracer.start_as_current_span("HogQLQueryExecutor._resolve_direct_source")
     def _resolve_direct_source(self) -> Optional["ExternalDataSource"]:
         if self._direct_source_resolved:
@@ -1421,6 +1427,11 @@ class HogQLQueryExecutor:
 hogql_execution_override: ContextVar[Callable[[HogQLQueryExecutor], HogQLQueryResponse] | None] = ContextVar(
     "hogql_execution_override", default=None
 )
+
+SelectRewrite = Callable[[ast.SelectQuery | ast.SelectSetQuery, HogQLContext], ast.SelectQuery | ast.SelectSetQuery]
+# A caller sets this to rewrite the queries it runs, after the optimizers above and before the query is
+# printed. It is a context variable and not a modifier, so a request cannot turn a rewrite on.
+hogql_select_rewrite: ContextVar[SelectRewrite | None] = ContextVar("hogql_select_rewrite", default=None)
 
 
 def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, ...] | None:
