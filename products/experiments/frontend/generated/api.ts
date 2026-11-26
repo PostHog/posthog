@@ -40,6 +40,7 @@ import type {
     ExperimentTimeseriesResultsApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
+    ExperimentsHealthRetrieveParams,
     ExperimentsListParams,
     ExperimentsMatchingIdsRetrieveParams,
     ExperimentsPromptTemplatesRetrieve200Item,
@@ -695,8 +696,24 @@ export const experimentsFreezeExposureCreate = async (
     })
 }
 
-export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/experiments/${id}/health/`
+export const getExperimentsHealthRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: ExperimentsHealthRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/health/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/health/`
 }
 
 /**
@@ -859,13 +876,19 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * A running experiment with `only_count_matured_users` on gets the info
  * `metrics_not_matured` while it is younger than the conversion or retention window of
  * every primary metric, because no user can count for those metrics until a window passes.
+ *
+ * With `at_launch=true`, a draft is checked as it will be when its launch succeeds: a check
+ * that runs only after launch, such as `no_metric`, also runs as if the experiment launched
+ * now. A check that needs exposures, a calculation or a flag change keeps the reason
+ * "Runs after launch".
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,
     id: number,
+    params?: ExperimentsHealthRetrieveParams,
     options?: RequestInit
 ): Promise<ExperimentHealthApi> => {
-    return apiMutator<ExperimentHealthApi>(getExperimentsHealthRetrieveUrl(projectId, id), {
+    return apiMutator<ExperimentHealthApi>(getExperimentsHealthRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
