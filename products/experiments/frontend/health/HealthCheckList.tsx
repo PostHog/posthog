@@ -38,13 +38,16 @@ export function HealthCheckList({
     exposureChecks: ExposureChecksState
     selectedKey: ListedHealthCheck['key'] | null
     onSelect: (check: ListedHealthCheck) => void
-}): JSX.Element {
-    const running = checksLoading ? 'All checks' : exposureChecks === 'pending' ? 'Exposure checks' : null
-    // While the checks load, the "All checks" row includes the exposure checks, so a failed exposure answer shows
+}): JSX.Element | null {
+    const running = checksLoading ? 'Health checks' : exposureChecks === 'pending' ? 'Exposure checks' : null
+    // While the checks load, the "Health checks" row includes the exposure checks, so a failed exposure answer shows
     // only after the other checks load.
     const exposureChecksMissing = !checksLoading && exposureChecks === 'missing'
+    if (!running && !exposureChecksMissing && checks.length === 0) {
+        return null
+    }
     return (
-        <div className="flex flex-col gap-5 px-4 py-3" data-attr="experiment-health-check-list">
+        <div className="flex flex-col gap-5 border-t px-4 py-3" data-attr="experiment-health-check-list">
             {running && (
                 <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-semibold text-secondary">Running</span>

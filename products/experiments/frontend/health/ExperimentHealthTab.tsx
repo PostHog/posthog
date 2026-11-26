@@ -17,7 +17,8 @@ export function ExperimentHealthTab(): JSX.Element {
         exposures,
     } = useValues(experimentLogic)
 
-    if ((healthFindings === null || healthChecks === null) && !experimentHealthLoading) {
+    const checksLoading = healthFindings === null || healthChecks === null
+    if (checksLoading && !experimentHealthLoading) {
         return <LemonBanner type="error">Couldn't load the health checks. Refresh the page to try again.</LemonBanner>
     }
 
@@ -25,8 +26,9 @@ export function ExperimentHealthTab(): JSX.Element {
         <div data-attr="experiment-health-tab">
             <LemonCard hoverEffect={false} className="p-0">
                 <HealthChecksPanel
-                    checks={healthChecks}
-                    findings={healthFindings}
+                    checks={healthChecks ?? []}
+                    findings={healthFindings ?? []}
+                    checksLoading={checksLoading}
                     // A server from before the setup was reported sends none, for example while a deploy rolls out.
                     setup={experimentHealth?.setup ?? null}
                     // A reset to draft keeps the previous exposure answer in the page, as for the checks.

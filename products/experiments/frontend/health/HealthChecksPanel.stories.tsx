@@ -122,7 +122,7 @@ const meta: Meta<typeof HealthChecksPanel> = {
         mockDate: '2026-11-03 12:00:00',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
-    args: { onFindingActedOn: () => {}, exposures: null, setup: SETUP },
+    args: { onFindingActedOn: () => {}, exposures: null, setup: SETUP, checksLoading: false },
     decorators: [
         (Story) => (
             <div className="w-[60rem]">
