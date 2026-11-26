@@ -554,6 +554,23 @@ database "posthog" {
       version_column = "computed_at"
     }
   }
+  table "sharded_web_bounces_dimensional_preaggregated_by_day" {
+    order_by     = ["team_id", "period_bucket", "job_id", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type", "session_hosts"]
+    primary_key  = ["team_id", "period_bucket", "job_id", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    partition_by = "toYYYYMMDD(period_bucket)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      allow_nullable_key  = "1"
+      index_granularity   = "8192"
+      merge_with_ttl_timeout = "3600"
+    }
+    extend = "_web_bounces_dimensional_preaggregated_columns"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_bounces_dimensional_preaggregated_by_day"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
   table "sharded_web_goals_preaggregated" {
     order_by     = ["team_id", "job_id", "action_id", "time_window_start"]
     partition_by = "toYYYYMMDD(expires_at)"
@@ -628,6 +645,23 @@ database "posthog" {
     extend = "_web_stats_dimensional_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_stats_dimensional_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
+  table "sharded_web_stats_dimensional_preaggregated_by_day" {
+    order_by     = ["team_id", "period_bucket", "job_id", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type"]
+    primary_key  = ["team_id", "period_bucket", "job_id", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
+    partition_by = "toYYYYMMDD(period_bucket)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      allow_nullable_key  = "1"
+      index_granularity   = "8192"
+      merge_with_ttl_timeout = "3600"
+    }
+    extend = "_web_stats_dimensional_preaggregated_columns"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_stats_dimensional_preaggregated_by_day"
       replica_name   = "{replica}"
       version_column = "computed_at"
     }
