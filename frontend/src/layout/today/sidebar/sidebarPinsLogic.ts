@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { escapePath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export const PINNED_TOAST = 'Pinned to sidebar'
@@ -22,18 +22,6 @@ export function pinKey(type: string | undefined, refOrHref: string): string {
 
 export function pinTargetKey(target: PinTarget): string {
     return pinKey(target.type, target.ref ?? target.href ?? '')
-}
-
-export function fileSystemPinTarget(entry: FileSystemEntry | null): PinTarget | null {
-    if (!entry?.type || !entry.ref) {
-        return null
-    }
-    return {
-        type: entry.type.split('/')[0],
-        ref: entry.ref,
-        name: splitPath(entry.path).pop() || entry.path,
-        href: entry.href,
-    }
 }
 
 /** A chat pins on its task rather than as a shortcut, but its new pin slides in the same way. */

@@ -6,8 +6,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 
+import { fileSystemPinTarget } from './sidebar/fileSystemPinTarget'
 import { SidebarPinButton } from './sidebar/SidebarPinButton'
-import { fileSystemPinTarget } from './sidebar/sidebarPinsLogic'
 import { isTodayPaneEnabled } from './todayPaneFlags'
 import type { TodayRailPane } from './todayShellLogic'
 

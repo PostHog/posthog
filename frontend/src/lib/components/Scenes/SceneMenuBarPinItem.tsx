@@ -7,7 +7,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneMenuBarItem } from '~/layout/scenes/components/SceneMenuBar'
-import { fileSystemPinTarget, pinTargetKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
+import { fileSystemPinTarget } from '~/layout/today/sidebar/fileSystemPinTarget'
+import { pinTargetKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 
 import { sceneFileLogic } from './sceneFileLogic'
 

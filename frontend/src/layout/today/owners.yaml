@@ -13,5 +13,5 @@ rules:
           - '/todayPhoneTabsLogic.test.ts'
           - '/todayHelpMenuRedirectLogic.test.ts'
           - '/todayHome.ts'
-          - '/sidebar/sidebarPinsLogic.test.ts'
+          - '/sidebar/fileSystemPinTarget.test.ts'
       owners: platform-ux

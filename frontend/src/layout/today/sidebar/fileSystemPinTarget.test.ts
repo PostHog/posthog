@@ -1,6 +1,6 @@
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import { fileSystemPinTarget } from './sidebarPinsLogic'
+import { fileSystemPinTarget } from './fileSystemPinTarget'
 
 const entry = (overrides: Partial<FileSystemEntry>): FileSystemEntry =>
     ({
