@@ -6,7 +6,7 @@ import { summarizeValues } from '../filterDefinition'
 
 export type OperatorInput = 'list' | 'text' | 'number' | 'none'
 
-export interface OperatorOption {
+export type OperatorOption = {
     operator: PropertyOperator
     label: string
     input: OperatorInput
@@ -52,7 +52,7 @@ const DATE = [option(PropertyOperator.IsDateAfter, 'after'), option(PropertyOper
 
 const BOOLEAN = [option(PropertyOperator.Exact, 'is'), ...SET]
 
-/** The operators that fit a property's type. An unknown type is treated as text. */
+/** An unknown type is treated as text. */
 export function operatorsFor(type: PropertyType | null | undefined): OperatorOption[] {
     switch (type) {
         case PropertyType.Numeric:
@@ -66,7 +66,7 @@ export function operatorsFor(type: PropertyType | null | undefined): OperatorOpt
     }
 }
 
-export interface PropertyCondition {
+export type PropertyCondition = {
     operator: PropertyOperator
     value?: string[] | string | number
 }
@@ -84,7 +84,10 @@ export function isCompleteCondition(condition: PropertyCondition): boolean {
     return isOperatorFlag(condition.operator) || valuesOf(condition.value).length > 0
 }
 
-export function describeCondition(condition: PropertyCondition): { operator: string; value: string } {
-    const label = [...STRING, ...NUMERIC, ...DATE].find((candidate) => candidate.operator === condition.operator)?.label
+export function describeCondition(
+    condition: PropertyCondition,
+    options: OperatorOption[]
+): { operator: string; value: string } {
+    const label = options.find((candidate) => candidate.operator === condition.operator)?.label
     return { operator: label ?? condition.operator, value: summarizeValues(valuesOf(condition.value)) }
 }

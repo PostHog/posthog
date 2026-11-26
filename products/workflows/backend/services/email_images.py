@@ -8,17 +8,15 @@ import time
 import hashlib
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, wait
-from http.client import HTTPException
 from urllib.parse import urlsplit
 
-import requests
 import structlog
-from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from posthog.models import Team, User
 from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL, ObjectStorageUnavailable, UploadedMedia, sniff_image
 
 from products.workflows.backend.facade.contracts import EmailImageSource, ImageBudget
+from products.workflows.backend.services.remote_images import fetch_image
 
 logger = structlog.get_logger(__name__)
 
@@ -26,7 +24,6 @@ _AUTHORITY_END = re.compile(r"[/?#]")
 # Postgres refuses these in the copy's file name.
 _UNSTORABLE = re.compile("[\x00\ud800-\udfff]")
 _MAX_BYTES = 4 * 1024 * 1024
-_TIMEOUT_SECONDS = 10
 # The timeout above restarts with every byte, so a host that drips them needs a limit on the whole image.
 _MAX_SECONDS_PER_IMAGE = 30
 _DOWNLOAD_THREADS = 4
@@ -119,34 +116,10 @@ def copy_images(
 
 
 def _download(url: str, deadline: float) -> bytes | None:
-    deadline = min(deadline, time.monotonic() + _MAX_SECONDS_PER_IMAGE)
-    try:
-        with requests.get(
-            url,
-            timeout=_TIMEOUT_SECONDS,
-            allow_redirects=False,
-            stream=True,
-            headers={"Accept-Encoding": "identity"},
-        ) as response:
-            if response.status_code != 200:
-                logger.info("workflows.import.image_download_failed", status=response.status_code)
-                return None
-            # `read1` returns what one socket read gives, so a host that sends a byte at a time can't hold the
-            # thread past the deadline. A buffered read waits until it has the whole chunk.
-            read = getattr(getattr(response.raw, "_fp", None), "read1", None) or response.raw.read
-            content = b""
-            while True:
-                chunk = read(16 * 1024)
-                content += chunk
-                if len(content) > _MAX_BYTES or time.monotonic() > deadline:
-                    logger.info("workflows.import.image_download_failed", reason="too_large_or_slow")
-                    return None
-                if not chunk:
-                    return content
-    # The raw read raises socket and HTTP errors itself, outside what requests wraps.
-    except (requests.RequestException, OSError, HTTPException, Urllib3HTTPError) as error:
-        logger.info("workflows.import.image_download_failed", error=type(error).__name__)
-        return None
+    fetched = fetch_image(url, deadline=min(deadline, time.monotonic() + _MAX_SECONDS_PER_IMAGE), max_bytes=_MAX_BYTES)
+    if fetched.content is None:
+        logger.info("workflows.import.image_download_failed", status=fetched.status, reason=fetched.failure)
+    return fetched.content
 
 
 def _save(team: Team, user: User, name: str, content: bytes) -> UploadedMedia | None:

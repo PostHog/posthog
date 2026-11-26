@@ -7,6 +7,15 @@ import {
 
 type OfflineScorerConfig = Pick<OfflineScorerVersionReadApi, 'kind' | 'config'>
 
+export function boundedScorePercent(
+    value: number | null,
+    { min, max }: NumericScoreDefinitionConfigApi
+): number | null {
+    return value !== null && min != null && max != null && max > min && Number.isFinite(max - min)
+        ? 100 * ((value - min) / (max - min))
+        : null
+}
+
 export function offlineBooleanPolarity(scorer: OfflineScorerConfig): boolean | null {
     return scorer.kind === 'boolean' ? getBooleanConfig(scorer.config).true_is_failure === true : null
 }

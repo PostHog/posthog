@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync, utimesSync } from 'fs'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
+import type { AlertState } from '../alerts/alerts'
 import type { JournalEntry } from '../judge/judge'
 import type { MetricSample, QueueSample } from '../judge/measurements'
 import type { TruthSource } from '../judge/truth'
@@ -33,6 +34,16 @@ export type LiveRecord =
           writer: WriterSample[]
           journal: Pick<JournalEntry, 'unitId' | 'kind' | 'offeredAt' | 'answer' | 'expect'>[]
           truth: LiveTruth[]
+      }
+    | {
+          type: 'alert'
+          at: number
+          latest?: number
+          rule: string
+          instance: string
+          tier?: string
+          state: AlertState
+          value: number | null
       }
     | { type: 'end'; at: number; status: string; statusReason: string; stopped?: RunStop }
 

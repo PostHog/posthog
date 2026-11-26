@@ -818,6 +818,7 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
+                                click_tracking_enabled?: boolean | undefined
                                 inputs: Record<
                                     string,
                                     {
@@ -1772,6 +1773,7 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
+                                click_tracking_enabled?: boolean | undefined
                                 inputs: Record<
                                     string,
                                     {

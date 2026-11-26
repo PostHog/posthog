@@ -52,6 +52,27 @@ function measurementProperties(result: RunVerdict): Record<string, Property> {
     )
 }
 
+function alertProperties({ alerts }: RunVerdict): Record<string, Property> {
+    if (alerts === undefined) {
+        return {}
+    }
+    if ('unread' in alerts) {
+        return { alerts_unread: alerts.unread }
+    }
+    return {
+        alerts_evaluated: alerts.evaluated,
+        alerts_evaluated_count: alerts.evaluated.length,
+        alerts_fired: alerts.fired,
+        alerts_fired_count: alerts.fired.length,
+        alerts_unevaluable: alerts.unevaluable,
+        alerts_unevaluable_count: alerts.unevaluable.length,
+        alerts_excluded: alerts.excluded,
+        alerts_excluded_count: alerts.excluded.length,
+        alerts_gaps: alerts.gaps,
+        alerts_gaps_count: alerts.gaps.length,
+    }
+}
+
 type Readings = NonNullable<NonNullable<RunVerdict['ramp']>['readings']>[number]
 
 const barsOf = (readings: Readings | undefined): unknown[] | null =>
@@ -153,11 +174,12 @@ const pairProperties = ({
 
 export function scorecardOf(
     result: RunVerdict,
-    { card, profile, admission }: LoadedCard,
+    { card, profile, admission, seedSource }: LoadedCard,
     provenance: Provenance,
     pair?: ScorecardPair
 ): ScorecardProperties {
     const versions = [provenance.runnerVersion, provenance.generatorVersion, provenance.valvesVersion]
+    const { scale, scaleBasis } = profile
     const fingerprint = versions.includes(null)
         ? null
         : createHash('sha256')
@@ -175,6 +197,12 @@ export function scorecardOf(
         card_hash: result.cardHash,
         profile_name: profile.name,
         profile_hash: result.profileHash,
+        ...(scale !== undefined && { profile_scale: scale }),
+        ...(scale !== undefined &&
+            scaleBasis === 'measured_peak' && {
+                profile_load_description: `measured mix at 1/${2n ** BigInt(-Math.log2(scale))} of the observed peak`,
+            }),
+        ...(profile.synthetic && { profile_synthetic: profile.synthetic }),
         topology_hash: result.topologyHash ?? null,
         config_hash: result.configHash ?? null,
         service_versions: result.services ?? null,
@@ -189,6 +217,7 @@ export function scorecardOf(
         generator_version: provenance.generatorVersion,
         valves_version: provenance.valvesVersion,
         seed: card.seed,
+        seed_source: seedSource ?? 'card',
         status: result.status,
         status_reason: result.statusReason,
         ...(result.stopped && { stopped_phase: result.stopped.phase, stopped_stack: result.stopped.stack }),
@@ -209,6 +238,7 @@ export function scorecardOf(
         load_targets: admission.load?.derived.map(({ rate, from, share }) => ({ rate, from, share })) ?? null,
         bars: result.bars,
         valve_timeline: result.timeline,
+        ...alertProperties(result),
         role_restarts: result.restarts ?? [],
         evidence_dir: result.evidenceDir,
     }

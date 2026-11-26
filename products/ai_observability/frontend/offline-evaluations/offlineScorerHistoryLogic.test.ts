@@ -41,6 +41,27 @@ describe('offlineScorerHistoryLogic', () => {
         })
     })
 
+    it('loads all pinned versions when opening an experiment scorer and can return there after filtering', async () => {
+        jest.mocked(api.llmAnalyticsScoreDefinitionsRetrieve).mockResolvedValue({
+            ...OFFLINE_STORY_DEFINITION,
+            scope: 'experiment',
+        })
+        const props = { scorerId: OFFLINE_STORY_DEFINITION.id, teamId: 1 }
+        router.actions.push(urls.aiObservabilityOfflineScorerHistory(props.scorerId))
+        const logic = offlineScorerHistoryLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const history = jest.mocked(api.aiObservabilityOfflineScorersHistoryList)
+        expect(history.mock.lastCall?.[2]?.scorer_version_ids).toBeUndefined()
+        expect(logic.values.primaryPage?.count).toBe(150)
+        await expectLogic(logic, () =>
+            logic.actions.setFilters({ version: OFFLINE_STORY_VERSION.id })
+        ).toFinishAllListeners()
+        expect(history.mock.lastCall?.[2]?.scorer_version_ids).toEqual(OFFLINE_STORY_VERSION.id)
+        await expectLogic(logic, () => logic.actions.setFilters({ version: '' })).toFinishAllListeners()
+        expect(history.mock.lastCall?.[2]?.scorer_version_ids).toBeUndefined()
+    })
+
     it('restores breakdowns from the URL and resets pagination when they change', async () => {
         const props = { scorerId: OFFLINE_STORY_DEFINITION.id, teamId: 1 }
         router.actions.push(urls.aiObservabilityOfflineScorerHistory(props.scorerId), { breakdown: 'model_version' })

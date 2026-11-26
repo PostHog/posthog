@@ -1453,7 +1453,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert result["status"] == "created", result["validation_errors"]
         assert any("could not read this automation's messages" in note["message"] for note in result["notes"])
 
-    @patch("products.workflows.backend.services.email_images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_copies_customerio_email_images_into_the_media_library(self, mock_get: MagicMock) -> None:
         png = io.BytesIO()
         Image.new("RGB", (3, 2)).save(png, "PNG")
@@ -1570,7 +1570,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             ("deep_in_a_webhook_body", "<p>Hi</p>", r'{"a": ' + "[" * 250 + r'"\u0000"' + "]" * 250 + "}"),
         ]
     )
-    @patch("products.workflows.backend.services.email_images.requests.get", return_value=MagicMock(status_code=404))
+    @patch("products.workflows.backend.services.remote_images.requests.get", return_value=MagicMock(status_code=404))
     def test_a_character_postgres_refuses_stops_no_automation(
         self, _name: str, body: str, webhook_body: str, _mock_get: MagicMock
     ) -> None:
@@ -1630,7 +1630,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         image = "https://userimg-assets.customeriomail.com/images/client-env-1/slow.png"
         templates = {**source.templates, "11": {**source.templates["11"], "body": f'<img src="{image}">'}}
         with (
-            patch("products.workflows.backend.services.email_images.requests.get", return_value=response),
+            patch("products.workflows.backend.services.remote_images.requests.get", return_value=response),
             patch("products.workflows.backend.services.email_images.time.monotonic", lambda: time.time() + waited),
         ):
             self._import(
@@ -1642,7 +1642,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert UploadedMedia.objects.filter(team=self.team).exists() is copied
 
     @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
-    @patch("products.workflows.backend.services.email_images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_no_image_downloads_start_after_the_deadline(self, mock_get: MagicMock) -> None:
         source = _onboarding_campaign()
         image = "https://userimg-assets.customeriomail.com/images/client-env-1/late.png"
@@ -1661,7 +1661,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             ("a user without media access", ["*"], False),
         ]
     )
-    @patch("products.workflows.backend.services.email_images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_no_images_are_copied_without_media_access(
         self, _name: str, scopes: list[str], media_access: bool, mock_get: MagicMock
     ) -> None:

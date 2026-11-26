@@ -2,6 +2,8 @@ import { useMountedLogic, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
+import { PostHogErrorBoundary } from '@posthog/react'
+
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
@@ -33,6 +35,11 @@ import { sceneLogic } from './sceneLogic'
 
 const TerminalDock = lazyWithRetry(() =>
     import('./terminal/TerminalDock').then(({ TerminalDock }) => ({ default: TerminalDock }))
+)
+const AgentTranscriptRequest = lazyWithRetry(() =>
+    import('products/agent_transcripts/frontend/components/AgentTranscriptRequest').then(
+        ({ AgentTranscriptRequest }) => ({ default: AgentTranscriptRequest })
+    )
 )
 const importCommand = (): Promise<typeof import('lib/components/Command/Command')> =>
     import('lib/components/Command/Command')
@@ -111,6 +118,15 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 )}
                 <ImpersonationNoticeSlot />
                 <NewEventsTableBar />
+                {/* Only an organization in the experiment loads the card, and its logic decides whether it shows.
+                    The local boundary keeps a failed card chunk from reaching ChunkLoadErrorBoundary, which reloads the app. */}
+                {featureFlags[FEATURE_FLAGS.AGENT_TRANSCRIPT_REQUEST] && (
+                    <PostHogErrorBoundary fallback={<></>}>
+                        <Suspense fallback={null}>
+                            <AgentTranscriptRequest />
+                        </Suspense>
+                    </PostHogErrorBoundary>
+                )}
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST] === 'test' && (
                     <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />
                 )}

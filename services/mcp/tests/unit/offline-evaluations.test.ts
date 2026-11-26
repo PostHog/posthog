@@ -131,7 +131,7 @@ describe('offline evaluation MCP tools', () => {
             expect(request).toHaveBeenCalledExactlyOnceWith({
                 method: 'POST',
                 path: '/api/projects/17/llm_analytics/score_definitions/validate_composition/',
-                body,
+                body: { ...body, scope: 'item' },
             })
         }
     )

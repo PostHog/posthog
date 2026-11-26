@@ -112,6 +112,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "ISO 8601 timestamp of the last modification.",
         },
     },
+    "campaign_email_accounts": {
+        "description": "A sender email account attached to a campaign, which Smartlead rotates between when it sends the campaign's emails.",
+        "docs_url": "https://api.smartlead.ai/api-reference/campaigns/get-email-accounts",
+        "columns": {
+            "campaign_id": "ID of the campaign the email account is attached to.",
+            "id": "Email account ID, matching id in the email accounts table.",
+            "from_name": "Display name for outgoing emails.",
+            "from_email": "Email address the account sends from.",
+            "type": "Account type: SMTP, GMAIL, or OUTLOOK.",
+            "warmup_enabled": "Whether warmup is active for the account.",
+            "warmup_reputation": "Current warmup reputation of the account.",
+            "is_smtp_success": "Whether the SMTP connection is working.",
+            "is_imap_success": "Whether the IMAP connection is working.",
+        },
+    },
     "clients": {
         "description": "A whitelabel client sub-account under the main Smartlead account.",
         "docs_url": "https://api.smartlead.ai/api-reference/clients/get-all",
