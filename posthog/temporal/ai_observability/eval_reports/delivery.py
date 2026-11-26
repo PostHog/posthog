@@ -456,8 +456,7 @@ def deliver_slack_report(
     citation_map = _build_citation_map(content.citations)
     failures: list[SlackDeliveryFailure] = []
 
-    # The header block is plain text, which Slack still auto-links, so URLs in the evaluation name and the agent's
-    # title are defanged.
+    # Slack auto-links URLs even in the plain-text header, so the evaluation name and title are defanged.
     name = defang_urls(evaluation_name)
     header_text = f"{name}: {defang_urls(content.title)}" if content.title else f"Evaluation report: {name}"
     # Slack header blocks are limited to 150 chars, enforce that here.
