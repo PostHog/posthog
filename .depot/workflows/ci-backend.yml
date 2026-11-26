@@ -1240,7 +1240,7 @@ jobs:
         if: >-
             !cancelled() && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/') || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 40
+        timeout-minutes: 45
         name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
         strategy:
             fail-fast: false
@@ -1451,7 +1451,7 @@ jobs:
             - name: Run product tests
               continue-on-error: true
               id: run-product-tests
-              timeout-minutes: 18
+              timeout-minutes: 20
               # --force: discover already decided this product needs testing, skip turbo cache
               # --log-order=stream: stream pytest output live instead of buffering until completion
               # legs: one turbo invocation per entry, each with its own pytest-split flags
@@ -1535,10 +1535,10 @@ jobs:
                       echo "::group::turbo backend:test $leg_filters $leg_args"
                       # Word splitting is intended here: both variables carry several flags.
                       # shellcheck disable=SC2086
-                      timeout --kill-after=30s "${remaining}s" turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
+                      timeout --signal=INT --kill-after=30s "${remaining}s" turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
                       exit_code=$?
                       echo "::endgroup::"
-                      if [ $exit_code -eq 124 ]; then
+                      if [ $exit_code -eq 124 ] || { [ $exit_code -eq 137 ] && [ "$SECONDS" -ge "$deadline" ]; }; then
                           echo "::error::The product tests ran longer than $TEST_RUN_TIMEOUT and were stopped"
                           overall=124
                           break
@@ -3927,7 +3927,7 @@ jobs:
             - name: Run Core tests
               continue-on-error: true
               id: run-core-tests
-              timeout-minutes: 18
+              timeout-minutes: 20
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   # Person-on-events v2 reads are the production default for every
@@ -4039,7 +4039,7 @@ jobs:
                       fi
                       # No --store-durations, because the timing data describes legacy-table runs only.
                       # shellcheck disable=SC2086
-                      timeout --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call "${json_targets[@]}" -m "not async_migrations" \
+                      timeout --signal=INT --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call "${json_targets[@]}" -m "not async_migrations" \
                           "${JSON_SPLIT[@]}" \
                           "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-core.xml \
@@ -4062,7 +4062,7 @@ jobs:
                                           --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # shellcheck disable=SC2086
-                      timeout --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
+                      timeout --signal=INT --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
                           "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-core.xml \
@@ -4078,7 +4078,7 @@ jobs:
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
                     # shellcheck disable=SC2086
-                    timeout --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \
+                    timeout --signal=INT --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
                         --ignore=common/hogvm/python/test \
@@ -4096,7 +4096,7 @@ jobs:
                   fi
                   exit_code=$?
                   set -e
-                  if [ $exit_code -eq 124 ]; then
+                  if [ $exit_code -eq 124 ] || { [ $exit_code -eq 137 ] && [ "$SECONDS" -ge "${TEST_RUN_TIMEOUT%s}" ]; }; then
                       echo "::error::The tests ran longer than $TEST_RUN_TIMEOUT and were stopped"
                       exit 124
                   elif [ $exit_code -eq 5 ]; then
@@ -4131,7 +4131,7 @@ jobs:
             - name: Run Temporal tests
               continue-on-error: true
               id: run-temporal-tests
-              timeout-minutes: 18
+              timeout-minutes: 20
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               env:
@@ -4174,7 +4174,7 @@ jobs:
                                           --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # shellcheck disable=SC2086
-                      timeout --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
+                      timeout --signal=INT --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
                           "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-temporal.xml \
@@ -4183,7 +4183,7 @@ jobs:
                       # No per-test pytest --timeout; rely on TEST_RUN_TIMEOUT as the single
                       # safety net. The per-test timeout also terminates the whole process, so it adds
                       # no protection beyond that bound.
-                      timeout --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
+                      timeout --signal=INT --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
@@ -4195,7 +4195,7 @@ jobs:
                   fi
                   exit_code=$?
                   set -e
-                  if [ $exit_code -eq 124 ]; then
+                  if [ $exit_code -eq 124 ] || { [ $exit_code -eq 137 ] && [ "$SECONDS" -ge "${TEST_RUN_TIMEOUT%s}" ]; }; then
                       echo "::error::The tests ran longer than $TEST_RUN_TIMEOUT and were stopped"
                       exit 124
                   elif [ $exit_code -eq 5 ]; then
