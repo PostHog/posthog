@@ -10,11 +10,10 @@ import { ComingSoonInterestTag } from './comingSoon/ComingSoonInterestTag'
 import { SmtpInterestModal } from './comingSoon/SmtpInterestModal'
 import { SMTP_INTEREST_SURVEY } from './comingSoon/smtpInterestSurvey'
 import { useComingSoonInterestSurvey } from './comingSoon/useComingSoonInterestSurvey'
-import { TransactionalLog } from './log/TransactionalLog'
-import { TransactionalMetrics } from './metrics/TransactionalMetrics'
+import { TransactionalEmailLog } from './log/TransactionalEmailLog'
+import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalRoute, TransactionalTab } from './transactionalRoute'
-import { useTransactionalChannel, withTransactionalChannel } from './useTransactionalChannel'
 import { TransactionalWebhooks } from './webhooks/TransactionalWebhooks'
 
 export function TransactionalTabs({
@@ -27,7 +26,6 @@ export function TransactionalTabs({
     const smtpInterestLogic = comingSoonInterestLogic(useComingSoonInterestSurvey(SMTP_INTEREST_SURVEY))
     const { hasRecordedInterest } = useValues(smtpInterestLogic)
     const { registerInterest } = useActions(smtpInterestLogic)
-    const { channel } = useTransactionalChannel()
     const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics'
 
     return (
@@ -54,14 +52,14 @@ export function TransactionalTabs({
                     {
                         label: 'Log',
                         key: 'log',
-                        link: withTransactionalChannel(urls.transactionalLog(), channel),
-                        content: <TransactionalLog />,
+                        link: urls.transactionalLog(),
+                        content: <TransactionalEmailLog />,
                     },
                     {
                         label: 'Metrics',
                         key: 'metrics',
-                        link: withTransactionalChannel(urls.transactionalMetrics(), channel),
-                        content: <TransactionalMetrics />,
+                        link: urls.transactionalMetrics(),
+                        content: <TransactionalEmailMetrics />,
                     },
                     {
                         label: 'Templates',
