@@ -45,6 +45,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.recalculation.kill_switch import RECALCULATION_ENABLED_SETTING
 from products.experiments.backend.recalculation.payloads import build_job_payload, get_run_results
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
@@ -389,7 +390,7 @@ class TestRecalculationActivities(BaseTest):
             )
 
         first = _start() if started_before_pause else None
-        with override_instance_config("EXPERIMENTS_RECALCULATION_ENABLED", False):
+        with override_instance_config(RECALCULATION_ENABLED_SETTING, False):
             if started_before_pause:
                 assert _start() == first
             else:

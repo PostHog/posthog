@@ -32,6 +32,7 @@ from products.experiments.backend.recalculation.admission import (
     RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
     RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
 )
+from products.experiments.backend.recalculation.kill_switch import RECALCULATION_ENABLED_SETTING
 from products.experiments.backend.recalculation.payloads import RUN_ENTRY_HIDDEN_MESSAGE
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalculation.logic import (
@@ -377,7 +378,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             else None
         )
 
-        with override_instance_config("EXPERIMENTS_RECALCULATION_ENABLED", False):
+        with override_instance_config(RECALCULATION_ENABLED_SETTING, False):
             resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
 
         if active is not None:

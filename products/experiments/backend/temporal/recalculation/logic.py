@@ -233,8 +233,7 @@ def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:
 
 
 def _fail_pending_run_when_paused(recalculation_id: str) -> None:
-    # Only a run that never started fails. A retried start of a run that already started keeps going, so the
-    # calcs in flight finish. completed_at stays empty, so this run does not replace the latest results.
+    # Only a never-started run fails, so calcs in flight finish; an empty completed_at keeps the latest results.
     failed = (
         ExperimentMetricsRecalculation.objects.filter(
             id=recalculation_id,

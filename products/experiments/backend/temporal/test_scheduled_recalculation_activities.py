@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.instance_setting import override_instance_config
+from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.models.experiment import (
@@ -23,6 +23,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.recalculation.kill_switch import RECALCULATION_ENABLED_SETTING
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     SKIPPED_EVENT,
@@ -158,7 +159,7 @@ class TestScheduledRecalculationActivities(BaseTest):
         assert capture.call_args.kwargs["properties"]["hour"] == 12
 
     def test_discovery_returns_no_candidates_while_recalculation_is_paused(self):
-        with override_instance_config("EXPERIMENTS_RECALCULATION_ENABLED", False):
+        with override_instance_config(RECALCULATION_ENABLED_SETTING, False):
             discovery = _discover()
         assert discovery.hour == 12
         assert discovery.candidates == []
@@ -166,6 +167,8 @@ class TestScheduledRecalculationActivities(BaseTest):
     def test_discovery_query_count_does_not_grow_with_skips(self):
         # Covers the skipped events too: each one reads the team, organization and creator.
         def discovery_queries() -> int:
+            # Without this, only the first discovery reads the kill switch setting, and the counts differ by one.
+            get_instance_setting.cache_clear()  # type: ignore[attr-defined]
             with patch(f"{MODULE}.posthoganalytics.capture"), CaptureQueriesContext(connection) as queries:
                 _discover()
             return len(queries.captured_queries)
