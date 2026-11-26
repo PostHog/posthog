@@ -639,7 +639,10 @@ export const contentAutopilotSetupLogic = kea<contentAutopilotSetupLogicType>([
                 actions.finishFirstChecks()
                 return
             }
-            actions.loadSetupContext()
+            // A slow context read isn't stacked with more; the next tick after it lands asks again.
+            if (!values.setupContextLoading) {
+                actions.loadSetupContext()
+            }
         },
         loadSetupContextSuccess: ({ setupContext }) => {
             if (values.firstChecksWatching && setupContext && !setupContext.checks_running) {

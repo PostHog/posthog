@@ -195,6 +195,23 @@ describe('contentAutopilotSetupLogic', () => {
         expect(logic.values.wizardStep).toBe('results')
     })
 
+    it('does not ask for the context again while the last read is still in flight', async () => {
+        await expectLogic(logic).toDispatchActions(['loadSetupContextSuccess'])
+        const running = { ...CONTEXT, checks_running: true }
+        let release: (value: typeof running) => void = () => {}
+        jest.mocked(aeoSetupContext).mockClear()
+        jest.mocked(aeoSetupContext).mockImplementation(() => new Promise((resolve) => (release = resolve)))
+
+        logic.actions.pollFirstChecks(Date.now() + 60_000)
+        logic.actions.pollFirstChecks(Date.now() + 60_000)
+        expect(aeoSetupContext).toHaveBeenCalledTimes(1)
+
+        release(running)
+        await expectLogic(logic).toDispatchActions(['loadSetupContextSuccess'])
+        logic.actions.pollFirstChecks(Date.now() + 60_000)
+        expect(aeoSetupContext).toHaveBeenCalledTimes(2)
+    })
+
     it('cancelling setup keeps the step on what it saved instead of moving on', async () => {
         await expectLogic(logic).toDispatchActions(['loadSetupContextSuccess'])
         jest.mocked(aeoSetupCreate).mockResolvedValue({ id: 'job', status: 'pending', steps: [], error: '' })

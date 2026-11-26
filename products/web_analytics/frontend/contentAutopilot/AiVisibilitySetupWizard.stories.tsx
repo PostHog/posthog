@@ -8,6 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type { AEOPromptApi, AEOSetupContextApi, AEOSetupJobApi } from '../generated/api.schemas'
 import { AiVisibilitySetupWizard } from './AiVisibilitySetupWizard'
+import { ContentAutopilot } from './ContentAutopilot'
 import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 
@@ -165,9 +166,10 @@ export const Review: StoryFn = () => (
 Review.decorators = [mocks(CONFIGURED_CONTEXT)]
 Review.parameters = { testOptions: { waitForSelector: '[data-attr="ai-visibility-setup-review-keyword"]' } }
 
+// The scene shows the error in place of setup, since the wizard can't open without the context.
 export const ContextLoadError: StoryFn = () => (
     <Frame>
-        <AiVisibilitySetupWizard step="website" />
+        <ContentAutopilot />
     </Frame>
 )
 ContextLoadError.decorators = [

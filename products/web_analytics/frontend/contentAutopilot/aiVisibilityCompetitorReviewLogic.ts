@@ -44,6 +44,7 @@ export interface aiVisibilityCompetitorReviewLogicValues {
     candidates: AEOCompetitorCandidateApi[]
     confirming: boolean
     review: CompetitorReview | null
+    reviewFailed: boolean
     reviewLoading: boolean
     reviewShown: boolean
     search: string
@@ -113,7 +114,8 @@ export const aiVisibilityCompetitorReviewLogic = kea<aiVisibilityCompetitorRevie
     actions({
         toggleCandidate: (brandId: string, selected: boolean) => ({ brandId, selected }),
         setSearch: (search: string) => ({ search }),
-        /** Saves the selected brands as confirmed competitors, then calls `onSaved`. Nothing selected saves nothing. */
+        /** Saves the selected brands as confirmed competitors and the unticked suggestions as not competitors, then
+         * calls `onSaved`. */
         confirmSelected: (onSaved?: () => void) => ({ onSaved }),
         setConfirming: (confirming: boolean) => ({ confirming }),
         confirmSelectedSuccess: (brandIds: string[]) => ({ brandIds }),
@@ -154,6 +156,7 @@ export const aiVisibilityCompetitorReviewLogic = kea<aiVisibilityCompetitorRevie
             },
         ],
         confirming: [false, { setConfirming: (_, { confirming }) => confirming }],
+        reviewFailed: [false, { loadReview: () => false, loadReviewFailure: () => true }],
     }),
     selectors({
         visibleCandidates: [
@@ -206,16 +209,21 @@ export const aiVisibilityCompetitorReviewLogic = kea<aiVisibilityCompetitorRevie
             const selected = values.reviewShown
                 ? values.selectedIds.filter((id) => values.candidates.some((candidate) => candidate.brand_id === id))
                 : []
+            // A suggestion left unticked stops counting as a competitor, and stays for review in settings.
+            const unticked = values.reviewShown
+                ? (values.review?.suggestedIds ?? []).filter((id) => !selected.includes(id))
+                : []
             actions.setConfirming(true)
-            const results = await Promise.allSettled(
-                selected.map((brandId) =>
+            const results = await Promise.allSettled([
+                ...selected.map((brandId) =>
                     aeoBrandsPartialUpdate(teamId, brandId, { kind: 'competitor', status: 'confirmed' })
-                )
-            )
+                ),
+                ...unticked.map((brandId) => aeoBrandsPartialUpdate(teamId, brandId, { kind: 'unknown' })),
+            ])
             actions.setConfirming(false)
             const failed = results.filter((result) => result.status === 'rejected').length
             if (failed > 0) {
-                lemonToast.error(`Couldn't save ${failed} of your competitors. Try again.`)
+                lemonToast.error(`Couldn't save ${failed} of your competitor choices. Try again.`)
                 return
             }
             actions.confirmSelectedSuccess(selected)

@@ -16,6 +16,7 @@ import {
 
 import type { CheckFrequencyEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilitySetupCostPanel } from './AiVisibilitySetupCostPanel'
 import { aiVisibilitySetupReviewLogic } from './aiVisibilitySetupReviewLogic'
 import { AiVisibilitySetupRunPanel } from './AiVisibilitySetupRunPanel'
@@ -46,8 +47,10 @@ export const AiVisibilitySetupReviewStep = ({ onStartAgain }: { onStartAgain: ()
         promptsUpdating,
         keywordsUpdating,
         enginesUpdating,
+        promptsFailed,
+        keywordsFailed,
     } = useValues(aiVisibilitySetupReviewLogic)
-    const { togglePrompt, toggleKeyword, toggleEngine, setEngineFrequency, openAddPrompts } =
+    const { togglePrompt, toggleKeyword, toggleEngine, setEngineFrequency, openAddPrompts, loadPrompts, loadKeywords } =
         useActions(aiVisibilitySetupReviewLogic)
     const { setupContext, restarting, runInProgress, jobRunning, job } = useValues(contentAutopilotSetupLogic)
     const stepPending = (name: string): boolean =>
@@ -101,7 +104,11 @@ export const AiVisibilitySetupReviewStep = ({ onStartAgain }: { onStartAgain: ()
                                             size="sm"
                                             aria-label={`How often ${engineLabel(setting.engine)} checks`}
                                             disabledReason={
-                                                setting.enabled ? undefined : 'Turn the engine on to choose how often'
+                                                !setting.enabled
+                                                    ? 'Turn the engine on to choose how often'
+                                                    : enginesUpdating[setting.engine]
+                                                      ? 'Saving…'
+                                                      : undefined
                                             }
                                             data-attr="ai-visibility-setup-review-engine-frequency"
                                         >
@@ -187,6 +194,10 @@ export const AiVisibilitySetupReviewStep = ({ onStartAgain }: { onStartAgain: ()
                             <Text size="sm" variant="muted" render={<p className="m-0" />}>
                                 PostHog is writing your prompts. They show here once saved.
                             </Text>
+                        ) : promptsFailed ? (
+                            <AiVisibilityBanner type="error" action={{ children: 'Try again', onClick: loadPrompts }}>
+                                Your prompts didn't load.
+                            </AiVisibilityBanner>
                         ) : (
                             <Skeleton className="h-40 w-full" />
                         )}
@@ -222,6 +233,10 @@ export const AiVisibilitySetupReviewStep = ({ onStartAgain }: { onStartAgain: ()
                                         : 'No keywords yet. You can add them on the Keywords tab.'}
                                 </Text>
                             )
+                        ) : keywordsFailed ? (
+                            <AiVisibilityBanner type="error" action={{ children: 'Try again', onClick: loadKeywords }}>
+                                Your keywords didn't load.
+                            </AiVisibilityBanner>
                         ) : (
                             <Skeleton className="h-16 w-full" />
                         )}

@@ -394,7 +394,6 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
             lemonToast.success(promptImportMessage(result))
             actions.loadAeoPrompts()
             actions.loadSetupContext()
-            actions.loadSetupContext()
             // New prompts can bring new topics to the filter bar.
             contentAutopilotFilterBarLogic.findMounted()?.actions.loadPromptTopics()
         },

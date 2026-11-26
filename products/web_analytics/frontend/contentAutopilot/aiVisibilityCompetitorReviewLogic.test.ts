@@ -134,6 +134,34 @@ describe('aiVisibilityCompetitorReviewLogic', () => {
         expect(logic.values.confirming).toBe(false)
     })
 
+    it('saves an unticked suggestion as not a competitor, so rankings stop counting it', async () => {
+        suggestForum()
+        await mountLoaded()
+
+        logic.actions.toggleCandidate(CANDIDATES[1].brand_id, false)
+        const onSaved = jest.fn()
+        await expectLogic(logic, () => logic.actions.confirmSelected(onSaved)).toFinishAllListeners()
+
+        expect(jest.mocked(aeoBrandsPartialUpdate).mock.calls).toEqual([
+            [String(MOCK_DEFAULT_TEAM.id), CANDIDATES[1].brand_id, { kind: 'unknown' }],
+        ])
+        expect(onSaved).toHaveBeenCalledTimes(1)
+        expect(logic.values.confirming).toBe(false)
+    })
+
+    it('offers a retry when the review fails to load', async () => {
+        jest.mocked(aeoBrandsList).mockRejectedValueOnce(new Error('500'))
+        logic = aiVisibilityCompetitorReviewLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadReviewFailure'])
+        expect(logic.values.reviewFailed).toBe(true)
+
+        suggestForum()
+        await expectLogic(logic, () => logic.actions.loadReview()).toDispatchActions(['loadReviewSuccess'])
+        expect(logic.values.reviewFailed).toBe(false)
+        expect(logic.values.reviewShown).toBe(true)
+    })
+
     it('stays on the step when a competitor fails to save', async () => {
         suggestForum()
         jest.mocked(aeoBrandsPartialUpdate).mockRejectedValue(new Error('500'))

@@ -19,6 +19,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { AEOCompetitorCandidateApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
 import { AiVisibilityTable } from './AiVisibilityTable'
 
@@ -28,10 +29,19 @@ const COUNT_COLUMN_CLASS = 'hidden @lg/ai-visibility-table:table-cell'
 
 /** On First results, the brands the answers named, to pick competitors from. Leaving the step saves the picks. */
 export const AiVisibilityCompetitorReview = (): JSX.Element | null => {
-    const { reviewShown, visibleCandidates, search, selectedIds, confirming } = useValues(
+    const { reviewShown, reviewFailed, visibleCandidates, search, selectedIds, confirming } = useValues(
         aiVisibilityCompetitorReviewLogic
     )
-    const { toggleCandidate, setSearch } = useActions(aiVisibilityCompetitorReviewLogic)
+    const { toggleCandidate, setSearch, loadReview } = useActions(aiVisibilityCompetitorReviewLogic)
+
+    if (reviewFailed) {
+        // The suggestions stay saved as suggested, so leaving the step without them loses nothing.
+        return (
+            <AiVisibilityBanner type="error" action={{ children: 'Try again', onClick: loadReview }}>
+                Your suggested competitors didn't load. You can also review them later in settings.
+            </AiVisibilityBanner>
+        )
+    }
 
     // The step is optional, so it takes no space until the project is known to need it.
     if (!reviewShown) {

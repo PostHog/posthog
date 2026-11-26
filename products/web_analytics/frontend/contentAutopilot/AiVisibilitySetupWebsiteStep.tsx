@@ -9,31 +9,10 @@ import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 
 export const AiVisibilitySetupWebsiteStep = (): JSX.Element => {
     const id = useId()
-    const {
-        setupContext,
-        setupContextLoading,
-        setupContextError,
-        domain,
-        websiteHint,
-        startDisabledReason,
-        consentMissing,
-        starting,
-        startError,
-    } = useValues(contentAutopilotSetupLogic)
-    const { setDomain, loadSetupContext, startSetup } = useActions(contentAutopilotSetupLogic)
+    const { setupContext, domain, websiteHint, startDisabledReason, consentMissing, starting, startError } =
+        useValues(contentAutopilotSetupLogic)
+    const { setDomain, startSetup } = useActions(contentAutopilotSetupLogic)
 
-    if (setupContextError && !setupContext) {
-        return (
-            <div data-attr="content-autopilot-setup-context-error">
-                <AiVisibilityBanner
-                    type="error"
-                    action={{ children: 'Try again', onClick: loadSetupContext, loading: setupContextLoading }}
-                >
-                    Couldn't load setup. Try again, and if it keeps happening contact support.
-                </AiVisibilityBanner>
-            </div>
-        )
-    }
     if (!setupContext) {
         return <Skeleton className="h-64 w-full" />
     }

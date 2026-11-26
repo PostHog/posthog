@@ -13,7 +13,7 @@ export const AiVisibilitySetupResultsStep = (): JSX.Element => {
     const { hasCurrentChecks, starting, firstRunDisabledReason } = useValues(contentAutopilotSetupLogic)
     const { setWizardStep, startFirstRun } = useActions(contentAutopilotSetupLogic)
     const { loadPromptSetOverview } = useActions(contentAutopilotPromptsOverviewLogic)
-    const { confirming } = useValues(aiVisibilityCompetitorReviewLogic)
+    const { confirming, reviewLoading } = useValues(aiVisibilityCompetitorReviewLogic)
     const { confirmSelected } = useActions(aiVisibilityCompetitorReviewLogic)
     const hasChecks = hasCurrentChecks
 
@@ -57,6 +57,8 @@ export const AiVisibilitySetupResultsStep = (): JSX.Element => {
                     // The competitors selected above are saved as confirmed, so setup needs no other step.
                     onClick={() => (hasChecks ? confirmSelected(finish) : finish())}
                     loading={confirming}
+                    // Leaving saves the selection, so it waits until there is one to save.
+                    disabledReason={hasChecks && reviewLoading ? 'Loading your competitors…' : undefined}
                     // pinned: data-attr values are API for autocapture dashboards
                     data-attr="ai-visibility-first-results-dismiss"
                 >

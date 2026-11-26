@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AI_VISIBILITY_TAB_FILTERS, type AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
@@ -36,8 +37,9 @@ export const ContentAutopilot = (): JSX.Element => {
     // Mounted here, so a prompt's own URL opens it whatever tab was last open.
     const { promptId } = useValues(contentAutopilotPromptDetailLogic)
     const { workspaceTab } = useValues(contentAutopilotLogic)
-    const { onboarding } = useValues(contentAutopilotSetupLogic)
+    const { onboarding, setupContext, setupContextError, setupContextLoading } = useValues(contentAutopilotSetupLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { loadSetupContext } = useActions(contentAutopilotSetupLogic)
 
     const tabs: ContentAutopilotWorkspaceTabDefinition[] = [
         {
@@ -89,6 +91,16 @@ export const ContentAutopilot = (): JSX.Element => {
         <div className="flex flex-col gap-4 pb-4" data-quill>
             {promptId ? (
                 <ContentAutopilotPromptDetail />
+            ) : setupContextError && !setupContext ? (
+                // Without the context neither the setup wizard nor the overview can tell what to show.
+                <div data-attr="content-autopilot-setup-context-error">
+                    <AiVisibilityBanner
+                        type="error"
+                        action={{ children: 'Try again', onClick: loadSetupContext, loading: setupContextLoading }}
+                    >
+                        Couldn't load AI visibility. Try again, and if it keeps happening contact support.
+                    </AiVisibilityBanner>
+                </div>
             ) : onboarding && workspaceTab === 'overview' ? (
                 // Setup runs as a wizard in place of the tabs, until the first results are in.
                 <ContentAutopilotPromptsOverview />

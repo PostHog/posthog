@@ -27,8 +27,12 @@ export const saveBrand = async (
         if (!(error instanceof ApiError) || error.status !== 400) {
             throw error
         }
-        const matches = await aeoBrandsList(teamId, { search: bare, limit: 20 })
-        const existing = matches.results.find((brand) => brand.domain === bare)
+        // The API stores the registrable domain, so docs.example.com can clash with example.com. Each candidate
+        // contains the last two labels, and the longest domain that the input ends with is the one that clashed.
+        const matches = await aeoBrandsList(teamId, { search: bare.split('.').slice(-2).join('.'), limit: 100 })
+        const existing = matches.results
+            .filter((brand) => bare === brand.domain || bare.endsWith(`.${brand.domain}`))
+            .sort((a, b) => b.domain.length - a.domain.length)[0]
         if (!existing) {
             throw error
         }

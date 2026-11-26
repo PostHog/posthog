@@ -64,10 +64,12 @@ export interface aiVisibilitySetupReviewLogicValues {
     engines: AEOEngineSettingApi[]
     enginesUpdating: Record<string, boolean>
     keywordRows: ReviewKeyword[]
+    keywordsFailed: boolean
     keywordsUpdating: Record<string, boolean>
     loadedKeywords: AEOKeywordApi[] | null
     loadedKeywordsLoading: boolean
     prompts: AEOPromptApi[] | null
+    promptsFailed: boolean
     promptsLoading: boolean
     promptsUpdating: Record<string, boolean>
 }
@@ -216,6 +218,8 @@ export const aiVisibilitySetupReviewLogic = kea<aiVisibilitySetupReviewLogicType
             togglePrompt: (state, { promptId, active }) => withActive(state, promptId, active),
             togglePromptFailure: (state, { promptId, active }) => withActive(state, promptId, !active),
         },
+        promptsFailed: [false, { loadPrompts: () => false, loadPromptsFailure: () => true }],
+        keywordsFailed: [false, { loadKeywords: () => false, loadKeywordsFailure: () => true }],
         keywordRows: [
             [] as ReviewKeyword[],
             { loadKeywordsSuccess: (state, { loadedKeywords }) => mergeKeywordRows(state, loadedKeywords) },
