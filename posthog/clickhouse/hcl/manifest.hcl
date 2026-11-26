@@ -170,7 +170,7 @@ role "ingestion_events" {
 # is modeled. The events_json storage stays on the local data node, so it holds only the
 # read tables that queries for projects on events_json need there.
 role "events" {
-  env "local-multi" { layers = ["roles/coshared/web_dimensional_by_day", "roles/events/local"] }
+  env "local-multi" { layers = ["roles/shared/web_dimensional_columns.hcl", "roles/coshared/web_dimensional_by_day", "roles/events/local"] }
 }
 
 role "ingestion_small" {
