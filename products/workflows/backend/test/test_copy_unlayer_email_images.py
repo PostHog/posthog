@@ -23,7 +23,7 @@ from products.messaging.backend.facade.testing import (
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
-from products.workflows.backend.services.unlayer_images import find_sources, replace_in_blob
+from products.workflows.backend.services.unlayer_images import find_source_keys, replace_in_blob
 
 BANNER = "https://assets.unlayer.com/projects/275430/1712000000000-banner.png"
 SANDBOX = "https://assets.unlayer.com/projects/0/1690000000000-logo.png"
@@ -115,7 +115,7 @@ class TestReplaceInBlob(SimpleTestCase):
         ]
     )
     def test_collects_only_real_addresses_from_a_text_value(self, _name: str, text: str, keys: list[str]) -> None:
-        assert [key for _, key in find_sources(text)] == keys
+        assert find_source_keys(text) == keys
 
     def test_an_encoded_space_and_a_literal_space_are_one_file(self) -> None:
         key = "https://assets.unlayer.com/projects/0/1-my%20logo.png"

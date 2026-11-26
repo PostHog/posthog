@@ -131,17 +131,17 @@ def source_key(url: str) -> str | None:
     return f"https://{UNLAYER_HOST}{path}"
 
 
-def find_sources(text: str) -> list[tuple[str, str]]:
-    """Each Unlayer image address in `text`, as written and as its source key."""
+def find_source_keys(text: str) -> list[str]:
+    """The source key of each Unlayer image address in `text`, once per occurrence."""
     if (key := _whole_value_key(text)) is not None:
-        return [(text.strip(), key)]
-    found = []
+        return [key]
+    keys = []
     for match in _UNLAYER_URL.finditer(text):
         url = _trimmed(match.group(0))
         key = source_key(url) if url is not None else None
-        if url is not None and key is not None:
-            found.append((url, key))
-    return found
+        if key is not None:
+            keys.append(key)
+    return keys
 
 
 def _whole_value_key(value: str) -> str | None:
@@ -200,7 +200,7 @@ def count_sources(blob: Any, keys: set[str]) -> int:
         nonlocal total
         if isinstance(value, str):
             if UNLAYER_HOST in value.lower():
-                for _, key in find_sources(value):
+                for key in find_source_keys(value):
                     keys.add(key)
                     total += 1
         elif isinstance(value, list):
