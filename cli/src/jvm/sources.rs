@@ -304,7 +304,6 @@ mod tests {
             "app/src/main/java/com/acme/build/Tool.java",
             "package com.acme.build;\n",
         );
-        // Two modules with the same class but different code: no frame can tell them apart.
         write(
             root,
             "a/src/main/java/com/acme/Clash.java",
@@ -315,7 +314,6 @@ mod tests {
             "b/src/main/java/com/acme/Clash.java",
             "package com.acme;\nclass Clash { int b; }\n",
         );
-        // Identical copies are not ambiguous.
         write(
             root,
             "a/src/main/java/com/acme/Same.java",

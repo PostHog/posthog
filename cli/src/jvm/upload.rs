@@ -21,8 +21,6 @@ use crate::{
     },
 };
 
-// PostHog reads a symbol set only when its contents decompress to at most 512 MiB. Many similar
-// source files compress well, so a bundle can be under the upload limit and still be above this one.
 const MAX_DECOMPRESSED_SIZE: usize = 512 * 1024 * 1024;
 
 #[derive(clap::Args, Clone)]
