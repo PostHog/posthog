@@ -324,6 +324,8 @@ def queried_access_controlled_resources(
             # AnalyticsQueryRunner._get_object_access_restrictions.
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
+            # Rows that reference a `posthog.*` product table are hidden from callers denied its resource.
+            scopes |= set(access_controlled_posthog_tables().values())
 
         # The data-quality information_schema tables are gated on warehouse read access, and their
         # rows are hidden per the caller's warehouse-object denials (the loaders drop a
@@ -335,6 +337,7 @@ def queried_access_controlled_resources(
             scopes.add("data_catalog")
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
+            scopes |= set(access_controlled_posthog_tables().values())
 
         # Connection-scoped queries read the external source's upstream data directly. Their tables
         # are virtual (named by ExternalDataSchema.name) or physical direct rows, which the
