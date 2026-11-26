@@ -204,8 +204,19 @@ class MessageTooLargeError extends Error {
     }
 }
 
+class SesNotReachedError extends Error {
+    constructor(message: string) {
+        super(`Failed to send email via SES: SES could not be reached (${message}), so the email was not sent`)
+        this.name = 'SesNotReachedError'
+    }
+}
+
 const isAttachmentLoadFailure = (error: unknown): boolean =>
     error instanceof AttachmentStoreUnavailableError || error instanceof EmailSendDeadlineError
+
+// The send never reached SES, so a later try cannot send the email twice. These retries share one budget.
+const isRetryableBeforeSes = (error: unknown): boolean =>
+    isAttachmentLoadFailure(error) || error instanceof SesNotReachedError
 
 const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
     invocation.queueMetadata?.attachmentLoadRetries ?? 0
@@ -285,6 +296,8 @@ function notSentError(outcome: SesSendOutcomeOf<'not_sent'>): Error {
             return new SESThrottleError(outcome.errorName, pickThrottleRetryDelayMs(), outcome.message)
         case 'before_deadline':
             return new EmailSendDeadlineError(outcome.cause)
+        case 'before_connect':
+            return new SesNotReachedError(outcome.message)
     }
 }
 
@@ -982,7 +995,7 @@ export class EmailService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else if (
-                isAttachmentLoadFailure(error) &&
+                isRetryableBeforeSes(error) &&
                 !isTest &&
                 attachmentLoadRetries(invocation) < MAX_ATTACHMENT_LOAD_RETRIES
             ) {

@@ -1,4 +1,5 @@
 import { SESv2Client, SESv2ClientConfig, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { Counter, Histogram } from 'prom-client'
 
 import { LoadedAttachment, settleBeforeAbortEvenWhileCredentialsStall } from './attachment-store'
@@ -40,10 +41,15 @@ const SES_REFUSAL_NAMES = [
 ] as const
 export type SesRefusalName = (typeof SES_REFUSAL_NAMES)[number]
 
+// DNS and TCP connect errors. Each one means that the request never left this worker.
+const ERRORS_BEFORE_CONNECT = ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED'] as const
+type ErrorBeforeConnect = (typeof ERRORS_BEFORE_CONNECT)[number]
+
 export type SesSendOutcome =
     | { kind: 'accepted'; messageId: string }
     | { kind: 'not_sent'; reason: 'throttled'; errorName: SesThrottleErrorName; message: string }
     | { kind: 'not_sent'; reason: 'before_deadline'; cause: unknown }
+    | { kind: 'not_sent'; reason: 'before_connect'; code: ErrorBeforeConnect; message: string }
     | { kind: 'refused'; errorName: SesRefusalName; message: string }
     | { kind: 'unknown'; message: string }
 
@@ -53,10 +59,28 @@ export type SesSendOutcomeOf<K extends SesSendOutcomeKind> = Extract<SesSendOutc
 
 type SendKind = 'plain' | 'files'
 
+type SendPolicy = {
+    client: () => Partial<SESv2ClientConfig>
+    withFilesLabel: 'true' | 'false'
+    connectErrorsAreNotSent: boolean
+}
+
+// A send with files takes long enough that SES can take the email and its answer can get lost, for example in a
+// reset or a 5xx after SES recorded it. An SDK retry then sends the email a second time. So the files client
+// makes one attempt, on a new connection that no earlier request used, and only an error from before the connect
+// counts as not sent. The agent options keep the SDK's own socket cap, because they are merged into its defaults.
 const SEND_POLICIES = {
-    plain: { client: {}, withFilesLabel: 'false' },
-    files: { client: {}, withFilesLabel: 'true' },
-} satisfies Record<SendKind, { client: Partial<SESv2ClientConfig>; withFilesLabel: 'true' | 'false' }>
+    plain: { client: () => ({}), withFilesLabel: 'false', connectErrorsAreNotSent: false },
+    files: {
+        client: () => ({
+            maxAttempts: 1,
+            retryStrategy: undefined,
+            requestHandler: new NodeHttpHandler({ httpAgent: { keepAlive: false }, httpsAgent: { keepAlive: false } }),
+        }),
+        withFilesLabel: 'true',
+        connectErrorsAreNotSent: true,
+    },
+} satisfies Record<SendKind, SendPolicy>
 
 const MAY_HAVE_SENT_BEFORE_DEADLINE =
     'SES did not answer before the send deadline. It may have sent the email, so it is not sent again.'
@@ -96,11 +120,25 @@ function sendResultLabel(error: unknown): string {
     return isOneOf(SES_REFUSAL_NAMES, name) || name === 'TimeoutError' ? name : 'other'
 }
 
-function failureOf(error: unknown, deadline: AbortSignal | undefined, mayHaveReachedSes: boolean): SesSendOutcome {
+const codeOf = (error: unknown): string | undefined => {
+    const code = (error as { code?: unknown } | null | undefined)?.code
+    return typeof code === 'string' ? code : undefined
+}
+
+function failureOf(
+    error: unknown,
+    policy: SendPolicy,
+    deadline: AbortSignal | undefined,
+    attempts: SendAttempts
+): SesSendOutcome {
     if (deadline?.aborted) {
-        return mayHaveReachedSes
+        return attempts.sesMayHaveAccepted()
             ? { kind: 'unknown', message: MAY_HAVE_SENT_BEFORE_DEADLINE }
             : { kind: 'not_sent', reason: 'before_deadline', cause: error }
+    }
+    const errorBeforeConnect = attempts.lastErrorBeforeConnect()
+    if (policy.connectErrorsAreNotSent && errorBeforeConnect) {
+        return { kind: 'not_sent', reason: 'before_connect', code: errorBeforeConnect, message: messageOf(error) }
     }
     const name = errorNameOf(error)
     if (isOneOf(SES_THROTTLE_ERROR_NAMES, name)) {
@@ -122,20 +160,41 @@ const sesRefused = (response: unknown): boolean => {
     return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
 }
 
-function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
+type SendAttempts = {
+    sesMayHaveAccepted: () => boolean
+    lastErrorBeforeConnect: () => ErrorBeforeConnect | undefined
+}
+
+function trackAttempts(command: SendEmailCommand): SendAttempts {
     let attemptsSesMayHaveAccepted = 0
+    let lastErrorBeforeConnect: ErrorBeforeConnect | undefined
     command.middlewareStack.add(
         (next) => async (args) => {
             attemptsSesMayHaveAccepted++
-            const httpAnswer = await next(args)
-            if (sesRefused(httpAnswer.response)) {
-                attemptsSesMayHaveAccepted--
+            lastErrorBeforeConnect = undefined
+            try {
+                const httpAnswer = await next(args)
+                if (sesRefused(httpAnswer.response)) {
+                    attemptsSesMayHaveAccepted--
+                }
+                return httpAnswer
+            } catch (error) {
+                // The code is read here, beneath the SDK's retry step. That step replaces an error that fails
+                // `instanceof Error`, such as one from another realm in a test, with a copy that has no code.
+                const code = codeOf(error)
+                if (isOneOf(ERRORS_BEFORE_CONNECT, code)) {
+                    attemptsSesMayHaveAccepted--
+                    lastErrorBeforeConnect = code
+                }
+                throw error
             }
-            return httpAnswer
         },
-        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
+        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttempts' }
     )
-    return () => attemptsSesMayHaveAccepted > 0
+    return {
+        sesMayHaveAccepted: () => attemptsSesMayHaveAccepted > 0,
+        lastErrorBeforeConnect: () => lastErrorBeforeConnect,
+    }
 }
 
 function withAttachments(email: SesEmail, files: LoadedAttachment[]): SesEmail {
@@ -158,8 +217,8 @@ export class SesTransport {
 
     constructor(options: SesClientOptions) {
         this.clients = {
-            plain: new SESv2Client({ ...SEND_POLICIES.plain.client, ...options }),
-            files: new SESv2Client({ ...SEND_POLICIES.files.client, ...options }),
+            plain: new SESv2Client({ ...options, ...SEND_POLICIES.plain.client() }),
+            files: new SESv2Client({ ...options, ...SEND_POLICIES.files.client() }),
         }
     }
 
@@ -167,7 +226,7 @@ export class SesTransport {
         const kind: SendKind = 'files' in send ? 'files' : 'plain'
         const deadline = 'files' in send ? send.deadline : undefined
         const command = new SendEmailCommand('files' in send ? withAttachments(send.email, send.files) : send.email)
-        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command)
+        const attempts = trackAttempts(command)
         const startedAt = performance.now()
         const observeDuration = (result: 'success' | 'error'): void =>
             sesSendDurationMs
@@ -189,7 +248,7 @@ export class SesTransport {
         } catch (error: unknown) {
             observeDuration('error')
             sesSendResultsTotal.inc({ result: sendResultLabel(error) })
-            return failureOf(error, deadline, anAttemptSesMayHaveAccepted())
+            return failureOf(error, SEND_POLICIES[kind], deadline, attempts)
         }
     }
 
