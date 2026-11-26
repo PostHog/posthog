@@ -22,15 +22,10 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.conversations.backend.models import Ticket
-from products.growth.backend.api.posthog_support import PostHogSupportDraftCreateSerializer
-from products.growth.backend.posthog_support import (
-    SUPPORT_PANEL_URL,
-    SupportDraftStore,
-    TicketPermission,
-    TicketTopic,
-    check_ticket_permission,
-)
+from products.growth.backend.facade.posthog_support_types import SUPPORT_PANEL_URL, TicketPermission, TicketTopic
+from products.growth.backend.posthog_support import SupportDraftStore, check_ticket_permission
 from products.growth.backend.posthog_support_widget import PostHogSupportWidgetClient, SupportWidgetTarget
+from products.growth.backend.presentation.views.posthog_support import PostHogSupportDraftCreateSerializer
 
 DRAFT_BODY = {
     "title": "Test events from staging in the live project",
@@ -178,6 +173,32 @@ class TestPostHogSupportSend(APIBaseTest):
             f"Why it was drafted: Only PostHog staff can do or see what the person needs.\n"
             f"Organization id: {self.organization.id}\nProject id: {self.team.id}\nDraft id: {draft['id']}"
         )
+
+    @patch("posthoganalytics.capture")
+    def test_each_outcome_reports_one_event_and_repeats_report_none(self, capture: MagicMock) -> None:
+        not_sent_draft = self._create_draft()
+        sent_draft = self._create_draft()
+
+        self.client.post(f"{self.base}/drafts/", {**DRAFT_BODY, "topic": "other"}, format="json")
+        with responses.RequestsMock() as widget:
+            widget.add(responses.POST, WIDGET_URL, status=403, json={"error": "Origin not allowed"})
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
+            self.client.post(f"{self.base}/drafts/{not_sent_draft['id']}/send/")
+            self.client.post(f"{self.base}/drafts/{sent_draft['id']}/send/")
+            self.client.post(f"{self.base}/drafts/{sent_draft['id']}/send/")
+        self.client.post(f"{self.base}/drafts/{TICKET_ID}/send/")
+
+        events = [
+            (call.kwargs["event"], call.kwargs["properties"].get("reason"), call.kwargs["properties"].get("draft_id"))
+            for call in capture.call_args_list
+            if call.kwargs.get("event", "").startswith("posthog support draft")
+            and call.kwargs["event"] != "posthog support draft created"
+        ]
+        assert events == [
+            ("posthog support draft refused", "topic_excluded", None),
+            ("posthog support draft send failed", "not_sent", not_sent_draft["id"]),
+            ("posthog support draft submitted", None, sent_draft["id"]),
+        ]
 
     def test_an_mcp_ticket_reaches_support_unverified_and_marked_as_mcp(self) -> None:
         self.team.conversations_enabled = True

@@ -10,10 +10,8 @@ import re
 import time
 import uuid
 from dataclasses import asdict
-from enum import StrEnum
 
 from django.core.cache import caches
-from django.db import models
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
@@ -25,16 +23,28 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.growth.backend.posthog_support_widget import SentSupportTicket
+from products.growth.backend.facade.posthog_support_types import (
+    MAX_SEND_ATTEMPTS,
+    MAX_TICKETS_PER_TOPIC,
+    DraftedVia,
+    DraftRefusal,
+    FilingReason,
+    SendFailure,
+    TicketPermission,
+    TicketTopic,
+)
+from products.growth.backend.posthog_support_widget import (
+    PostHogSupportWidgetClient,
+    SentSupportTicket,
+    SupportTicketNotSent,
+    SupportTicketOutcomeUnknown,
+    resolve_support_widget_target,
+)
 
 from ee.billing.billing_manager import BillingManager
 
 DRAFT_TTL_SECONDS = 24 * 60 * 60
-MAX_SEND_ATTEMPTS = 4
-MAX_TICKETS_PER_TOPIC = 3
 TOPIC_WINDOW_SECONDS = 72 * 60 * 60
-# Redirects to the person's own region
-SUPPORT_PANEL_URL = "https://app.posthog.com/home#panel=support"
 NEW_ORGANIZATION_SUPPORT_MONTHS = 3
 SUPPORT_TRIAL_TARGETS = frozenset({"boost", "scale", "enterprise"})
 BILLING_TIMEOUT_SECONDS = (3.0, 5.0)
@@ -43,48 +53,7 @@ BILLING_TIMEOUT_SECONDS = (3.0, 5.0)
 SECTION_SEPARATOR = "\n\n---\n\n"
 
 
-class FilingReason(models.TextChoices):
-    # Each reason starts from what the person wants or what only PostHog can see, never from the
-    # agent's own diagnosis, so an agent cannot file just because it decided the bug is ours.
-    USER_ASKED_FOR_SUPPORT = "user_asked_for_support", "The person asked to contact PostHog support"
-    NEEDS_POSTHOG_STAFF = "needs_posthog_staff", "Only PostHog staff can do or see what the person needs"
-    UNEXPLAINED_ERROR = "unexplained_error", "A reproducible error the agent confirmed but cannot explain"
-    USER_DISAGREES_WITH_AGENT = "user_disagrees_with_agent", "The person disagrees with the agent's answer"
-
-
-# The person already got an answer, so support needs to see that answer to settle the disagreement.
-ANSWERED_FILING_REASONS = frozenset({FilingReason.USER_ASKED_FOR_SUPPORT, FilingReason.USER_DISAGREES_WITH_AGENT})
-
-
-class TicketTopic(models.TextChoices):
-    PRIVACY = "privacy", "Privacy"
-    SECURITY = "security", "Security"
-    COMPLIANCE = "compliance", "Compliance"
-    RETENTION = "retention", "Data retention"
-    DPA = "dpa", "Data processing agreement (DPA)"
-    BAA = "baa", "Business associate agreement (BAA)"
-    PRIVACY_OR_SECURITY_DELETION = (
-        "privacy_or_security_deletion",
-        "Deleting data for a privacy or security reason",
-    )
-    OTHER_DELETION = "other_deletion", "Deleting data for another reason"
-    BILLING = "billing", "Billing or usage"
-    OTHER = "other", "Anything else"
-
-
 ANY_PLAN_TOPICS = frozenset({TicketTopic.BILLING, TicketTopic.PRIVACY_OR_SECURITY_DELETION})
-
-
-class DraftedVia(models.TextChoices):
-    MCP = "mcp", "Drafted by an AI agent through the PostHog MCP"
-    API = "api", "Drafted through the PostHog API"
-
-
-class TicketPermission(StrEnum):
-    ALLOWED = "allowed"
-    PLAN_EXCLUDES_SUPPORT = "plan_excludes_support"
-    PLAN_UNKNOWN = "plan_unknown"
-    TOPIC_EXCLUDED = "topic_excluded"
 
 
 def _check_plan(organization: Organization, user: User) -> TicketPermission:
@@ -231,7 +200,13 @@ class SupportDraftStore:
             mcp_session_id=mcp_session_id,
             mcp_conversation_id=mcp_conversation_id,
         )
-        self._cache.set(self._key(draft.id), {**asdict(draft), "topic": topic.value}, DRAFT_TTL_SECONDS)
+        stored = {
+            **asdict(draft),
+            "topic": topic.value,
+            "filing_reason": filing_reason.value,
+            "drafted_via": drafted_via.value,
+        }
+        self._cache.set(self._key(draft.id), stored, DRAFT_TTL_SECONDS)
         return draft
 
     def get(self, draft_id: str) -> SupportTicketDraft | None:
@@ -243,10 +218,9 @@ class SupportDraftStore:
             id=stored["id"],
             message=stored["message"],
             topic=TicketTopic(stored["topic"]),
-            filing_reason=stored["filing_reason"],
+            filing_reason=FilingReason(stored["filing_reason"]),
             expires_at=stored["expires_at"],
-            # A draft saved before this field existed keeps the note it was created with, which named the MCP
-            drafted_via=stored.get("drafted_via", DraftedVia.MCP),
+            drafted_via=DraftedVia(stored["drafted_via"]),
             mcp_session_id=stored.get("mcp_session_id"),
             mcp_conversation_id=stored.get("mcp_conversation_id"),
         )
@@ -299,3 +273,83 @@ class SupportDraftStore:
 
     def _key(self, draft_id: str) -> str:
         return f"posthog_support_draft:{self._owner}:{draft_id}"
+
+
+@frozen
+class DraftOutcome:
+    permission: TicketPermission
+    draft: SupportTicketDraft | None = None
+    refusal: DraftRefusal | None = None
+
+
+@frozen
+class SendOutcome:
+    draft: SupportTicketDraft | None = None
+    ticket: SentSupportTicket | None = None
+    failure: SendFailure | None = None
+    replayed: bool = False
+
+
+def create_draft(
+    user: User,
+    team: Team,
+    *,
+    message: str,
+    topic: TicketTopic,
+    filing_reason: FilingReason,
+    drafted_via: DraftedVia,
+    mcp_session_id: str | None,
+    mcp_conversation_id: str | None,
+) -> DraftOutcome:
+    store = SupportDraftStore(user.pk, team.pk)
+    permission = check_ticket_permission(team.organization, user, topic)
+    if permission in (TicketPermission.TOPIC_EXCLUDED, TicketPermission.PLAN_EXCLUDES_SUPPORT):
+        return DraftOutcome(permission=permission, refusal=DraftRefusal(permission.value))
+    if store.topic_limit_reached(topic):
+        return DraftOutcome(permission=permission, refusal=DraftRefusal.TOPIC_LIMIT)
+    draft = store.create(
+        message=message,
+        topic=topic,
+        filing_reason=filing_reason,
+        drafted_via=drafted_via,
+        mcp_session_id=mcp_session_id,
+        mcp_conversation_id=mcp_conversation_id,
+    )
+    return DraftOutcome(permission=permission, draft=draft)
+
+
+def send_draft(user: User, team: Team, draft_id: str) -> SendOutcome:
+    store = SupportDraftStore(user.pk, team.pk)
+    if (sent := store.sent_ticket(draft_id)) is not None:
+        return SendOutcome(ticket=sent, replayed=True)
+    draft = store.get(draft_id)
+    if draft is None:
+        return SendOutcome(failure=SendFailure.NOT_FOUND)
+
+    def failed(failure: SendFailure) -> SendOutcome:
+        return SendOutcome(draft=draft, failure=failure)
+
+    if store.send_started(draft_id):
+        return failed(SendFailure.ALREADY_SENDING)
+    if store.count_send_attempt(draft_id) > MAX_SEND_ATTEMPTS:
+        return failed(SendFailure.TOO_MANY_ATTEMPTS)
+    if store.topic_limit_reached(draft.topic):
+        return failed(SendFailure.TOPIC_LIMIT)
+    permission = check_ticket_permission(team.organization, user, draft.topic)
+    if permission != TicketPermission.ALLOWED:
+        return failed(SendFailure(permission.value))
+
+    if not store.start_send(draft_id):
+        return failed(SendFailure.ALREADY_SENDING)
+    try:
+        ticket = PostHogSupportWidgetClient(resolve_support_widget_target()).send_ticket(
+            user, draft.outgoing_message(team), via_mcp=draft.drafted_via == DraftedVia.MCP
+        )
+    except SupportTicketNotSent:
+        store.cancel_send(draft_id)
+        return failed(SendFailure.NOT_SENT)
+    except SupportTicketOutcomeUnknown:
+        return failed(SendFailure.OUTCOME_UNKNOWN)
+
+    store.record_sent(draft_id, draft.topic, ticket)
+    return SendOutcome(draft=draft, ticket=ticket)

@@ -718,10 +718,8 @@ CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
     get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
 )
 
-# PostHog's own support widget, where an agent sends a support ticket after the person approves it
-# (products/growth/backend/posthog_support_widget.py). Every region sends to the US
-# support project. The token is the widget's public token, not a secret. With both unset, a dev
-# instance with SELF_CAPTURE sends to its own team, and any other instance can't send.
+# PostHog's own support widget. Every region sends agent tickets to the US support project. The token is public.
+# With both unset, a dev instance with SELF_CAPTURE sends to its own team, and any other instance can't send.
 POSTHOG_SUPPORT_WIDGET_HOST = get_from_env("POSTHOG_SUPPORT_WIDGET_HOST", "")
 POSTHOG_SUPPORT_WIDGET_TOKEN = get_from_env("POSTHOG_SUPPORT_WIDGET_TOKEN", "")
 

@@ -24,26 +24,25 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import PostHogSupportDraftCreateThrottle
 
-from products.growth.backend.posthog_support import (
+from products.growth.backend.facade.posthog_support import (
+    SupportDraftRefused,
+    SupportTicketSendFailed,
+    compose_ticket_message,
+    draft_support_ticket,
+    send_support_ticket,
+)
+from products.growth.backend.facade.posthog_support_types import (
     ANSWERED_FILING_REASONS,
-    MAX_SEND_ATTEMPTS,
     MAX_TICKETS_PER_TOPIC,
     SUPPORT_PANEL_URL,
     DraftedVia,
+    DraftRefusal,
     FilingReason,
-    SupportDraftStore,
-    SupportTicketDraft,
+    SendFailure,
+    SentSupportTicketResult,
+    SupportDraft,
     TicketPermission,
     TicketTopic,
-    check_ticket_permission,
-    compose_ticket_message,
-)
-from products.growth.backend.posthog_support_widget import (
-    PostHogSupportWidgetClient,
-    SentSupportTicket,
-    SupportTicketNotSent,
-    SupportTicketOutcomeUnknown,
-    resolve_support_widget_target,
 )
 
 DRAFT_ID_PATTERN = r"[0-9a-f-]{36}"
@@ -193,24 +192,59 @@ NEXT_STEP_BY_PERMISSION = {
     ),
 }
 
-REFUSAL_BY_PERMISSION = {
-    TicketPermission.TOPIC_EXCLUDED: (
+TOPIC_LIMIT_REFUSAL = (
+    f"They already sent {MAX_TICKETS_PER_TOPIC} tickets on this topic in the last 72 hours. More tickets don't get a "
+    f"faster reply. They can read those tickets, reply on them, and watch for replies in the support panel at {SUPPORT_PANEL_URL}."
+)
+
+DRAFT_REFUSALS = {
+    DraftRefusal.TOPIC_EXCLUDED: (
         "PostHog support doesn't take tickets on this topic from an agent. The person can log in to PostHog in their "
         "browser and ask in the support widget in the right-hand sidebar, "
         f"at {SUPPORT_PANEL_URL}. If their plan doesn't include support, "
         f"{COMMUNITY_SUPPORT}"
     ),
-    TicketPermission.PLAN_EXCLUDES_SUPPORT: (
+    DraftRefusal.PLAN_EXCLUDES_SUPPORT: (
         "Their plan doesn't include support tickets for this topic. Any paid plan adds support. Without one, "
         f"{COMMUNITY_SUPPORT}"
     ),
+    DraftRefusal.TOPIC_LIMIT: TOPIC_LIMIT_REFUSAL,
 }
 
-
-TOPIC_LIMIT_REFUSAL = (
-    f"They already sent {MAX_TICKETS_PER_TOPIC} tickets on this topic in the last 72 hours. More tickets don't get a "
-    f"faster reply. They can read those tickets, reply on them, and watch for replies in the support panel at {SUPPORT_PANEL_URL}."
+MAY_BE_SENT = (
+    "The ticket may already be with PostHog support, so don't send it again. Ask the person to check "
+    f"their tickets at {SUPPORT_PANEL_URL}."
 )
+# The MCP server passes `detail` to the agent only for a 4xx, so a failed send never uses a 5xx.
+SEND_FAILURE_RESPONSES: dict[SendFailure, tuple[str, int]] = {
+    SendFailure.NOT_FOUND: ("Draft not found or expired.", status.HTTP_404_NOT_FOUND),
+    SendFailure.ALREADY_SENDING: (MAY_BE_SENT, status.HTTP_409_CONFLICT),
+    SendFailure.TOO_MANY_ATTEMPTS: (
+        "Nothing was sent, and this draft has no send attempts left. The person can ask in the support "
+        f"panel at {SUPPORT_PANEL_URL}.",
+        status.HTTP_409_CONFLICT,
+    ),
+    SendFailure.TOPIC_LIMIT: (f"Nothing was sent. {TOPIC_LIMIT_REFUSAL}", status.HTTP_403_FORBIDDEN),
+    SendFailure.TOPIC_EXCLUDED: (
+        f"Nothing was sent. {DRAFT_REFUSALS[DraftRefusal.TOPIC_EXCLUDED]}",
+        status.HTTP_403_FORBIDDEN,
+    ),
+    SendFailure.PLAN_EXCLUDES_SUPPORT: (
+        f"Nothing was sent. {DRAFT_REFUSALS[DraftRefusal.PLAN_EXCLUDES_SUPPORT]}",
+        status.HTTP_403_FORBIDDEN,
+    ),
+    SendFailure.PLAN_UNKNOWN: (
+        "Nothing was sent, because PostHog couldn't check their plan. They can ask in the support "
+        f"panel at {SUPPORT_PANEL_URL}.",
+        status.HTTP_424_FAILED_DEPENDENCY,
+    ),
+    SendFailure.NOT_SENT: (
+        "Nothing was sent, because PostHog support couldn't take the ticket. Try again in a moment, "
+        f"or the person can ask in the support panel at {SUPPORT_PANEL_URL}.",
+        status.HTTP_424_FAILED_DEPENDENCY,
+    ),
+    SendFailure.OUTCOME_UNKNOWN: (MAY_BE_SENT, status.HTTP_409_CONFLICT),
+}
 
 
 class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -242,31 +276,20 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user(self) -> User:
         return cast(User, self.request.user)
 
-    def _draft_store(self) -> SupportDraftStore:
-        return SupportDraftStore(self._user.pk, self.team_id)
-
-    def _permission(self, draft: SupportTicketDraft) -> TicketPermission:
-        return check_ticket_permission(self.organization, self._user, draft.topic)
-
-    def _draft_response(
-        self,
-        draft: SupportTicketDraft,
-        permission: TicketPermission,
-        status_code: int = status.HTTP_200_OK,
-    ) -> Response:
+    def _draft_response(self, draft: SupportDraft, status_code: int = status.HTTP_200_OK) -> Response:
         data = PostHogSupportDraftSerializer(
             {
                 "id": draft.id,
                 "message": draft.message,
-                "ticket_context": draft.ticket_context(self.team),
+                "ticket_context": draft.ticket_context,
                 "expires_at": draft.expires_at,
-                "can_send": permission == TicketPermission.ALLOWED,
-                "next_step": NEXT_STEP_BY_PERMISSION.get(permission, "Nothing has been sent."),
+                "can_send": draft.permission == TicketPermission.ALLOWED,
+                "next_step": NEXT_STEP_BY_PERMISSION.get(draft.permission, "Nothing has been sent."),
             }
         ).data
         return Response(data, status=status_code)
 
-    def _sent_response(self, ticket: SentSupportTicket) -> Response:
+    def _sent_response(self, ticket: SentSupportTicketResult) -> Response:
         data = PostHogSupportSentTicketSerializer(
             {
                 "ticket_id": ticket.ticket_id,
@@ -279,16 +302,6 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             }
         ).data
         return Response(data, status=status.HTTP_200_OK)
-
-    # The MCP server passes `detail` to the agent only for a 4xx, so a failed send never uses a 5xx.
-    def _send_failed(self, draft: SupportTicketDraft, reason: str, detail: str, status_code: int) -> Response:
-        report_user_action(
-            self._user,
-            "posthog support draft send failed",
-            {"draft_id": draft.id, "topic": draft.topic, "filing_reason": draft.filing_reason, "reason": reason},
-            team=self.team,
-        )
-        return Response({"detail": detail}, status=status_code)
 
     @validated_request(
         request_serializer=PostHogSupportDraftCreateSerializer,
@@ -308,30 +321,29 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create_draft(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_data
         topic = TicketTopic(data["topic"])
-        permission = check_ticket_permission(self.organization, self._user, topic)
-        refusal = REFUSAL_BY_PERMISSION.get(permission)
-        reason = permission.value
-        if refusal is None and self._draft_store().topic_limit_reached(topic):
-            refusal, reason = TOPIC_LIMIT_REFUSAL, "topic_limit"
-        if refusal is not None:
-            report_user_action(
-                self._user,
-                "posthog support draft refused",
-                {"topic": topic.value, "filing_reason": data["filing_reason"], "reason": reason},
-                team=self.team,
-            )
-            return Response({"detail": f"Nothing was drafted. {refusal}"}, status=status.HTTP_403_FORBIDDEN)
         mcp_session_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Session-Id"))
         mcp_conversation_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Conversation-Id"))
         drafted_via = DraftedVia.MCP if get_event_source(request) in MCP_TRANSPORT_EVENT_SOURCES else DraftedVia.API
-        draft = self._draft_store().create(
-            message=data["message"],
-            topic=topic,
-            filing_reason=data["filing_reason"],
-            drafted_via=drafted_via,
-            mcp_session_id=mcp_session_id,
-            mcp_conversation_id=mcp_conversation_id,
-        )
+        try:
+            draft = draft_support_ticket(
+                user_id=self._user.pk,
+                team_id=self.team_id,
+                message=data["message"],
+                topic=topic,
+                filing_reason=FilingReason(data["filing_reason"]),
+                drafted_via=drafted_via,
+                mcp_session_id=mcp_session_id,
+                mcp_conversation_id=mcp_conversation_id,
+            )
+        except SupportDraftRefused as refused:
+            report_user_action(
+                self._user,
+                "posthog support draft refused",
+                {"topic": topic.value, "filing_reason": data["filing_reason"], "reason": refused.refusal.value},
+                team=self.team,
+            )
+            detail = f"Nothing was drafted. {DRAFT_REFUSALS[refused.refusal]}"
+            return Response({"detail": detail}, status=status.HTTP_403_FORBIDDEN)
         report_user_action(
             self._user,
             "posthog support draft created",
@@ -349,7 +361,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             },
             team=self.team,
         )
-        return self._draft_response(draft, permission, status.HTTP_201_CREATED)
+        return self._draft_response(draft, status.HTTP_201_CREATED)
 
     @validated_request(
         responses={
@@ -368,72 +380,33 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["POST"], detail=False, url_path=rf"drafts/(?P<draft_id>{DRAFT_ID_PATTERN})/send")
     def send_draft(self, request: ValidatedRequest, draft_id: str, *args: Any, **kwargs: Any) -> Response:
-        store = self._draft_store()
-        if (sent := store.sent_ticket(draft_id)) is not None:
-            return self._sent_response(sent)
-        draft = store.get(draft_id)
-        if draft is None:
-            return Response({"detail": "Draft not found or expired."}, status=status.HTTP_404_NOT_FOUND)
-
-        may_be_sent = (
-            "The ticket may already be with PostHog support, so don't send it again. Ask the person to check "
-            f"their tickets at {SUPPORT_PANEL_URL}."
-        )
-        if store.send_started(draft_id):
-            return self._send_failed(draft, "already_sending", may_be_sent, status.HTTP_409_CONFLICT)
-        if store.count_send_attempt(draft_id) > MAX_SEND_ATTEMPTS:
-            return self._send_failed(
-                draft,
-                "too_many_attempts",
-                "Nothing was sent, and this draft has no send attempts left. The person can ask in the support "
-                f"panel at {SUPPORT_PANEL_URL}.",
-                status.HTTP_409_CONFLICT,
-            )
-
-        if store.topic_limit_reached(draft.topic):
-            return self._send_failed(
-                draft, "topic_limit", f"Nothing was sent. {TOPIC_LIMIT_REFUSAL}", status.HTTP_403_FORBIDDEN
-            )
-        permission = self._permission(draft)
-        if (refusal := REFUSAL_BY_PERMISSION.get(permission)) is not None:
-            return self._send_failed(draft, permission.value, f"Nothing was sent. {refusal}", status.HTTP_403_FORBIDDEN)
-        if permission == TicketPermission.PLAN_UNKNOWN:
-            return self._send_failed(
-                draft,
-                permission.value,
-                "Nothing was sent, because PostHog couldn't check their plan. They can ask in the support "
-                f"panel at {SUPPORT_PANEL_URL}.",
-                status.HTTP_424_FAILED_DEPENDENCY,
-            )
-
-        if not store.start_send(draft_id):
-            return self._send_failed(draft, "already_sending", may_be_sent, status.HTTP_409_CONFLICT)
         try:
-            ticket = PostHogSupportWidgetClient(resolve_support_widget_target()).send_ticket(
-                self._user, draft.outgoing_message(self.team), via_mcp=draft.drafted_via == DraftedVia.MCP
+            ticket = send_support_ticket(user_id=self._user.pk, team_id=self.team_id, draft_id=draft_id)
+        except SupportTicketSendFailed as failed:
+            detail, status_code = SEND_FAILURE_RESPONSES[failed.failure]
+            if failed.failure != SendFailure.NOT_FOUND:
+                report_user_action(
+                    self._user,
+                    "posthog support draft send failed",
+                    {
+                        "draft_id": draft_id,
+                        "topic": failed.topic,
+                        "filing_reason": failed.filing_reason,
+                        "reason": failed.failure.value,
+                    },
+                    team=self.team,
+                )
+            return Response({"detail": detail}, status=status_code)
+        if ticket.newly_sent:
+            report_user_action(
+                self._user,
+                "posthog support draft submitted",
+                {
+                    "draft_id": draft_id,
+                    "topic": ticket.topic,
+                    "filing_reason": ticket.filing_reason,
+                    "ticket_id": ticket.ticket_id,
+                },
+                team=self.team,
             )
-        except SupportTicketNotSent:
-            store.cancel_send(draft_id)
-            return self._send_failed(
-                draft,
-                "not_sent",
-                "Nothing was sent, because PostHog support couldn't take the ticket. Try again in a moment, "
-                f"or the person can ask in the support panel at {SUPPORT_PANEL_URL}.",
-                status.HTTP_424_FAILED_DEPENDENCY,
-            )
-        except SupportTicketOutcomeUnknown:
-            return self._send_failed(draft, "outcome_unknown", may_be_sent, status.HTTP_409_CONFLICT)
-
-        store.record_sent(draft_id, draft.topic, ticket)
-        report_user_action(
-            self._user,
-            "posthog support draft submitted",
-            {
-                "draft_id": draft_id,
-                "topic": draft.topic,
-                "filing_reason": draft.filing_reason,
-                "ticket_id": ticket.ticket_id,
-            },
-            team=self.team,
-        )
         return self._sent_response(ticket)

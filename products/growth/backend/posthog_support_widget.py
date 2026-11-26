@@ -52,8 +52,7 @@ def resolve_support_widget_target() -> SupportWidgetTarget:
             host=settings.POSTHOG_SUPPORT_WIDGET_HOST.rstrip("/"), token=settings.POSTHOG_SUPPORT_WIDGET_TOKEN
         )
     if settings.SELF_CAPTURE:
-        # The web app's own posthog-js reports to this team on a dev instance, so its support widget files
-        # tickets there too. A ticket sent from here then lands beside the ones sent from the browser.
+        # On a dev instance the web app's own support widget files to this team, so tickets sent from here land there too.
         team = resolve_self_flags_team()
         token = (team.conversations_settings or {}).get("widget_public_token") if team else None
         if team and team.conversations_enabled and token:
@@ -82,8 +81,7 @@ class PostHogSupportWidgetClient:
                 json=payload,
                 headers={
                     "X-Conversations-Token": self._target.token,
-                    # The widget takes tickets only from the sites its project allows. The person's browser
-                    # sends this same origin when they send a ticket from the web app.
+                    # The widget takes tickets only from origins its project allows; this is the origin the web app sends.
                     "Origin": settings.SITE_URL,
                 },
                 timeout=WIDGET_REQUEST_TIMEOUT_SECONDS,

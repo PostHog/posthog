@@ -2,8 +2,8 @@ from posthog.api.routing import RouterRegistry
 
 from products.growth.backend.api.ai_enrichment import AIEnrichmentViewSet
 from products.growth.backend.api.identity_matching import IdentityMatchingLinkViewSet
-from products.growth.backend.api.posthog_support import PostHogSupportViewSet
 from products.growth.backend.api.product_push import ProductPushCampaignViewSet
+from products.growth.backend.presentation.views.posthog_support import PostHogSupportViewSet
 from products.growth.backend.presentation.views.rescore import GrowthEnrichmentViewSet
 from products.growth.backend.presentation.views.scoring import ScoringViewSet
 
