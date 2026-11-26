@@ -45,7 +45,7 @@ function saveTiles(tiles: Tile[], panels: Record<string, SharedPanel>): Document
         const { ref } = panel
         // Fields a host added stay on the tile, so two tiles of one panel keep their own values.
         const content: Record<string, unknown> = {}
-        const own: Record<string, unknown> = {}
+        const own: Record<string, unknown> = Object.create(null)
         for (const [key, value] of Object.entries(panel)) {
             if (value !== undefined) {
                 ;(SHARED_KEYS.has(key) ? content : own)[key] = value
