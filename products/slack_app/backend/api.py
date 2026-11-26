@@ -27,7 +27,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
-from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     SlackIntegration,
@@ -116,7 +116,7 @@ from products.slack_app.backend.services import (
     slack_welcome_messages,
     turn_feedback,
 )
-from products.slack_app.backend.services.channel_metadata import METADATA_MAX_AGE
+from products.slack_app.backend.services.channel_metadata import schedule_channel_metadata_refresh
 from products.slack_app.backend.services.channel_settings import resolve_channel_untagged_question_mode
 from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
@@ -1222,22 +1222,6 @@ def _extract_explicit_repo_from_thread(thread_messages: list[SlackThreadMessage]
     return extract_repo_from_scopes(
         [_strip_bot_mentions(message.text) for message in reversed(thread_messages)], all_repos
     )
-
-
-def _schedule_channel_metadata_refresh(integration: IntegrationRecord, slack_team_id: str, channel: str) -> None:
-    # The cache key lets one mention per channel and day through, so a busy channel sends no extra Slack calls.
-    if not cache.add(
-        f"slack_app_channel_metadata:{slack_team_id}:{channel}", 1, timeout=int(METADATA_MAX_AGE.total_seconds())
-    ):
-        return
-    from products.slack_app.backend.tasks import refresh_slack_channel_metadata  # noqa: PLC0415
-
-    try:
-        refresh_slack_channel_metadata.delay(
-            team_id=integration.team_id, integration_id=integration.id, slack_channel_id=channel
-        )
-    except Exception:
-        logger.warning("slack_app_channel_metadata_refresh_dispatch_failed", slack_team_id=slack_team_id)
 
 
 def _schedule_user_repo_cache_refresh(user_integration_id: str) -> None:
@@ -3023,9 +3007,6 @@ def route_posthog_code_event_to_relevant_region(
             if region_route == ROUTE_NO_INTEGRATION and event_type == "app_mention":
                 _report_slack_mention_dropped(event, slack_team_id, reason="no_integration", replied=False)
             return region_route
-
-        if event_type == "app_mention" and channel_str and channel_str.startswith("C") and not is_ext_shared_channel:
-            _schedule_channel_metadata_refresh(workspace_result.candidates[0], slack_team_id, channel_str)
 
         # A reply on a thread that mirrors a PostHog discussion becomes a comment, not agent work.
         if event_type == "message":
@@ -5292,6 +5273,8 @@ def _start_mention_workflow(
             posthog_user=posthog_user,
             awaited_request_reply=awaited_request_reply,
         )
+        if isinstance(event.get("channel"), str):
+            schedule_channel_metadata_refresh(integration, event["channel"])
         if _resolve_pending_repo_picker_from_followup(event, integration):
             return ROUTE_HANDLED_LOCALLY
     workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(

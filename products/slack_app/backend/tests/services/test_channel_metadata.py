@@ -1,5 +1,7 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from django.core.cache import cache
 
 from slack_sdk.errors import SlackApiError
 
@@ -8,6 +10,7 @@ from products.slack_app.backend.services.channel_metadata import (
     OwnerGroup,
     parse_owner_groups,
     refresh_channel_metadata,
+    schedule_channel_metadata_refresh,
 )
 
 
@@ -57,13 +60,13 @@ class TestRefreshChannelMetadata:
         channel = SlackChannel.objects.get(slack_workspace_id="T01", slack_channel_id="C01")
         assert (channel.topic, channel.purpose) == ("Replays and <!subteam^S0123|@team-replay>", "Session replay work")
         assert channel.owner_groups == [{"id": "S0123", "handle": "team-replay"}]
-        assert channel.metadata_refreshed_at is not None
 
     @pytest.mark.parametrize(
         "channel",
         [
             {"is_channel": True, "is_private": True, "topic": {"value": "secret"}},
             {"is_channel": True, "is_ext_shared": True, "topic": {"value": "shared"}},
+            {"is_channel": True, "is_pending_ext_shared": True, "topic": {"value": "invite sent"}},
             {"is_im": True},
         ],
     )
@@ -77,3 +80,27 @@ class TestRefreshChannelMetadata:
 
         assert not refresh_channel_metadata(_slack(error=error), slack_workspace_id="T01", slack_channel_id="C01")
         assert SlackChannel.objects.get(slack_channel_id="C01").topic == "Replays"
+
+
+@pytest.mark.django_db
+class TestScheduleChannelMetadataRefresh:
+    @pytest.mark.parametrize(
+        "scope,channels,expected",
+        [
+            ("channels:read", ["C01", "C01", "C02"], ["C01", "C02"]),
+            ("", ["C01"], []),
+            ("channels:read", ["D01"], []),
+        ],
+    )
+    def test_dispatches_once_per_readable_channel_per_day(
+        self, workspace_integration, scope: str, channels: list[str], expected: list[str]
+    ) -> None:
+        cache.clear()
+        workspace_integration.config = {"scope": scope}
+        workspace_integration.save()
+
+        with patch("products.slack_app.backend.tasks.refresh_slack_channel_metadata.delay") as dispatch:
+            for channel in channels:
+                schedule_channel_metadata_refresh(workspace_integration, channel)
+
+        assert [call.kwargs["slack_channel_id"] for call in dispatch.call_args_list] == expected

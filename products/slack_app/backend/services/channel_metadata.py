@@ -6,19 +6,24 @@ team before any summary of its messages exists.
 
 import re
 import dataclasses
-from datetime import UTC, datetime, timedelta
+
+from django.core.cache import cache
 
 import structlog
-from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationRecord
 from posthog.models.integration import SlackIntegration
+from posthog.slack.channels import is_shared_channel
 
+from products.slack_app.backend.feature_flags import CHANNEL_CONTEXT_REQUIRED_SCOPES
 from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.services.slack_conversations import fetch_channel_info
+from products.slack_app.backend.services.slack_scopes import has_scopes
 
 logger = structlog.get_logger(__name__)
 
-METADATA_MAX_AGE = timedelta(days=1)
+METADATA_REFRESH_SECONDS = 24 * 60 * 60
 # Slack writes a user group tag as `<!subteam^S0123|@team-replay>`, and older clients leave out the label.
 _SUBTEAM_RE = re.compile(r"<!subteam\^(S[A-Z0-9]+)(?:\|@?([^>]*))?>")
 
@@ -40,24 +45,37 @@ def parse_owner_groups(*texts: str) -> list[OwnerGroup]:
     return list(groups.values())
 
 
-def refresh_channel_metadata(
-    slack: SlackIntegration, *, slack_workspace_id: str, slack_channel_id: str, now: datetime | None = None
-) -> bool:
+def schedule_channel_metadata_refresh(integration: IntegrationRecord, slack_channel_id: str) -> None:
+    """Refresh the channel's description in the background, at most once per channel per day.
+
+    The scope check comes first because it is free, so an install that cannot read the channel never uses the
+    day's slot. The feature flag is a remote call, so the task checks it.
+    """
+    # A `D…` id is a DM, which has no description, and `conversations.info` cannot read it without `im:read`.
+    if slack_channel_id.startswith("D") or not has_scopes(integration, CHANNEL_CONTEXT_REQUIRED_SCOPES):
+        return
+    key = f"slack_app_channel_metadata:{integration.integration_id}:{slack_channel_id}"
+    if not cache.add(key, 1, timeout=METADATA_REFRESH_SECONDS):
+        return
+    # The task module imports this one, so a module-level import here would be circular.
+    from products.slack_app.backend.tasks import refresh_slack_channel_metadata  # noqa: PLC0415
+
+    try:
+        refresh_slack_channel_metadata.delay(
+            team_id=integration.team_id, integration_id=integration.id, slack_channel_id=slack_channel_id
+        )
+    except Exception:
+        logger.warning("slack_app_channel_metadata_refresh_dispatch_failed", integration_id=integration.id)
+
+
+def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str, slack_channel_id: str) -> bool:
     """Store the channel's topic, purpose and owner groups. Returns whether it stored them.
 
-    Only public channels that are not shared with another workspace qualify, because their context page is
+    Only public channels that are not shared beyond this workspace qualify, because their context page is
     readable by the whole organization.
     """
-    try:
-        channel = slack.client.conversations_info(channel=slack_channel_id).get("channel") or {}
-    except SlackApiError as error:
-        logger.warning(
-            "slack_app_channel_metadata_lookup_failed",
-            slack_channel_id=slack_channel_id,
-            error=(error.response or {}).get("error"),
-        )
-        return False
-    if not channel.get("is_channel") or channel.get("is_private") or channel.get("is_ext_shared"):
+    channel = fetch_channel_info(slack, slack_channel_id)
+    if not channel or not channel.get("is_channel") or channel.get("is_private") or is_shared_channel(channel):
         return False
 
     topic = str((channel.get("topic") or {}).get("value") or "")
@@ -69,7 +87,6 @@ def refresh_channel_metadata(
             "topic": topic,
             "purpose": purpose,
             "owner_groups": [dataclasses.asdict(group) for group in parse_owner_groups(topic, purpose)],
-            "metadata_refreshed_at": now or datetime.now(UTC),
         },
     )
     return True

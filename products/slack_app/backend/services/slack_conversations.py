@@ -98,6 +98,19 @@ def _channel_privacy_from_slack(
     return ConversationType.PRIVATE_CHANNEL if channel["is_private"] else ConversationType.PUBLIC_CHANNEL
 
 
+def fetch_channel_info(slack: SlackIntegration, channel_id: str) -> dict[str, Any] | None:
+    """The channel's `conversations.info` record, or None when Slack could not say. Warms the name cache."""
+    try:
+        channel: dict[str, Any] = slack.client.conversations_info(channel=channel_id).get("channel") or {}
+    except SlackApiError as error:
+        logger.warning(
+            "slack_app_channel_info_lookup_failed", channel_id=channel_id, error=(error.response or {}).get("error")
+        )
+        return None
+    _remember_channel_name(slack, channel_id, channel)
+    return channel
+
+
 def resolve_channel_name(slack: SlackIntegration, channel_id: str) -> str | None:
     if channel_id.startswith("D"):
         return None
