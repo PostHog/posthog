@@ -81,6 +81,7 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
         distinct_id: 'user-distinct-id',
         first_name: 'Test',
         email: 'test@example.com',
+        type: 'human' as const,
         hedgehog_config: null,
     },
     updated_at: null,

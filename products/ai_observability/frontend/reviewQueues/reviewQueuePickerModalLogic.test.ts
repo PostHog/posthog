@@ -14,6 +14,7 @@ const MOCK_CREATED_BY = {
     first_name: 'Test',
     last_name: 'User',
     email: 'test@example.com',
+    type: 'human' as const,
     hedgehog_config: null,
 } as const
 

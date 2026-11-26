@@ -62,7 +62,7 @@ describe('experimentLogic', () => {
     // Transform null to undefined where needed
     const experiment = {
         ...experimentJson,
-        created_by: { ...experimentJson.created_by, hedgehog_config: undefined },
+        created_by: { ...experimentJson.created_by, type: 'human', hedgehog_config: undefined },
         holdout: undefined,
         primary_metrics_ordered_uuids: null,
         secondary_metrics_ordered_uuids: null,

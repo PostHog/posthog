@@ -19,6 +19,7 @@ const YOU: UserBasicApi = {
     id: MOCK_DEFAULT_USER.id,
     uuid: MOCK_DEFAULT_USER.uuid,
     email: MOCK_DEFAULT_USER.email,
+    type: 'human' as const,
     hedgehog_config: null,
 }
 
@@ -26,6 +27,7 @@ const TEAMMATE: UserBasicApi = {
     id: MOCK_DEFAULT_USER.id + 1,
     uuid: 'teammate-uuid',
     email: 'teammate@posthog.com',
+    type: 'human' as const,
     hedgehog_config: null,
 }
 

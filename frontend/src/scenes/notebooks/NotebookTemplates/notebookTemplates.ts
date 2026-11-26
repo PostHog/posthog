@@ -4,6 +4,7 @@ import { NotebookType } from '../types'
 
 const TEMPLATE_USERS: Record<string, UserBasicType> = {
     posthog: {
+        type: 'human',
         id: 1,
         uuid: 'posthog@posthog.com',
         distinct_id: '1',

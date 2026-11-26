@@ -51,6 +51,7 @@ import type {
     TeamFeatureFlagPolicyConfigApi,
     TeamRealtimeCohortsApi,
     TeamWorkflowsConfigApi,
+    UserTypeEnumApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -379,6 +380,7 @@ export enum AccessControlResourceType {
 }
 
 interface UserBaseType {
+    readonly type: UserTypeEnumApi
     uuid: string
     distinct_id: string
     first_name: string

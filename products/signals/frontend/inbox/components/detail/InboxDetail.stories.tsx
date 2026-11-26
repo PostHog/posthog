@@ -503,7 +503,14 @@ const reportNotesMocks = mswDecorator({
     },
 })
 
-const NOTE_AUTHOR = { id: 1, uuid: 'u-1', distinct_id: 'u-1', email: 'octo@example.com', first_name: 'Octo' }
+const NOTE_AUTHOR = {
+    type: 'human' as const,
+    id: 1,
+    uuid: 'u-1',
+    distinct_id: 'u-1',
+    email: 'octo@example.com',
+    first_name: 'Octo',
+}
 
 const noteArtefacts: SignalReportArtefact[] = [
     {

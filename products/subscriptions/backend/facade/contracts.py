@@ -119,6 +119,7 @@ class SubscriptionQuotaExceededError(Exception):
 class SubscriptionCreator:
     """The user fields a subscription response shows for its creator."""
 
+    type: typing.Literal["human", "service_account"]
     id: int
     uuid: uuid.UUID
     distinct_id: str | None

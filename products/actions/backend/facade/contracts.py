@@ -67,6 +67,7 @@ class Action:
 class ActionCreator:
     """The user fields the API shows for a creator, the ones core's `UserBasicSerializer` renders."""
 
+    type: Literal["human", "service_account"]
     id: int
     uuid: UUID
     distinct_id: Optional[str]

@@ -136,6 +136,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 "created_at": mock.ANY,
                 "created_by": {
                     "distinct_id": self.user.distinct_id,
+                    "type": self.user.type,
                     "email": self.user.email,
                     "first_name": "",
                     "hedgehog_config": None,
@@ -153,6 +154,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 "last_modified_at": mock.ANY,
                 "last_modified_by": {
                     "distinct_id": self.user.distinct_id,
+                    "type": self.user.type,
                     "email": self.user.email,
                     "first_name": "",
                     "hedgehog_config": None,
@@ -185,6 +187,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 "created_at": mock.ANY,
                 "created_by": {
                     "distinct_id": self.user.distinct_id,
+                    "type": self.user.type,
                     "email": self.user.email,
                     "first_name": "",
                     "hedgehog_config": None,
@@ -202,6 +205,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 "last_modified_at": mock.ANY,
                 "last_modified_by": {
                     "distinct_id": self.user.distinct_id,
+                    "type": self.user.type,
                     "email": self.user.email,
                     "first_name": "",
                     "hedgehog_config": None,

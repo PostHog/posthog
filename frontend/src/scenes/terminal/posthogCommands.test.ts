@@ -53,6 +53,7 @@ describe('PostHog terminal commands', () => {
         id: 1,
         uuid: '01900000-0000-7000-8000-000000000001',
         email: 'author@example.com',
+        type: 'human' as const,
         hedgehog_config: null,
     }
 

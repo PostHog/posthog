@@ -263,6 +263,7 @@ class AutomaticReviewDecision:
 class ReviewUserRef:
     """The fields of a user that the core `UserBasicSerializer` reads."""
 
+    type: Literal["human", "service_account"]
     id: int
     uuid: UUID
     distinct_id: str | None

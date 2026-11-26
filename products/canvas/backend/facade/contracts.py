@@ -9,7 +9,7 @@ contract the wrong shape fails at the facade boundary instead of in a consumer.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -134,6 +134,7 @@ class CanvasViewer:
 class CanvasUser:
     """The user fields canvas responses show for a creator."""
 
+    type: Literal["human", "service_account"]
     id: int
     uuid: UUID
     distinct_id: str | None

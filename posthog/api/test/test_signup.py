@@ -106,6 +106,7 @@ class TestSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "type": "human",
                 "role_at_organization": "product",
                 "inbox_provider": None,
             },
@@ -209,6 +210,7 @@ class TestSignupAPI(APIBaseTest):
                 "redirect_url": f"/verify_email/{user.uuid}",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "type": "human",
                 "role_at_organization": "product",
                 "inbox_provider": "gmail",
             },
@@ -261,6 +263,7 @@ class TestSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "type": "human",
                 "role_at_organization": "product",
                 "inbox_provider": None,
             },
@@ -605,6 +608,7 @@ class TestSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "type": "human",
                 "role_at_organization": "product",
                 "inbox_provider": None,
             },
@@ -868,6 +872,7 @@ class TestSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "type": "human",
                 "role_at_organization": "product",
                 "inbox_provider": None,
             },
@@ -2753,6 +2758,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "type": "human",
                 "role_at_organization": "Engineering",
             },
         )
@@ -3063,6 +3069,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": None,
                 "hedgehog_config": None,
+                "type": "human",
                 "role_at_organization": "product",
             },
         )
@@ -3142,6 +3149,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": None,
                 "hedgehog_config": None,
+                "type": "human",
                 "role_at_organization": None,
             },  # note the unchanged attributes
         )

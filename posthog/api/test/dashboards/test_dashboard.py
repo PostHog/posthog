@@ -3987,6 +3987,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.status_code == 200
 
         self_user_basic_serialized = {
+            "type": self.user.type,
             "id": self.user.id,
             "uuid": str(self.user.uuid),
             "distinct_id": self.user.distinct_id,

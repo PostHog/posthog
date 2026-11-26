@@ -8,6 +8,7 @@ function owner(overrides: Partial<UserBasicApi> & Pick<UserBasicApi, 'email'>): 
         uuid: '00000000-0000-0000-0000-000000000000',
         first_name: '',
         last_name: '',
+        type: 'human',
         hedgehog_config: null,
         ...overrides,
     }

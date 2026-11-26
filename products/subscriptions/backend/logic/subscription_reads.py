@@ -3,6 +3,7 @@
 import operator
 from collections.abc import Iterable
 from functools import reduce
+from typing import Literal, cast
 from uuid import UUID
 
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
@@ -92,6 +93,7 @@ def _creator(user: User | None) -> SubscriptionCreator | None:
     if user is None:
         return None
     return SubscriptionCreator(
+        type=cast(Literal["human", "service_account"], user.type),
         id=user.id,
         uuid=user.uuid,
         distinct_id=user.distinct_id,

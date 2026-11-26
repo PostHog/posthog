@@ -5,6 +5,7 @@ Accepts ids and contracts, returns contracts, never ORM instances.
 
 from collections.abc import Collection
 from datetime import datetime
+from typing import Literal, cast
 from uuid import UUID
 
 from django.utils import timezone
@@ -35,6 +36,7 @@ def _to_creator(user: User | None) -> contracts.AnnotationCreator | None:
     if user is None:
         return None
     return contracts.AnnotationCreator(
+        type=cast(Literal["human", "service_account"], user.type),
         id=user.id,
         uuid=user.uuid,
         distinct_id=user.distinct_id,

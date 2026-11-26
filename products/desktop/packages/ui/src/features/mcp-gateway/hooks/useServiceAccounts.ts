@@ -22,6 +22,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Project the current-user shape onto the UserBasic fields the gateway serves. */
 function toGatewayUser(user: {
+  type: McpGatewayUser["type"];
   id: number;
   uuid: string;
   distinct_id: string | null;
@@ -33,6 +34,7 @@ function toGatewayUser(user: {
   role_at_organization?: McpGatewayUser["role_at_organization"];
 }): McpGatewayUser {
   return {
+    type: user.type,
     id: user.id,
     uuid: user.uuid,
     distinct_id: user.distinct_id,

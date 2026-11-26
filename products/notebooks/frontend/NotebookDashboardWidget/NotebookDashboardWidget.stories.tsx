@@ -181,6 +181,7 @@ export const AddToDashboard: Story = {
                                           ? 'Conversion from trial to paid plans.'
                                           : '',
                                 created_by: {
+                                    type: 'human' as const,
                                     id: index + 1,
                                     uuid: `example-creator-${index + 1}`,
                                     distinct_id: `example-creator-${index + 1}`,

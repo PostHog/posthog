@@ -7,8 +7,14 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import mockNotebook from '../__mocks__/notebook-12345.json'
+import mockNotebookJson from '../__mocks__/notebook-12345.json'
 import { migrate } from './migrate'
+
+const mockNotebook = {
+    ...mockNotebookJson,
+    created_by: { ...mockNotebookJson.created_by, type: 'human' as const },
+    last_modified_by: { ...mockNotebookJson.last_modified_by, type: 'human' as const },
+}
 
 describe('migrate()', () => {
     beforeEach(() => {

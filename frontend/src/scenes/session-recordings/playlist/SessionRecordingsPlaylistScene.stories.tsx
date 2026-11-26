@@ -26,6 +26,7 @@ const playlistWithRecordings: SessionRecordingPlaylistType = {
     type: 'collection',
     created_at: '2023-07-01T10:00:00.000000Z',
     created_by: {
+        type: 'human' as const,
         id: 1,
         uuid: '01896512-b4e6-0000-3add-7143ff5174c5',
         distinct_id: 'test-user-distinct-id',
@@ -50,6 +51,7 @@ const playlistWithRecordings: SessionRecordingPlaylistType = {
     },
     last_modified_at: '2023-07-04T12:00:00.000000Z',
     last_modified_by: {
+        type: 'human' as const,
         id: 1,
         uuid: '01896512-b4e6-0000-3add-7143ff5174c5',
         distinct_id: 'test-user-distinct-id',

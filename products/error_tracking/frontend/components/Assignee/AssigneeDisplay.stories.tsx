@@ -40,6 +40,7 @@ export const UserDisplays = ({ sizes }: SizedComponentProps): JSX.Element => {
                         id: 1,
                         type: 'user',
                         user: {
+                            type: 'human' as const,
                             id: 1,
                             uuid: '123e4567-e89b-12d3-a456-426614174000',
                             distinct_id: '123e4567-e89b-12d3-a456-426614174000',

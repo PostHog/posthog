@@ -12,6 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.user import UserType
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.facade.enums import AnnotationScope
@@ -37,13 +38,15 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert len(response["results"]) == 1
         assert response["results"][0]["content"] == "hello world!"
 
-    def test_list_and_retrieve_render_every_field(self) -> None:
+    @parameterized.expand([UserType.HUMAN, UserType.SERVICE_ACCOUNT])
+    def test_list_and_retrieve_render_every_field(self, user_type: str) -> None:
+        creator = User.objects.create_and_join(self.organization, "creator@example.com", None, type=user_type)
         insight = Insight.objects.create(team=self.team, name="Signups", derived_name="Pageview count")
         dashboard = Dashboard.objects.create(team=self.team, name="Launch")
         annotation = Annotation.objects.create(
             organization=self.organization,
             team=self.team,
-            created_by=self.user,
+            created_by=creator,
             content="Shipped v2",
             date_marker=datetime(2024, 1, 2, 3, 4, 5, tzinfo=ZoneInfo("UTC")),
             creation_type="GIT",
@@ -70,15 +73,16 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             "insight_name": "Signups",
             "insight_derived_name": "Pageview count",
             "created_by": {
-                "id": self.user.id,
-                "uuid": str(self.user.uuid),
-                "distinct_id": self.user.distinct_id,
-                "first_name": self.user.first_name,
-                "last_name": self.user.last_name,
-                "email": self.user.email,
-                "is_email_verified": self.user.is_email_verified,
+                "id": creator.id,
+                "uuid": str(creator.uuid),
+                "distinct_id": creator.distinct_id,
+                "first_name": creator.first_name,
+                "last_name": creator.last_name,
+                "email": creator.email,
+                "is_email_verified": creator.is_email_verified,
                 "hedgehog_config": None,
-                "role_at_organization": self.user.role_at_organization,
+                "type": user_type,
+                "role_at_organization": creator.role_at_organization,
             },
             "deleted": False,
             "scope": "project",

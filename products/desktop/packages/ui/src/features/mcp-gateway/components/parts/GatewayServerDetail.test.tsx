@@ -80,6 +80,7 @@ const server = {
       installation_id: "installation-1",
       user: {
         id: 7,
+        type: "human",
         uuid: "user-7",
         first_name: "Ada",
         last_name: "Lovelace",
@@ -159,6 +160,7 @@ describe("GatewayServerDetail", () => {
       revoked_user_ids: [],
       created_by: {
         id: 7,
+        type: "human",
         uuid: "user-7",
         email: "ada@example.com",
         hedgehog_config: null,
@@ -251,6 +253,7 @@ describe("GatewayServerDetail", () => {
             service_account_id: "sa-1",
             user: {
               id: 7,
+              type: "human",
               uuid: "user-7",
               first_name: "Ada",
               last_name: "Lovelace",
@@ -299,6 +302,7 @@ describe("GatewayServerDetail", () => {
       service_account_id: "sa-1",
       user: {
         id: 7,
+        type: "human",
         uuid: "user-7",
         first_name: "Ada",
         last_name: "Lovelace",

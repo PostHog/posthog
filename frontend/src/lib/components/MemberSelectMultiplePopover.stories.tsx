@@ -36,6 +36,7 @@ const OTHER_MEMBERS: OrganizationMemberType[] = FIRST_NAMES.map((first_name, ind
     ...MOCK_DEFAULT_ORGANIZATION_MEMBER,
     id: `member-${index}`,
     user: {
+        type: 'human' as const,
         id: 1000 + index,
         uuid: `member-user-${index}`,
         distinct_id: `member-user-${index}`,

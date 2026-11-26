@@ -88,6 +88,7 @@ function teamServer(id: string, name: string): MCPServiceAccountServerApi {
             id: MOCK_DEFAULT_USER.id,
             uuid: MOCK_DEFAULT_USER.uuid,
             email: MOCK_DEFAULT_USER.email,
+            type: 'human' as const,
             hedgehog_config: null,
         },
         scope: 'team',

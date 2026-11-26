@@ -383,6 +383,7 @@ function singleSkill(skill_name: string, description: string, active: boolean): 
 }
 
 const ADA: UserBasicType = {
+    type: 'human' as const,
     id: 301,
     uuid: '0b3f6a52-6a0e-4b8e-9d2f-4a1c7e9e0301',
     distinct_id: 'mock-user-301-distinct-id',
@@ -408,6 +409,7 @@ function toApiUser(user: UserBasicType): UserBasicApi {
         first_name: user.first_name,
         last_name: user.last_name,
         email: user.email,
+        type: 'human' as const,
         hedgehog_config: null,
     }
 }

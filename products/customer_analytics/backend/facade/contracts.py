@@ -888,6 +888,7 @@ class UserBasicInfo:
     time exactly as before.
     """
 
+    type: Literal["human", "service_account"]
     id: int
     uuid: UUID
     distinct_id: str | None

@@ -36,6 +36,7 @@ const YOU: UserBasicApi = {
     id: MOCK_DEFAULT_USER.id,
     uuid: MOCK_DEFAULT_USER.uuid,
     email: MOCK_DEFAULT_USER.email,
+    type: 'human' as const,
     hedgehog_config: null,
 }
 
@@ -127,6 +128,7 @@ function gatewayServer(overrides: Partial<MCPGatewayServerApi>): MCPGatewayServe
             distinct_id: MOCK_DEFAULT_BASIC_USER.distinct_id,
             first_name: MOCK_DEFAULT_BASIC_USER.first_name,
             email: MOCK_DEFAULT_BASIC_USER.email,
+            type: 'human' as const,
             hedgehog_config: null,
         },
         created_at: '2026-01-01T00:00:00Z',
@@ -187,6 +189,7 @@ function gatewayMember(userId: number): GatewayMemberSummaryApi {
             first_name: 'Test',
             last_name: 'Member',
             email: `member-${userId}@example.com`,
+            type: 'human' as const,
             hedgehog_config: null,
         },
         is_org_admin: false,

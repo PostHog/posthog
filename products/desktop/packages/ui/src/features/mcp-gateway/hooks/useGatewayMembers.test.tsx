@@ -35,6 +35,7 @@ import { useGatewayMembers } from "./useGatewayMembers";
 const member = {
   user: {
     id: 7,
+    type: "human",
     uuid: "user-7",
     first_name: "Ada",
     last_name: "Lovelace",

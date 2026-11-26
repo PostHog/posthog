@@ -36,6 +36,7 @@ const playlist = (playlistId: string): SessionRecordingPlaylistType => {
         type: 'collection',
         created_at: '2023-07-31T16:24:38.956943Z',
         created_by: {
+            type: 'human' as const,
             id: 1,
             uuid: '01896512-b4e6-0000-3add-7143ff5174c5',
             distinct_id: 'qs3Sp9pxE3nC827IbjDB6qNW6pD22X4tmGWwonM20p7',
@@ -60,6 +61,7 @@ const playlist = (playlistId: string): SessionRecordingPlaylistType => {
         },
         last_modified_at: '2023-07-31T16:34:15.297322Z',
         last_modified_by: {
+            type: 'human' as const,
             id: 1,
             uuid: '01896512-b4e6-0000-3add-7143ff5174c5',
             distinct_id: 'qs3Sp9pxE3nC827IbjDB6qNW6pD22X4tmGWwonM20p7',

@@ -12,7 +12,7 @@ instead of producing a malformed payload further down the call stack.
 
 from dataclasses import field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -146,6 +146,7 @@ class NotebookActivitySummary:
 class NotebookUserInfo:
     """The creator/modifier of a notebook — raw user values, mirroring UserBasicSerializer's input."""
 
+    type: Literal["human", "service_account"]
     id: int
     uuid: UUID
     distinct_id: str | None

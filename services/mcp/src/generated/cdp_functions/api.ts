@@ -676,6 +676,13 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                         .string()
                         .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax)
                         .nullish(),
+                    type: zod
+                        .enum(['human', 'service_account'])
+                        .describe('\* `human` - Human\n\* `service_account` - Service account')
+                        .optional()
+                        .describe(
+                            'Whether this user is a human or a service account.\n\n\* `human` - Human\n\* `service_account` - Service account'
+                        ),
                     first_name: zod
                         .string()
                         .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax)

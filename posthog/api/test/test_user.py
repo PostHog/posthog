@@ -47,6 +47,7 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
@@ -112,6 +113,7 @@ class TestUserAPI(APIBaseTest):
         response_data = response.json()
 
         self.assertEqual(response_data["uuid"], str(self.user.uuid))
+        self.assertEqual(response_data["type"], UserType.HUMAN)
         self.assertEqual(response_data["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["first_name"], self.user.first_name)
         self.assertEqual(response_data["email"], self.user.email)
@@ -2686,6 +2688,7 @@ class TestUserAPI(APIBaseTest):
             "uuid": str(uuid.uuid4()),
             "distinct_id": "distinct_id",
             "pending_email": "changed@example.com",
+            "type": UserType.SERVICE_ACCOUNT,
             "is_email_verified": True,
         }
 

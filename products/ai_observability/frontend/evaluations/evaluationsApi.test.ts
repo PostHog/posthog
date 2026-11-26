@@ -40,6 +40,7 @@ const evaluationApi = (id: string): EvaluationApi => ({
         id: 1,
         uuid: '00000000-0000-0000-0000-000000000001',
         email: 'user@example.com',
+        type: 'human' as const,
         hedgehog_config: null,
     },
     deleted: false,

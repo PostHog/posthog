@@ -6,7 +6,7 @@ The facade accepts and returns these; the presentation layer serializes them.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -31,6 +31,7 @@ class AnnotationWriteRejectedError(ValueError):
 class AnnotationCreator:
     """The user fields an annotation response shows for its creator."""
 
+    type: Literal["human", "service_account"]
     id: int
     uuid: UUID
     distinct_id: str | None

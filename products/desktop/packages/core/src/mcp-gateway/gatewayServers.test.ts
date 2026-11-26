@@ -325,6 +325,7 @@ describe("getGatewayRailStatus", () => {
 
 describe("getGatewayServerRemovalAction", () => {
   const gatewayUser = (id: number) => ({
+    type: "human" as const,
     id,
     uuid: `user-${id}`,
     email: `user-${id}@example.com`,
@@ -417,6 +418,7 @@ describe("canEditGatewayPolicyScope", () => {
   const share = (userId: number) => ({
     service_account_id: "sa-1",
     user: {
+      type: "service_account" as const,
       id: userId,
       uuid: `user-${userId}`,
       email: `user-${userId}@example.com`,

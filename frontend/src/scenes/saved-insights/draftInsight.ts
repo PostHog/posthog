@@ -38,6 +38,7 @@ export function draftInsightListItem(draft: DraftInsightQuery, currentUser: User
     // UserType is not assignable to UserBasicType (hedgehog_config shapes differ), so pick the basic fields
     const user: UserBasicType | null = currentUser
         ? {
+              type: currentUser.type,
               id: currentUser.id,
               uuid: currentUser.uuid,
               distinct_id: currentUser.distinct_id,

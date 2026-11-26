@@ -100,6 +100,7 @@ describe('replayScannersLogic', () => {
         first_name: 'Alice',
         last_name: 'Anderson',
         email: 'alice@example.com',
+        type: 'human' as const,
         hedgehog_config: null,
     }
     const bob = {
@@ -108,6 +109,7 @@ describe('replayScannersLogic', () => {
         first_name: 'Bob',
         last_name: 'Brown',
         email: 'bob@example.com',
+        type: 'human' as const,
         hedgehog_config: null,
     }
 
