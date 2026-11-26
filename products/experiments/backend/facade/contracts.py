@@ -1730,7 +1730,23 @@ class ExperimentDetail(ExperimentBasic):
     can_freeze_exposure: bool
     # The event that exposures are counted on when the experiment configures no custom exposure event.
     resolved_exposure_event: str
+
+
+@frozen
+class ExperimentUpdateTarget:
+    """The fields of one experiment that an update of the experiment API reads before it writes: what its access
+    check needs, and the state that it checks the input against.
+
+    `parameters` holds what `ExperimentDetail.parameters` holds, so an update that sends back the flag config keys
+    that it read compares equal and does not write the flag.
+    """
+
+    id: int
+    team_id: int
+    created_by_id: int | None
     is_draft: bool
+    feature_flag_active: bool
+    parameters: dict[str, Any]
 
 
 @frozen

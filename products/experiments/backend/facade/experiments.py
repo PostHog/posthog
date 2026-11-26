@@ -37,10 +37,10 @@ from .contracts import (
     ExperimentHandle,
     ExperimentHoldoutView,
     ExperimentListFilters,
-    ExperimentRef,
     ExperimentSavedMetricLinkView,
     ExperimentTimeseriesResults,
     ExperimentUpdate,
+    ExperimentUpdateTarget,
     FlagCleanupTarget,
     ListAccess,
 )
@@ -169,7 +169,6 @@ def _to_experiment_detail(experiment: Experiment) -> ExperimentDetail:
         repository=experiment.repository,
         can_freeze_exposure=experiment.can_freeze_exposure,
         resolved_exposure_event=experiments.resolved_exposure_event(experiment),
-        is_draft=experiment.is_draft,
     )
 
 
@@ -242,20 +241,34 @@ def assert_user_may_run_warehouse_native_sources(*, team: Team, user: User, expe
     ExperimentService(team=team, user=user).assert_user_may_run_warehouse_native_sources(experiment)
 
 
-def _to_ref(experiment: Experiment) -> ExperimentRef:
-    return ExperimentRef(id=experiment.id, team_id=experiment.team_id, created_by_id=experiment.created_by_id)
-
-
-def add_experiment(
-    *, team: Team, user: User, experiment: CreateExperimentInput, tags: list[str] | None
-) -> ExperimentRef:
-    """A new experiment with the configuration of `experiment` and the tags, or no tags when `tags` is None.
+def add_experiment(*, team: Team, user: User, experiment: CreateExperimentInput, tags: list[str] | None) -> int:
+    """The id of a new experiment with the configuration of `experiment` and the tags, or no tags when `tags` is None.
 
     Raises `ExperimentValidationError` when the project has no holdout with `experiment.holdout_id`. The
     `ValidationError` of Django REST framework and the approval exceptions of the flag write pass through unchanged.
     """
     created = create_experiment(team=team, user=user, input_dto=experiment)
-    return _to_ref(experiments.tag_created_experiment(team=team, experiment_id=created.id, tags=tags))
+    if tags is not None:
+        experiments.replace_tags(team=team, experiment_id=created.id, tags=tags)
+    return created.id
+
+
+def get_experiment_update_target(
+    *, team: Team, experiment_id: int, include_deleted: bool
+) -> ExperimentUpdateTarget | None:
+    """The experiment of the project with the id, or None when the project has no such experiment. A deleted
+    experiment counts only with `include_deleted`. One query."""
+    experiment = experiments.get_update_target(team=team, experiment_id=experiment_id, include_deleted=include_deleted)
+    if experiment is None:
+        return None
+    return ExperimentUpdateTarget(
+        id=experiment.id,
+        team_id=experiment.team_id,
+        created_by_id=experiment.created_by_id,
+        is_draft=experiment.is_draft,
+        feature_flag_active=experiment.feature_flag.active,
+        parameters=experiments.projected_parameters(experiment),
+    )
 
 
 def edit_experiment(
@@ -266,7 +279,7 @@ def edit_experiment(
     update: ExperimentUpdate,
     include_deleted: bool,
     serializer_context: dict[str, Any],
-) -> ExperimentRef:
+) -> None:
     """Write the fields of `update` onto the experiment of the project with the id.
 
     `serializer_context["request"]` is the HTTP request, which a write of the experiment's flag needs: an approval
@@ -275,13 +288,11 @@ def edit_experiment(
     when a stale update cannot merge. The approval exceptions and the `ValidationError` of Django REST framework pass
     through unchanged.
     """
-    return _to_ref(
-        experiments.apply_update(
-            team=team,
-            user=user,
-            experiment_id=experiment_id,
-            update=update,
-            include_deleted=include_deleted,
-            serializer_context=serializer_context,
-        )
+    experiments.apply_update(
+        team=team,
+        user=user,
+        experiment_id=experiment_id,
+        update=update,
+        include_deleted=include_deleted,
+        serializer_context=serializer_context,
     )

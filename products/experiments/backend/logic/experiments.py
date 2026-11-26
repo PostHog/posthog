@@ -130,6 +130,19 @@ def get_handle(*, team: Team, experiment_id: int) -> Experiment | None:
     )
 
 
+def _one_in_project(team: Team, experiment_id: int, *, include_deleted: bool) -> QuerySet[Experiment]:
+    queryset = Experiment.objects.filter(team__project_id=team.project_id, pk=experiment_id)
+    return queryset if include_deleted else queryset.exclude(deleted=True)
+
+
+def get_update_target(*, team: Team, experiment_id: int, include_deleted: bool) -> Experiment | None:
+    """The experiment of the project with the id and its flag, which is all that `ExperimentUpdateTarget` reads.
+    A deleted experiment counts only with `include_deleted`."""
+    return strict_fetch(
+        _one_in_project(team, experiment_id, include_deleted=include_deleted).select_related("feature_flag")
+    ).first()
+
+
 def get_for_action(*, team: Team, experiment_id: int, include_deleted: bool = False) -> Experiment:
     """The experiment of the project with the id, with the joins and prefetches of the experiment viewset's queryset,
     which the `ExperimentService` methods of its detail actions read. A deleted experiment counts only with
@@ -137,11 +150,9 @@ def get_for_action(*, team: Team, experiment_id: int, include_deleted: bool = Fa
 
     Raises ExperimentNotFound when the project has no such experiment.
     """
-    queryset = Experiment.objects.filter(team__project_id=team.project_id, pk=experiment_id)
-    if not include_deleted:
-        queryset = queryset.exclude(deleted=True)
     experiment = (
-        queryset.select_related("team", "feature_flag", "created_by", "exposure_cohort", "holdout__created_by")
+        _one_in_project(team, experiment_id, include_deleted=include_deleted)
+        .select_related("team", "feature_flag", "created_by", "exposure_cohort", "holdout__created_by")
         .prefetch_related(
             Prefetch(
                 "feature_flag__flag_evaluation_contexts",
@@ -179,20 +190,13 @@ def create_exposure_cohort(
     ).data
 
 
-def tag_created_experiment(*, team: Team, experiment_id: int, tags: list[str] | None) -> Experiment:
-    """The experiment of the project with the id, which the caller has just created, with its tags set to `tags`
-    unless they are None."""
-    experiment = Experiment.objects.get(team__project_id=team.project_id, id=experiment_id)
-    if tags is not None:
-        replace_tags_on_object(tags, experiment)
-    return experiment
+def replace_tags(*, team: Team, experiment_id: int, tags: list[str]) -> None:
+    replace_tags_on_object(tags, _one_in_project(team, experiment_id, include_deleted=True).get())
 
 
 # The update data of the service names these fields by the sources of the experiment serializer fields.
 _UPDATE_DATA_KEYS = {"feature_flag_key": "get_feature_flag_key", "create_in_folder": "_create_in_folder"}
-_NOT_UPDATE_DATA = frozenset(
-    {"allow_unknown_events", "feature_flag_config", "tags", "feature_flag_rule_id", "deprecated_flag_config_changed"}
-)
+_NOT_UPDATE_DATA = frozenset({"allow_unknown_events", "feature_flag_config", "tags", "feature_flag_rule_id"})
 
 
 def apply_update(
@@ -203,7 +207,7 @@ def apply_update(
     update: ExperimentUpdate,
     include_deleted: bool,
     serializer_context: dict[str, Any],
-) -> Experiment:
+) -> None:
     experiment = get_for_action(team=team, experiment_id=experiment_id, include_deleted=include_deleted)
     # The rule is chosen on create. A client that sends back what it read changes nothing.
     if "feature_flag_rule_id" in update.fields_set and update.feature_flag_rule_id != experiment.feature_flag_rule_id:
@@ -224,7 +228,6 @@ def apply_update(
     )
     if update.tags is not None:
         replace_tags_on_object(update.tags, updated)
-    return updated
 
 
 def list_page(

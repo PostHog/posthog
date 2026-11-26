@@ -105,6 +105,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentListFilters,
     ExperimentNotFound,
     ExperimentSessionBucket,
+    ExperimentUpdateTarget,
     ExperimentValidationError,
     ExperimentVersionConflict,
     LegacyMigrationError,
@@ -519,11 +520,11 @@ class EnterpriseExperimentsViewSet(
             return ExperimentBasicSerializer
         return ExperimentSerializer
 
-    def read_object(self) -> ExperimentDetail | ExperimentHandle | None:
+    def read_object(self) -> ExperimentDetail | ExperimentHandle | ExperimentUpdateTarget | None:
         if self.action == "retrieve":
             return experiments_facade.get_experiment(team=self.team, experiment_id=self.kwargs["pk"])
         if self.action in ("update", "partial_update"):
-            return experiments_facade.get_experiment(
+            return experiments_facade.get_experiment_update_target(
                 team=self.team, experiment_id=self.kwargs["pk"], include_deleted=self._update_includes_deleted()
             )
         return experiments_facade.get_experiment_handle(team=self.team, experiment_id=self.kwargs["pk"])
@@ -534,7 +535,9 @@ class EnterpriseExperimentsViewSet(
         deleted = data.get("deleted") if isinstance(data, Mapping) else None
         return deleted is not None and not str_to_bool(deleted)
 
-    def object_access_ref(self, record: ExperimentDetail | ExperimentHandle) -> ObjectAccessRef:
+    def object_access_ref(
+        self, record: ExperimentDetail | ExperimentHandle | ExperimentUpdateTarget
+    ) -> ObjectAccessRef:
         return ObjectAccessRef(
             resource="experiment", id=str(record.id), team_id=self.team.id, created_by_id=record.created_by_id
         )
@@ -554,7 +557,7 @@ class EnterpriseExperimentsViewSet(
         serializer = cast(ExperimentSerializer, self.get_serializer(data=request.data))
         serializer.is_valid(raise_exception=True)
         try:
-            experiment = experiments_facade.add_experiment(
+            experiment_id = experiments_facade.add_experiment(
                 team=self.team,
                 user=cast(User, request.user),
                 experiment=serializer.to_create(),
@@ -562,18 +565,18 @@ class EnterpriseExperimentsViewSet(
             )
         except ExperimentValidationError as error:
             raise ValidationError(str(error)) from error
-        return self._experiment_response(experiment.id, status_code=201)
+        return self._experiment_response(experiment_id, status_code=201)
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if is_scout_sandbox_request(request) and isinstance(request.data, Mapping):
             self._check_scout_update(request)
-        experiment: ExperimentDetail = self.get_object()
+        experiment: ExperimentUpdateTarget = self.get_object()
         serializer = cast(
             ExperimentSerializer,
             self.get_serializer(experiment, data=request.data, partial=kwargs.pop("partial", False)),
         )
         serializer.is_valid(raise_exception=True)
-        updated = experiments_facade.edit_experiment(
+        experiments_facade.edit_experiment(
             team=self.team,
             user=cast(User, request.user),
             experiment_id=experiment.id,
@@ -581,7 +584,7 @@ class EnterpriseExperimentsViewSet(
             include_deleted=self._update_includes_deleted(),
             serializer_context=serializer.context,
         )
-        return self._experiment_response(updated.id)
+        return self._experiment_response(experiment.id)
 
     def handle_exception(self, exc: Exception) -> Response:
         # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
@@ -614,11 +617,11 @@ class EnterpriseExperimentsViewSet(
         if update_carries_flag_config(
             request.data, legacy_flag_config_keys=FEATURE_FLAG_CONFIG_KEYS
         ) and not self._token_can_write_feature_flag(request):
-            experiment: ExperimentDetail = self.get_object()
+            experiment: ExperimentUpdateTarget = self.get_object()
             refuse_scout_live_flag_config_change(
                 True,
                 can_write_feature_flag=False,
-                flag_is_live=not experiment.is_draft or experiment.feature_flag.active,
+                flag_is_live=not experiment.is_draft or experiment.feature_flag_active,
             )
 
     @tracer.start_as_current_span("ExperimentViewSet.list")
@@ -1545,7 +1548,7 @@ class EnterpriseExperimentsViewSet(
             for variant, version in zip(variants, versions)
         }
 
-        experiment = experiments_facade.add_experiment(
+        experiment_id = experiments_facade.add_experiment(
             team=self.team,
             user=cast(User, request.user),
             experiment=CreateExperimentInput(
@@ -1573,7 +1576,7 @@ class EnterpriseExperimentsViewSet(
             tags=None,
         )
 
-        return self._experiment_response(experiment.id, status_code=201)
+        return self._experiment_response(experiment_id, status_code=201)
 
     @extend_schema(
         request=None,

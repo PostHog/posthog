@@ -20,7 +20,12 @@ from posthog.paging import PageRequest
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.facade.api import create_empty_static_cohort
 from products.experiments.backend.facade.contracts import ExperimentBasic, ExperimentCreator, ExperimentListFilters
-from products.experiments.backend.facade.experiments import get_experiment, get_experiment_handle, list_experiments
+from products.experiments.backend.facade.experiments import (
+    get_experiment,
+    get_experiment_handle,
+    get_experiment_update_target,
+    list_experiments,
+)
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -33,7 +38,7 @@ from products.feature_flags.backend.models.evaluation_context import EvaluationC
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 _API_KEYS = {"exposure_cohort_id": "exposure_cohort", "experiment_id": "experiment", "saved_metric_id": "saved_metric"}
-_CONTRACT_ONLY_KEYS = {"team_id", "created_by_id", "is_draft"}
+_CONTRACT_ONLY_KEYS = {"team_id", "created_by_id"}
 # The API adds the access level of the viewer, and `health` and `saved_metrics_ids`, which it always renders as null.
 _API_ONLY_KEYS = {"user_access_level", "health", "saved_metrics_ids"}
 
@@ -263,17 +268,24 @@ class TestExperimentReadFacade(ExperimentFixtures, APIBaseTest):
         )
 
     @parameterized.expand([*((case, True) for case in _CASES), ("deleted", False), ("in_another_project", False)])
-    def test_get_experiment_handle_reads_a_live_experiment_of_the_project_in_one_query(
+    def test_handle_and_update_target_read_a_live_experiment_of_the_project_in_one_query(
         self, case: str, found: bool
     ) -> None:
         experiment = getattr(self, f"_create_{case}")()
 
         with self.assertNumQueries(1):
             handle = get_experiment_handle(team=self.team, experiment_id=experiment.id)
+        with self.assertNumQueries(1):
+            target = get_experiment_update_target(team=self.team, experiment_id=experiment.id, include_deleted=False)
 
         self.assertEqual(
             None if handle is None else (handle.id, handle.team_id),
             (experiment.id, experiment.team_id) if found else None,
+        )
+        detail = get_experiment(team=self.team, experiment_id=experiment.id)
+        self.assertEqual(
+            None if target is None else (target.id, target.parameters),
+            None if detail is None else (detail.id, detail.parameters),
         )
 
     def test_get_experiment_reads_each_relation_once(self) -> None:

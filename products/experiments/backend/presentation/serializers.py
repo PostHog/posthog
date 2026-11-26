@@ -72,6 +72,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHoldoutView,
     ExperimentSessionBucket,
     ExperimentUpdate,
+    ExperimentUpdateTarget,
     ExperimentWatchCardKind,
     ExperimentWatchCardStrength,
     ExperimentWatchEmptyReason,
@@ -1143,7 +1144,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                 )
         # On a running experiment the service only syncs flag config when the caller opts in;
         # without the opt-in the config would be applied nowhere and silently dropped.
-        instance = cast(ExperimentDetail | None, self.instance)
+        instance = cast(ExperimentUpdateTarget | None, self.instance)
         if instance is not None and not instance.is_draft and not data.get("update_feature_flag_params"):
             raise serializers.ValidationError(
                 {
@@ -1208,7 +1209,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         if not present:
             return None
 
-        instance = cast(ExperimentDetail | None, self.instance)
+        instance = cast(ExperimentUpdateTarget | None, self.instance)
         projected = instance.parameters if instance is not None else {}
 
         changed = {

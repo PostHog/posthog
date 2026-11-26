@@ -43,10 +43,10 @@ def validate_metrics(metrics: list[JsonValue] | None) -> None:
 
 def strip_feature_flag_config(parameters: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
     """`parameters` without the keys of `FEATURE_FLAG_CONFIG_KEYS`, which the experiment does not store."""
-    return ExperimentService._strip_feature_flag_config(parameters)
+    return ExperimentService.strip_feature_flag_config(parameters)
 
 
 def feature_flag_config_from_parameters(parameters: dict[str, JsonValue]) -> dict[str, JsonValue] | None:
     """The flag config that the deprecated flag config keys of `parameters` describe, in the flag's own write shape
     (`{filters, ensure_experience_continuity}`), or None when `parameters` has none of those keys."""
-    return ExperimentService._feature_flag_config_from_parameters(parameters)
+    return ExperimentService.feature_flag_config_from_parameters(parameters)
