@@ -34,6 +34,7 @@ from posthog.models.team import Team
 from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
 from products.stamphog.backend.facade.contracts import ReviewRequestRefusedError, StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
+    ACTIVE_HUMAN_REQUEST_STATUSES,
     ROUTING_ACTIONS,
     TERMINAL_STATUSES,
     ReviewMode,
@@ -57,6 +58,7 @@ from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.human_requests import HumanRequestAsk, open_human_request
 from products.stamphog.backend.logic.installations import (
     delete_installation,
     remove_from_installation_snapshot,
@@ -84,12 +86,14 @@ from products.stamphog.backend.logic.routing.triggers import (
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.logic.workflow_proofs import seen_on_head
 from products.stamphog.backend.models import (
+    HumanRequest,
     PullRequest,
     PullRequestAudience,
     ReviewRun,
     StamphogInstallation,
     StamphogRepoConfig,
 )
+from products.stamphog.backend.tasks.human_requests import queue_human_request_refresh
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
 
@@ -1673,6 +1677,8 @@ class _HeadQueueResult:
     # None when a newer PR snapshot already committed, so this caller's head is stale.
     run: ReviewRun | None
     created: bool
+    # The pull request's active human request, or the final one this ask recorded. None unless the caller asked.
+    human_request: HumanRequest | None = None
 
 
 def _queue_review_at_head(
@@ -1684,6 +1690,7 @@ def _queue_review_at_head(
     revisit_wait: bool = False,
     evidence: str | None = None,
     delivery_id: str = "",
+    human: HumanRequestAsk | None = None,
 ) -> _HeadQueueResult:
     """Create a QUEUED run for the PR's current head, or return the run that already covers it.
 
@@ -1707,6 +1714,9 @@ def _queue_review_at_head(
     The request's stamped trigger decides how a silent run counts. A silent run covers only another
     silent request until its verdict is posted. A visible request's new run is pointed at a verdict
     that a silent run withheld for this head, which its workflow publishes when nothing changed.
+
+    ``human`` also gets or creates the pull request's human request in this transaction, while the
+    returned run is locked, so a run that finishes right after the commit always sees the request.
     """
     team_id = repo_config.team_id
     visible = not is_silent_output(output)
@@ -1755,7 +1765,8 @@ def _queue_review_at_head(
             if existing.status == ReviewRunStatus.QUEUED:
                 existing_run_id = str(existing.id)
                 transaction.on_commit(lambda: _start_review_workflow(existing_run_id, team_id), using=run_write_db)
-            return _HeadQueueResult(run=existing, created=False)
+            human_request = _open_human_request(pr_obj, existing, human, using=run_write_db)
+            return _HeadQueueResult(run=existing, created=False, human_request=human_request)
         _supersede_prior_runs(pr_obj)
         review_run = ReviewRun.objects.for_team(team_id).create(
             team_id=team_id,
@@ -1769,7 +1780,24 @@ def _queue_review_at_head(
         # A post-commit start failure propagates to the caller. A retry re-enters through the
         # dedupe above and restarts the still-QUEUED run.
         transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id), using=run_write_db)
-    return _HeadQueueResult(run=review_run, created=True)
+        human_request = _open_human_request(pr_obj, review_run, human, using=run_write_db)
+    return _HeadQueueResult(run=review_run, created=True, human_request=human_request)
+
+
+def _open_human_request(
+    pr_obj: PullRequest, run: ReviewRun, ask: HumanRequestAsk | None, *, using: str
+) -> HumanRequest | None:
+    """Get or create the human request of ``ask``, and queue its refresh once the transaction commits."""
+    if ask is None:
+        return None
+    opened = open_human_request(pr_obj, run, ask, using=using)
+    request = opened.request
+    # A request that the run already decided is OPEN with no card yet, and an older request can be stranded.
+    # The refresh is idempotent, so queue it on every ask while the request is active.
+    if request.status in ACTIVE_HUMAN_REQUEST_STATUSES:
+        team_id, request_id = request.team_id, str(request.id)
+        transaction.on_commit(lambda: queue_human_request_refresh(team_id, request_id), using=using)
+    return request
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -1941,6 +1969,8 @@ class QueuedReview:
 
     run: ReviewRun
     created: bool
+    # Set only when the request asked for people to review.
+    human_request: HumanRequest | None = None
 
 
 def _evidence_after_refusal(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> str | None:
@@ -2096,7 +2126,9 @@ def _review_label_request_in_all_mode(repo_config: StamphogRepoConfig, pr: dict[
     _reject_label_request(repo_config, pr, notice)
 
 
-def request_manual_review(team_id: int, user_id: int | None, repository: str, pr_number: int) -> QueuedReview:
+def request_manual_review(
+    team_id: int, user_id: int | None, repository: str, pr_number: int, *, human: HumanRequestAsk | None = None
+) -> QueuedReview:
     """Queue a review of one PR because a PostHog user asked for it, and return the run that covers it.
 
     The request stands in for the trigger label, so it bypasses the repo's review mode and nothing
@@ -2106,6 +2138,9 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
 
     Runs synchronously in the API request, so the caller learns right away why a request was
     refused. Raises ``ReviewRequestRefusedError`` with a message written for the requester.
+
+    ``human`` also asks for people to review when stamphog does not approve. The repository must have
+    human requests turned on.
     """
     repo_config = reviewable_repo_config(team_id, repository)
     if repo_config is None:
@@ -2113,6 +2148,11 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
             ReviewRequestRefusal.NOT_FOUND,
             f"Auto-approval is not connected and enabled for {repository} in this project. "
             "Connect the repository in the auto-approval settings and turn on reviews first.",
+        )
+    if human is not None and not repo_config.human_request_enabled:
+        raise ReviewRequestRefusedError(
+            ReviewRequestRefusal.HUMAN_REQUEST_OFF,
+            "Asking people isn't turned on for this repository. A manager can turn it on in Stamphog settings.",
         )
     repo = repo_config.repository
     try:
@@ -2155,6 +2195,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
         pr["head"]["sha"],
         output={"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value},
         evidence=evidence,
+        human=human,
     )
     if queued.run is None:
         raise ReviewRequestRefusedError(
@@ -2168,9 +2209,10 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
         review_run_id=str(queued.run.id),
         created=queued.created,
         evidence_rerun=queued.created and EVIDENCE_RERUN_OUTPUT_KEY in (queued.run.output or {}),
+        human_request_id=str(queued.human_request.id) if queued.human_request is not None else None,
         team_id=team_id,
     )
-    return QueuedReview(run=queued.run, created=queued.created)
+    return QueuedReview(run=queued.run, created=queued.created, human_request=queued.human_request)
 
 
 def _waits_on_external_review(run: ReviewRun) -> bool:

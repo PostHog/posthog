@@ -10673,6 +10673,18 @@
                 {
                     "param": "review_on_clean_external_review",
                     "key": "review_on_clean_external_review"
+                },
+                {
+                    "param": "human_request_enabled",
+                    "key": "human_request_enabled"
+                },
+                {
+                    "param": "human_request_slack_channel_id",
+                    "key": "human_request_slack_channel_id"
+                },
+                {
+                    "param": "human_request_slack_channel_name",
+                    "key": "human_request_slack_channel_name"
                 }
             ],
             "injectBody": {},
@@ -10863,6 +10875,14 @@
                 {
                     "param": "pr_number",
                     "key": "pr_number"
+                },
+                {
+                    "param": "human",
+                    "key": "human"
+                },
+                {
+                    "param": "note",
+                    "key": "note"
                 }
             ],
             "injectBody": {},

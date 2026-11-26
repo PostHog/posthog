@@ -211,6 +211,15 @@ const codeReviewApprovalsRepositoriesUpdate = (): ToolBase<
         if (params.review_on_clean_external_review !== undefined) {
             body['review_on_clean_external_review'] = params.review_on_clean_external_review
         }
+        if (params.human_request_enabled !== undefined) {
+            body['human_request_enabled'] = params.human_request_enabled
+        }
+        if (params.human_request_slack_channel_id !== undefined) {
+            body['human_request_slack_channel_id'] = params.human_request_slack_channel_id
+        }
+        if (params.human_request_slack_channel_name !== undefined) {
+            body['human_request_slack_channel_name'] = params.human_request_slack_channel_name
+        }
         const result = await context.api.request<Schemas.CodeReviewApprovalRepository>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/code_review/approvals/repositories/${encodeURIComponent(String(params.id))}/`,
@@ -314,6 +323,12 @@ const codeReviewApprovalsRunsCreate = (): ToolBase<
         }
         if (params.pr_number !== undefined) {
             body['pr_number'] = params.pr_number
+        }
+        if (params.human !== undefined) {
+            body['human'] = params.human
+        }
+        if (params.note !== undefined) {
+            body['note'] = params.note
         }
         const result = await context.api.request<Schemas.ReviewRequestResponse>({
             method: 'POST',

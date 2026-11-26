@@ -31,6 +31,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from ..logic.change_summary import ReviewedSummary, split_clauses
 from ..logic.installations import reset_unverified_review_policy
 from ..logic.merge_approval import approved_at_head, retained_at_head
@@ -42,6 +44,9 @@ from ..logic.routing.owners_file import owners_file_status
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import (
     DigestRun,
+    HumanRequest,
+    HumanRequestDelivery,
+    HumanRequestParticipant,
     PullRequest,
     ReviewRun,
     RoutingRun,
@@ -54,6 +59,9 @@ from .enums import (
     TERMINAL_STATUSES,
     ChannelResolutionSource,
     DigestRunStatus,
+    HumanRequestDeliveryKind,
+    HumanRequestSource,
+    HumanRequestStatus,
     LlmSkipReason,
     OwnerKind,
     OwnersFileStatus,
@@ -164,6 +172,74 @@ def _routing_to_dto(record: object) -> contracts.PullRequestRoutingDTO | None:
     )
 
 
+# The attribute that _with_human_requests prefetches onto each pull request, newest request first.
+_HUMAN_REQUESTS_ATTR = "prefetched_human_requests"
+
+
+def _human_request_delivery_url(delivery: HumanRequestDelivery) -> str:
+    # The archives permalink resolves the workspace from the channel, so no workspace domain is stored.
+    return f"https://app.slack.com/archives/{delivery.channel_id}/p{delivery.message_ts.replace('.', '')}"
+
+
+def _human_request_to_dto(obj: HumanRequest) -> contracts.HumanRequestDTO:
+    """Expects the looking participants and the posted deliveries that _with_human_requests prefetches."""
+    return contracts.HumanRequestDTO(
+        id=obj.id,
+        status=HumanRequestStatus(obj.status),
+        head_sha=obj.head_sha,
+        requested_via=HumanRequestSource(obj.requested_via),
+        note=obj.note,
+        looking=[participant.display_name or participant.slack_user_id for participant in obj.participants.all()],
+        approved_by_login=obj.approved_by_login,
+        deliveries=[
+            contracts.HumanRequestDeliveryDTO(
+                kind=HumanRequestDeliveryKind(delivery.kind), url=_human_request_delivery_url(delivery)
+            )
+            for delivery in obj.deliveries.all()
+        ],
+        created_at=obj.created_at,
+        updated_at=obj.updated_at,
+    )
+
+
+def _human_request_reads(team_id: int) -> QuerySet[HumanRequest]:
+    team_id = resolve_effective_team_id(team_id)
+    participants = HumanRequestParticipant.objects.for_team(team_id, canonical=True).filter(looking=True)
+    deliveries = (
+        HumanRequestDelivery.objects.for_team(team_id, canonical=True)
+        .filter(state=HumanRequestDelivery.State.POSTED)
+        .exclude(message_ts="")
+    )
+    return (
+        HumanRequest.objects.for_team(team_id, canonical=True)
+        .prefetch_related(Prefetch("participants", queryset=participants.order_by("created_at")))
+        .prefetch_related(Prefetch("deliveries", queryset=deliveries.order_by("created_at")))
+    )
+
+
+def _with_human_requests(qs: _QS, team_id: int, pull_request_path: str) -> _QS:
+    """Prefetch the human requests of each row's pull request, so a page of rows reads them in three queries."""
+    return qs.prefetch_related(
+        Prefetch(
+            pull_request_path,
+            queryset=_human_request_reads(team_id).order_by("-created_at"),
+            to_attr=_HUMAN_REQUESTS_ATTR,
+        )
+    )
+
+
+def _latest_human_request(pull_request: PullRequest) -> contracts.HumanRequestDTO | None:
+    """The newest human request of a pull request, or None when there is none or the read did not prefetch them."""
+    requests = getattr(pull_request, _HUMAN_REQUESTS_ATTR, None)
+    return _human_request_to_dto(requests[0]) if requests else None
+
+
+def human_request_to_dto(team_id: int, human_request_id: UUID) -> contracts.HumanRequestDTO:
+    """One human request with its participants and deliveries, from the writer, so it includes a request just made."""
+    obj = _human_request_reads(team_id).using(router.db_for_write(HumanRequest)).get(id=human_request_id)
+    return _human_request_to_dto(obj)
+
+
 def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
     return contracts.PullRequestDTO(
         id=obj.id,
@@ -184,6 +260,7 @@ def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
         posted_comment_id=obj.posted_comment_id,
         routing_mode=RoutingMode(obj.repo_config.routing_mode),
         routing=_routing_to_dto(obj.routing),
+        human_request=_latest_human_request(obj),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -226,6 +303,7 @@ _STAMPED_WITHOUT_PROVENANCE = frozenset({ReviewTrigger.REVIEWHOG_CLEAN, ReviewTr
 
 # Preserves the caller's queryset type, so a team-scoped queryset stays team-scoped through the filter.
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
+_QS = TypeVar("_QS", bound=QuerySet)
 
 
 def _derive_trigger(
@@ -302,6 +380,7 @@ def _build_review_run_dto(obj: ReviewRun, *, output: dict[str, Any], trigger: Re
         posted_review_id=obj.posted_review_id,
         verdict_posted_at=obj.verdict_posted_at,
         approval_dismissed_at=obj.approval_dismissed_at,
+        human_request=_latest_human_request(obj.pull_request),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
         completed_at=obj.completed_at,
@@ -429,6 +508,7 @@ def check_approval_gates(
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
     """One run for the API. Its `output` carries only the summary keys and `reviewer_raw`."""
     qs = ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config")
+    qs = _with_human_requests(qs, team_id, "pull_request__human_requests")
     obj = _slim_review_runs(qs, _RETRIEVE_OUTPUT_KEYS).first()
     return _slim_review_run_to_dto(obj, _RETRIEVE_OUTPUT_KEYS) if obj is not None else None
 
@@ -488,7 +568,8 @@ def get_digest_run(team_id: int, digest_run_id: str) -> contracts.DigestRunDTO |
 
 
 def get_pull_request(team_id: int, pull_request_id: str) -> contracts.PullRequestDTO | None:
-    obj = PullRequest.objects.for_team(team_id).filter(id=pull_request_id).select_related("repo_config").first()
+    qs = PullRequest.objects.for_team(team_id).filter(id=pull_request_id).select_related("repo_config")
+    obj = _with_human_requests(qs, team_id, "human_requests").first()
     return _pull_request_to_dto(obj) if obj is not None else None
 
 
@@ -737,6 +818,7 @@ def list_review_runs(
         qs = qs.filter(status=status)
     if trigger:
         qs = _filter_by_trigger(qs, trigger)
+    qs = _with_human_requests(qs, team_id, "pull_request__human_requests")
     return LazyDTOList(_slim_review_runs(qs, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS), _review_run_list_row_to_dto)
 
 
@@ -751,7 +833,7 @@ def list_pull_requests(
         qs = qs.filter(pr_number=pr_number)
     if merged is not None:
         qs = qs.filter(merged_at__isnull=not merged)
-    return LazyDTOList(qs, _pull_request_to_dto)
+    return LazyDTOList(_with_human_requests(qs, team_id, "human_requests"), _pull_request_to_dto)
 
 
 # --- Reviewer routing runs ---

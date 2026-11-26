@@ -18,6 +18,9 @@ from ..facade import contracts
 from ..facade.enums import (
     ChannelResolutionSource,
     DigestRunStatus,
+    HumanRequestDeliveryKind,
+    HumanRequestSource,
+    HumanRequestStatus,
     LlmSkipReason,
     OwnerKind,
     OwnersFileStatus,
@@ -486,6 +489,87 @@ class PullRequestRoutingSerializer(DataclassSerializer):
         }
 
 
+@extend_schema_serializer(component_name="CodeReviewApprovalHumanRequestDelivery")
+class HumanRequestDeliverySerializer(DataclassSerializer):
+    kind = serializers.ChoiceField(
+        choices=HumanRequestDeliveryKind.choices,
+        read_only=True,
+        help_text="Where the request was posted. 'slack_message' is a message in the repository's Slack channel.",
+    )
+    url = serializers.CharField(read_only=True, help_text="Link that opens the posted message.")
+
+    class Meta:
+        dataclass = contracts.HumanRequestDeliveryDTO
+        fields = ["kind", "url"]
+
+
+@extend_schema_serializer(component_name="CodeReviewApprovalHumanRequest")
+class HumanRequestSerializer(DataclassSerializer):
+    status = serializers.ChoiceField(
+        choices=HumanRequestStatus.choices,
+        read_only=True,
+        help_text=(
+            "'pending' while auto-approval reviews the head, so nothing is posted yet. 'open' when auto-approval did "
+            "not approve and the request waits for a person. 'approved' when a person approved the current head; a "
+            "new push sets 'open' again. 'stamphog_approved' when auto-approval approved, so no person needs to look. "
+            "'merged' or 'closed' when the pull request merged or closed. Only 'pending', 'open' and 'approved' are "
+            "active, and a pull request has at most one active request."
+        ),
+    )
+    requested_via = serializers.ChoiceField(
+        choices=HumanRequestSource.choices,
+        read_only=True,
+        help_text="Where the request came from: a pull request comment ('github'), a Slack mention ('slack') or the API ('api').",
+    )
+    note = serializers.CharField(
+        read_only=True,
+        help_text="The requester's note for the people who review, shown in Slack only. Blank when there is none.",
+    )
+    looking = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Slack display names of the people who said they will look, in the order they said it.",
+    )
+    approved_by_login = serializers.CharField(
+        read_only=True,
+        help_text="GitHub login of the person whose approval of the current head set 'approved'. Blank otherwise.",
+    )
+    deliveries = HumanRequestDeliverySerializer(
+        many=True,
+        read_only=True,
+        help_text="Where the request was posted. Empty until auto-approval does not approve.",
+    )
+
+    class Meta:
+        dataclass = contracts.HumanRequestDTO
+        fields = [
+            "id",
+            "status",
+            "head_sha",
+            "requested_via",
+            "note",
+            "looking",
+            "approved_by_login",
+            "deliveries",
+            "created_at",
+            "updated_at",
+        ]
+        # Only the fields NOT declared above (see ReviewRunSerializer).
+        read_only_fields = ["id", "head_sha", "created_at", "updated_at"]
+        extra_kwargs = {
+            "id": {"help_text": "ID of the human request."},
+            "head_sha": {"help_text": "The pull request head the request follows. A push moves it."},
+            "created_at": {"help_text": "When somebody asked for people to review."},
+            "updated_at": {"help_text": "When the request last changed."},
+        }
+
+
+HUMAN_REQUEST_FIELD_HELP = (
+    "The newest request for people to review this pull request, or null when nobody asked. Set by a review "
+    "request with human set to true, or by `@posthog stamp --human`."
+)
+
+
 @extend_schema_serializer(component_name="CodeReviewApprovalPullRequest")
 class PullRequestSerializer(DataclassSerializer):
     repository = serializers.CharField(
@@ -514,6 +598,7 @@ class PullRequestSerializer(DataclassSerializer):
             "routing runs list for the owners each run requested or cut."
         ),
     )
+    human_request = HumanRequestSerializer(read_only=True, allow_null=True, help_text=HUMAN_REQUEST_FIELD_HELP)
 
     class Meta:
         dataclass = contracts.PullRequestDTO
@@ -535,6 +620,7 @@ class PullRequestSerializer(DataclassSerializer):
             "changed_files",
             "routing_mode",
             "routing",
+            "human_request",
             "created_at",
             "updated_at",
         ]
@@ -684,6 +770,12 @@ class ReviewRunSerializer(DataclassSerializer):
         ),
     )
 
+    human_request = HumanRequestSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=f"{HUMAN_REQUEST_FIELD_HELP} It belongs to the pull request, so every run of the pull request shows it.",
+    )
+
     reasoning = serializers.SerializerMethodField(
         help_text=(
             "The reviewer's reasoning, the same text auto-approval posts as its GitHub review. Returned only when "
@@ -739,6 +831,7 @@ class ReviewRunSerializer(DataclassSerializer):
             "posted_review_id",
             "verdict_posted_at",
             "approval_dismissed_at",
+            "human_request",
             "created_at",
             "updated_at",
             "completed_at",
@@ -761,6 +854,33 @@ class ReviewRequestSerializer(serializers.Serializer):
         help_text="Full name of the GitHub repository, e.g. 'PostHog/posthog'. It must be connected and enabled for auto-approval."
     )
     pr_number = serializers.IntegerField(min_value=1, help_text="Pull request number on GitHub.")
+    human = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull "
+            "request to the repository's Slack channel for people to review. When it approves, nothing is posted. "
+            "The repository must have human requests turned on. Asking again returns the request that is already "
+            "active. Only set it when the user asks for people to review."
+        ),
+    )
+    note = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=200,
+        help_text=(
+            "A short note for the people who review, shown in Slack only and never on GitHub. Needs human set to "
+            "true. A request that is already active keeps its note."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["note"] and not attrs["human"]:
+            raise serializers.ValidationError(
+                {"note": "A note goes with a request for people to review. Set human to true, or leave out the note."}
+            )
+        return attrs
 
 
 class ReviewRequestResponseSerializer(serializers.Serializer):
@@ -778,6 +898,13 @@ class ReviewRequestResponseSerializer(serializers.Serializer):
         help_text=(
             "True when this request queued a new run. False when a queued, running, or finished run already "
             "covered the current head, which is returned instead."
+        ),
+    )
+    human_request = HumanRequestSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The request for people to review that this request made or found active. Null unless human was true."
         ),
     )
 

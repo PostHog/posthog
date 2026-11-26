@@ -21,6 +21,9 @@ from posthog.dataclasses import frozen
 from .enums import (
     ChannelResolutionSource,
     DigestRunStatus,
+    HumanRequestDeliveryKind,
+    HumanRequestSource,
+    HumanRequestStatus,
     LlmSkipReason,
     OwnerKind,
     PinReason,
@@ -98,6 +101,31 @@ class PullRequestRoutingDTO:
 
 
 @dataclass(frozen=True)
+class HumanRequestDeliveryDTO:
+    """Where a human request was posted."""
+
+    kind: HumanRequestDeliveryKind
+    url: str
+
+
+@dataclass(frozen=True)
+class HumanRequestDTO:
+    """A request for a person to review a pull request when stamphog does not approve it."""
+
+    id: UUID
+    status: HumanRequestStatus
+    head_sha: str
+    requested_via: HumanRequestSource
+    note: str = ""
+    # Display names of the people who said they will look, in the order they said it.
+    looking: list[str] = Field(default_factory=list)
+    approved_by_login: str = ""
+    deliveries: list[HumanRequestDeliveryDTO] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class PullRequestDTO:
     """A pull request stamphog knows about, including merge state once it merges."""
 
@@ -119,6 +147,8 @@ class PullRequestDTO:
     posted_comment_id: int | None = None
     routing_mode: RoutingMode = RoutingMode.OFF
     routing: PullRequestRoutingDTO | None = None
+    # The newest human request of the pull request, None when nobody asked or the read did not load it.
+    human_request: HumanRequestDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -174,6 +204,8 @@ class ReviewRunDTO:
     posted_review_id: int | None = None
     verdict_posted_at: datetime | None = None
     approval_dismissed_at: datetime | None = None
+    # The newest human request of the run's pull request, as on PullRequestDTO.
+    human_request: HumanRequestDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
@@ -273,6 +305,8 @@ class ReviewRequestResultDTO:
     run: ReviewRunDTO
     # False when a live or delivered run already covered the PR's current head.
     created: bool
+    # Set only when the request asked for people to review. It can be a request that already existed.
+    human_request: HumanRequestDTO | None = None
 
 
 @dataclass(frozen=True)

@@ -31,6 +31,8 @@ from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.enums import (
     ChannelResolutionSource,
     DigestRunStatus,
+    HumanRequestSource,
+    HumanRequestStatus,
     ReviewMode,
     ReviewRunStatus,
     ReviewVerdict,
@@ -40,6 +42,7 @@ from products.stamphog.backend.facade.github import StamphogGitHubError
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.models import (
     DigestRun,
+    HumanRequest,
     PullRequest,
     ReviewRun,
     RoutingRun,
@@ -47,7 +50,10 @@ from products.stamphog.backend.models import (
     StamphogInstallation,
     StamphogRepoConfig,
 )
-from products.stamphog.backend.presentation.serializers import CodeReviewApprovalRepositoryWriteSerializer
+from products.stamphog.backend.presentation.serializers import (
+    CodeReviewApprovalRepositoryWriteSerializer,
+    ReviewRequestSerializer,
+)
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tasks.tasks import process_pull_request_event
 from products.stamphog.backend.tests import fakes
@@ -635,6 +641,23 @@ def _repo_config_dto(*, enabled: bool, digest_enabled: bool) -> contracts.RepoCo
     )
 
 
+class TestReviewRequestSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("note_without_human", {"note": "Touches billing."}, "note"),
+            ("note_too_long", {"human": True, "note": "x" * 201}, "note"),
+            ("human_without_note", {"human": True}, None),
+            ("neither", {}, None),
+        ]
+    )
+    def test_note_rules(self, _name: str, extra: dict[str, Any], error_field: str | None) -> None:
+        serializer = ReviewRequestSerializer(data={"repository": "PostHog/posthog", "pr_number": 5, **extra})
+
+        assert serializer.is_valid() is (error_field is None), serializer.errors
+        if error_field is not None:
+            assert list(serializer.errors) == [error_field]
+
+
 class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
     @parameterized.expand(
         [
@@ -974,8 +997,13 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         )["pull_request"]
         return {**pr, **overrides}
 
-    def _request(self) -> Any:
-        return self.client.post(self.url, {"repository": "posthog/posthog", "pr_number": 5}, format="json")
+    def _request(self, **extra: Any) -> Any:
+        return self.client.post(self.url, {"repository": "posthog/posthog", "pr_number": 5, **extra}, format="json")
+
+    def _turn_on_human_requests(self) -> None:
+        StamphogRepoConfig.objects.unscoped().filter(id=self.repo_config.id).update(
+            human_request_enabled=True, human_request_slack_channel_id="C0123456789"
+        )
 
     def test_request_queues_a_manual_run_past_label_mode(self) -> None:
         response = self._request()
@@ -1226,6 +1254,69 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.json()["code"] == "not_reviewable"
         assert not ReviewRun.objects.unscoped().filter(team_id=self.team.id).exists()
         assert self.github.github_writes == []
+
+    def test_human_request_is_refused_while_the_repository_has_it_off(self) -> None:
+        response = self._request(human=True)
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert response.json()["code"] == "human_request_off"
+        assert not ReviewRun.objects.unscoped().filter(team_id=self.team.id).exists()
+        assert not HumanRequest.objects.unscoped().filter(team_id=self.team.id).exists()
+        assert self.github.request_priorities == []
+
+    def test_human_request_is_made_once_and_shown_on_the_run_and_pull_request(self) -> None:
+        self._turn_on_human_requests()
+        with patch("products.stamphog.backend.tasks.human_requests.refresh_human_request.delay") as refresh:
+            first = self._request(human=True, note="Touches billing.")
+            second = self._request(human=True, note="A second note.")
+
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+        assert second.status_code == status.HTTP_200_OK, second.content
+        request = HumanRequest.objects.unscoped().get(team_id=self.team.id)
+        assert (request.status, request.head_sha, request.note) == (
+            HumanRequestStatus.PENDING,
+            "head1",
+            "Touches billing.",
+        )
+        assert (request.requested_by_user_id, request.requested_via) == (self.user.id, HumanRequestSource.API)
+        assert first.json()["human_request"]["id"] == second.json()["human_request"]["id"] == str(request.id)
+        assert second.json()["run"]["human_request"]["note"] == "Touches billing."
+        assert refresh.call_args_list == [call(team_id=self.team.id, human_request_id=str(request.id))] * 2
+        # The note stays off the reviewer's context.
+        assert "Touches billing." not in json.dumps(ReviewRun.objects.unscoped().get(team_id=self.team.id).output)
+
+        runs = self.client.get(self.url).json()["results"]
+        pull_requests = self.client.get(f"/api/projects/{self.team.id}/code_review/approvals/pull_requests/").json()
+        assert runs[0]["human_request"]["status"] == pull_requests["results"][0]["human_request"]["status"] == "pending"
+
+    @parameterized.expand(
+        [
+            ("in_flight", ReviewRunStatus.REVIEWING, ReviewVerdict.NONE, False, HumanRequestStatus.PENDING),
+            ("gate_denial", ReviewRunStatus.GATED, ReviewVerdict.WAIT, True, HumanRequestStatus.OPEN),
+            ("approved", ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, True, HumanRequestStatus.STAMPHOG_APPROVED),
+            # A visible WAIT gets another review of the head, so nobody is asked yet.
+            ("wait", ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT, True, HumanRequestStatus.PENDING),
+        ]
+    )
+    def test_human_request_starts_from_the_published_verdict_at_the_head(
+        self,
+        _name: str,
+        run_status: ReviewRunStatus,
+        verdict: ReviewVerdict,
+        posted: bool,
+        expected: HumanRequestStatus,
+    ) -> None:
+        run_id = self._request().json()["run"]["id"]
+        ReviewRun.objects.unscoped().filter(id=run_id).update(
+            status=run_status, verdict=verdict, verdict_posted_at=timezone.now() if posted else None
+        )
+        self._turn_on_human_requests()
+
+        response = self._request(human=True)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["run"]["id"] == run_id
+        assert response.json()["human_request"]["status"] == expected
 
     def test_request_needs_the_write_scope(self) -> None:
         key_value = generate_random_token_personal()

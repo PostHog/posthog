@@ -42,7 +42,7 @@ from products.stamphog.backend.facade import (
     api as facade_api,
     contracts,
 )
-from products.stamphog.backend.facade.enums import ReviewRequestRefusal, ReviewTrigger
+from products.stamphog.backend.facade.enums import HumanRequestSource, ReviewRequestRefusal, ReviewTrigger
 
 from ..facade import review_requests
 from ..facade.github import (
@@ -607,6 +607,7 @@ _REFUSAL_STATUS = {
     ReviewRequestRefusal.NOT_FOUND: 404,
     ReviewRequestRefusal.NOT_REVIEWABLE: 409,
     ReviewRequestRefusal.GITHUB_UNAVAILABLE: 503,
+    ReviewRequestRefusal.HUMAN_REQUEST_OFF: 409,
 }
 
 
@@ -662,6 +663,9 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
                 user_id=request.user.pk,
                 repository=serializer.validated_data["repository"],
                 pr_number=serializer.validated_data["pr_number"],
+                human=serializer.validated_data["human"],
+                note=serializer.validated_data["note"],
+                requested_via=HumanRequestSource.API,
             )
         except contracts.ReviewRequestRefusedError as error:
             raise ReviewRequestRefused(error)

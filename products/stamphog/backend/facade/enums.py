@@ -181,6 +181,8 @@ class ReviewRequestRefusal(StrEnum):
     NOT_FOUND = "not_found"
     NOT_REVIEWABLE = "not_reviewable"
     GITHUB_UNAVAILABLE = "github_unavailable"
+    # The request asked for people to review, and the repository has human requests turned off.
+    HUMAN_REQUEST_OFF = "human_request_off"
 
 
 class HumanRequestStatus(LabeledStrEnum):
