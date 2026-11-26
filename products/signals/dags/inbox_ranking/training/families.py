@@ -39,7 +39,7 @@ from products.signals.backend.ranking.features import (
 )
 from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.dataset.feature_backfill import BATCH_ID_PATTERN, Provenance
-from products.signals.dags.inbox_ranking.multihead.inputs import PairTrainingConfig
+from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, PairTrainingConfig
 
 # The model family: which features and which learner, as against `model_version`, the partition day
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
@@ -52,6 +52,15 @@ NN_WITH_PRIO_ML_FEATURES_V2_MODEL_NAME = "nn_with_prio_ml_features_v2"
 NN_WITH_PRIO_ML_FEATURES_BACKFILL_MODEL_NAME = "nn_with_prio_ml_features_backfill_v1"
 NN_WITH_PRIO_ML_FEATURES_BACKFILL_AS_OF_MODEL_NAME = "nn_with_prio_ml_features_backfill_as_of_v1"
 ML_FEATURES_EXPERIMENT_EXPIRES = datetime.date(2026, 12, 9)
+# `nn_with_prio_ml_features_v1` stops here: `nn_with_prio_ml_features_v2` reads its recipe in shadow.
+ML_FEATURES_V1_EXPERIMENT_EXPIRES = datetime.date(2026, 11, 26)
+NN_WITH_PRIO_ML_FEATURES_PROJ8_MODEL_NAME = "nn_with_prio_ml_features_proj8_v1"
+NN_WITH_PRIO_ML_FEATURES_PROJ8_EXPERIMENT_MODEL_NAME = "nn_with_prio_ml_features_proj8_experiment_v1"
+# The report vector projected to 8 numbers rather than 64, so the network has less room to fit the
+# vector to tell teams apart.
+NARROW_PROJECTION_NETWORK_CONFIG = NetworkConfig(projection_dim=8)
+# Room for three reads seven days apart.
+NARROW_PROJECTION_EXPERIMENT_EXPIRES = datetime.date(2026, 12, 23)
 # The `inbox_ranking_feature_backfill_job` batch the backfill experiments and `nn_with_prio_ml_features_v2`
 # read. An operator writes it with this `batch_id`. A refresh is a new batch, and so a new `model_name`.
 ML_FEATURES_BACKFILL_BATCH_ID = "ml-features-v1"
@@ -59,6 +68,8 @@ NN_WITH_PRIO_FIXED_MODEL_NAME = "nn_with_prio_fixed_v1"
 NN_WITH_PRIO_FIXED_NODISMISS_MODEL_NAME = "nn_with_prio_fixed_nodismiss_v1"
 FIXED_EXPERIMENT_EXPIRES = datetime.date(2026, 11, 27)
 NN_WITH_PRIO_AA_MODEL_NAME = "nn_with_prio_aa_v1"
+# As long as the narrow projection experiment, whose reads are judged against the A/A deltas of the same days.
+AA_EXPERIMENT_EXPIRES = NARROW_PROJECTION_EXPERIMENT_EXPIRES
 # Far from any baseline seed, so the A/A arm never shares an initialization with its baseline.
 AA_SEED_OFFSET = 100
 NN_PAIR_BASE_MODEL_NAME = "nn_pair_base_v1"
@@ -112,6 +123,11 @@ class FeatureBackfillSelection:
         return any(provenance in APPROXIMATE_PROVENANCES for provenance in self.provenances)
 
 
+ML_FEATURES_V2_BACKFILL = FeatureBackfillSelection(
+    batch_id=ML_FEATURES_BACKFILL_BATCH_ID, provenances=(*AS_OF_PROVENANCES, *APPROXIMATE_PROVENANCES)
+)
+
+
 @frozen
 class ModelFamily:
     """One family the training jobs fit: its name, the feature set it is fit on, the learner a
@@ -136,7 +152,10 @@ class ModelFamily:
     `feature_backfill` fills the set's late feature groups from a frozen backfill batch where a row's
     own snapshot did not record them. Only a report-grain family whose set has late feature groups
     can set it. A serving family that sets it trains on reconstructed values and is read in shadow,
-    as a challenger, against the values it reads online."""
+    as a challenger, against the values it reads online.
+
+    `network_config` holds the network's settings, or None for the shared `NETWORK_CONFIG` of
+    `nn/dag.py`. Only a report-grain family can set it. A family without one keeps its recipe hash."""
 
     name: str
     feature_set: FeatureSet
@@ -153,9 +172,12 @@ class ModelFamily:
     seed_offset: int = 0
     pair_training: PairTrainingConfig | None = None
     feature_backfill: FeatureBackfillSelection | None = None
+    network_config: NetworkConfig | None = None
 
     def __post_init__(self) -> None:
         self._check_project_vector_kinds()
+        if self.network_config is not None and self.grain == PAIR_GRAIN:
+            raise ValueError(f"family {self.name} sets network settings; only a report-grain family can")
         if self.feature_backfill is not None and (self.grain == PAIR_GRAIN or not self.feature_set.late_feature_groups):
             raise ValueError(
                 f"family {self.name} reads a feature backfill; only a report-grain family whose set has late "
@@ -222,9 +244,13 @@ class ModelFamily:
 # then `ML_FEATURES_BACKFILL_BATCH_ID` for a late group the snapshot never recorded. Unlike the
 # experiments, it trains on a day the batch does not cover. It took the place of the sources
 # challenger `nn_with_prio_sources_v2` (`RETIRED_MODEL_NAMES`), whose columns its set holds.
-# `nn_with_prio_ml_features_v1` is an experiment: the sources set plus one-hot report facts (length,
-# judgments, signal count, content counts and authorship, creation time), graded against
-# `nn_with_prio_v2`, with the holdout AUC each group carries recorded by shuffling it.
+# `nn_with_prio_ml_features_proj8_v1` is `nn_with_prio_ml_features_v2` with the report vector
+# projected to 8 numbers, read in shadow as a challenger. `nn_with_prio_ml_features_proj8_experiment_v1`
+# is the same recipe graded against `nn_with_prio_ml_features_v2` on the same rows and seeds, so the
+# two arms differ only in the projection.
+# `nn_with_prio_ml_features_v1` was an experiment until 2026-11-26: the sources set plus one-hot report
+# facts (length, judgments, signal count, content counts and authorship, creation time), graded
+# against `nn_with_prio_v2`, with the holdout AUC each group carries recorded by shuffling it.
 # `nn_with_prio_ml_features_backfill_v1` is that experiment with the content and `already_addressed`
 # values its snapshots never recorded filled from `ML_FEATURES_BACKFILL_BATCH_ID`, approximate values
 # included. `nn_with_prio_ml_features_backfill_as_of_v1` takes only the values known by the report's
@@ -256,9 +282,15 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
         feature_set=REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
         learner=ONNX_MODEL_KIND,
         location=ML_LOCATION,
-        feature_backfill=FeatureBackfillSelection(
-            batch_id=ML_FEATURES_BACKFILL_BATCH_ID, provenances=(*AS_OF_PROVENANCES, *APPROXIMATE_PROVENANCES)
-        ),
+        feature_backfill=ML_FEATURES_V2_BACKFILL,
+    ),
+    ModelFamily(
+        name=NN_WITH_PRIO_ML_FEATURES_PROJ8_MODEL_NAME,
+        feature_set=REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
+        learner=ONNX_MODEL_KIND,
+        location=ML_LOCATION,
+        feature_backfill=ML_FEATURES_V2_BACKFILL,
+        network_config=NARROW_PROJECTION_NETWORK_CONFIG,
     ),
     ModelFamily(
         name=NN_WITH_PRIO_ML_FEATURES_MODEL_NAME,
@@ -267,7 +299,18 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
         location=ML_LOCATION,
         experiment=True,
         baseline=NN_WITH_PRIO_MODEL_NAME,
-        expires=ML_FEATURES_EXPERIMENT_EXPIRES,
+        expires=ML_FEATURES_V1_EXPERIMENT_EXPIRES,
+    ),
+    ModelFamily(
+        name=NN_WITH_PRIO_ML_FEATURES_PROJ8_EXPERIMENT_MODEL_NAME,
+        feature_set=REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
+        learner=ONNX_MODEL_KIND,
+        location=ML_LOCATION,
+        experiment=True,
+        baseline=NN_WITH_PRIO_ML_FEATURES_V2_MODEL_NAME,
+        expires=NARROW_PROJECTION_EXPERIMENT_EXPIRES,
+        feature_backfill=ML_FEATURES_V2_BACKFILL,
+        network_config=NARROW_PROJECTION_NETWORK_CONFIG,
     ),
     ModelFamily(
         name=NN_WITH_PRIO_ML_FEATURES_BACKFILL_MODEL_NAME,
@@ -320,7 +363,7 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
         location=ML_LOCATION,
         experiment=True,
         baseline=NN_WITH_PRIO_MODEL_NAME,
-        expires=datetime.date(2026, 12, 2),
+        expires=AA_EXPERIMENT_EXPIRES,
         seed_offset=AA_SEED_OFFSET,
     ),
     ModelFamily(
@@ -377,6 +420,9 @@ NN_WITH_PRIO_FAMILY = next(family for family in MODEL_FAMILIES if family.name ==
 NN_WITH_PRIO_ML_FEATURES_V2_FAMILY = next(
     family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_ML_FEATURES_V2_MODEL_NAME
 )
+NN_WITH_PRIO_ML_FEATURES_PROJ8_FAMILY = next(
+    family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_ML_FEATURES_PROJ8_MODEL_NAME
+)
 
 
 def serving_families(families: Sequence[ModelFamily] = MODEL_FAMILIES) -> tuple[ModelFamily, ...]:
@@ -387,6 +433,13 @@ def serving_families(families: Sequence[ModelFamily] = MODEL_FAMILIES) -> tuple[
 def experiment_families(families: Sequence[ModelFamily] = MODEL_FAMILIES) -> tuple[ModelFamily, ...]:
     """The families the experiments job trains, expired ones included. The job skips an expired one."""
     return tuple(family for family in families if family.experiment)
+
+
+def shares_baseline_report_input(family: ModelFamily, baseline: ModelFamily) -> bool:
+    """Whether an experiment reads its baseline's report input row for row: the same set, filled from
+    the same backfill selection. Its two arms then differ only in the network, or in the seeds of an
+    A/A, and the baseline arm can be fit on the experiment's own input."""
+    return family.feature_set is baseline.feature_set and family.feature_backfill == baseline.feature_backfill
 
 
 def experiment_names(families: Sequence[ModelFamily] = MODEL_FAMILIES) -> frozenset[str]:
