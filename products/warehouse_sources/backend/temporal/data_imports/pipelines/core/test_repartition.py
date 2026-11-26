@@ -1654,6 +1654,39 @@ class TestAddActionStats:
         if streamed.get("maxValues", {}).get("v") is not None:
             assert _typed(streamed["maxValues"]["v"], data_type) >= max(present)
 
+    @pytest.mark.parametrize(
+        "raw_values,large,expected_min,expected_max",
+        [
+            pytest.param([b"\xfe\xffabc"], False, "", None, id="byte_order_mark_start"),
+            pytest.param([b"\xfe\xffabc"], True, "", None, id="byte_order_mark_start_large_string"),
+            pytest.param([b"ab\xfecd"], False, "ab", "ac", id="invalid_byte_after_a_valid_prefix"),
+            pytest.param([b"a\x80b"], False, "a", "b", id="lone_continuation_byte"),
+            pytest.param([b"zz", b"a\xc3", None], False, "a", "zz", id="cut_multibyte_character_and_valid_max"),
+            pytest.param([b"\xf4\x8f\xbf\xbf\xff"], False, "\U0010ffff", None, id="prefix_cannot_be_raised"),
+            pytest.param([b"a" * 70 + b"\xff"], False, "a" * 64, "a" * 63 + "b", id="long_prefix_before_invalid_byte"),
+        ],
+    )
+    def test_string_bounds_hold_invalid_utf8(self, raw_values, large, expected_min, expected_max, tmp_path):
+        binary_type, string_type = (pa.large_binary(), pa.large_string()) if large else (pa.binary(), pa.string())
+        table = pa.table(
+            {
+                "id": pa.array(range(len(raw_values)), pa.int64()),
+                "v": pa.array(raw_values, binary_type).view(string_type),
+                PARTITION_KEY: pa.array(["p"] * len(raw_values)),
+            }
+        )
+        uri = str(tmp_path / "streamed")
+        _write_streamed(uri, [table])
+        (stats,) = _raw_add_stats(uri)
+        present = [value for value in raw_values if value is not None]
+
+        assert stats["numRecords"] == len(raw_values)
+        assert stats["minValues"]["v"] == expected_min
+        assert stats.get("maxValues", {}).get("v") == expected_max
+        assert expected_min.encode("utf-8") <= min(present)
+        if expected_max is not None:
+            assert expected_max.encode("utf-8") >= max(present)
+
     @staticmethod
     def _typed_table() -> pa.Table:
         rows = range(12)

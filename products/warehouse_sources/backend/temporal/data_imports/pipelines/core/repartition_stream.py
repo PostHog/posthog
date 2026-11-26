@@ -362,14 +362,48 @@ def _truncate_utf8(value: str, max_bytes: int) -> str:
     return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
-def _string_upper_bound(value: str) -> str | None:
-    """The smallest string up to `STRING_STATS_MAX_BYTES` that is not less than `value`.
+def _valid_utf8_prefix(raw: bytes) -> tuple[str, bool]:
+    """The longest valid UTF-8 prefix of `raw`, and whether it is all of `raw`.
+
+    A pyarrow string column does not check its bytes, so a source can carry invalid UTF-8.
+    """
+    try:
+        return raw.decode("utf-8"), True
+    except UnicodeDecodeError as error:
+        return raw[: error.start].decode("utf-8"), False
+
+
+def _string_lower_bound(raw: bytes) -> str:
+    """A string up to `STRING_STATS_MAX_BYTES` that is not more than `raw` in byte order.
+
+    A prefix never sorts above its value, so the valid prefix before any invalid byte is a lower bound.
+    """
+    prefix, _ = _valid_utf8_prefix(raw)
+    return _truncate_utf8(prefix, STRING_STATS_MAX_BYTES)
+
+
+def _string_upper_bound(raw: bytes) -> str | None:
+    """A string up to `STRING_STATS_MAX_BYTES` that is not less than `raw` in byte order.
+
+    A valid value too long to raise keeps its exact value, as delta-rs does. Past an invalid byte no
+    valid string is exact, so the valid prefix is raised. None when that prefix cannot be raised,
+    which leaves the column without a max.
+    """
+    value, valid = _valid_utf8_prefix(raw)
+    if valid:
+        return _raised_prefix(value) or value
+    return _raised_prefix(value, exact_allowed=False)
+
+
+def _raised_prefix(value: str, *, exact_allowed: bool = True) -> str | None:
+    """The smallest string up to `STRING_STATS_MAX_BYTES` that is not less than any string starting
+    with `value`. With `exact_allowed`, a `value` that fits is returned as it is.
 
     A truncated prefix sorts below the value, so its last character is raised by one. None when no
-    character can be raised, which leaves the column without a max.
+    character can be raised.
     """
     prefix = _truncate_utf8(value, STRING_STATS_MAX_BYTES)
-    if prefix == value:
+    if exact_allowed and prefix == value:
         return value
     chars = list(prefix)
     while chars:
@@ -398,9 +432,10 @@ class _ColumnStats:
     that row from reads and turns its merge into a duplicate insert. Each bound is exact or looser,
     and matches what delta-rs writes where delta-rs is safe.
 
-    A bound is left out only where JSON cannot hold it (infinity). That is not free: delta-rs's
-    pyarrow reader turns a missing bound into a null guarantee and skips the file for every filter
-    on the column, the same as it does for delta-rs's own stats in that case.
+    A bound is left out only where JSON cannot hold it: infinity, or a max above every valid UTF-8
+    string. That is not free: delta-rs's pyarrow reader turns a missing bound into a null guarantee
+    and skips the file for every filter on the column, the same as it does for delta-rs's own stats
+    in that case.
     """
 
     __slots__ = ("kind", "minimum", "maximum", "null_count", "min_unbounded", "max_unbounded")
@@ -429,16 +464,22 @@ class _ColumnStats:
             column = pc.filter(column, pc.is_finite(column))
             if len(column) == 0:
                 return
+        if self.kind == "string":
+            # Over the raw bytes: a string scalar with invalid UTF-8 cannot become a Python str.
+            binary = pa.large_binary() if pa.types.is_large_string(column.type) else pa.binary()
+            column = pc.cast(column, binary)
         result = pc.min_max(column)
         low, high = result["min"].as_py(), result["max"].as_py()
         if low is None or high is None:
             return
         if self.kind == "string":
-            low = _truncate_utf8(low, STRING_STATS_MAX_BYTES)
-            # With no short upper bound the exact value is kept, as delta-rs does.
-            high = _string_upper_bound(high) or high
+            low = _string_lower_bound(low)
+            high = _string_upper_bound(high)
         self.minimum = low if self.minimum is None or low < self.minimum else self.minimum
-        self.maximum = high if self.maximum is None or high > self.maximum else self.maximum
+        if high is None:
+            self.max_unbounded = True
+        elif self.maximum is None or high > self.maximum:
+            self.maximum = high
 
     def json_values(self) -> StatBounds:
         if self.kind is None or self.minimum is None:
