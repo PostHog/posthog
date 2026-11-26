@@ -1,6 +1,7 @@
 import { retryImport } from 'lib/utils/retryImport'
 import {
     MAX_NOTEBOOK_VARIABLE_VALUE_CHARS,
+    coerceNotebookVariableValue,
     type NotebookVariable,
     type NotebookVariableValue,
 } from 'scenes/notebooks/Notebook/notebookVariables'
@@ -46,10 +47,8 @@ function inputValue(type: NotebookVariable['type'], value: SelectedValue): Noteb
     switch (type) {
         case 'boolean':
             return /^(true|false)$/i.test(text.trim()) ? text.trim().toLowerCase() === 'true' : null
-        case 'number': {
-            const number = Number(text)
-            return text.trim() !== '' && Number.isFinite(number) ? number : null
-        }
+        case 'number':
+            return text.trim() === '' ? null : coerceNotebookVariableValue('number', value)
         case 'date':
             return isAbsoluteAppDate(text) ? text : null
         case 'list':
