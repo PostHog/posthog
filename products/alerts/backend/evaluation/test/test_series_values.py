@@ -120,7 +120,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _enrolled(self) -> Any:
-        return override_settings(ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS=[self.team.pk])
+        return patch(f"{_SHADOW}.posthoganalytics.feature_enabled", return_value=True)
 
     def _jobs(self) -> int:
         return PreaggregationJob.objects.filter(team_id=self.team.pk).count()
