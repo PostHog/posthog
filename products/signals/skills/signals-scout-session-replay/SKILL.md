@@ -202,6 +202,8 @@ From the orientation join, a cliff candidate is a day (or the live partial day) 
 - SDK-side diagnosis from the event stream — recent events carry replay health properties: `$recording_status`, `$replay_sample_rate` (did the client-observed rate change on the cliff date?), `$sdk_debug_recording_script_not_loaded` (ad blockers / CSP blocking the recorder bundle). Group by `$lib_version` — a cliff aligned to one SDK version is a release regression; say so in the finding.
 - Slice by `$host` and platform (web vs mobile SDKs) — a cliff scoped to one host or one platform points at that surface's deploy, not the whole pipeline.
 
+If a billing limit has stopped capture, ask someone with billing access to raise the limit or wait for the billing period to reset. Lowering the sample rate only reduces future usage; it does not clear usage already counted against the limit.
+
 A confirmed cliff is **P1–P2 and time-sensitive**: recordings are not retroactive, so every day unfixed is evidence permanently lost. Say that in the finding, with the daily recording counts before/after and the dated onset.
 
 #### Friction concentration
