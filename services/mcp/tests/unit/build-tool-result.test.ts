@@ -421,10 +421,43 @@ describe('buildToolResultPayload — non-query use cases', () => {
             expected:
                 'Showing 2 of 5 results. More results exist: call mock-tool again with the same arguments and set offset=2 and limit=2 to get the next page.',
         },
+        {
+            handlerResult: {
+                results: [{ id: 1 }, { id: 2 }],
+                next: 'https://example.com/api/reports/?limit=2&offset=2&sort=recommended',
+                count: 5,
+                previous: null,
+                count_is_capped: false,
+                ranker: 'priority',
+                ranking_id: null,
+                _agentNote: 'Read a report before you claim it.',
+            },
+            expected:
+                'Showing 2 of 5 results. More results exist: call mock-tool again with the same arguments and set offset=2 and limit=2 to get the next page.',
+        },
+        {
+            handlerResult: {
+                results: [{ id: 1 }, { id: 2 }],
+                next: 'https://example.com/api/reports/?limit=2&offset=2&search=checkout',
+                count: 1002,
+                previous: null,
+                count_is_capped: true,
+            },
+            expected:
+                'Showing 2 of at least 1002 results. More results exist: call mock-tool again with the same arguments and set offset=2 and limit=2 to get the next page.',
+        },
     ])('tells the agent how to read the next page: $handlerResult.next', ({ handlerResult, expected }) => {
         const payload = buildToolResultPayload({ handlerResult, toolName: 'mock-tool', params: {} })
 
         expect(payload.content[0]!.text).toBe(`${formatResponse(handlerResult)}\n\n${expected}`)
+    })
+
+    it('adds no next-page hint to an object that is not a page', () => {
+        const handlerResult = { results: [{ id: 1 }], next: 'https://example.com/api/items/?offset=1', status: 'ready' }
+
+        const payload = buildToolResultPayload({ handlerResult, toolName: 'mock-tool', params: {} })
+
+        expect(payload.content[0]!.text).toBe(formatResponse(handlerResult))
     })
 
     it.each(['optimized', 'json'] as const)(

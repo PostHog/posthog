@@ -11,7 +11,7 @@ import { AppLoadingState } from '../components/AppLoadingState'
 import { AppWrapper } from '../components/AppWrapper'
 import { RENDER_DISPATCH } from '../generated/render-dispatch.generated'
 import { APP_DATA_META_KEY } from '../types'
-import { loadRenderUiData } from './render-ui-data'
+import { loadRenderUiData, readRenderUiEnvelope } from './render-ui-data'
 
 /**
  * Envelope emitted by the `render-ui` server tool. It carries the tool to render
@@ -28,7 +28,7 @@ interface RenderUiEnvelope {
 
 function RenderUiApp(): JSX.Element {
     return (
-        <AppWrapper<RenderUiEnvelope> appName="PostHog Render UI">
+        <AppWrapper<RenderUiEnvelope> appName="PostHog Render UI" readResult={readRenderUiEnvelope}>
             {({ data, resultMeta, app, openLink }) => (
                 <RenderUiContent envelope={data!} resultMeta={resultMeta} app={app} openLink={openLink} />
             )}

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const {
     mockBuildInstructions,
     mockInitDurationObserve,
+    mockInitStepDurationObserve,
     mockInitTotalInc,
     mockRevalidateContextMillResources,
     mockResolveState,
@@ -11,6 +12,7 @@ const {
 } = vi.hoisted(() => ({
     mockBuildInstructions: vi.fn(),
     mockInitDurationObserve: vi.fn(),
+    mockInitStepDurationObserve: vi.fn(),
     mockInitTotalInc: vi.fn(),
     mockRevalidateContextMillResources: vi.fn(),
     mockResolveState: vi.fn(),
@@ -44,6 +46,7 @@ vi.mock('@/hono/instructions', () => ({
 
 vi.mock('@/hono/metrics', () => ({
     initDurationSeconds: { observe: mockInitDurationObserve },
+    initStepDurationSeconds: { observe: mockInitStepDurationObserve },
     initTotal: { inc: mockInitTotalInc },
 }))
 
@@ -131,7 +134,7 @@ describe('McpDispatcher initialize resource revalidation', () => {
     beforeEach(() => {
         vi.clearAllMocks()
         mockBuildInstructions.mockResolvedValue('')
-        mockResolveState.mockResolvedValue({ distinctId: 'test-distinct-id' })
+        mockResolveState.mockResolvedValue({ distinctId: 'test-distinct-id', stepSeconds: { flags: 0.02 } })
         mockTrackInitEvent.mockResolvedValue(undefined)
         mockRevalidateContextMillResources.mockResolvedValue(undefined)
         mockSkillCatalogService.warmup.mockReset().mockResolvedValue(undefined)

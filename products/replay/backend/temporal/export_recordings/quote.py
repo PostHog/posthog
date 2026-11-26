@@ -31,7 +31,7 @@ GLACIER_IR_RETRIEVAL_USD_PER_GB = 0.03
 CROSS_REGION_TRANSFER_USD_PER_GB = 0.02
 COMPUTE_USD_PER_PROCESS_HOUR = 0.06
 # Measured read rate of one shard activity.
-SHARD_BYTES_PER_SECOND = 10_000_000
+SHARD_BYTES_PER_SECOND = 5_000_000
 
 # Replay batch files outside the 30d tier move to Glacier Instant Retrieval at this age.
 GLACIER_IR_AFTER_DAYS = 30

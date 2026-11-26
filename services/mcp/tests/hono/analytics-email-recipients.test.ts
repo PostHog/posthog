@@ -53,6 +53,7 @@ function makeState(): ResolvedState {
         gatewayToolsEnabled: false,
         distinctId: 'distinct-id',
         renderUiEnabled: false,
+        stepSeconds: {},
     }
 }
 
