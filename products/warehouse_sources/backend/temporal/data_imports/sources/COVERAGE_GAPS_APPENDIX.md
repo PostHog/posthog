@@ -6555,10 +6555,10 @@ Diffed against: <https://docs.gitlab.com/api/api_resources/>
 - [x] `/projects/{id}/issues/{iid}/resource_label_events` — label add/remove history, the standard way teams track workflow stage over time (medium). Added as `issue_label_events` (fan-out over `issues`).
 - [x] `/projects/{id}/environments` — lookup resolving the environment IDs carried on deployments (medium). Added as `environments` (full refresh).
 - [x] `/projects/{id}/merge_requests/{iid}/approvals` — who approved each MR and when — core review-governance reporting (medium). Added as `merge_request_approvals`, one row per approver (fan-out over `merge_requests`).
-- [ ] `/projects/{id}/events` — project activity stream covering pushes, comments, and membership changes in one table (medium)
-- [ ] `/projects/{id}/issues/{iid}/resource_milestone_events` — milestone reassignment history for scope-change analysis (medium)
-- [ ] `/projects/{id}/iterations` — iteration (sprint) definitions that resolve iteration IDs on issues (low)
-- [ ] `/projects/{id}/vulnerabilities and /projects/{id}/vulnerability_findings` — security findings per project for posture trend reporting (low)
+- [x] `/projects/{id}/events` — project activity stream covering pushes, comments, and membership changes in one table (medium). Added as `events` (incremental on `created_at` through the date-only `after` filter, merge only).
+- [x] `/projects/{id}/issues/{iid}/resource_milestone_events` — milestone reassignment history for scope-change analysis (medium). Added as `issue_milestone_events` (fan-out over `issues`).
+- [x] `/projects/{id}/iterations` — iteration (sprint) definitions that resolve iteration IDs on issues (low). Added as `iterations` (incremental on `updated_after`; Premium and Ultimate only).
+- [ ] `/projects/{id}/vulnerabilities and /projects/{id}/vulnerability_findings` — security findings per project for posture trend reporting (low). Skipped: GitLab deprecated both REST APIs (Ultimate only) and points to GraphQL, which this source does not use.
 
 Note: Source is single-project scoped (every path templates {project} into /projects/{project}/...), so the missing items below are all project-scoped and reachable with the existing transport. GitLab exposes ~230 documented REST resources; 10 tables covers the obvious nouns but omits CI job granularity, comments, and all state-transition history. Individual paths confirmed against docs.gitlab.com/api/{jobs,notes,resource_state_events,dora/metrics,deployments,environments,events,merge_request_approvals}.
 
