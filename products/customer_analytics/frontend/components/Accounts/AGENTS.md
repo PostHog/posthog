@@ -230,6 +230,7 @@ Validation checks query structure. Queries directly reading `system.accounts`, i
 It is not an access boundary, because the query runs with the viewer's normal SQL access.
 `AccountSqlQueryTile` renders a read-only `DataTableNode`.
 It disables execution telemetry through `QueryContext.dataTableCaptureQueryTelemetry`, so saved SQL, account values, and generated SQL reach the query API but stay out of query analytics events.
+Its query and insight keys are opaque UUIDs that change with the account, source, query, or tile, keeping those identifiers out of empty-state and refresh-hint events.
 The entry's `ConfigEditor`, `AccountSqlQueryTileConfiguration`, edits the query in a HogQL code editor. Its asynchronous `getConfigError` uses the same AST scope check as execution. `accountViewsLogic` debounces validation, cancels stale results, and blocks saves while validation is pending or invalid. The registry hook applies without branching on widget kind.
 `accountPropertyDataLogic` shares live values by project and account, while tile-keyed editor state remains separate from sidebar pins.
 `accountPropertyUpdatesLogic` broadcasts native account updates and refreshes mounted Relationships tiles.

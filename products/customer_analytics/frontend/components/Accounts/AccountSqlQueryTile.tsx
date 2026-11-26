@@ -40,10 +40,11 @@ export function AccountSqlQueryTile({
     const query = getAccountSqlQuery(initialConfig)
     const connectionId = initialConfig?.connectionId
     const connectionError = getAccountSqlQueryConnectionError(connectionId)
-    const queryKey = JSON.stringify([accountId, externalId, instanceId ?? 'tile', connectionId])
-    const { queryNode: node, queryNodeLoading } = useValues(
-        accountSqlQueryLogic({ accountId, externalId, instanceId, query, connectionId })
-    )
+    const {
+        queryNode: node,
+        queryNodeLoading,
+        queryKey,
+    } = useValues(accountSqlQueryLogic({ accountId, externalId, instanceId, query, connectionId }))
     const visualization = useMemo(
         () =>
             node && node.source.kind === NodeKind.HogQLQuery && (initialConfig?.visualization || onVisualizationChange)

@@ -55,6 +55,9 @@ describe('accountSqlQueryLogic', () => {
         await expectLogic(second, () => {
             second.mount()
         }).toFinishAllListeners()
+        const originalKey = first.values.queryKey
+        const secondKey = second.values.queryKey
+        expect(originalKey).not.toBe(secondKey)
 
         await expectLogic(first, () => {
             accountSqlQueryLogic({ ...props, connectionId })
@@ -65,11 +68,15 @@ describe('accountSqlQueryLogic', () => {
             values: { account_external_id: props.externalId },
         })
         expect(second.values.queryNode?.source).not.toHaveProperty('connectionId')
+        expect(first.values.queryKey).not.toBe(originalKey)
+        expect(second.values.queryKey).toBe(secondKey)
+        const connectionKey = first.values.queryKey
 
         await expectLogic(first, () => {
             accountSqlQueryLogic({ ...props, connectionId: undefined })
         }).toFinishAllListeners()
         expect(first.values.queryNode?.source).not.toHaveProperty('connectionId')
+        expect(first.values.queryKey).not.toBe(connectionKey)
     })
 
     it('discards a pending source when the saved connection becomes invalid', async () => {
