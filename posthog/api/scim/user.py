@@ -13,14 +13,8 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.scim_provisioned_user import SCIMProvisionedUser
-from posthog.models.user import UserType
 
 from products.access_control.backend.models.role import RoleMembership
-
-
-def managed_users() -> QuerySet[User]:
-    """Return human accounts eligible for SCIM management."""
-    return User.objects.filter(type=UserType.HUMAN)
 
 
 class SCIMUserConflict(Exception):
@@ -198,7 +192,7 @@ class PostHogSCIMUser(SCIMUser):
         with transaction.atomic():
             user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
-            if user and user.type != UserType.HUMAN:
+            if user and not user.is_human:
                 raise SCIMUserConflict()
 
             # Check if already SCIM-provisioned for this IdP config
@@ -449,4 +443,4 @@ class PostHogSCIMUser(SCIMUser):
 
     @classmethod
     def get_queryset_for_organization(cls, config: IdentityProviderConfig) -> QuerySet[User]:
-        return managed_users().filter(organization_membership__organization=config.organization).order_by("id")
+        return User.objects.humans().filter(organization_membership__organization=config.organization).order_by("id")

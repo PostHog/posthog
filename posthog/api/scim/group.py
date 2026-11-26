@@ -8,7 +8,6 @@ from django_scim import constants
 from django_scim.adapters import SCIMGroup
 from scim2_filter_parser.attr_paths import AttrPath
 
-from posthog.api.scim.user import managed_users
 from posthog.models import OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 
@@ -49,7 +48,12 @@ class PostHogSCIMGroup(SCIMGroup):
         """
         Return list of group members in SCIM format.
         """
-        role_memberships = self._managed_memberships(self.obj).valid_for_authorization().select_related("user")
+        role_memberships = (
+            RoleMembership.objects.filter(role=self.obj)
+            .valid_for_authorization()
+            .filter(user__in=User.objects.humans())
+            .select_related("user")
+        )
         return [
             {
                 "value": str(rm.user.id),
@@ -133,12 +137,12 @@ class PostHogSCIMGroup(SCIMGroup):
     @staticmethod
     def _managed_memberships(role: Role) -> QuerySet[RoleMembership]:
         """Exclude non-human memberships so group syncs preserve them."""
-        return RoleMembership.objects.filter(role=role, user__in=managed_users())
+        return RoleMembership.objects.filter(role=role, user__in=User.objects.humans())
 
     @staticmethod
     def _assign_role_member(role: Role, user_pk: int, config: IdentityProviderConfig) -> None:
         try:
-            user = managed_users().get(id=user_pk)
+            user = User.objects.humans().get(id=user_pk)
         except User.DoesNotExist:
             return
 

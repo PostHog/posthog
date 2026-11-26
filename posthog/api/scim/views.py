@@ -20,7 +20,7 @@ from scim2_filter_parser.transpilers.django_q_object import get_query
 
 from posthog.api.scim.auth import SCIMBearerTokenAuthentication
 from posthog.api.scim.group import PostHogSCIMGroup
-from posthog.api.scim.user import PostHogSCIMUser, SCIMUserConflict, managed_users
+from posthog.api.scim.user import PostHogSCIMUser, SCIMUserConflict
 from posthog.api.scim.utils import (
     detect_identity_provider,
     mask_headers,
@@ -288,12 +288,12 @@ class PostHogUserFilterQuery(UserFilterQuery):
             scim_user_ids = (
                 SCIMProvisionedUser.objects.for_config(config).filter(q_obj).values_list("user_id", flat=True)
             )
-            return managed_users().filter(id__in=scim_user_ids).order_by("id")
+            return User.objects.humans().filter(id__in=scim_user_ids).order_by("id")
 
         raw_queryset = super().search(filter_query, request)
         user_ids = [user.id for user in raw_queryset]
         return (
-            managed_users()
+            User.objects.humans()
             .filter(id__in=user_ids, organization_membership__organization=config.organization)
             .order_by("id")
         )
@@ -387,7 +387,7 @@ class SCIMUserDetailView(SCIMBaseView):
     def get_object(self, user_id: int) -> PostHogSCIMUser:
         config = cast(IdentityProviderConfig, self.request.auth)
         user = (
-            managed_users()
+            User.objects.humans()
             .filter(
                 Q(organization_membership__organization=config.organization)
                 | Q(scim_provisions__identity_provider_config=config)
