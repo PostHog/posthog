@@ -590,7 +590,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert response.json()["used_exposure_fallback"] is False
 
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
-    def test_rollout_exposure_event_captured_server_side_keeps_the_stamped_property_fallback(self) -> None:
+    def test_default_experiment_exposure_captured_server_side_keeps_the_stamped_property_fallback(self) -> None:
         self.client.force_login(self.user)
         experiment = self._create_experiment(
             metrics=[PURCHASE_METRIC],
@@ -608,7 +608,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         with override_exposure_event_cutoff(enabled=True):
             response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
-        # Under the rollout $experiment_exposure is the default exposure, not a custom choice, so
+        # After the cutoff $experiment_exposure is the default exposure, not a custom choice, so
         # exposure evaluated in a backend SDK must keep the stamped-property fallback rather than
         # being refused the way a custom event is.
         assert response.status_code == status.HTTP_200_OK, response.json()
