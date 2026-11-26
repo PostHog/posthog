@@ -434,6 +434,34 @@ class TestConversionRecommendations(APIBaseTest):
             self.assertEqual(run.results, {})
             self.assertTrue(run.error)
 
+    def test_event_catalog_cap_keeps_the_most_recently_seen_events(self) -> None:
+        now = timezone.now()
+        run = ConversionRecommendationRun.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            requested_by=self.user,
+            lookback_days=30,
+            date_from=now - timedelta(days=30),
+            date_to=now,
+        )
+        EventDefinition.objects.bulk_create(
+            [
+                EventDefinition(team=self.team, name="a_stale", last_seen_at=now - timedelta(days=40)),
+                EventDefinition(team=self.team, name="b_stale", last_seen_at=now - timedelta(days=40)),
+                EventDefinition(team=self.team, name="c_never_seen"),
+                EventDefinition(team=self.team, name="d_seen_last_week", last_seen_at=now - timedelta(days=7)),
+                EventDefinition(team=self.team, name="z_seen_yesterday", last_seen_at=now - timedelta(days=1)),
+            ]
+        )
+        service = ConversionRecommendationService(self.team, self.user)
+
+        with patch("products.marketing_analytics.backend.services.conversion_recommendations.MAX_CATALOG_EVENTS", 2):
+            capped = service.event_catalog(run)
+        self.assertEqual([candidate.event for candidate in capped], ["z_seen_yesterday", "d_seen_last_week"])
+        self.assertEqual(
+            [candidate.event for candidate in service.event_catalog(run)],
+            ["z_seen_yesterday", "d_seen_last_week", "c_never_seen"],
+        )
+
     @parameterized.expand([("valid", False), ("unknown", True)])
     def test_catalog_shortlist_uses_only_visible_bounded_metadata(self, _name: str, unknown: bool) -> None:
         now = timezone.now()
@@ -454,7 +482,6 @@ class TestConversionRecommendations(APIBaseTest):
         EnterpriseEventDefinition.objects.create(team=self.team, name="hidden_event", hidden=True)
         EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=now)
         EventDefinition.objects.create(team=self.team, name="old_event", last_seen_at=now - timedelta(days=40))
-        EventDefinition.objects.create(team=self.team, name="activity_date_unknown")
         action = create_action(team=self.team, name="Accepted applications", description="Approved requests.")
         create_action(team=self.team, name="Deleted action", deleted=True)
         EventProperty.objects.create(team=self.team, event="booking_confirmed", property="price")
@@ -510,7 +537,6 @@ class TestConversionRecommendations(APIBaseTest):
         catalog = json.loads(requests[0].kwargs["messages"][0]["content"])["catalog"]
         refs = {entry["source_ref"] for entry in catalog}
         self.assertIn(f"action:{action.id}", refs)
-        self.assertIn("event:activity_date_unknown", refs)
         self.assertFalse({"event:hidden_event", "event:$pageview", "event:old_event"} & refs)
         self.assertEqual(
             next(entry for entry in catalog if entry["source_ref"] == "event:booking_confirmed")["description"],

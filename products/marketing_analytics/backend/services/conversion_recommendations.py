@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Literal, TypeVar
 
 from django.db import transaction
+from django.db.models import F, Q
 from django.db.models.functions import Substr
 from django.utils import timezone
 
@@ -252,9 +253,10 @@ class ConversionRecommendationService:
                 EventDefinition.objects.using(alias)
                 .alias(effective_project_id=effective_project_id_expr())
                 .filter(effective_project_id=self.team.project_id)
+                .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__gte=run.date_from))
                 .exclude(name__in=DEFAULT_EXCLUDED_EVENTS)
-                .order_by("name")
-                .values_list("pk", "name", "last_seen_at")[:MAX_CATALOG_EVENTS]
+                .order_by(F("last_seen_at").desc(nulls_last=True), "name")
+                .values_list("pk", "name")[:MAX_CATALOG_EVENTS]
             )
             descriptions: dict[str, str] = {}
             hidden: set[str] = set()
@@ -266,7 +268,7 @@ class ConversionRecommendationService:
                 for name, description, is_hidden in (
                     EnterpriseEventDefinition.objects.using(alias)
                     .alias(effective_project_id=effective_project_id_expr())
-                    .filter(effective_project_id=self.team.project_id, pk__in=[pk for pk, _, _ in definitions])
+                    .filter(effective_project_id=self.team.project_id, pk__in=[pk for pk, _ in definitions])
                     .annotate(short_description=Substr("description", 1, 200))
                     .values_list("name", "short_description", "hidden")
                 ):
@@ -281,8 +283,8 @@ class ConversionRecommendationService:
                 name=name,
                 description=descriptions.get(name, ""),
             )
-            for _, name, last_seen_at in definitions
-            if name not in hidden and (last_seen_at is None or last_seen_at >= run.date_from)
+            for _, name in definitions
+            if name not in hidden
         ]
 
     def hydrate_candidates(self, candidates: list[ConversionCandidate]) -> list[ConversionCandidate]:
