@@ -12766,7 +12766,7 @@ Note: Fetched llms.txt and the index.md pages for the Data Catalog, Tracking Pla
 
 ## Ruddr — gaps
 
-Today (21): `allocations`, `clients`, `invoice_items`, `invoices`, `members`, `opportunities`, `opportunity_stages`, `payments`, `pipeline_activities`, `practices`, `project_expenses`, `project_health_reports`, `project_members`, `project_prepayments`, `project_roles`, `project_tasks`, `projects`, `task_categories`, `time_entries`, `timesheet_attestations`, `timesheets`
+Today (25): `allocations`, `clients`, `companies`, `cost_periods`, `credit_notes`, `invoice_items`, `invoices`, `members`, `opportunities`, `opportunity_stages`, `payments`, `pipeline_activities`, `practices`, `project_expenses`, `project_health_reports`, `project_members`, `project_prepayments`, `project_revenue_recognition_entries`, `project_roles`, `project_tasks`, `projects`, `task_categories`, `time_entries`, `timesheet_attestations`, `timesheets`
 
 Diffed against: <https://docs.ruddr.io/llms.txt>
 
@@ -12791,15 +12791,15 @@ Note: Ruddr documents roughly 78 list endpoints; the connector exposes 17. Beyon
 
 Re-audited 2026-11-19 against: <https://docs.ruddr.io/llms.txt>
 
-- [ ] `Companies (GET /companies)` — CRM companies linked to opportunities and pipeline activities, so pipeline reports can name the company (high)
+- [x] `Companies (GET /companies)` — CRM companies linked to opportunities and pipeline activities, so pipeline reports can name the company (high)
 - [ ] `Contacts (GET /contacts)` — Contacts linked to companies, opportunities and pipeline activities (medium)
-- [ ] `Credit notes (GET /credit-notes)` — Credit notes reduce billed revenue from the invoices we already sync (high)
-- [ ] `Project revenue recognition entries (GET /project-revenue-recognition-entries)` — Recognized revenue per project and period, separate from invoiced amounts (high)
+- [x] `Credit notes (GET /credit-notes)` — Credit notes reduce billed revenue from the invoices we already sync (high)
+- [x] `Project revenue recognition entries (GET /project-revenue-recognition-entries)` — Recognized revenue per project and period, separate from invoiced amounts (high)
 - [ ] `Project service items (GET /project-service-items)` — Project budget lines for services, to compare budget against time entries (medium)
 - [ ] `Expense reports (GET /expense-reports)` — Expense report headers that group project expenses we already sync (medium)
 - [ ] `Time off types (GET /time-off-types)` — Lookup for time-off categories on time entries (low)
 - [ ] `Business units (GET /business-units)` — Lookup for org units on members and projects (low)
-- [ ] `Cost periods (GET /cost-periods)` — Member cost rate history, needed for margin analysis (medium)
+- [x] `Cost periods (GET /cost-periods)` — Member cost rate history, needed for margin analysis (medium)
 - [ ] `Skills (GET /skills)` — Lookup of skills tracked on members (low)
 
 Note (2026-11-19): Parsed the llms.txt index and confirmed each route on its .md page (the page header shows the GET path). The index lists about 70 list endpoints and we sync 21. The previous note named unbuilt domains (budget items, revenue adjustments, tax rates, holidays, disciplines, job titles, member levels); only the most useful are repeated here. Tag and type lookups and holiday data were left out as low value.
