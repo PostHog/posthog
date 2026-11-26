@@ -22,6 +22,8 @@ export const clickhouseOf = (env: NodeJS.ProcessEnv): ClickHouseAddress => ({
 })
 
 const READ_TIMEOUT_MS = 5000
+const MAX_RESPONSE_BYTES = 64 * 1024
+const MAX_ERROR_CHARS = 300
 
 const COUNTED = `
     SELECT metric_name, toString(sum(count)) AS total
@@ -54,10 +56,13 @@ export function createCounterProbe({ url, database }: ClickHouseAddress): Counte
             method: 'POST',
             body: query,
             timeoutMs: READ_TIMEOUT_MS,
+            maxResponseBytes: MAX_RESPONSE_BYTES,
         })
         const text = await response.text()
         if (response.status !== 200) {
-            throw new Error(`ClickHouse answered the ${what} read with ${response.status}: ${text.trim()}`)
+            throw new Error(
+                `ClickHouse answered the ${what} read with ${response.status}: ${text.trim().slice(0, MAX_ERROR_CHARS)}`
+            )
         }
         return text
     }
