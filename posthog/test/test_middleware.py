@@ -3947,6 +3947,20 @@ class TestCurrentAliasUsage(APIBaseTest):
                 status.HTTP_200_OK,
                 ("user", True),
             ),
+            (
+                "project_scoped_key_on_a_view_outside_the_mixin",
+                "/api/user_home_settings/@me/",
+                "own_team",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+            (
+                "unscoped_key_on_a_view_outside_the_mixin",
+                "/api/user_home_settings/@me/",
+                None,
+                status.HTTP_200_OK,
+                ("user", False),
+            ),
         ]
     )
     def test_reports_what_decided_the_scope(
@@ -3976,7 +3990,7 @@ class TestCurrentAliasUsage(APIBaseTest):
             )
 
         assert response.status_code == expected_status
-        [event] = self._alias_events(capture)
+        [event] = self._alias_events(capture) + self._alias_events(capture, FLAT_ROUTE_USED_EVENT)
         assert (event["properties"]["project_from"], event["properties"]["credential_pins_scope"]) == expected
 
     @parameterized.expand(

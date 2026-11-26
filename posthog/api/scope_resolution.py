@@ -174,7 +174,18 @@ def view_name(callback: Any) -> str:
     return f"{view.__module__}.{view.__name__}"
 
 
-def reads_user_state(request: HttpRequest) -> bool:
+# These fall back to the user's current project only when the body names no team_id.
+_STATE_DEPENDENT_WITHOUT_BODY_TEAM = frozenset(
+    {
+        "posthog.api.user_integration.UserIntegrationViewSet.github_start",
+        "posthog.api.user_integration.UserIntegrationViewSet.slack_start",
+    }
+)
+
+
+def reads_user_state(request: HttpRequest, drf_request: object | None = None) -> bool:
+    """Whether a view in STATE_DEPENDENT_VIEWS served the request. `drf_request` is the view's DRF request, which
+    holds the parsed body."""
     match = getattr(request, "resolver_match", None)
     if match is None:
         return False
@@ -183,7 +194,12 @@ def reads_user_state(request: HttpRequest) -> bool:
         return True
     actions = getattr(match.func, "actions", None) or {}
     action = actions.get((request.method or "").lower())
-    return action is not None and f"{name}.{action}" in STATE_DEPENDENT_VIEWS
+    if action is None or f"{name}.{action}" not in STATE_DEPENDENT_VIEWS:
+        return False
+    if f"{name}.{action}" in _STATE_DEPENDENT_WITHOUT_BODY_TEAM:
+        body = getattr(drf_request, "data", None)
+        return not (isinstance(body, Mapping) and body.get("team_id") not in (None, ""))
+    return True
 
 
 def scope_resolution(request: HttpRequest) -> ScopeResolution | None:
@@ -204,11 +220,11 @@ def _resolve(request: Request, *, token_decides: bool) -> ScopeResolution:
             credential_pins_scope=reachable_organizations is not None and len(reachable_organizations) == 1,
         )
     return ScopeResolution(
-        source=source, credential_pins_scope=_pins_one_project(getattr(request, "successful_authenticator", None))
+        source=source, credential_pins_scope=pins_one_project(getattr(request, "successful_authenticator", None))
     )
 
 
-def _pins_one_project(authenticator: object) -> bool:
+def pins_one_project(authenticator: object) -> bool:
     scoped_teams = get_authenticator_scoped_team_ids(authenticator) or []
     scoped_organizations = get_authenticator_scoped_organization_ids(authenticator)
     if len(scoped_teams) <= 1 or scoped_organizations is None:
