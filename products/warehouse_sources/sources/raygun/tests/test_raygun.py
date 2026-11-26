@@ -17,18 +17,28 @@ def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
 
 
 class TestTopLevelPagination:
+    @pytest.mark.parametrize(
+        ("endpoint", "path"),
+        [
+            ("applications", "/v3/applications"),
+            ("teams", "/v3/teams"),
+        ],
+    )
     @patch(f"{MODULE}.PAGE_SIZE", 2)
-    def test_offset_advances_and_saves_between_pages(self) -> None:
-        # Two full pages then a short terminal page for /applications.
+    def test_offset_advances_and_saves_between_pages(self, endpoint: str, path: str) -> None:
+        # Two full pages then a short terminal page.
         pages = {
-            "0": [{"identifier": "app-1"}, {"identifier": "app-2"}],
-            "2": [{"identifier": "app-3"}, {"identifier": "app-4"}],
-            "4": [{"identifier": "app-5"}],
+            "0": [{"identifier": "row-1"}, {"identifier": "row-2"}],
+            "2": [{"identifier": "row-3"}, {"identifier": "row-4"}],
+            "4": [{"identifier": "row-5"}],
         }
 
-        result = _run("applications", lambda request: ScriptedResponse(json=pages[request.param("offset") or "0"]))
+        result = _run(endpoint, lambda request: ScriptedResponse(json=pages[request.param("offset") or "0"]))
 
         assert result.params("offset") == ["0", "2", "4"]
+        assert {request.path for request in result.requests} == {path}
+        # Both listings accept only `name` / `name desc` as the sort.
+        assert result.params("orderby") == ["name", "name", "name"]
         assert len(result.rows) == 5
         # Sync sessions carry PII-bearing bodies, so sample capture must stay off.
         assert result.session_options

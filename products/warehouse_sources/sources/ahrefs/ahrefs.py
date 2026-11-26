@@ -7,6 +7,8 @@ from requests import Request, Response
 
 from products.warehouse_sources.sources.ahrefs.settings import (
     API_BASE_URL,
+    BRAND_RADAR_DATA_SOURCES,
+    BRAND_RADAR_HISTORY_LOOKBACK_DAYS,
     CREDENTIAL_ERRORS,
     ENDPOINTS,
     HISTORY_DAYS,
@@ -140,6 +142,14 @@ def _target_params(api_key: str, project_id: str, names: list[str]) -> dict[str,
     return _project_target_params(_site_audit_target(api_key, project_id), names)
 
 
+def _brand_radar_reports(api_key: str, project_id: str) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in _lookup(api_key, "management/brand-radar-reports", {}, "reports")
+        if row.get("report_id") and str(row.get("project_id")) == project_id
+    ]
+
+
 def _post(settings: EndpointSettings, body: dict[str, Any]) -> Endpoint:
     return {"path": settings["path"], "method": "POST", "json": {"output": "json", **settings.get("body", {}), **body}}
 
@@ -177,15 +187,36 @@ def _endpoint_requests(
             {"competitors": competitor_urls},
         )
     elif kind == "brand_radar":
-        report_ids = [
-            str(row["report_id"])
-            for row in _lookup(api_key, "management/brand-radar-reports", {}, "reports")
-            if row.get("report_id") and str(row.get("project_id")) == project_id
-        ]
+        report_ids = [str(row["report_id"]) for row in _brand_radar_reports(api_key, project_id)]
         if not report_ids:
             logger.info("ahrefs_no_brand_radar_reports", endpoint=endpoint, project_id=project_id)
         for report_id in report_ids:
             yield _post(settings, {"report_id": report_id}), {"report_id": report_id}
+    elif kind == "brand_radar_history":
+        reports = _brand_radar_reports(api_key, project_id)
+        if not reports:
+            logger.info("ahrefs_no_brand_radar_reports", endpoint=endpoint, project_id=project_id)
+        date_from = _history_start(
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            datetime.now(UTC).date(),
+            lookback_days=BRAND_RADAR_HISTORY_LOOKBACK_DAYS,
+        )
+        for report in reports:
+            report_id = str(report["report_id"])
+            # Mentions are matched against brand names, so the API rejects brands that only have URL groups.
+            brands = [
+                {"names": brand["names"]}
+                for brand in (report.get("settings") or {}).get("brands") or []
+                if brand.get("names")
+            ]
+            if not brands:
+                logger.info("ahrefs_brand_radar_report_without_brand_names", endpoint=endpoint, report_id=report_id)
+                continue
+            # The response has no platform column, so each platform is read on its own and its rows are tagged.
+            for data_source in BRAND_RADAR_DATA_SOURCES:
+                body = {"report_id": report_id, "brands": brands, "data_source": [data_source], "date_from": date_from}
+                yield _post(settings, body), {"report_id": report_id, "data_source": data_source}
     elif kind == "top_domains":
         yield (
             {
@@ -224,9 +255,9 @@ def _as_date(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
-def _history_start(should_use_incremental_field: bool, last_value: Any, today: date) -> str:
+def _history_start(should_use_incremental_field: bool, last_value: Any, today: date, lookback_days: int = 0) -> str:
     if should_use_incremental_field and last_value:
-        return _as_date(last_value).isoformat()
+        return (_as_date(last_value) - timedelta(days=lookback_days)).isoformat()
     return (today - timedelta(days=HISTORY_DAYS)).isoformat()
 
 
@@ -302,9 +333,11 @@ def ahrefs_source(
         )
     project_scoped = settings.get("project_scoped", True)
     history = settings.get("history", False)
+    kind = settings.get("kind")
     row_limit = settings["params"].get("limit") or settings.get("body", {}).get("limit")
 
     def items() -> Iterator[list[dict[str, object]]]:
+        served = denied = 0
         for request, row_fields in _endpoint_requests(
             api_key,
             normalized_project_id,
@@ -343,19 +376,32 @@ def ahrefs_source(
                 ],
             }
             resource = rest_api_resource(config, team_id, job_id, None)
-            for page in resource:
-                if row_limit is not None and len(page) >= int(row_limit):
-                    logger.info("ahrefs_sample_limit_reached", team_id=team_id, endpoint=endpoint, limit=row_limit)
-                    page = page[: int(row_limit)]
-                page = _unique_rows(page, settings["primary_keys"])
-                if history:
-                    page = sorted(page, key=lambda row: str(row.get("date") or ""))
-                yield page
+            try:
+                for page in resource:
+                    if row_limit is not None and len(page) >= int(row_limit):
+                        logger.info("ahrefs_sample_limit_reached", team_id=team_id, endpoint=endpoint, limit=row_limit)
+                        page = page[: int(row_limit)]
+                    page = _unique_rows(page, settings["primary_keys"])
+                    if history:
+                        page = sorted(page, key=lambda row: str(row.get("date") or ""))
+                    yield page
+            except ValueError as error:
+                # Brand Radar sells each AI platform's index on its own, so a platform outside the plan
+                # is skipped. The table fails only when no platform is available.
+                if kind != "brand_radar_history" or str(error) != "ahrefs_access_denied":
+                    raise
+                denied += 1
+                logger.info("ahrefs_brand_radar_platform_denied", team_id=team_id, endpoint=endpoint, **row_fields)
+                continue
+            served += 1
+        if denied and not served:
+            raise ValueError("ahrefs_access_denied")
 
     return SourceResponse(
         name=endpoint,
         items=items,
         primary_keys=settings["primary_keys"],
-        sort_mode="asc" if history else None,
+        # Reports that read more than one series return dates in order only within each series.
+        sort_mode="asc" if history and kind is None else None,
         supports_resume=False,
     )

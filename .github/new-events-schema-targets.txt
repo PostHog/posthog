@@ -87,6 +87,7 @@ products/workflows/skills/measuring-email-performance/tests
 
 # Code outside HogQL that builds events SQL itself and branches on the schema
 posthog/dags/tests/test_deletes.py
+posthog/dags/tests/test_hogql_event_deletion_flag_calls.py
 posthog/models/person/test/test_point_in_time_properties_integration.py
 posthog/models/team/test_production_event_activation.py
 posthog/models/test/test_deletion_targets.py
@@ -112,6 +113,7 @@ products/feature_flags/backend/test/test_facade_usage.py
 products/feature_flags/backend/test/test_flag_windows_baseline.py
 products/feature_flags/backend/test/test_flag_windows_errors.py
 products/feature_flags/backend/test/test_flag_windows_exposure.py
+products/feature_flags/backend/test/test_flag_windows_last_values.py
 products/feature_flags/backend/test/test_request_usage.py
 products/growth/backend/tests/test_team_sdk_versions.py
 products/growth/dags/tests/test_team_production_event_activation.py

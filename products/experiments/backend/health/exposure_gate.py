@@ -519,8 +519,9 @@ class _ExposureGate:
 
     def _key(self, prefix: str, *window_inputs: object) -> str:
         experiment = self._experiment
-        # Every input of the query. The resolved exposure event is one, because the exposure event rollout
-        # can move an experiment to another event.
+        # Every input of the query. The resolved exposure event is one, because a change of the
+        # EXPERIMENT_EXPOSURE_EVENT_CUTOFF setting can move an experiment to another event without a
+        # change to its start date.
         inputs = json.dumps(
             [
                 self._start_date.isoformat(),

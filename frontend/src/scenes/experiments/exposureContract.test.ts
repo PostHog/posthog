@@ -20,7 +20,7 @@ import {
 } from './exposureContract'
 
 describe('exposureContract', () => {
-    it('uses the rollout event for a local draft without a server-resolved event', () => {
+    it('uses the fallback event for a local draft without a server-resolved event', () => {
         expect(resolvedExposureEvent({}, '$experiment_exposure')).toBe('$experiment_exposure')
     })
 
@@ -104,7 +104,7 @@ describe('exposureContract', () => {
         expect(getExposureEventAndProperty({ featureFlagKey: 'my-flag', exposureCriteria })).toEqual(expected)
     })
 
-    // The rollout swaps the default event server-side, so the default branches must name the
+    // The cutoff swaps the default event server-side, so the default branches must name the
     // resolved event while a custom event stays untouched.
     it.each<[string, ExperimentExposureCriteria | undefined, string | null]>([
         ['no exposure config', undefined, '$experiment_exposure'],

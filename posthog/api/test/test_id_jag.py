@@ -153,6 +153,7 @@ def _make_id_jag(
 )
 class TestIdJagTokenEndpoint(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
+    oauth_application: OAuthApplication
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -172,7 +173,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             organization=cls.organization, name=_IDP_CONFIG_NAME, id_jag_issuer_url=_IDP_ISSUER
         )
         LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
-        _create_client(_RESOURCE_CLIENT_ID)
+        cls.oauth_application = _create_client(_RESOURCE_CLIENT_ID)
 
     def setUp(self) -> None:
         super().setUp()
@@ -276,7 +277,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
         assertion = _make_id_jag()
         with self.assertRaises(AccessDeniedError):
-            issue_access_token(assertion, requested_scope=None, authenticated_client_id=_RESOURCE_CLIENT_ID)
+            issue_access_token(assertion, requested_scope=None, authenticated_client=self.oauth_application)
 
     def test_email_claim_is_preferred_over_sub_for_user_lookup(self) -> None:
         # IdPs are not required to put an email in `sub` — it may be an opaque
@@ -377,18 +378,53 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.json()["error"], "invalid_grant")
         self.assertEqual(resp.json()["error_description"], "ID-JAG could not be verified")
 
-    def test_intersection_with_requested_scope(self) -> None:
-        assertion = _make_id_jag(scope="feature_flag:read feature_flag:write dashboard:read")
-        resp = self._post_token(
-            {
-                "grant_type": JWT_BEARER_GRANT_TYPE,
-                "assertion": assertion,
-                "scope": "feature_flag:read dashboard:write",
-            }
+    @parameterized.expand(
+        [
+            ("no_ceiling", [], [], "feature_flag:read dashboard:write", ["feature_flag:read"]),
+            (
+                "ceiling_with_scope_omitted",
+                ["feature_flag:read"],
+                ["dashboard:read"],
+                None,
+                ["openid", "feature_flag:read", "dashboard:read"],
+            ),
+            (
+                "ceiling_with_scope_requested",
+                ["feature_flag:read"],
+                [],
+                "feature_flag:read feature_flag:write openid",
+                ["feature_flag:read", "openid"],
+            ),
+        ]
+    )
+    def test_grants_intersection_of_assertion_request_and_ceiling(
+        self,
+        _name: str,
+        app_scopes: list[str],
+        optional_scopes: list[str],
+        requested_scope: str | None,
+        expected_scopes: list[str],
+    ) -> None:
+        OAuthApplication.objects.filter(client_id=_RESOURCE_CLIENT_ID).update(
+            scopes=app_scopes, optional_scopes=optional_scopes
         )
+        assertion = _make_id_jag(scope="openid feature_flag:read feature_flag:write dashboard:read")
+        body = {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}
+        if requested_scope is not None:
+            body["scope"] = requested_scope
+
+        resp = self._post_token(body)
+
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        # Only feature_flag:read intersects — dashboard:write was not in ID-JAG.
-        self.assertEqual(resp.json()["scope"], "feature_flag:read")
+        self.assertEqual(resp.json()["scope"].split(), expected_scopes)
+        claims = jwt.decode(
+            resp.json()["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=_RESOURCE_URL,
+            issuer=_AUTH_SERVER_URL,
+        )
+        self.assertEqual(claims["scope"].split(), expected_scopes)
 
     def test_empty_intersection_still_issues_token(self) -> None:
         """https://xaa.dev/docs/token-structure#scope-intersection-rule
@@ -1030,7 +1066,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
     def test_issue_access_token_helper(self) -> None:
         assertion = _make_id_jag()
         issued_access_token = issue_access_token(
-            assertion, requested_scope="feature_flag:read", authenticated_client_id=_RESOURCE_CLIENT_ID
+            assertion, requested_scope="feature_flag:read", authenticated_client=self.oauth_application
         )
         self.assertEqual(issued_access_token.granted_scopes, ["feature_flag:read"])
         self.assertEqual(issued_access_token.expires_in_seconds, 300)

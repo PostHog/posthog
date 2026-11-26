@@ -23,6 +23,7 @@ GraphQL routes to `core`. GitHub meters GraphQL by points, which a request count
 ## Lanes and callers
 
 Tasks validates PR links for Slack runs without a preset repository on `NORMAL`, with source `tasks_slack_pr` and the run's GitHub credentials.
+Opted-in agent egress enrollment uses the existing App-JWT path to mint repository-scoped read tokens. Those calls record volume under `integration`; they do not consume an installation budget. Refresh uses the existing Tasks credential schedule; a failed refresh retains the previous grant only until its original expiry.
 
 All three budgets use the default reserve ladder.
 Every GitHub client (`GitHubIntegration`, `UserGitHubIntegration`, `GitHubIntegration.first_for_team_repository`) and every `github_request` call must pass `priority` and `source`.

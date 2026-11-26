@@ -20,6 +20,7 @@ from posthog.exceptions import ClickHouseQueryTimeOut
 
 from products.actions.backend.facade.testing import create_action
 from products.experiments.backend import setup_context as setup_context_module
+from products.experiments.backend.facade import contracts as experiment_contracts
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -242,7 +243,8 @@ class TestResponseCoversEveryFact(SimpleTestCase):
         declared = {
             name
             for name, value in vars(setup_context_module).items()
-            if dataclasses.is_dataclass(value) and getattr(value, "__module__", None) == setup_context_module.__name__
+            if dataclasses.is_dataclass(value)
+            and getattr(value, "__module__", None) in (setup_context_module.__name__, experiment_contracts.__name__)
         }
 
         assert declared - self.UNRENDERED == {dataclass_name for dataclass_name, _ in self.PAIRS}

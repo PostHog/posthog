@@ -93,6 +93,7 @@ export interface messageTemplateLogicValues {
     draftOutOfDate: boolean
     draftsEnabled: boolean
     externallyEdited: boolean
+    failedTagSaves: number
     hasDraft: boolean
     hasUnsavedChanges: boolean
     isDiscardingDraft: boolean
@@ -281,6 +282,9 @@ export interface messageTemplateLogicActions {
     }
     saveTags: (tags: string[]) => {
         tags: string[]
+    }
+    saveTagsFailed: () => {
+        value: true
     }
     saveTemplate: (template: MessageTemplate) => MessageTemplate
     saveTemplateFailure: (
@@ -535,6 +539,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
         saveTags: (tags: string[]) => ({ tags }),
+        saveTagsFailed: true,
         templateEditedElsewhere: (event: ResourceEditedEvent) => ({ event }),
         setDeferredExternalEdit: (event: ResourceEditedEvent | null) => ({ event }),
         replayDeferredExternalEdit: true,
@@ -650,6 +655,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             'design' as TransactionalTemplateTab,
             {
                 setTransactionalTab: (_, { tab }) => tab,
+            },
+        ],
+        failedTagSaves: [
+            0,
+            {
+                saveTagsFailed: (count) => count + 1,
             },
         ],
         templatePickerOpen: [
@@ -872,6 +883,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             // can't cancel a tag that already looks saved.
             const writeBefore: Promise<string[] | undefined> =
                 pendingTagWrites.get(id) ?? Promise.resolve(values.originalTemplate.tags)
+            let failed = false
             const write: Promise<string[] | undefined> = writeBefore.then(async (saved) => {
                 // A newer edit already holds these tags.
                 if (pendingTagWrites.get(id) !== write) {
@@ -882,6 +894,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     // which a full form save would.
                     return (await api.messaging.updateTemplate(id, { tags })).tags
                 } catch (error: any) {
+                    failed = true
                     if (pendingTagWrites.get(id) === write) {
                         lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
                     }
@@ -902,6 +915,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             if (messageTemplateLogic.isMounted(props)) {
                 showTags(saved)
+                if (failed) {
+                    actions.saveTagsFailed()
+                }
             }
         },
         setTemplateValues: () => actions.autoSaveDraft(),

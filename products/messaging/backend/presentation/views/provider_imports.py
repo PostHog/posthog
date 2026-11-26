@@ -20,6 +20,9 @@ from posthog.exceptions import Conflict
 from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
 from products.messaging.backend.facade.provider_imports import (
     CONTACT_STEPS,
     DOMAIN_SETUP_STEP,
@@ -36,6 +39,8 @@ from products.messaging.backend.facade.provider_imports import (
     list_provider_import_runs,
     start_provider_import,
 )
+
+CUSTOMERIO_PROVIDER = "customerio"
 
 
 class ImportStepOptionSerializer(serializers.Serializer):
@@ -303,6 +308,10 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
             if not self.user_access_control.check_access_level_for_resource("person", "editor"):
                 raise PermissionDenied("You need edit access to persons to import contacts.")
+            # The Customer.io key stays stored for the project, so anyone else could read every profile with it.
+            if data["provider"] == CUSTOMERIO_PROVIDER:
+                if not authorization.check(resource=Resource.project(self.team.id), action=Action.EDIT):
+                    raise PermissionDenied("Only project admins can import Customer.io contacts.")
         if DOMAIN_SETUP_STEP in data["steps"]:
             # Adding a domain by hand needs these too, so the import can't add one for someone who couldn't.
             if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["integration:write"]):

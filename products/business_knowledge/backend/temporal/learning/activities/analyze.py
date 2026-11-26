@@ -13,7 +13,7 @@ from temporalio.common import MetricMeter
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
+from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
 from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.organization import OrganizationMembership
@@ -236,7 +236,7 @@ def _invoke_structured_model(
     first_call_wins: bool = False,
 ) -> ModelOutput:
     try:
-        client = build_ai_gateway_anthropic_client(
+        client = build_anthropic_client(
             ai_product=_LEARNING_AI_PRODUCT,
             trace_id=trace_id,
             distinct_id=team_distinct_id(team.id),

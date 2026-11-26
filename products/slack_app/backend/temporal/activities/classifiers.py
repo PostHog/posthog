@@ -11,11 +11,7 @@ from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import (
-    build_ai_gateway_anthropic_client,
-    build_ai_gateway_openai_client,
-    trace_id_from_seed,
-)
+from posthog.llm.gateway_client import build_ai_gateway_openai_client, build_anthropic_client, trace_id_from_seed
 from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
 from posthog.llm.prompt_templates import PromptTemplates
 from posthog.llm.semantic_enrichment import extract_json_object
@@ -241,7 +237,7 @@ def classify_task_needs_repo(
     )
     try:
         # The Go gateway refuses a Claude model on chat completions.
-        client = build_ai_gateway_anthropic_client(
+        client = build_anthropic_client(
             ai_product=CLASSIFIER_AI_PRODUCT,
             trace_id=trace_id,
             properties=_classifier_properties("task_needs_repo", team_id),
