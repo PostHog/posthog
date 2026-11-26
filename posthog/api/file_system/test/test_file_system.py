@@ -1814,10 +1814,13 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         else:
             key = self.create_personal_api_key_with_scopes(["file_system:read", "file_system:write"])
             headers["Authorization"] = f"Bearer {key}"
+            self.client.logout()
 
         target_id = folder.pk if target == "folder" else row.pk
-        self.client.delete(f"/api/projects/{self.team.id}/file_system/{target_id}/{query}", headers=headers)
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target_id}/{query}", headers=headers)
 
+        expected = status.HTTP_409_CONFLICT if query else status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, expected, response.content)
         self.assertTrue(FileSystem.objects.filter(pk=row.pk).exists())
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
