@@ -52,13 +52,16 @@ def find_ids_containing(text: str, *, team_ids: list[int] | None, template_id: s
     queryset = _templates(team_ids)
     if template_id:
         queryset = queryset.filter(id=template_id)
+    return list(_containing(queryset, text).order_by("id").values_list("id", flat=True))
+
+
+def find_team_ids_containing(text: str) -> set[int]:
+    return set(_containing(_templates(None), text).values_list("team_id", flat=True).distinct())
+
+
+def _containing(queryset: models.QuerySet[MessageTemplate], text: str) -> models.QuerySet[MessageTemplate]:
     # The text cast stays in the WHERE clause, so the scan never returns a full copy of each content blob.
-    return list(
-        queryset.annotate(_text_content=Cast("content", models.TextField()))
-        .filter(_text_content__contains=text)
-        .order_by("id")
-        .values_list("id", flat=True)
-    )
+    return queryset.annotate(_text_content=Cast("content", models.TextField())).filter(_text_content__contains=text)
 
 
 def rewrite_content(
