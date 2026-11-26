@@ -338,17 +338,39 @@ class MetricNamesQueryRunner:
         if not names:
             return {}
         # uniq(series_fingerprint) matches how the overview counts active series.
-        query = parse_select(
+        series_counts = self._stats_query(
+            "MetricNamesSeriesStatsQuery",
             """
-                SELECT
-                    metric_name,
-                    uniq(series_fingerprint) AS series_count,
-                    length(groupUniqArrayArray(mapKeys(attributes))) AS tag_key_count
+                SELECT metric_name, uniq(series_fingerprint)
                 FROM posthog.metric_series
                 WHERE last_seen >= {lookback_start}
                   AND metric_name IN {names}
                 GROUP BY metric_name
             """,
+            names,
+        )
+        # Reading the `attributes` map of every series row blows the read budget on high-cardinality teams.
+        # metric_attributes holds the same keys pre-aggregated per hour, minus pairs the ingestion view drops for length.
+        tag_key_counts = self._stats_query(
+            "MetricNamesTagKeyStatsQuery",
+            """
+                SELECT metric_name, uniqExact(attribute_key)
+                FROM posthog.metric_attributes
+                WHERE attribute_type = 'metric'
+                  AND time_bucket >= {lookback_start}
+                  AND metric_name IN {names}
+                GROUP BY metric_name
+            """,
+            names,
+        )
+        return {
+            name: SeriesStats(series_count=series_counts.get(name, 0), tag_key_count=tag_key_counts.get(name, 0))
+            for name in series_counts.keys() | tag_key_counts.keys()
+        }
+
+    def _stats_query(self, query_type: str, sql: str, names: Sequence[str]) -> dict[str, int]:
+        query = parse_select(
+            sql,
             placeholders={
                 "lookback_start": self._lookback_start(),
                 "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
@@ -360,16 +382,13 @@ class MetricNamesQueryRunner:
             query.where = ast.And(exprs=[query.where, self._services_expr()])
         query.limit = ast.Constant(value=len(names))
         response = execute_hogql_query(
-            query_type="MetricNamesSeriesStatsQuery",
+            query_type=query_type,
             query=query,
             team=self.team,
             workload=Workload.METRICS,
             settings=_SPARKLINE_QUERY_SETTINGS,
         )
-        return {
-            name: SeriesStats(series_count=int(series), tag_key_count=int(tag_keys))
-            for name, series, tag_keys in response.results
-        }
+        return {name: int(count) for name, count in response.results}
 
     def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
         if not names:

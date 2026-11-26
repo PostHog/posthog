@@ -10968,7 +10968,7 @@
         }
     },
     "llma-offline-experiment-create": {
-        "description": "Register an offline experiment execution using a caller-generated UUID, name, and started_at. This records externally executed work; it does not run an application or evaluator. Reuse the same UUID and identical fields for exact retries. Optional expected item/result counts are fixed at creation and checked on completion. Scorers and any hosted dataset references must belong to the current project/environment. Pin scorer-version UUIDs before uploading results.",
+        "description": "Register an offline experiment execution using a caller-generated UUID, name, and started_at. This records externally executed work; it does not run an application or evaluator. Reuse the same UUID and identical fields for exact retries. Optional expected item/result counts are fixed at creation and checked on completion. Scorers and any hosted dataset references must belong to the current project/environment. Pin scorer-version UUIDs before uploading results. On creation, experiment_scorer_version_id overrides the suite_key's default experiment scorer version. Future changes to that default apply only to new runs.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create offline experiment",
@@ -11191,6 +11191,21 @@
             "readOnlyHint": false
         }
     },
+    "llma-offline-experiment-score-preview": {
+        "description": "Preview a formula against a run's scorer summaries. Returns the overall value, source versions and coverage or the reason an input is unavailable.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Preview experiment score",
+        "title": "Preview experiment score",
+        "required_scopes": ["evaluation:read", "llm_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/ai_observability/offline_experiments/{id}/score_previews/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "llma-offline-experiment-scorer-summary-list": {
         "description": "Read server-computed summaries over all experiment results, grouped by exact immutable scorer version, independently of item pagination. Pass rates divide passing scores by successful results only; errors, skipped, not-applicable, and missing results are separate. Numeric/categorical scores without a passing rule have null pass rates. Repeated trials each contribute an item. Page with next_cursor and unchanged filters.",
         "category": "AI observability",
@@ -11239,7 +11254,7 @@
         }
     },
     "llma-offline-scorer-history": {
-        "description": "Read experiment summaries for a scorer definition UUID, grouped by experiment and exact scorer version. Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite, dataset/revision, execution dates, experiment tags (any/all), application/model/prompt revisions, or scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their names match. Returns count, next_cursor, and results.",
+        "description": "Read history for a scorer definition UUID. Item scorers return item summaries by experiment and version. Experiment scorers return each pinned run's experiment_score, including runs with an unavailable score. Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite, dataset/revision, execution dates, experiment tags (any/all), application/model/prompt revisions, or scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their names match. Returns count, next_cursor, and results.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Read offline scorer history",
@@ -11554,7 +11569,7 @@
         }
     },
     "llma-score-definition-create": {
-        "description": "Create a scorer (a.k.a. score definition) for offline evaluations or manual trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`, and an optional `passing_rule` with `operator` (`gte`/`lte`) and a finite `threshold` within those bounds. Boolean scorers can override `true_label`/`false_label` and set `true_is_failure` (`false`: true passes; `true`: false passes). Omitted or null boolean polarity defaults to true passing in offline evaluations. Numeric scores without a passing rule remain neutral. Scorers always start active (not archived) and at version 1. `calculation` defaults to `reported`. For an offline composite scorer, set `calculation: composite` and provide `composition` with an expression and 1–16 inputs, each with an alias and exact `scorer_version_id` from a reported scorer. Both kind and calculation are immutable. Composite inputs cannot themselves be composites. When available, use `llma-score-definition-validate` to check the formula before saving. To calculate an item result, use `llma-offline-experiment-upload` with `calculate: true`. Numeric composites do not accept `step`.",
+        "description": "Create a scorer (a.k.a. score definition) for offline evaluations or manual trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`, and an optional `passing_rule` with `operator` (`gte`/`lte`) and a finite `threshold` within those bounds. Boolean scorers can override `true_label`/`false_label` and set `true_is_failure` (`false`: true passes; `true`: false passes). Omitted or null boolean polarity defaults to true passing in offline evaluations. Numeric scores without a passing rule remain neutral. Scorers always start active (not archived) and at version 1. `calculation` defaults to `reported`. For an offline composite scorer, set `calculation: composite` and provide `composition` with an expression and 1–16 inputs, each with an alias and a `scorer_version_id`. Item formulas use reported scorers. For an experiment formula, use `scope: experiment` and provide a statistic per input (pass_rate, mean, true_rate or category_rate). Its inputs can include item composites. Set version_policy to run, exact or combine. Use apply_to_suite_keys to assign the version to future runs. Scope, kind and calculation are immutable. Use `llma-score-definition-validate` to check the formula before saving. To calculate an item result, use `llma-offline-experiment-upload` with `calculate: true`. Numeric composites do not accept `step`.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create scorer",
@@ -11584,7 +11599,7 @@
         }
     },
     "llma-score-definition-list": {
-        "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description, plus tags (a JSON array of names) with tag_match=any (OR) or all (AND). Returns metadata, tags, and the current config snapshot. Filter by `calculation=reported` or `composite`, or use `input_definition_id` to find composites that depend on a source scorer.",
+        "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description, plus tags (a JSON array of names) with tag_match=any (OR) or all (AND). Returns metadata, tags, and the current config snapshot. Filter by `calculation=reported` or `composite`, or use `input_definition_id` to find composites that depend on a source scorer. Filter by scope=item or experiment.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List scorers",
@@ -11599,7 +11614,7 @@
         }
     },
     "llma-score-definition-new-version": {
-        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds or passing rules, change boolean polarity or labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer. Optional `name` and `description` updates are saved atomically with the version. For a composite scorer, also provide the full `composition`, even when only the output rules change. Its formula and input version UUIDs are pinned to the new version; updating a source scorer never updates dependent composites automatically. When available, validate the proposed composition with `llma-score-definition-validate` before saving. Numeric composites do not accept `step`.",
+        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds or passing rules, change boolean polarity or labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer. Optional `name` and `description` updates are saved atomically with the version. For a composite scorer, also provide the full `composition`, even when only the output rules change. Its formula and input version UUIDs are pinned to the new version; updating a source scorer never updates dependent composites automatically. When available, validate the proposed composition with `llma-score-definition-validate` before saving. For an experiment scorer, pass apply_to_suite_keys to roll this version out to selected suites. Omitted suites keep their previous version. Numeric composites do not accept `step`.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Bump scorer to a new version",
@@ -11614,7 +11629,7 @@
         }
     },
     "llma-score-definition-update": {
-        "description": "Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules instead, call `llma-score-definition-new-version`. `kind` cannot be changed.",
+        "description": "Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules instead, call `llma-score-definition-new-version`. For experiment scorers, replace an exact version's suite assignments with suite_version_id and apply_to_suite_keys. An empty list releases its suites.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update scorer metadata",
@@ -11629,7 +11644,7 @@
         }
     },
     "llma-score-definition-validate": {
-        "description": "Validate a composite scorer's formula without creating or changing a scorer. Pass the output `kind` and `composition` with `expression` and 1–16 inputs, each containing `alias` and an exact `scorer_version_id` from an accessible reported scorer in this project. Every alias must appear in the formula. Supports +, -, *, /, comparisons, categorical membership, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean values are raw: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use `\"good\" in relevance`. Examples: `(2 * precision + recall) / 3`, `safe and correct`, and `\"good\" if correct else \"bad\"`. Returns {valid: true} or a validation error for invalid syntax, inaccessible inputs, or an incompatible output type. Does not calculate item results or check runtime values against output bounds; those are checked during upload with `calculate: true`. Include `config` to validate literal output categories and selection counts before saving.",
+        "description": "Validate a composite scorer's formula without creating or changing a scorer. Pass the output `kind` and `composition` with `expression` and 1–16 inputs, each containing `alias` and an exact `scorer_version_id` from an accessible item scorer in this project. For scope=experiment, specify a statistic per input; each alias is numeric. Use llma-offline-experiment-score-preview to try it on a run. Every alias must appear in the formula. Supports +, -, *, /, comparisons, categorical membership, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean values are raw: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use `\"good\" in relevance`. Examples: `(2 * precision + recall) / 3`, `safe and correct`, and `\"good\" if correct else \"bad\"`. Returns {valid: true} or a validation error for invalid syntax, inaccessible inputs, or an incompatible output type. Does not calculate item results or check runtime values against output bounds; those are checked during upload with `calculate: true`. Include `config` to validate literal output categories and selection counts before saving.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Validate composite formula",

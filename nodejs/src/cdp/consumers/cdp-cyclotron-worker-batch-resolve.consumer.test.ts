@@ -133,6 +133,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             hogFlowId: hogFlow.id,
             cursor: null,
             filters: { properties: [] },
+            audienceSnapshot: { waitUntil: '2026-08-11T02:00:00.000Z', requested: true, ready: true },
             maxAudienceSize: 100,
             totalEnqueued: 0,
             pagesProcessed: 0,
@@ -179,7 +180,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
                 hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
                 hogFlowBatchPersonQueryService: {
-                    getBlastRadiusPersons: jest.fn().mockResolvedValue({
+                    getAudienceSnapshotPage: jest.fn().mockResolvedValue({
                         users_affected: ['person-1', 'person-2'],
                         cursor: null,
                         has_more: false,
@@ -204,12 +205,11 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
             await (consumer as any).processOnePage(
                 { bulkCreateAndCheckIn, reschedule: jest.fn() },
-                { ...state, realtimeCohort: { id: 42, teamId: 7 } }
+                { ...state, audienceSnapshot: undefined, realtimeCohort: { id: 42, teamId: 7 } }
             )
 
             // Membership rows belong to the cohort's own team, which can differ from the workflow's.
             expect(getMemberPage).toHaveBeenCalledWith(7, 42, null)
-            expect((consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons).not.toHaveBeenCalled()
             expect(triggeredMetrics()).toHaveLength(3)
         })
 
@@ -231,7 +231,6 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             )
 
             expect(getAudienceSnapshotPage).toHaveBeenCalledWith(team, BATCH_JOB_ID, 'person-0')
-            expect((consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons).not.toHaveBeenCalled()
             expect(triggeredMetrics()).toHaveLength(3)
         })
 
@@ -270,7 +269,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             ]
 
             beforeEach(() => {
-                ;(consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons.mockResolvedValue({
+                ;(consumer as any).hogFlowBatchPersonQueryService.getAudienceSnapshotPage.mockResolvedValue({
                     users_affected: ['person-1', 'person-2', 'person-3'],
                     cursor: 'person-3',
                     has_more: true,
@@ -438,12 +437,12 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
     describe('cancel-flagged resolver jobs', () => {
         it('terminates on dequeue without fetching a page, even when the state is unparseable', async () => {
-            const getBlastRadiusPersons = jest.fn()
+            const getAudienceSnapshotPage = jest.fn()
             const queueLogs = jest.fn()
             const flush = jest.fn().mockResolvedValue(undefined)
             const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
             Object.assign(consumer, {
-                hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
+                hogFlowBatchPersonQueryService: { getAudienceSnapshotPage },
                 hogFunctionMonitoringService: { queueLogs, flush },
             })
             const cancel = jest.fn().mockResolvedValue(undefined)
@@ -462,7 +461,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             await (consumer as any).processResolverJob(job)
 
             expect(cancel).toHaveBeenCalledTimes(1)
-            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(getAudienceSnapshotPage).not.toHaveBeenCalled()
             // The stop is visible on the batch run's log stream, keyed by parent run id.
             expect(queueLogs).toHaveBeenCalledTimes(1)
             const [logs] = queueLogs.mock.calls[0]
@@ -484,6 +483,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 hogFlowId: hogFlow.id,
                 cursor: null,
                 filters: { properties: [] },
+                audienceSnapshot: { waitUntil: '2026-08-11T02:00:00.000Z', requested: true, ready: true },
                 maxAudienceSize: 100,
                 totalEnqueued: 0,
                 pagesProcessed: 0,
@@ -492,7 +492,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 startedAt: '2026-08-11T00:00:00.000Z',
             }
             // Long enough for two heartbeat ticks, inside the 30s default fetch budget.
-            const getBlastRadiusPersons = jest.fn().mockImplementation(async () => {
+            const getAudienceSnapshotPage = jest.fn().mockImplementation(async () => {
                 await new Promise<void>((resolve) => {
                     setTimeout(() => resolve(), 25_000)
                 })
@@ -503,7 +503,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
                 hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
-                hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
+                hogFlowBatchPersonQueryService: { getAudienceSnapshotPage },
                 hogMasker: {
                     filterByMasking: jest.fn((invocations) => ({
                         masked: [],
@@ -542,7 +542,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             await processPromise
 
             expect(heartbeat).toHaveBeenCalledTimes(2)
-            expect(getBlastRadiusPersons).toHaveBeenCalledTimes(1)
+            expect(getAudienceSnapshotPage).toHaveBeenCalledTimes(1)
             expect(job.bulkCreateAndCheckIn).toHaveBeenCalledTimes(1)
             expect(jest.getTimerCount()).toBe(0)
             await jest.advanceTimersByTimeAsync(20_000)
@@ -556,7 +556,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
                 hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
-                hogFlowBatchPersonQueryService: { requestAudienceSnapshot, getBlastRadiusPersons: jest.fn() },
+                hogFlowBatchPersonQueryService: { requestAudienceSnapshot },
                 hogFunctionMonitoringService: {
                     queueAppMetrics: jest.fn(),
                     queueLogs,
@@ -612,7 +612,6 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 dedupeKey: 'email',
                 maxAudienceSize: 100,
             })
-            expect((consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons).not.toHaveBeenCalled()
             const [{ scheduledAt, state }] = job.reschedule.mock.calls[0]
             expect(scheduledAt.getTime() - Date.now()).toBeGreaterThan(10_000)
             expect(scheduledAt.getTime() - Date.now()).toBeLessThanOrEqual(15_000)
@@ -697,13 +696,13 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
     })
 
     describe('permanent audience fetch failure', () => {
-        const buildConsumer = (getBlastRadiusPersons: jest.Mock, queueLogs: jest.Mock): any => {
+        const buildConsumer = (getAudienceSnapshotPage: jest.Mock, queueLogs: jest.Mock): any => {
             const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
                 hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
-                hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
+                hogFlowBatchPersonQueryService: { getAudienceSnapshotPage },
                 hogFunctionMonitoringService: {
                     queueAppMetrics: jest.fn(),
                     queueLogs,
@@ -737,6 +736,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             hogFlowId: hogFlow.id,
             cursor: null,
             filters: { properties: [] },
+            audienceSnapshot: { waitUntil: '2026-08-11T02:00:00.000Z', requested: true, ready: true },
             maxAudienceSize: 100,
             totalEnqueued: 0,
             pagesProcessed: 0,
@@ -749,19 +749,20 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             ['before its deadline parks it again without reading members', 3600 * 1000, false],
             ['at its deadline fails the run', -1000, true],
         ])('a realtime cohort resolver woken %s', async (_name, untilOffsetMs, fails) => {
-            const getBlastRadiusPersons = jest.fn()
+            const getAudienceSnapshotPage = jest.fn()
             const queueLogs = jest.fn()
-            const consumer = buildConsumer(getBlastRadiusPersons, queueLogs)
+            const consumer = buildConsumer(getAudienceSnapshotPage, queueLogs)
             const waitUntil = new Date(Date.now() + untilOffsetMs).toISOString()
             const job = buildJob({
                 ...lastAttemptState(),
                 attempts: 0,
+                audienceSnapshot: undefined,
                 realtimeCohort: { id: 7, teamId: team.id, waitUntil },
             })
 
             await consumer.processResolverJob(job)
 
-            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(getAudienceSnapshotPage).not.toHaveBeenCalled()
             const [{ scheduledAt, state }] = job.reschedule.mock.calls[0]
             if (fails) {
                 expect(deserializeResolverState(state).pendingTerminal).toEqual('failed')
@@ -775,7 +776,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
         it('tells the customer what to change when the audience query timed out', async () => {
             const queueLogs = jest.fn()
             const consumer = buildConsumer(
-                jest.fn().mockRejectedValue(new AudienceFetchTimeoutError('user_blast_radius_persons', 30_000)),
+                jest.fn().mockRejectedValue(new AudienceFetchTimeoutError('audience_snapshot_page', 30_000)),
                 queueLogs
             )
             const job = buildJob(lastAttemptState())
@@ -797,13 +798,18 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
         it('fails a realtime cohort run at once when the resolver has no behavioral cohorts database', async () => {
             // Without its own URL the router reads the main database, so retrying would never succeed.
             const queueLogs = jest.fn()
-            const getBlastRadiusPersons = jest.fn()
-            const consumer = buildConsumer(getBlastRadiusPersons, queueLogs)
-            const job = buildJob({ ...lastAttemptState(), attempts: 0, realtimeCohort: { id: 42, teamId: team.id } })
+            const getAudienceSnapshotPage = jest.fn()
+            const consumer = buildConsumer(getAudienceSnapshotPage, queueLogs)
+            const job = buildJob({
+                ...lastAttemptState(),
+                attempts: 0,
+                audienceSnapshot: undefined,
+                realtimeCohort: { id: 42, teamId: team.id },
+            })
 
             await consumer.processResolverJob(job)
 
-            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(getAudienceSnapshotPage).not.toHaveBeenCalled()
             expect(queueLogs).toHaveBeenCalledWith(
                 [
                     expect.objectContaining({
@@ -816,9 +822,9 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
         })
 
         it('refuses a run over the workflows billing limit with a reason the customer can act on', async () => {
-            const getBlastRadiusPersons = jest.fn()
+            const getAudienceSnapshotPage = jest.fn()
             const queueLogs = jest.fn()
-            const consumer = buildConsumer(getBlastRadiusPersons, queueLogs)
+            const consumer = buildConsumer(getAudienceSnapshotPage, queueLogs)
             Object.assign(consumer, {
                 deps: {
                     teamManager: { getTeam: jest.fn().mockResolvedValue(team) },
@@ -841,7 +847,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
             await consumer.processResolverJob(job)
 
-            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(getAudienceSnapshotPage).not.toHaveBeenCalled()
             expect(queueLogs).toHaveBeenCalledWith(
                 [
                     expect.objectContaining({
@@ -854,6 +860,37 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             const { state } = job.reschedule.mock.calls[0][0]
             expect(deserializeResolverState(state).terminalReason).toEqual('quota_limited')
         })
+
+        it.each([
+            [0, 'This run has no stored audience. Start the run again.'],
+            [
+                2,
+                'This run has no stored audience, so it stopped after enrolling 2 people. Starting it again can send to them a second time.',
+            ],
+        ])(
+            'fails a person audience run queued without a stored audience, %i already enrolled, instead of querying it page by page',
+            async (totalEnqueued, message) => {
+                const getAudienceSnapshotPage = jest.fn()
+                const queueLogs = jest.fn()
+                const consumer = buildConsumer(getAudienceSnapshotPage, queueLogs)
+                const job = buildJob({ ...lastAttemptState(), attempts: 0, totalEnqueued, audienceSnapshot: undefined })
+
+                await consumer.processResolverJob(job)
+
+                expect(getAudienceSnapshotPage).not.toHaveBeenCalled()
+                expect(job.bulkCreateAndCheckIn).not.toHaveBeenCalled()
+                expect(queueLogs).toHaveBeenCalledWith(
+                    [
+                        expect.objectContaining({
+                            message: `Batch resolver failed: ${message}`,
+                        }),
+                    ],
+                    'hog_flow'
+                )
+                const { state } = job.reschedule.mock.calls[0][0]
+                expect(deserializeResolverState(state).terminalReason).toEqual('audience_query_failed')
+            }
+        )
 
         it('keeps the generic reason for a failure that is not a timeout', async () => {
             const queueLogs = jest.fn()

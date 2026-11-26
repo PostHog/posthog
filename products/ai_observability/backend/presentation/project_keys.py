@@ -43,9 +43,10 @@ def log_project_key_activity(
     activity: Literal["created", "updated", "deleted"],
     changes: list[Change] | None = None,
     previous_project_key_id: str | None = None,
+    include_user: bool = False,
 ) -> None:
     user = attribution_user(request)
-    if user is None or previous_project_key_id is not None:
+    if include_user or user is None or previous_project_key_id is not None:
         log_activity(
             organization_id=team.organization_id,
             team_id=team.id,
