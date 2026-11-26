@@ -347,27 +347,54 @@ describe('valves', () => {
         expect(run.cloud.promotions).toEqual([])
     })
 
-    it('kills the role an entry names once its offset passes, and records every step', async () => {
+    it.each<[string, string, number | undefined]>([
+        ['from the moment the valves start', '20ms', undefined],
+        ['from the drive start, which passed before the valves started', '1m', -60_000],
+    ])(
+        'kills the role an entry names once its offset, counted %s, passes, and records every step',
+        async (_story, at, startedIn) => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = stackOf()
+
+            await valves.start(
+                [kill({ at })],
+                startedIn === undefined ? stack.context : { ...stack.context, startedAt: Date.now() + startedIn }
+            )
+            expect(stack.gone()).toEqual([])
+            await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            expect(stack.gone()).toEqual([1])
+            expect(valves.timeline()).toEqual([
+                {
+                    valve: 'role.kill',
+                    target: EMAIL_WORKER,
+                    requestedAt: expect.any(String),
+                    intentAt: expect.any(String),
+                    appliedAt: expect.any(String),
+                    observedAt: expect.any(String),
+                    releasedAt: expect.any(String),
+                },
+            ])
+        }
+    )
+
+    it('never kills when its offset comes due only after the drive was due to end, though no release ran', async () => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
 
-        await valves.start([kill({ at: '20ms' })], stack.context)
-        expect(stack.gone()).toEqual([])
-        await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
-        await valves.releaseAll()
+        await valves.start([kill({ at: '1m' })], {
+            ...stack.context,
+            startedAt: Date.now() - 60_000,
+            endsAt: Date.now() - 1,
+        })
+        await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
 
-        expect(stack.gone()).toEqual([1])
+        expect(stack.gone()).toEqual([])
         expect(valves.timeline()).toEqual([
-            {
-                valve: 'role.kill',
-                target: EMAIL_WORKER,
-                requestedAt: expect.any(String),
-                intentAt: expect.any(String),
-                appliedAt: expect.any(String),
-                observedAt: expect.any(String),
-                releasedAt: expect.any(String),
-            },
+            expect.objectContaining({ error: 'never applied: released before its offset' }),
         ])
+        await valves.releaseAll()
     })
 
     it.each<[string, string | undefined]>([

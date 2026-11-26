@@ -68,6 +68,7 @@ from products.dashboards.backend.facade.enums import (
     QueryBatchTargetFormat,
     ResultFormat,
 )
+from products.dashboards.backend.v2 import observability
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
 from products.dashboards.backend.v2.frames import frames_for, shape_kind
 from products.dashboards.backend.v2.telemetry import (
@@ -511,14 +512,15 @@ def _result_line(
     frames = None
     if shape.frames:
         try:
-            frames = frames_for(
-                shape.language,
-                shape.query,
-                result,
-                legend=shape.legend,
-                target_format=shape.target_format,
-                timezone=shape.timezone,
-            )
+            with observability.phase("frames"):
+                frames = frames_for(
+                    shape.language,
+                    shape.query,
+                    result,
+                    legend=shape.legend,
+                    target_format=shape.target_format,
+                    timezone=shape.timezone,
+                )
         except Exception as e:
             logger.warning("dashboard_v2_query_batch_frames_failed", exc_info=True)
             capture_exception(e)
@@ -606,6 +608,7 @@ def _shared_body(served: dict[_ServedKey, bytes], key: _ServedKey) -> Optional[b
 
 
 def _error_line(index: int, error: Exception, *, team: Team) -> dict[str, Any]:
+    observability.note_error(error)
     if isinstance(error, (*_EXPOSED_ERRORS, InvalidTarget)):
         message = str(error)
     elif isinstance(error, ConcurrencyLimitExceeded):
@@ -747,6 +750,7 @@ class QueryBatch:
         self._client_query_id = client_query_id
         self._traceparent = traceparent
         self._heads = [_line_head(item) for item in inputs]
+        self._languages = [observability.language_label(item.target.language) for item in inputs]
         # Each line's JSON without its `i`, so panels that share a cache entry share one copy of its result.
         self.ready: list[tuple[int, bytes]] = []
         self._ready_bytes = 0
@@ -785,8 +789,13 @@ class QueryBatch:
             enabled=lambda: bool(get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"))
         )
         self._open = _OpenSlot(self._shares)
+        # The request's trace context, captured while it is current, so the stream span joins the request's trace.
+        self._trace = observability.StreamTrace(team_id=team.pk, dashboard_id=dashboard_id)
+        self._targets: dict[int, QueryBatchInput] = {}
+        admission_started = monotonic()
         if not self._open.acquire():
             raise QueryBatchBusy()
+        self._admission_wait_ms = (monotonic() - admission_started) * 1000
         weakref.finalize(self, _deferred_releases.append, self._open)
         try:
             with dashboard_v2_batch_scope(), sharing_databases(self._databases):
@@ -825,7 +834,10 @@ class QueryBatch:
 
         def plan(index: int) -> PlannedQuery | None:
             query = resolved[index]
-            with range_based_freshness():
+            with (
+                range_based_freshness(),
+                observability.phase("plan", **{"dashboard_v2.ref_id": inputs[index].target.ref_id}),
+            ):
                 return plan_query_dict(
                     self._team,
                     query.query,
@@ -871,6 +883,7 @@ class QueryBatch:
         # A shape holds the panel's query and its text, so only the panels still to run keep one.
         running = {index for index, _query_id, _query in self._jobs}
         self._shapes = {index: shape for index, shape in self._shapes.items() if index in running}
+        self._targets = {index: inputs[index] for index in running}
 
     def _logql_to_run(self, inputs: Sequence[QueryBatchInput]) -> list[int]:
         """LogQL has no query runner or cache entry, so a cache-only read is always a miss."""
@@ -912,7 +925,10 @@ class QueryBatch:
                     return None
             return planned
 
-        with planned_cache_reads(team=self._team, user=self._user, keys=chunk, plan=plan_unserved) as planned_queries:
+        with (
+            observability.phase("cache_read", **{"dashboard_v2.targets": len(chunk)}),
+            planned_cache_reads(team=self._team, user=self._user, keys=chunk, plan=plan_unserved) as planned_queries,
+        ):
             for index in chunk:
                 item = inputs[index]
                 if index in duplicates:
@@ -986,20 +1002,26 @@ class QueryBatch:
                     ms=(monotonic() - started) * 1000,
                 )
                 body = _render_body(line)
-                del line
                 del response
                 self._read_bytes += max(len(body), stored_bytes)
                 if self._ready_bytes + len(body) > MAX_READY_BYTES:
+                    too_large = {"i": index, "error": _TOO_LARGE}
+                    observability.record_cache_hit(item, resolved[index].query, too_large, started)
                     # Shared like a served body, so panels repeating this entry are not fetched and rendered again.
-                    served[same_entry] = self._add_ready({"i": index, "error": _TOO_LARGE})
+                    served[same_entry] = self._add_ready(too_large, metered=True)
                     continue
+                observability.record_cache_hit(item, resolved[index].query, line, started)
+                del line
                 self.ready.append((index, body))
                 self._ready_bytes += len(body)
                 served[same_entry] = body
                 if stale and item.swr and not item.cache_only:
                     to_refresh.append(index)
 
-    def _add_ready(self, line: dict[str, Any]) -> bytes:
+    def _add_ready(self, line: dict[str, Any], *, metered: bool = False) -> bytes:
+        """`metered` when the caller has already recorded this answer."""
+        if not metered:
+            observability.count_answer(self._languages[line["i"]], error="error" in line)
         body = _render_body(line)
         self.ready.append((line["i"], body))
         self._ready_bytes += len(body)
@@ -1010,6 +1032,7 @@ class QueryBatch:
         if self._ready_bytes + len(body) > MAX_READY_BYTES:
             self._add_ready({"i": index, "error": _TOO_LARGE})
             return
+        observability.count_answer(self._languages[index], error=body.startswith(b'{"error":'))
         self.ready.append((index, body))
         self._ready_bytes += len(body)
 
@@ -1146,7 +1169,7 @@ class QueryBatch:
             return {"i": index, "error": _FAILED}
         started = monotonic()
         try:
-            with range_based_freshness(), sharing_databases(self._databases):
+            with range_based_freshness(), sharing_databases(self._databases), observability.phase("execute"):
                 response = process_query_dict(
                     self._team,
                     query.query,
@@ -1168,16 +1191,17 @@ class QueryBatch:
             return {"i": index, "error": _FAILED}
         started = monotonic()
         try:
-            response = run_logql(
-                team=self._team,
-                logql=item.target.query,
-                date_from=item.date_from,
-                date_to=item.date_to,
-                min_interval=item.interval,
-                max_data_points=item.max_data_points,
-                budget=budget,
-                cancelled=self._logql_cancelled,
-            )
+            with observability.phase("execute"):
+                response = run_logql(
+                    team=self._team,
+                    logql=item.target.query,
+                    date_from=item.date_from,
+                    date_to=item.date_to,
+                    min_interval=item.interval,
+                    max_data_points=item.max_data_points,
+                    budget=budget,
+                    cancelled=self._logql_cancelled,
+                )
         except Exception as e:
             return _error_line(index, e, team=self._team)
         return _result_line(index, response, hit=False, stale=False, shape=shape, ms=(monotonic() - started) * 1000)
@@ -1209,15 +1233,22 @@ class QueryBatch:
                 if self._cancelled:
                     return
                 self._active.add(query_id)
-            with tags_context(team_id=self._team.pk, client_query_id=query_id, traceparent=self._traceparent):
+            with (
+                self._trace.target(
+                    self._targets[index], query_id, None if isinstance(query, QueryBatchInput) else query.query
+                ) as target,
+                tags_context(team_id=self._team.pk, client_query_id=query_id, traceparent=self._traceparent),
+            ):
                 if isinstance(query, QueryBatchInput):
                     line = self._run_logql(index, query, self._logql_budget)
                 else:
                     line = self._run(index, query, query_id)
-            index, data = line["i"], self._encode(line)
-            del line
-            if len(data) > MAX_UNREAD_BYTES:
-                data = self._encode({"i": index, "error": _TOO_LARGE})
+                index, data = line["i"], self._encode(line)
+                if len(data) > MAX_UNREAD_BYTES:
+                    line = {"i": index, "error": _TOO_LARGE}
+                    data = self._encode(line)
+                target.finish(line, cancelled=self._is_cancelled())
+                del line
             # Waits while the client is behind, so a slow reader holds a few results and a bounded number of bytes,
             # not every finished one. One result is always let through, however large, so the batch cannot stall.
             while not self._unread.acquire(timeout=1.0):
@@ -1346,15 +1377,24 @@ class QueryBatch:
     def _busy_lines(self, jobs: Sequence[tuple[int, str, ResolvedQuery | QueryBatchInput]]) -> Iterator[bytes]:
         message = _TIMED_OUT if self._closed else _BUSY
         for index, _query_id, _query in jobs:
+            observability.count_answer(self._languages[index], error=True)
             yield self._encode({"i": index, "error": message})
 
+    def _trace_start(self) -> None:
+        self._trace.start(targets=len(self._heads), admission_wait_ms=self._admission_wait_ms)
+
     def stream(self) -> Iterator[bytes]:
+        self._trace_start()
+        complete = False
         try:
             for chunk in self._stream():
+                self._trace.line(chunk, self._heads)
                 for piece in _slices(chunk):
                     yield piece
                     self._pulled()
+            complete = True
         finally:
+            self._trace.end(complete=complete)
             self._watchdog.cancel()
             self.ready = []
             self._open.release()
@@ -1369,12 +1409,17 @@ class QueryBatch:
             if expired:
                 self._end_response()
         body = self._astream()
+        self._trace_start()
+        complete = False
         try:
             async for chunk in body:
+                self._trace.line(chunk, self._heads)
                 for piece in _slices(chunk):
                     yield piece
                     self._pulled()
+            complete = True
         finally:
+            self._trace.end(complete=complete)
             # Cleared first, so a cancel scheduled by the watchdog cannot reach the request task after the stream ends.
             with self._lock:
                 self._response = None

@@ -22,7 +22,11 @@ from django.test.utils import CaptureQueriesContext
 
 import httpx
 import requests
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 
 from posthog.hogql.database.database import Database
@@ -43,7 +47,10 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage
-from products.dashboards.backend.v2 import query_batch as query_batch_module
+from products.dashboards.backend.v2 import (
+    observability,
+    query_batch as query_batch_module,
+)
 from products.dashboards.backend.v2.frames import MAX_PROMETHEUS_SERIES, frames_for
 from products.dashboards.backend.v2.query_batch import InvalidTarget, QueryBatch, resolve_query, to_posthog_date
 from products.dashboards.backend.v2.telemetry import Step, pick_step, returns_log_lines, time_range
@@ -766,6 +773,111 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         query_id = "dashboard-v2-batch-none-t_1-a-0123abcd"
         self.assertEqual(runs, [(query_id, query_id, traceparent)])
+
+    def test_the_stream_and_each_target_are_spans_in_the_requests_trace_and_are_metered(self) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer(__name__)
+        node = json.dumps({"query": _events_node("$pageview")})
+        inputs = [
+            QueryBatchInput(
+                target=QueryBatchTarget(ref_id="A", language=QueryBatchLanguage.HOGQL, query="select 1"),
+                date_from="now-7d",
+                date_to="now",
+                tile="t-1",
+            ),
+            QueryBatchInput(
+                target=QueryBatchTarget(ref_id="B", language=QueryBatchLanguage.QUERY, query=node),
+                date_from="now-7d",
+                date_to="now",
+            ),
+        ]
+
+        def run_in_clickhouse(*args: Any, **kwargs: Any) -> Any:
+            with tracer.start_as_current_span("SELECT"):
+                return process_query_dict(*args, **kwargs)
+
+        def ok_targets(language: str) -> float:
+            labels = {"language": language, "outcome": "ok"}
+            return REGISTRY.get_sample_value("dashboard_v2_query_batch_targets_total", labels) or 0.0
+
+        before = {language: ok_targets(language) for language in ("hogql", "query")}
+        with (
+            patch.object(observability, "tracer", tracer),
+            patch.object(query_batch_module, "process_query_dict", side_effect=run_in_clickhouse),
+        ):
+            # The request's span ends before the stream is read, as it does when the view returns the response.
+            with tracer.start_as_current_span("POST api/projects/dashboard_v2/query_batch/") as request_span:
+                batch = QueryBatch(
+                    team=self.team, user=self.user, inputs=inputs, dashboard_id=None, client_query_id="traced"
+                )
+            lines = [json.loads(line) for line in b"".join(batch.stream()).splitlines() if line.strip()]
+
+        self.assertEqual([line.get("error") for line in lines], [None, None])
+        spans = exporter.get_finished_spans()
+
+        def attrs(span: Any) -> dict[str, Any]:
+            return dict(span.attributes or {})
+
+        def parent_id(span: Any) -> int:
+            assert span.parent is not None
+            return span.parent.span_id
+
+        by_id = {span.context.span_id: span for span in spans if span.context is not None}
+        (stream,) = [span for span in spans if span.name == "dashboard_v2.query_batch.stream"]
+        targets = {
+            attrs(span)["dashboard_v2.ref_id"]: span for span in spans if span.name == "dashboard_v2.query_batch.target"
+        }
+        stream_id = stream.get_span_context().span_id
+        self.assertEqual(parent_id(stream), request_span.get_span_context().span_id)
+        self.assertEqual(attrs(stream)["dashboard_v2.lines_ok"], 2)
+        self.assertEqual(attrs(stream)["dashboard_v2.cancelled"], False)
+        self.assertEqual(
+            {
+                ref_id: (parent_id(span), attrs(span)["dashboard_v2.language"], attrs(span)["cache.hit"])
+                for ref_id, span in targets.items()
+            },
+            {"A": (stream_id, "hogql", False), "B": (stream_id, "query", False)},
+        )
+        self.assertEqual(attrs(targets["B"])["dashboard_v2.query_kind"], "EventsQuery")
+        self.assertTrue(all("dashboard_v2.error" not in attrs(span) for span in spans))
+        selects = [span for span in spans if span.name == "SELECT"]
+        self.assertEqual(len(selects), 2)
+        for select in selects:
+            execute = by_id[parent_id(select)]
+            self.assertEqual(execute.name, "dashboard_v2.query_batch.execute")
+            self.assertIn(by_id[parent_id(execute)], targets.values())
+        self.assertEqual(
+            {language: ok_targets(language) - before[language] for language in before}, {"hogql": 1, "query": 1}
+        )
+
+
+class TestTargetSpanAttributes(SimpleTestCase):
+    def _attributes(self, line: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        with provider.get_tracer(__name__).start_as_current_span("target") as span:
+            outcome = observability._describe(span, line).outcome
+        (finished,) = exporter.get_finished_spans()
+        return outcome, dict(finished.attributes or {})
+
+    def test_points_count_the_value_fields_of_each_frame(self) -> None:
+        frame = {
+            "fields": [
+                {"name": "time", "type": "time", "values": [1, 2, 3]},
+                {"name": "count", "type": "number", "values": [4, 5, 6]},
+                {"name": "unique", "type": "number", "values": [1, 1, 2]},
+            ]
+        }
+        outcome, attributes = self._attributes({"result": {"cache": {}, "frames": [frame, frame]}})
+        self.assertEqual((outcome, attributes["dashboard_v2.frames"], attributes["dashboard_v2.points"]), ("ok", 2, 12))
+
+    def test_an_errors_text_stays_out_of_the_span(self) -> None:
+        outcome, attributes = self._attributes({"error": "Unknown table secret_customer_table"})
+        self.assertEqual(outcome, "error")
+        self.assertNotIn("secret_customer_table", repr(attributes))
 
 
 class TestQueryShares(SimpleTestCase):
