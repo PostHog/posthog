@@ -2854,7 +2854,11 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 400, response.json()
-        expected = "Turn it on from the cohort's page" if cohort_kind == "realtime_off" else "isn't ready for realtime"
+        expected = (
+            "Open the cohort's page to turn realtime on"
+            if cohort_kind == "realtime_off"
+            else "isn't ready for realtime"
+        )
         assert expected in response.json()["detail"]
 
     def test_hog_flow_grandfathers_stored_cohort_trigger_after_flag_dial_down(self):
@@ -5946,7 +5950,12 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         if expected_snapshot_status:
-            assert response.json() == {"status": expected_snapshot_status, "audience_size": None, "error": None}
+            assert response.json() == {
+                "status": expected_snapshot_status,
+                "audience_size": None,
+                "error": None,
+                "skipped_test_account_filters": [],
+            }
             mock_task.assert_called_once_with(self.team.pk, str(job.id), "email", 500)
         else:
             mock_task.assert_not_called()
@@ -9221,7 +9230,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
     def test_rejects_a_model_outside_the_task_model_catalogue(self):
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
+            "products.workflows.backend.presentation.views.hog_flow.runnable_model_choices",
             return_value=(SimpleNamespace(model="claude-opus"),),
         ):
             response = self._post_flow({"model": {"value": {"model": "not-a-real-model"}}})
@@ -9229,20 +9238,16 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__inputs__model"
 
-    def test_accepts_a_model_in_the_task_model_catalogue(self):
-        with patch(
-            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
-            return_value=(SimpleNamespace(model="claude-opus"),),
-        ):
-            response = self._post_flow({"model": {"value": {"model": "claude-opus"}}})
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_does_not_block_saving_while_the_model_catalogue_is_unreachable(self):
-        # An empty catalogue means the gateway couldn't be reached, not that no model is
-        # valid - a gateway outage must not block every workflow save.
-        with patch("products.workflows.backend.presentation.views.hog_flow.available_model_choices", return_value=()):
-            response = self._post_flow({"model": {"value": {"model": "whatever-model"}}})
+    @parameterized.expand(
+        [
+            ("offered", "claude-opus-5-5"),
+            ("retired_but_runnable", "claude-sonnet-4-6"),
+            ("sdk_implicit", "claude-haiku-4-5"),
+            ("desktop_legacy", "gpt-5.4"),
+        ]
+    )
+    def test_accepts_a_model_in_the_task_model_catalogue(self, _name, model):
+        response = self._post_flow({"model": {"value": {"model": model}}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -9251,7 +9256,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
         # reasoning_effort is a plain CharField with no cross-check), so a mismatch saved here
         # would otherwise reach the agent sandbox unvalidated instead of failing anywhere.
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
+            "products.workflows.backend.presentation.views.hog_flow.runnable_model_choices",
             return_value=(SimpleNamespace(model="claude-opus", supported_efforts=("low", "high")),),
         ):
             response = self._post_flow({"model": {"value": {"model": "claude-opus", "reasoning_effort": "ultracode"}}})
@@ -9261,7 +9266,7 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
     def test_accepts_a_reasoning_effort_the_selected_model_supports(self):
         with patch(
-            "products.workflows.backend.presentation.views.hog_flow.available_model_choices",
+            "products.workflows.backend.presentation.views.hog_flow.runnable_model_choices",
             return_value=(SimpleNamespace(model="claude-opus", supported_efforts=("low", "high")),),
         ):
             response = self._post_flow({"model": {"value": {"model": "claude-opus", "reasoning_effort": "high"}}})

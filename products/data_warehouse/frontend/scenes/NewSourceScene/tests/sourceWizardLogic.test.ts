@@ -1,14 +1,15 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { NetworkError, ResponseBodyReadError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { captureMarketingCrossSellClick, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
+import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -17,13 +18,16 @@ import type { AvailableColumn, ExternalDataSource, ExternalDataSourceSyncSchema,
 import {
     externalDataSourcesBulkUpdateSchemasPartialUpdate,
     externalDataSourcesIncrementalFieldRecommendationsCreate,
+    externalDataSourcesList,
     externalDataSourcesRetrieve,
 } from 'products/warehouse_sources/frontend/generated/api'
 import type {
     ExternalDataSourceSerializersApi,
+    PaginatedExternalDataSourceSerializersListApi,
     SourceConfigResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import { sourceManagementLogic } from '../../../shared/logics/sourceManagementLogic'
 import {
     buildCreateSourcePayload,
     defaultPollingSyncSettings,
@@ -44,6 +48,7 @@ jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
     externalDataSourcesRetrieve: jest.fn(),
     externalDataSourcesBulkUpdateSchemasPartialUpdate: jest.fn(),
     externalDataSourcesIncrementalFieldRecommendationsCreate: jest.fn(),
+    externalDataSourcesList: jest.fn(),
 }))
 
 type Deferred = {
@@ -2215,6 +2220,173 @@ describe('sourceWizardLogic', () => {
             try {
                 expect(logic.values.databaseSchema[0].sync_type).toBe('incremental')
                 expect(logic.values.databaseSchema[0].incremental_field).toBe('date_of_birth')
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    describe('createSource after the response is lost', () => {
+        const googleAdsSource = buildSourceConfig({ name: 'GoogleAds' })
+        const me = MOCK_DEFAULT_USER.email
+        type ListedSource = { id: string; source_type: string; prefix: string | null; created_by: string | null }
+        const listed = (
+            id: string,
+            { source_type = 'GoogleAds', prefix = null as string | null, created_by = me as string | null } = {}
+        ): ListedSource => ({ id, source_type, prefix, created_by })
+        const existing = listed('existing')
+        const created = listed('created')
+        const lostResponse = new NetworkError('network')
+        const adopted = { sourceId: 'created', currentStep: 5, connectError: null }
+        const notAdopted = { sourceId: null, currentStep: 1, connectError: expect.stringContaining('ad blocker') }
+
+        afterEach(() => {
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        it.each<{
+            name: string
+            error: unknown
+            known?: ListedSource[]
+            baselineFails?: boolean
+            cdc?: boolean
+            firstLookup?: ListedSource[] | 'fails'
+            after: ListedSource[]
+            tables?: number
+            expected: Record<string, unknown>
+        }>([
+            {
+                name: 'adopts the source a dropped connection created',
+                error: lostResponse,
+                after: [created],
+                expected: adopted,
+            },
+            {
+                name: 'adopts the source when the success body is cut off',
+                error: new ResponseBodyReadError('Response body could not be read'),
+                after: [created],
+                expected: adopted,
+            },
+            {
+                name: 'does not adopt a source after a gateway error',
+                error: { status: 502, message: 'Bad Gateway' },
+                after: [created],
+                expected: { sourceId: null, currentStep: 1, connectError: expect.any(String) },
+            },
+            {
+                name: 'adopts the source when it appears only on a later lookup',
+                error: lostResponse,
+                firstLookup: [],
+                after: [created],
+                expected: adopted,
+            },
+            {
+                name: 'keeps looking after a lookup fails',
+                error: lostResponse,
+                firstLookup: 'fails',
+                after: [created],
+                expected: adopted,
+            },
+            {
+                name: 'does not adopt a source that was there before the request',
+                error: lostResponse,
+                known: [existing],
+                after: [existing],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not adopt a source another member created',
+                error: lostResponse,
+                after: [listed('created', { created_by: 'teammate@example.com' })],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not adopt a new source with another prefix',
+                error: lostResponse,
+                after: [listed('created', { prefix: 'eu' })],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not adopt a new source of another type',
+                error: lostResponse,
+                after: [listed('created', { source_type: 'MetaAds' })],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not adopt a source that is still setting up its tables',
+                error: lostResponse,
+                after: [created],
+                tables: 1,
+                expected: notAdopted,
+            },
+            {
+                name: 'does not adopt a change data capture source',
+                error: lostResponse,
+                cdc: true,
+                after: [created],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not recover when the source list never loaded',
+                error: lostResponse,
+                baselineFails: true,
+                after: [created],
+                expected: notAdopted,
+            },
+            {
+                name: 'does not look up sources when the API rejected the request',
+                error: { status: 400, data: { message: 'You already have a source of this type.' } },
+                after: [created],
+                expected: { sourceId: null, currentStep: 1, connectError: 'You already have a source of this type.' },
+            },
+        ])('$name', async ({ error, known = [], baselineFails, cdc, firstLookup, after, tables = 2, expected }) => {
+            const baseline = jest.spyOn(api.externalDataSources, 'list')
+            if (baselineFails) {
+                baseline.mockRejectedValue({ status: 500 })
+            } else {
+                baseline.mockResolvedValue({
+                    results: known as unknown as ExternalDataSource[],
+                    next: null,
+                } as Awaited<ReturnType<typeof api.externalDataSources.list>>)
+            }
+            const lookupPage = (results: ListedSource[]): PaginatedExternalDataSourceSerializersListApi =>
+                ({ results, next: null }) as unknown as PaginatedExternalDataSourceSerializersListApi
+            const lookup = jest.mocked(externalDataSourcesList).mockResolvedValue(lookupPage(after))
+            if (firstLookup === 'fails') {
+                lookup.mockRejectedValueOnce(new NetworkError('network'))
+            } else if (firstLookup) {
+                lookup.mockResolvedValueOnce(lookupPage(firstLookup))
+            }
+            jest.mocked(externalDataSourcesRetrieve).mockResolvedValue({
+                schemas: Array.from({ length: tables }, (_, i) => ({ id: `schema-${i}` })),
+            } as unknown as ExternalDataSourceSerializersApi)
+            const create = jest.spyOn(api.externalDataSources, 'create').mockRejectedValue(error)
+            const logic = sourceWizardLogic({ availableSources: { GoogleAds: googleAdsSource } })
+            const unmount = logic.mount()
+
+            try {
+                userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+                await expectLogic(logic, () => logic.actions.selectConnector(googleAdsSource)).toFinishAllListeners()
+                await expectLogic(sourceManagementLogic).toDispatchActions([
+                    baselineFails ? 'loadSourcesFailure' : 'loadSourcesSuccess',
+                ])
+                logic.actions.updateSource({
+                    payload: {
+                        schemas: [{ name: 'campaigns' }, { name: 'ads' }],
+                        ...(cdc ? { cdc_enabled: true } : {}),
+                    },
+                })
+
+                jest.useFakeTimers()
+                logic.actions.createSource()
+                // Covers every lookup retry, so a source that never qualifies ends in the error.
+                await jest.advanceTimersByTimeAsync(10000)
+                jest.useRealTimers()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(create).toHaveBeenCalledTimes(1)
+                expect(logic.values).toMatchObject({ ...expected, isLoading: false })
             } finally {
                 unmount()
             }

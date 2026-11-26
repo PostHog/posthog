@@ -41,6 +41,8 @@ type TagsComboboxProps = {
     allowCustomValues?: boolean
     /** Label used in the "Create X" placeholder, e.g. "tag" → "Create new tag "foo"". */
     customValueNoun?: string
+    /** When true, leaving the input adds the typed custom value, like `LemonInputSelect` does. */
+    commitOnBlur?: boolean
     /** data-attr applied to the input */
     dataAttr?: string
     className?: string
@@ -74,6 +76,7 @@ function TagsComboboxInner({
     disabledReason,
     allowCustomValues = true,
     customValueNoun = 'tag',
+    commitOnBlur = false,
     dataAttr,
     className,
 }: TagsComboboxProps): JSX.Element {
@@ -97,6 +100,13 @@ function TagsComboboxInner({
         items.push(createSentinel)
     }
 
+    const commitTypedValue = (): void => {
+        if (commitOnBlur && showCreateItem) {
+            onChange([...value, trimmed])
+            setInputValue('')
+        }
+    }
+
     return (
         <Combobox
             multiple
@@ -118,10 +128,14 @@ function TagsComboboxInner({
                 setInputValue(v)
                 onInputChange?.(v)
             }}
-            onOpenChange={(open) => {
+            onOpenChange={(open, eventDetails) => {
                 if (open) {
                     onOpen?.()
                 } else {
+                    // A click outside clears the typed text before the input blurs, so commit it while closing.
+                    if (eventDetails.reason === 'outside-press') {
+                        commitTypedValue()
+                    }
                     onClose?.()
                 }
             }}
@@ -135,6 +149,7 @@ function TagsComboboxInner({
                 dataAttr={dataAttr}
                 className={className}
                 createSentinel={showCreateItem ? createSentinel : null}
+                onInputBlur={commitTypedValue}
                 customValueNoun={customValueNoun}
                 trimmed={trimmed}
                 loading={loading}
@@ -156,6 +171,7 @@ function TagsComboboxBody({
     dataAttr,
     className,
     createSentinel,
+    onInputBlur,
     customValueNoun,
     trimmed,
     loading,
@@ -172,6 +188,7 @@ function TagsComboboxBody({
     dataAttr?: string
     className?: string
     createSentinel: string | null
+    onInputBlur?: () => void
     customValueNoun: string
     trimmed: string
     loading?: boolean
@@ -200,6 +217,7 @@ function TagsComboboxBody({
                                 autoFocus={autoFocus}
                                 disabled={disabled}
                                 data-attr={dataAttr}
+                                onBlur={onInputBlur}
                             />
                         </>
                     )}

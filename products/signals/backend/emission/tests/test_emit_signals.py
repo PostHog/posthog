@@ -977,13 +977,11 @@ class TestCheckActionability:
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
         assert call_kwargs["metadata"]["user_id"] == "team-7"
-        headers = call_kwargs["extra_headers"]
-        assert headers["x-posthog-property-ai_stage"] == "actionability"
-        assert headers["x-posthog-property-source_product"] == output.source_product
-        assert headers["x-posthog-property-source_type"] == output.source_type
-        # ai_product and $ai_billable are owned by the gateway product config, not headers
-        assert "x-posthog-property-ai_product" not in headers
-        assert "x-posthog-property-$ai_billable" not in headers
+        properties = json.loads(call_kwargs["extra_headers"]["X-PostHog-Properties"])
+        assert properties["ai_stage"] == "actionability"
+        assert properties["source_product"] == output.source_product
+        assert properties["source_type"] == output.source_type
+        assert properties["team_id"] == "7"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1194,11 +1192,9 @@ class TestSummarizeDescription:
 
         call_kwargs = client.messages.create.call_args.kwargs
         assert call_kwargs["metadata"]["user_id"] == "team-42"
-        headers = call_kwargs["extra_headers"]
-        assert headers["x-posthog-property-ai_stage"] == "summarization"
-        # ai_product and $ai_billable are owned by the gateway product config, not headers
-        assert "x-posthog-property-ai_product" not in headers
-        assert "x-posthog-property-$ai_billable" not in headers
+        properties = json.loads(call_kwargs["extra_headers"]["X-PostHog-Properties"])
+        assert properties["ai_stage"] == "summarization"
+        assert properties["team_id"] == "42"
 
 
 class TestSummarizeLongDescriptions:

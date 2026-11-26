@@ -68,7 +68,7 @@ class _Unset:
 _UNSET = _Unset()
 
 # The columns _reset_to_proposed touches, so a lifecycle reset can be scoped into update_fields.
-_APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
+_APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at", "proposed_at"})
 _LINEAGE_FIELDS = frozenset({"definition", "referenced_table_names"})
 
 # Fields that carry the metric's reviewed meaning: editing any of them invalidates a prior approval.
@@ -738,6 +738,8 @@ def bulk_change_metric_owner(
 
 
 def _reset_to_proposed(metric: Metric) -> None:
+    if metric.status != MetricStatus.PROPOSED:
+        metric.proposed_at = timezone.now()
     metric.status = MetricStatus.PROPOSED
     metric.approved_by = None
     metric.approved_at = None

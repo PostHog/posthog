@@ -236,6 +236,7 @@ def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
                 "threshold": alert.threshold.configuration if alert.threshold else None,
                 "comparison": alert.condition,
                 "detector": alert.detector_config,
+                **({"threshold_name": alert.threshold.name} if alert.threshold else {}),
             },
             **insight_row_settings(alert),
         },
@@ -615,19 +616,22 @@ def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutc
     """Whether each group's firing opened or closed, read from the states rather than the announcement.
 
     A failed check moves no instance, so its incident stays open with its firing. Closing it would
-    leave a re-enabled alert that still breaches firing with no incident.
+    leave a re-enabled alert that still breaches firing with no incident. The check after it reads
+    ERRORED, so the firing the instance kept is what says that check closes the incident.
     """
     policy = _policy(check) if check.grouping.mode == GroupingMode.SINGLE else GROUPED_INSIGHT_ALERT_POLICY
-    return {
-        group.grouping_key: action
-        for group in outcome.groups
-        if (
-            action := decide_incident_action(
-                AlertState(check.instance(group.grouping_key).state), AlertState(group.new_state), policy=policy
-            )
+    actions: dict[str, IncidentAction] = {}
+    for group in outcome.groups:
+        before = check.instance(group.grouping_key)
+        action = decide_incident_action(
+            AlertState(before.state),
+            AlertState(group.new_state),
+            policy=policy,
+            failed_while_firing=before.failed_while_firing,
         )
-        is not None
-    }
+        if action is not None:
+            actions[group.grouping_key] = action
+    return actions
 
 
 def _alert_url(check: PlatformAlertCheckInput, alert_id: str) -> str | None:
@@ -647,6 +651,7 @@ def _snapshot(
         AlertState(instance.state),
         last_notified_at=instance.last_notified_at,
         firing_started_at=instance.firing_started_at,
+        failed_while_firing=instance.failed_while_firing,
         snooze_until=snooze_until,
     )
 

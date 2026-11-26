@@ -23,6 +23,7 @@ from bin.lint_duplication import (
     is_test_file,
     main,
     mark_new_clones,
+    run_jscpd,
 )
 
 
@@ -243,15 +244,34 @@ class TestFormatsTouched(unittest.TestCase):
                 ["python", "typescript", "tsx"],
             ),
             (
-                "both_halves_scans_everything",
+                "two_formats_scan_only_those",
                 {"posthog/api/team.py", "frontend/src/scenes/insights/Insights.tsx"},
-                ["python", "typescript", "tsx"],
+                ["python", "tsx"],
             ),
             ("docs_only_touches_no_format", {"docs/README.md", ".github/workflows/ci-frontend.yml"}, []),
         ]
     )
     def test_formats(self, _name: str, changed_files: set[str], expected: list[str]) -> None:
         self.assertEqual(formats_touched(changed_files), expected)
+
+    def test_scans_each_format_in_its_own_jscpd_run(self) -> None:
+        scanned_formats: list[str] = []
+
+        def fake_jscpd(command: list[str], **_kwargs) -> subprocess.CompletedProcess:
+            format_name = command[command.index("--format") + 1]
+            scanned_formats.append(format_name)
+            out_dir = Path(command[command.index("--output") + 1])
+            out_dir.mkdir(parents=True)
+            clone = make_clone(f"a.{format_name}", f"b.{format_name}", 100, fmt=format_name)
+            (out_dir / "jscpd-report.json").write_text(json.dumps({"duplicates": [clone]}))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("bin.lint_duplication.subprocess.run", side_effect=fake_jscpd):
+                clones = run_jscpd(Path(temp_dir), Path(temp_dir) / "report", ["python", "tsx"])
+
+        self.assertEqual(scanned_formats, ["python", "tsx"])
+        self.assertEqual([clone["format"] for clone in clones], ["python", "tsx"])
 
     def test_a_change_set_with_no_scanned_format_skips_the_scans(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -30,6 +30,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.prompt import (
+    DREAM_CANDIDATE_KEY_PREFIX,
     DREAM_DIGEST_KEY_PREFIX,
     LEARNED_KEY_KINDS,
     LEARNED_KEY_PREFIX,
@@ -835,7 +836,23 @@ class TestShippedStructuredOutputSchemas:
             "dream_entry_age_days": 41.5,
             "dream_evidence": "alert is deleted, read with alert-get",
         }
-        _validate_records([StructuredOutputRecord(payload=retire, subject="signals-scout-example")], schema)
+        candidate = {
+            **retire,
+            "dream_action": "write_candidate",
+            "dream_key": f"{DREAM_CANDIDATE_KEY_PREFIX}area:checkout",
+            "dream_reason": "verdict_placed",
+            "dream_content_chars_before": None,
+            "dream_entry_age_days": None,
+            "dream_evidence": "report 01a2-example dismissed",
+        }
+        promotion = {**candidate, "dream_action": "promote_candidate", "dream_reason": "repeated_feedback"}
+        _validate_records(
+            [
+                StructuredOutputRecord(payload=payload, subject="signals-scout-example")
+                for payload in (retire, candidate, promotion)
+            ],
+            schema,
+        )
         # Entries can hold customer data, and these records land in the project's event stream,
         # so the schema stays closed to any field that could carry an entry's content.
         for rejected in ({**retire, "dream_content": "the entry body"}, {**retire, "dream_action": "forget"}):
@@ -854,6 +871,7 @@ class TestShippedMemoryUpkeepScout:
         assert skill.source_path.name == MEMORY_UPKEEP_SCOUT
         assert named_kinds == set(LEARNED_KEY_KINDS)
         assert f"`{DREAM_DIGEST_KEY_PREFIX}<skill-name>`" in skill.body
+        assert f"`{DREAM_CANDIDATE_KEY_PREFIX}<kind>:<subject>`" in skill.body
         assert not skill_uses_report_channel(list(skill.allowed_tools))
 
 

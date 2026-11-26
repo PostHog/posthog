@@ -8,6 +8,7 @@ import pytest
 from unittest import mock
 
 from django.core.cache import cache as django_cache
+from django.test import override_settings
 
 import jwt
 import requests
@@ -45,6 +46,7 @@ from products.warehouse_sources.sources.firebase.firebase import (
 )
 from products.warehouse_sources.sources.firebase.settings import (
     AUTH_TENANT_USERS_TABLE,
+    AUTH_TENANTS_TABLE,
     AUTH_USERS_TABLE,
     FIRESTORE_CREATE_TIME_COLUMN,
     FIRESTORE_DISCOVERY_CONCURRENCY,
@@ -71,7 +73,12 @@ from products.warehouse_sources.sources.firebase.tests.conftest import (
     credentials,
 )
 from products.warehouse_sources.sources.sdk import IncrementalFieldType
-from products.warehouse_sources.sources.sdk.testing import error_message_matches
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    error_message_matches,
+    scripted_network,
+)
 
 _FIREBASE_MODULE = "products.warehouse_sources.sources.firebase.firebase"
 _SESSION_FACTORY = f"{_FIREBASE_MODULE}.make_tracked_session"
@@ -857,6 +864,72 @@ class TestTenantAuthUsers:
         assert [(url, kwargs["params"]) for _, url, kwargs in session.requests[1:]] == expected_requests
 
 
+class TestTenants:
+    @pytest.mark.parametrize(
+        "state,first_params",
+        [
+            (None, {"pageSize": 1000}),
+            (FirebaseResumeConfig(cursor="t0"), {"pageSize": 1000, "pageToken": "t0"}),
+        ],
+        ids=["fresh", "resumed"],
+    )
+    def test_walks_every_page_and_never_syncs_hash_settings_or_test_codes(
+        self, state: Optional[FirebaseResumeConfig], first_params: dict[str, Any], logger: FilteringBoundLogger
+    ) -> None:
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(
+                    payload={
+                        "tenants": [
+                            {
+                                **tenant("tenant-a"),
+                                "allowPasswordSignup": True,
+                                "mfaConfig": {"state": "ENABLED"},
+                                "hashConfig": {"algorithm": "SCRYPT", "signerKey": "c2lnbmVyLWtleQ=="},
+                                "testPhoneNumbers": {"+15555550100": "123456"},
+                            },
+                            {"displayName": "no name"},
+                        ],
+                        "nextPageToken": "t2",
+                    }
+                ),
+                # A page of only unusable entries still advances, and the empty last page ends the walk.
+                FakeResponse(payload={"tenants": [{"displayName": "no name"}], "nextPageToken": "t3"}),
+                FakeResponse(payload={"tenants": [tenant("tenant-b")]}),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        manager = FakeResumeManager(state)
+        staged_at_each_yield: list[list[str]] = []
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()) as factory:
+            rows = []
+            for batch in get_rows(credentials(), AUTH_TENANTS_TABLE, manager, logger):
+                staged_at_each_yield.append([saved.cursor for saved in manager.saved])
+                rows += batch
+
+        assert rows == [
+            {
+                "name": "projects/demo-project/tenants/tenant-a",
+                "displayName": "tenant-a",
+                "allowPasswordSignup": True,
+                "mfaConfig": '{"state": "ENABLED"}',
+                "tenantId": "tenant-a",
+            },
+            {"name": "projects/demo-project/tenants/tenant-b", "displayName": "tenant-b", "tenantId": "tenant-b"},
+        ]
+        # Each page's token is staged before its rows are handed over, so a resume never skips them.
+        assert staged_at_each_yield == [["t2"], ["t2", "t3"]]
+        assert manager.cleared
+        assert [(url, kwargs["params"]) for _, url, kwargs in session.requests] == [
+            (TENANTS_URL, first_params),
+            (TENANTS_URL, {"pageSize": 1000, "pageToken": "t2"}),
+            (TENANTS_URL, {"pageSize": 1000, "pageToken": "t3"}),
+        ]
+        # The raw listing carries the signer key, which only row shaping removes, so nothing may capture it.
+        assert all(call.kwargs["capture"] is False for call in factory.call_args_list)
+
+
 class TestRealtimeDatabase:
     @pytest.mark.parametrize(
         "url",
@@ -1172,7 +1245,12 @@ class TestTableDiscovery:
     @pytest.mark.parametrize(
         "tenant_response,expected_tables",
         [
-            (FakeResponse(payload={"tenants": [tenant("tenant-a")]}), [AUTH_USERS_TABLE, AUTH_TENANT_USERS_TABLE]),
+            (
+                FakeResponse(payload={"tenants": [tenant("tenant-a")]}),
+                [AUTH_USERS_TABLE, AUTH_TENANTS_TABLE, AUTH_TENANT_USERS_TABLE],
+            ),
+            # Entries without a resource name are no tenant to sync.
+            (FakeResponse(payload={"tenants": [{"displayName": "no name"}]}), [AUTH_USERS_TABLE]),
             (FakeResponse(payload={}), [AUTH_USERS_TABLE]),
             # A project without Identity Platform, or a service account that can't list tenants.
             (
@@ -1182,9 +1260,9 @@ class TestTableDiscovery:
             (FakeResponse(status_code=403, payload={"error": {"status": "PERMISSION_DENIED"}}), [AUTH_USERS_TABLE]),
             (FakeResponse(status_code=404, payload={"error": {"status": "NOT_FOUND"}}), [AUTH_USERS_TABLE]),
         ],
-        ids=["has-tenants", "no-tenants", "no-identity-platform", "forbidden", "not-found"],
+        ids=["has-tenants", "unnamed-tenant", "no-tenants", "no-identity-platform", "forbidden", "not-found"],
     )
-    def test_tenant_users_table_is_listed_only_when_the_project_has_a_tenant(
+    def test_tenant_tables_are_listed_only_when_the_project_has_a_tenant(
         self, tenant_response: FakeResponse, expected_tables: list[str]
     ) -> None:
         session = FakeSession(
@@ -1249,21 +1327,126 @@ class TestResponseSizeCaps:
     "stop reading at N bytes", and allocating 64 MiB per test to demonstrate it would be waste.
     """
 
-    def test_an_oversized_page_is_rejected_instead_of_buffered(self, logger: FilteringBoundLogger) -> None:
-        oversized = FakeResponse(body=b"x" * (_PAGE_CAP + 1))
+    def test_slow_oversized_pages_share_one_retry_budget(self, logger: FilteringBoundLogger) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            assert request.read_timeout is not None
+            network.advance(min(110, request.read_timeout))
+            if request.read_timeout < 110:
+                raise TimeoutError("timed out")
+            if int(request.param("pageSize") or "0") > 75:
+                return ScriptedResponse(body=b"x" * (_PAGE_CAP + 1))
+            return ScriptedResponse(json={})
+
+        tokens = token_provider(FakeSession(post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)]))
+        tokens.token()
+        manager = FakeResumeManager(FirebaseResumeConfig(cursor="page-1"))
+        with (
+            override_settings(DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS=300),
+            scripted_network(respond) as network,
+            _api_session(credentials(), capture=False) as session,
+            mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP),
+            pytest.raises(requests.RequestException),
+        ):
+            list(iter_firestore_documents(session, tokens, credentials(), "rooms", manager, logger))
+
+        assert network.elapsed == pytest.approx(300, abs=0.5)
+        assert manager.saved == []
+        assert manager.cleared is False
+
+    @pytest.mark.parametrize("mode", ["full_refresh", "incremental", "collection_group"])
+    def test_an_oversized_page_is_retried_without_advancing_the_cursor(
+        self, mode: str, logger: FilteringBoundLogger
+    ) -> None:
+        documents = [firestore_document(name, {"version": {"integerValue": "42"}}) for name in ["a", "b", "c"]]
+        oversized = [FakeResponse(body=b"x" * (_PAGE_CAP + 1)) for _ in range(2)]
+        if mode == "full_refresh":
+            pages: list[Any] = [
+                {"documents": documents[:2], "nextPageToken": "page-2"},
+                {"documents": documents[2:]},
+            ]
+            resume = FirebaseResumeConfig(cursor="page-1")
+            next_resume = FirebaseResumeConfig(cursor="page-2")
+        else:
+            pages = [[{"document": document} for document in page] for page in [documents[:2], documents[2:]]]
+            value = json.dumps({"integerValue": "42"}) if mode == "incremental" else None
+            resume = FirebaseResumeConfig(cursor=firestore_document("previous")["name"], incremental_value=value)
+            next_resume = FirebaseResumeConfig(cursor=documents[1]["name"], incremental_value=value)
         session = FakeSession(
-            request_responses=[oversized],
+            request_responses=[*oversized, *(FakeResponse(payload=page) for page in pages)],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
+        manager = FakeResumeManager(resume)
+        if mode == "incremental":
+            batches = iter_firestore_documents_incremental(
+                session.as_session(),
+                token_provider(session),
+                credentials(),
+                "rooms",
+                "version",
+                IncrementalFieldType.Integer,
+                41,
+                manager,
+                logger,
+            )
+        else:
+            reader = iter_firestore_documents if mode == "full_refresh" else iter_firestore_collection_group
+            batches = reader(session.as_session(), token_provider(session), credentials(), "rooms", manager, logger)
 
-        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
-            with mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP):
-                with pytest.raises(FirebaseResponseTooLargeError, match=RESPONSE_TOO_LARGE_ERROR):
-                    list(get_rows(credentials(), "firestore_rooms", FakeResumeManager(), logger))
+        with (
+            mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP),
+            mock.patch(f"{_FIREBASE_MODULE}.FIRESTORE_PAGE_SIZE", 9),
+            mock.patch(f"{_FIREBASE_MODULE}.MAX_PAGES", 2),
+        ):
+            rows = next(batches)
+            assert (manager.saved, manager.cleared) == ([], False)
+            rows.extend(next(batches))
+            assert manager.saved == [next_resume]
+            with pytest.raises(StopIteration):
+                next(batches)
 
-        # Never more than one byte past the cap, and the connection is released either way.
-        assert oversized.raw.bytes_read == _PAGE_CAP + 1
-        assert oversized.closed is True
+        assert [row[FIRESTORE_ID_COLUMN] for row in rows] == ["a", "b", "c"]
+        assert manager.cleared is True
+        assert all(response.raw.bytes_read == _PAGE_CAP + 1 and response.closed for response in oversized)
+        if mode == "full_refresh":
+            requests = [kwargs["params"] for _, _, kwargs in session.requests]
+            assert [request["pageSize"] for request in requests] == [9, 4, 2, 9]
+            assert [request["pageToken"] for request in requests] == ["page-1", "page-1", "page-1", "page-2"]
+        else:
+            queries = [kwargs["json"]["structuredQuery"] for _, _, kwargs in session.requests]
+            assert [query["limit"] for query in queries] == [9, 4, 2, 9]
+            assert queries[:3] == [{**queries[0], "limit": size} for size in [9, 4, 2]]
+            assert queries[0]["startAt"]["values"][-1] == {"referenceValue": resume.cursor}
+            assert queries[3]["startAt"]["values"][-1] == {"referenceValue": next_resume.cursor}
+            if mode == "incremental":
+                assert all(query["startAt"]["values"][0] == {"integerValue": "42"} for query in queries)
+
+    def test_an_oversized_single_document_stops_retrying_without_clearing_the_checkpoint(
+        self, logger: FilteringBoundLogger
+    ) -> None:
+        oversized = [FakeResponse(body=b"x" * (_PAGE_CAP + 1)) for _ in range(2)]
+        session = FakeSession(
+            request_responses=oversized,
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        manager = FakeResumeManager(FirebaseResumeConfig(cursor="page-1"))
+
+        with (
+            mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP),
+            mock.patch(f"{_FIREBASE_MODULE}.FIRESTORE_PAGE_SIZE", 3),
+            pytest.raises(FirebaseResponseTooLargeError, match=RESPONSE_TOO_LARGE_ERROR),
+        ):
+            list(
+                iter_firestore_documents(
+                    session.as_session(), token_provider(session), credentials(), "rooms", manager, logger
+                )
+            )
+
+        assert [kwargs["params"] for _, _, kwargs in session.requests] == [
+            {"pageToken": "page-1", "pageSize": 3},
+            {"pageToken": "page-1", "pageSize": 1},
+        ]
+        assert manager.saved == []
+        assert manager.cleared is False
 
     def test_an_oversized_token_body_is_rejected(self) -> None:
         session = FakeSession(post_responses=[FakeResponse(body=b"x" * (_PAGE_CAP + 1))])
@@ -1354,6 +1537,7 @@ class TestSourceResponseShape:
             (AUTH_USERS_TABLE, ["localId"], False),
             # A user id is unique only inside its tenant.
             (AUTH_TENANT_USERS_TABLE, ["tenantId", "localId"], False),
+            (AUTH_TENANTS_TABLE, ["tenantId"], False),
             ("firestore_rooms", [FIRESTORE_ID_COLUMN], True),
             # A subcollection is a collection group, so its unique key is the full document path.
             ("firestore_collection_group/messages", [FIRESTORE_PATH_COLUMN], True),

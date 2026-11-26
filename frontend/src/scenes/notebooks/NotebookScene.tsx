@@ -65,6 +65,7 @@ export function NotebookScene(): JSX.Element {
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
     const [isMarkdownSourceOpen, setIsMarkdownSourceOpen] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const { todayRailEnabled } = useValues(todayShellLogic)
 
@@ -133,6 +134,10 @@ export function NotebookScene(): JSX.Element {
 
     if (notebookId === 'new') {
         return <NotebookLoadingState />
+    }
+
+    if (featureFlags[FEATURE_FLAGS.NOTEBOOK_APP_BUILDER] && searchParams.view === 'app') {
+        return <NotebookAppScene shortId={notebookId}>{null}</NotebookAppScene>
     }
 
     return (

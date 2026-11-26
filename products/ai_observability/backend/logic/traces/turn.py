@@ -1,5 +1,5 @@
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Final, Self
 
 from posthog.dataclasses import frozen
@@ -84,6 +84,50 @@ class Turn:
         )
 
 
+@frozen
+class TurnSides:
+    input: StepSide
+    output: StepSide
+
+    @classmethod
+    def of(
+        cls,
+        *,
+        state: TurnStep | None,
+        first_generation: TurnStep | None,
+        latest_generation_input: StepSide | None,
+        latest_generation: TurnStep | None,
+    ) -> Self:
+        """The input and output a turn shows: what its trace added, not the history every generation or state input
+        carries."""
+        output_source = latest_generation or first_generation
+        state_input = _added_input(state.input, None) if state else None
+        return cls(
+            input=_conversation_or(
+                state_input,
+                lambda: _added_input(first_generation.input if first_generation else None, latest_generation_input),
+            ),
+            output=_conversation_or(
+                _added_output(state.output, state_input) if state and state_input else None,
+                lambda: output_source.output if output_source else _NOTHING_READ,
+            ),
+        )
+
+
+def shown(side: StepSide) -> contracts.TraceSideContent | None:
+    """The side's content, or None when it holds nothing to show: no messages, or a null JSON value."""
+    content = side.value
+    if isinstance(content, contracts.TraceMessagesSide) and not content.messages:
+        return None
+    if isinstance(content, contracts.TraceJsonSide) and content.value is None:
+        return None
+    return content
+
+
+def unread_reason(side: StepSide) -> contracts.TracePreviewMissingReason | None:
+    return side.unread.reason if side.unread else None
+
+
 def readable_tail(items: Sequence[Value], over_caps: Sequence[bool]) -> Side[Value]:
     """The items after the last one over the size cap, flagged by the matching entry of `over_caps`.
 
@@ -104,6 +148,113 @@ def preview(side: TurnSide, limit: int = PREVIEW_MAX_CHARS) -> str | None:
 
 def missing_reason(side: TurnSide) -> contracts.TracePreviewMissingReason | None:
     return side.reason if isinstance(side, Unreadable) else None
+
+
+_NOTHING_READ: Final[StepSide] = Side(value=None, unread=None)
+
+
+def _conversation_or(state_side: StepSide | None, fallback: Callable[[], StepSide]) -> StepSide:
+    if (
+        state_side is not None
+        and isinstance(state_side.value, contracts.TraceMessagesSide)
+        and state_side.value.messages
+    ):
+        return state_side
+    read = fallback()
+    if state_side is not None and shown(read) is None and read.unread is None:
+        return state_side
+    return read
+
+
+def _added_input(first: StepSide | None, latest: StepSide | None) -> StepSide:
+    if first is None:
+        return latest or _NOTHING_READ
+    if not isinstance(first.value, contracts.TraceMessagesSide):
+        return first
+    start = _anchor_start(first.value.messages)
+    if start is None:
+        return first
+    anchor = first.value.messages[start:]
+    cut_in_first = _cut_into_turn(start, first.unread)
+    if latest is not None and isinstance(latest.value, contracts.TraceMessagesSide):
+        latest_start = _last_run_start(latest.value.messages, anchor)
+        if latest_start is not None:
+            after = latest.value.messages[latest_start + len(anchor) :]
+            return Side(
+                value=_messages([*anchor, *after]),
+                unread=_cut_into_turn(latest_start, latest.unread) or cut_in_first,
+            )
+    return Side(value=_messages(anchor), unread=cut_in_first or (latest.unread if latest else None))
+
+
+def _added_output(output: StepSide, added_input: StepSide) -> StepSide:
+    """A state output that repeats the conversation is cut to what follows the turn's own input."""
+    if not isinstance(output.value, contracts.TraceMessagesSide) or not isinstance(
+        added_input.value, contracts.TraceMessagesSide
+    ):
+        return output
+    asked = added_input.value.messages
+    start = _last_run_start(output.value.messages, asked) if asked else None
+    answer = output.value.messages[start + len(asked) :] if start is not None else []
+    return Side(value=_messages(answer), unread=output.unread) if answer else output
+
+
+def _cut_into_turn(start: int, unread: Unreadable | None) -> Unreadable | None:
+    """What was left unread counts against the turn only when the turn starts where the readable tail does. A turn
+    that starts later lies wholly after every item that could not be read, which were the history's."""
+    return unread if start == 0 else None
+
+
+def _messages(messages: list[contracts.TraceMessage]) -> contracts.TraceMessagesSide:
+    return contracts.TraceMessagesSide(kind="messages", messages=messages)
+
+
+def _anchor_start(messages: list[contracts.TraceMessage]) -> int | None:
+    """Where the turn's own messages start: at the first user message after the last assistant message.
+
+    With no user message after the last assistant message (a trace that starts mid agent loop, or an assistant
+    prefill), at the last user message. None without any user message."""
+    after_assistant = next((i + 1 for i in reversed(range(len(messages))) if messages[i].role == "assistant"), 0)
+    first_user = next((i for i in range(after_assistant, len(messages)) if messages[i].role == "user"), None)
+    if first_user is None:
+        first_user = next((i for i in reversed(range(len(messages))) if messages[i].role == "user"), None)
+    return first_user
+
+
+def _last_run_start(messages: list[contracts.TraceMessage], run: list[contracts.TraceMessage]) -> int | None:
+    """Where `run` last appears in `messages`, comparing role and parts, since ids differ between generations."""
+    if not run:
+        return len(messages)
+    # Each message is compared a bounded number of times, so repetitive input cannot outlast the page's deadline.
+    restarts = _restarts(run)
+    last_start: int | None = None
+    matched = 0
+    for index, message in enumerate(messages):
+        while matched and not _same_message(message, run[matched]):
+            matched = restarts[matched - 1]
+        if _same_message(message, run[matched]):
+            matched += 1
+        if matched == len(run):
+            last_start = index - len(run) + 1
+            matched = restarts[matched - 1]
+    return last_start
+
+
+def _restarts(run: list[contracts.TraceMessage]) -> list[int]:
+    """For each prefix of `run`, how many of its last messages repeat its first ones, where a failed match resumes."""
+    restarts = [0] * len(run)
+    matched = 0
+    for index in range(1, len(run)):
+        while matched and not _same_message(run[index], run[matched]):
+            matched = restarts[matched - 1]
+        if _same_message(run[index], run[matched]):
+            matched += 1
+        restarts[index] = matched
+    return restarts
+
+
+def _same_message(a: contracts.TraceMessage, b: contracts.TraceMessage) -> bool:
+    return a.role == b.role and a.parts == b.parts
 
 
 def _side(

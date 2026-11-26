@@ -34,7 +34,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     execute_batch_export_insert_activity,
     get_data_interval,
     iter_records,
-    reads_native_events_table,
+    reads_recent_events_table,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
@@ -212,7 +212,25 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         inputs.url,
     )
 
-    async with get_client(team_id=inputs.team_id) as client:
+    use_native_schema = batch_exports_read_new_events_table(inputs.team_id)
+    interval_start = await maybe_resume_from_heartbeat(inputs)
+    is_backfill = inputs.get_is_backfill()
+
+    clickhouse_url = None
+    cluster = None
+    # The recent events tables are stored on the batch exports cluster, so a query that reads one runs there.
+    if settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL and reads_recent_events_table(
+        team_id=inputs.team_id,
+        interval_start=interval_start,
+        interval_end=inputs.data_interval_end,
+        use_new_events_schema=use_native_schema,
+        is_backfill=is_backfill,
+        backfill_details=inputs.backfill_details,
+    ):
+        clickhouse_url = settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL
+        cluster = settings.CLICKHOUSE_BATCH_EXPORTS_CLUSTER
+
+    async with get_client(team_id=inputs.team_id, clickhouse_url=clickhouse_url, cluster=cluster) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
@@ -222,27 +240,13 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if not isinstance(model, BatchExportEventsModel):
             raise NotImplementedError("HTTP export only supports the events model")
 
-        use_native_schema = batch_exports_read_new_events_table()
-
-        interval_start = await maybe_resume_from_heartbeat(inputs)
-
-        is_backfill = inputs.get_is_backfill()
-
-        native_source = reads_native_events_table(
-            team_id=inputs.team_id,
-            interval_start=interval_start,
-            interval_end=inputs.data_interval_end,
-            use_new_events_schema=use_native_schema,
-            is_backfill=is_backfill,
-            backfill_details=inputs.backfill_details,
-        )
-        fields = http_default_fields(reads_native_events=native_source)
+        fields = http_default_fields(reads_native_events=use_native_schema)
         columns = [field["alias"] for field in fields]
 
         filters = model.filters
         if filters:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=inputs.team_id, values=None, use_new_events_schema=native_source
+                filters, team_id=inputs.team_id, values=None, use_new_events_schema=use_native_schema
             )
         else:
             filters_str = ""
@@ -250,6 +254,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         record_iterator = iter_records(
             use_new_events_schema=use_native_schema,
+            reads_typed_columns=use_native_schema,
             client=client,
             team_id=inputs.team_id,
             interval_start=interval_start,

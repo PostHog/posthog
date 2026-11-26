@@ -93,6 +93,14 @@ def read_run_log(log: TaskRunLog) -> str:
     return object_storage.read(log.key, missing_ok=True) or ""
 
 
+def read_run_log_tail(log: TaskRunLog, max_bytes: int) -> str:
+    """The last whole JSONL lines that fit in `max_bytes`. A cut first line is dropped."""
+    content = object_storage.read_bytes_tail(log.key, max_bytes) or b""
+    if len(content) >= max_bytes:
+        content = content.split(b"\n", 1)[1] if b"\n" in content else b""
+    return content.decode("utf-8", errors="replace")
+
+
 def read_run_log_bytes(log: TaskRunLog) -> bytes:
     return object_storage.read_bytes(log.key, missing_ok=True) or b""
 
