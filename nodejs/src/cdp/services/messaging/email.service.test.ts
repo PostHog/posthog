@@ -2824,19 +2824,35 @@ describe('EmailService', () => {
                         [ownershipCheckFails, sesRefusesItsFirstConnection],
                     ],
                 ])(
-                    'claims the workflow limit again for the retry after %s, so the retry waits for its own slot',
+                    'claims the workflow limit again for the retry after %s, so the retry parks for the next slot and sends once in it',
                     async (_cause, failedTries) => {
                         const emailService = sender()
-                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 60, period: 'minute' } }
 
-                        const result = await sendAfterFailedTries(emailService, failedTries)
+                        const parked = await sendAfterFailedTries(emailService, failedTries)
+                        const sentBeforeTheNextSlot = deliveredTo(ses, recipient).length
+                        const msToTheNextSlot = parked.invocation.queueScheduledAt!.toMillis() - Date.now()
+                        await new Promise((resolve) => setTimeout(resolve, Math.max(0, msToTheNextSlot)))
+                        const retried = await emailService.executeSendEmail(parked.invocation)
 
                         expect({
-                            finished: result.finished,
+                            parked: parked.finished,
+                            sentBeforeTheNextSlot,
+                            nextSlotWithinSeconds: msToTheNextSlot < 5_000,
+                            retried: retried.finished,
                             delivered: deliveredTo(ses, recipient),
-                            waitsForItsSlot:
-                                (result.invocation.queueScheduledAt?.toMillis() ?? 0) > Date.now() + 30 * 60 * 1000,
-                        }).toEqual({ finished: false, delivered: [], waitsForItsSlot: true })
+                        }).toEqual({
+                            parked: false,
+                            sentBeforeTheNextSlot: 0,
+                            nextSlotWithinSeconds: true,
+                            retried: true,
+                            delivered: [
+                                {
+                                    to: [expect.stringContaining(recipient)],
+                                    attachments: deliveredFiles.map((file) => file()),
+                                },
+                            ],
+                        })
                     }
                 )
 

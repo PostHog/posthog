@@ -2,19 +2,27 @@ import dns from 'node:dns'
 
 export type LookupAnswer = (options: dns.LookupOptions, callback: (...args: unknown[]) => void) => void
 
+const answers = new Map<string, LookupAnswer>()
+
 export const lookupAnswers = (answeredHost: string, answer: LookupAnswer): void => {
-    const lookup = dns.lookup as (...args: unknown[]) => void
-    jest.spyOn(dns, 'lookup').mockImplementation(((host: string, ...rest: unknown[]) => {
-        if (host !== answeredHost) {
-            return lookup(host, ...rest)
-        }
-        const callback = rest[rest.length - 1] as (...args: unknown[]) => void
-        const options = (typeof rest[0] === 'object' ? rest[0] : {}) as dns.LookupOptions
-        process.nextTick(() => answer(options, callback))
-    }) as typeof dns.lookup)
+    if (!jest.isMockFunction(dns.lookup)) {
+        answers.clear()
+        const lookup = dns.lookup as (...args: unknown[]) => void
+        jest.spyOn(dns, 'lookup').mockImplementation(((host: string, ...rest: unknown[]) => {
+            const answerFor = answers.get(host)
+            if (!answerFor) {
+                return lookup(host, ...rest)
+            }
+            const callback = rest[rest.length - 1] as (...args: unknown[]) => void
+            const options = (typeof rest[0] === 'object' ? rest[0] : {}) as dns.LookupOptions
+            process.nextTick(() => answerFor(options, callback))
+        }) as typeof dns.lookup)
+    }
+    answers.set(answeredHost, answer)
 }
 
 export const stopAnsweringLookups = (): void => {
+    answers.clear()
     if (jest.isMockFunction(dns.lookup)) {
         jest.mocked(dns.lookup).mockRestore()
     }
