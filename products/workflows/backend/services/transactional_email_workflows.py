@@ -56,6 +56,11 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
             **_template_provenance(content),
             "message_category_id": str(content.message_category_id) if content.message_category_id else None,
             "sensitive": content.sensitive,
+            **(
+                {"click_tracking_enabled": content.click_tracking_enabled}
+                if content.click_tracking_enabled is not None
+                else {}
+            ),
         },
         email={
             "from": {
