@@ -45,6 +45,11 @@ fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer
 
 #[tokio::main]
 async fn main() {
+    // rustls 0.23 panics on the first TLS handshake when both ring and aws-lc-rs are enabled and no provider is installed.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .ok();
+
     let config = Config::init_from_env().expect("Invalid configuration:");
 
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)

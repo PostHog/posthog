@@ -2299,6 +2299,7 @@ dependencies = [
  "redis",
  "reqwest 0.12.28",
  "rstest",
+ "rustls 0.23.46",
  "serde",
  "serde_json",
  "serde_urlencoded",

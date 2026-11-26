@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_redis::Client;
+use common_redis::{Client, LazyRedisClient};
 use common_types::HasEventName;
+use limiters::observation::spawn_observation;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use metrics::counter;
+use tracing::{error, info};
 
 use crate::{
     api::CaptureError,
@@ -52,6 +54,28 @@ pub fn is_llm_event(info: EventInfo) -> bool {
 
 // TODO: define more limiter predicates here!
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuotaReadMode {
+    Disabled,
+    Shadow,
+    Live,
+}
+
+impl QuotaReadMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            QuotaReadMode::Disabled => "disabled",
+            QuotaReadMode::Shadow => "shadow",
+            QuotaReadMode::Live => "live",
+        }
+    }
+}
+
+pub struct QuotaRedisClients {
+    pub limiters: Arc<dyn Client + Send + Sync>,
+    pub observations: Option<Arc<dyn Client + Send + Sync>>,
+}
+
 /// See server.rs for an example of how to use CaptureQuotaLimiter
 /// and to add new scoped limiters to capture
 pub struct CaptureQuotaLimiter {
@@ -72,6 +96,50 @@ pub struct CaptureQuotaLimiter {
 }
 
 impl CaptureQuotaLimiter {
+    pub fn build_redis_clients(
+        config: &Config,
+        shared_redis: Arc<dyn Client + Send + Sync>,
+    ) -> QuotaRedisClients {
+        let requested = match config.quota_limiting_redis_read_mode.as_str() {
+            "disabled" => QuotaReadMode::Disabled,
+            "shadow" => QuotaReadMode::Shadow,
+            "live" => QuotaReadMode::Live,
+            _ => {
+                error!("QUOTA_LIMITING_REDIS_READ_MODE must be disabled, shadow or live; reading quota limits from REDIS_URL only");
+                QuotaReadMode::Disabled
+            }
+        };
+        let copy = match requested {
+            QuotaReadMode::Disabled => None,
+            QuotaReadMode::Shadow | QuotaReadMode::Live => build_copy_client(config),
+        };
+        let (mode, clients) = match (requested, copy) {
+            (QuotaReadMode::Live, Some(copy)) => (
+                QuotaReadMode::Live,
+                QuotaRedisClients {
+                    limiters: copy,
+                    observations: None,
+                },
+            ),
+            (QuotaReadMode::Shadow, Some(copy)) => (
+                QuotaReadMode::Shadow,
+                QuotaRedisClients {
+                    limiters: shared_redis,
+                    observations: Some(copy),
+                },
+            ),
+            _ => (
+                QuotaReadMode::Disabled,
+                QuotaRedisClients {
+                    limiters: shared_redis,
+                    observations: None,
+                },
+            ),
+        };
+        info!(mode = mode.as_str(), "quota limits read mode");
+        clients
+    }
+
     pub fn new(
         config: &Config,
         redis_client: Arc<dyn Client + Send + Sync>,
@@ -122,6 +190,24 @@ impl CaptureQuotaLimiter {
         self.scoped_limiters.push(Box::new(limiter));
 
         self
+    }
+
+    pub fn spawn_observations(&self, redis: Arc<dyn Client + Send + Sync>) {
+        let global = Self::get_resource_for_mode(self.capture_mode);
+        let scoped = self
+            .scoped_limiters
+            .iter()
+            .map(|limiter| limiter.resource().clone());
+        for resource in std::iter::once(global).chain(scoped) {
+            spawn_observation(
+                self.redis_timeout,
+                redis.clone(),
+                QUOTA_LIMITER_CACHE_KEY.to_string(),
+                self.redis_key_prefix.clone(),
+                resource,
+                ServiceName::Capture,
+            );
+        }
     }
 
     pub async fn check_and_filter<T: HasEventName>(
@@ -241,6 +327,39 @@ impl CaptureQuotaLimiter {
     }
 }
 
+fn build_copy_client(config: &Config) -> Option<Arc<dyn Client + Send + Sync>> {
+    let Some(url) = config.quota_limiting_redis_url.clone() else {
+        error!("QUOTA_LIMITING_REDIS_READ_MODE needs QUOTA_LIMITING_REDIS_URL; reading quota limits from REDIS_URL only");
+        return None;
+    };
+    let response_timeout = timeout_or_fallback(
+        config.quota_limiting_redis_response_timeout_ms,
+        config.redis_response_timeout_ms,
+    );
+    let connection_timeout = timeout_or_fallback(
+        config.quota_limiting_redis_connection_timeout_ms,
+        config.redis_connection_timeout_ms,
+    );
+    let (Some(response_timeout), Some(connection_timeout)) = (response_timeout, connection_timeout)
+    else {
+        error!("the quota limiting Redis timeouts must not be 0; reading quota limits from REDIS_URL only");
+        return None;
+    };
+    match LazyRedisClient::new(url, response_timeout, connection_timeout) {
+        Ok(client) => Some(Arc::new(client)),
+        Err(error) => {
+            error!(%error, "invalid QUOTA_LIMITING_REDIS_URL; reading quota limits from REDIS_URL only");
+            None
+        }
+    }
+}
+
+/// The copy client has no "no timeout" value, and a zero timeout fails every connect.
+fn timeout_or_fallback(timeout_ms: Option<u64>, fallback_ms: u64) -> Option<Duration> {
+    let timeout_ms = timeout_ms.filter(|ms| *ms > 0).unwrap_or(fallback_ms);
+    (timeout_ms > 0).then(|| Duration::from_millis(timeout_ms))
+}
+
 #[async_trait::async_trait]
 trait ScopedLimiterTrait: Send + Sync {
     async fn is_limited(&self, token: &str) -> bool;
@@ -297,5 +416,152 @@ where
 
     fn resource(&self) -> &QuotaResource {
         &self.resource
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::sync::Mutex;
+
+    use common_redis::MockRedisClient;
+    use rstest::rstest;
+
+    use super::*;
+
+    const COPY_URL: &str = "redis://:copy-secret@192.0.2.1:6379";
+    const MODE: &str = "QUOTA_LIMITING_REDIS_READ_MODE";
+    const URL: &str = "QUOTA_LIMITING_REDIS_URL";
+
+    #[derive(Clone, Default)]
+    struct Logs(Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for Logs {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Logs {
+        fn lines(&self) -> Vec<String> {
+            String::from_utf8(self.0.lock().unwrap().clone())
+                .unwrap()
+                .lines()
+                .map(str::to_string)
+                .collect()
+        }
+    }
+
+    #[rstest]
+    #[case::override_wins(Some(50), 100, Some(50))]
+    #[case::zero_override_falls_back(Some(0), 100, Some(100))]
+    #[case::unset_override_falls_back(None, 100, Some(100))]
+    #[case::zero_fallback_is_refused(None, 0, None)]
+    fn timeout_override_wins_over_the_shared_timeout(
+        #[case] timeout_ms: Option<u64>,
+        #[case] fallback_ms: u64,
+        #[case] expected_ms: Option<u64>,
+    ) {
+        assert_eq!(
+            timeout_or_fallback(timeout_ms, fallback_ms),
+            expected_ms.map(Duration::from_millis)
+        );
+    }
+
+    #[rstest]
+    #[case::unset(&[(URL, COPY_URL)], QuotaReadMode::Disabled, false)]
+    #[case::disabled(&[(MODE, "disabled"), (URL, COPY_URL)], QuotaReadMode::Disabled, false)]
+    #[case::shadow(&[(MODE, "shadow"), (URL, COPY_URL)], QuotaReadMode::Shadow, false)]
+    #[case::live(&[(MODE, "live"), (URL, COPY_URL)], QuotaReadMode::Live, false)]
+    #[case::unknown(&[(MODE, "observe"), (URL, COPY_URL)], QuotaReadMode::Disabled, true)]
+    #[case::other_case(&[(MODE, "Live"), (URL, COPY_URL)], QuotaReadMode::Disabled, true)]
+    #[case::live_without_url(&[(MODE, "live")], QuotaReadMode::Disabled, true)]
+    #[case::live_with_empty_url(&[(MODE, "live"), (URL, "")], QuotaReadMode::Disabled, true)]
+    #[case::shadow_without_url(&[(MODE, "shadow")], QuotaReadMode::Disabled, true)]
+    #[case::invalid_url(
+        &[(MODE, "live"), (URL, "redis://:copy-secret@192.0.2.1:port")],
+        QuotaReadMode::Disabled,
+        true
+    )]
+    #[case::zero_override_falls_back(
+        &[(MODE, "live"), (URL, COPY_URL), ("QUOTA_LIMITING_REDIS_RESPONSE_TIMEOUT_MS", "0")],
+        QuotaReadMode::Live,
+        false
+    )]
+    #[case::zero_fallback(
+        &[(MODE, "live"), (URL, COPY_URL), ("REDIS_CONNECTION_TIMEOUT_MS", "0")],
+        QuotaReadMode::Disabled,
+        true
+    )]
+    #[case::override_replaces_zero_fallback(
+        &[
+            (MODE, "live"),
+            (URL, COPY_URL),
+            ("REDIS_CONNECTION_TIMEOUT_MS", "0"),
+            ("QUOTA_LIMITING_REDIS_CONNECTION_TIMEOUT_MS", "1000"),
+        ],
+        QuotaReadMode::Live,
+        false
+    )]
+    fn read_mode_picks_the_quota_limiter_client(
+        #[case] env: &[(&str, &str)],
+        #[case] mode: QuotaReadMode,
+        #[case] logs_error: bool,
+    ) {
+        let env: HashMap<String, String> = [("REDIS_URL", "redis://localhost:6379/")]
+            .iter()
+            .chain(env)
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        let shared: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
+        let logs = Logs::default();
+        let writer = logs.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .without_time()
+            .with_target(false)
+            .finish();
+
+        let clients = tracing::subscriber::with_default(subscriber, || {
+            CaptureQuotaLimiter::build_redis_clients(&config, shared.clone())
+        });
+
+        assert_eq!(
+            Arc::ptr_eq(&clients.limiters, &shared),
+            mode != QuotaReadMode::Live
+        );
+        assert_eq!(
+            clients
+                .observations
+                .is_some_and(|copy| !Arc::ptr_eq(&copy, &shared)),
+            mode == QuotaReadMode::Shadow
+        );
+        let lines = logs.lines();
+        assert!(
+            lines.iter().all(|line| !line.contains("copy-secret")),
+            "{lines:?}"
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.trim_start().starts_with("INFO"))
+                .collect::<Vec<_>>(),
+            [&format!(
+                " INFO quota limits read mode mode=\"{}\"",
+                mode.as_str()
+            )]
+        );
+        assert_eq!(
+            lines.iter().any(|line| line.starts_with("ERROR")),
+            logs_error,
+            "{lines:?}"
+        );
     }
 }
