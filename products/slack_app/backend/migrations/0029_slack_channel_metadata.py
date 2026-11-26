@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("slack_app", "0028_slack_settings_chatgpt_apps_enabled"),
     ]
