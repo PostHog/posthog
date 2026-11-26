@@ -1,5 +1,6 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.kafka_engine import ingestion_profile_shares_default_broker
 from posthog.clickhouse.log_entries import KAFKA_LOG_ENTRIES_WS_TABLE_SQL, LOG_ENTRIES_WS_MV_SQL
 from posthog.models.app_metrics2.sql import APP_METRICS2_WS_MV_TABLE_SQL, KAFKA_APP_METRICS2_WS_TABLE_SQL
 from posthog.models.tophog.sql import KAFKA_TOPHOG_WS_TABLE_SQL, TOPHOG_WS_MV_SQL
@@ -18,7 +19,7 @@ from posthog.run_mode import run_mode
 
 operations = (
     []
-    if not run_mode().is_deployed_cloud
+    if not run_mode().is_deployed_cloud and ingestion_profile_shares_default_broker()
     else [
         # log_entries (INGESTION_SMALL, matching existing MSK table)
         run_sql_with_exceptions(

@@ -3,6 +3,7 @@ from typing import Literal
 
 from django.conf import settings
 
+from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.run_mode import run_mode
 
 # Consumer group names for Kafka tables.
@@ -137,6 +138,11 @@ def kafka_engine(
     if kafka_host is None:
         raise ValueError("kafka_host is required when use_named_collection=False")
     return KAFKA_ENGINE.format(topic=topic, kafka_host=kafka_host, group=group, serialization=serialization)
+
+
+def ingestion_profile_shares_default_broker() -> bool:
+    profiles = settings.KAFKA_PROFILES
+    return profiles[KafkaClusterProfile.INGESTION].hosts == profiles[KafkaClusterProfile.DEFAULT].hosts
 
 
 def ttl_period(field: str = "created_at", amount: int = 3, unit: Literal["DAY", "WEEK"] = "WEEK") -> str:
