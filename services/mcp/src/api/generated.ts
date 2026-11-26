@@ -9666,6 +9666,25 @@ export namespace Schemas {
       variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
     }
 
+    /**
+     * Exposed entities with no row of the metric query that counted, by variant.
+     */
+    export type ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows = {[key: string]: number} | null;
+
+    /**
+     * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+     */
+    export type ExperimentWarehouseNativeRowsLeftOutUnknownVariants = {[key: string]: number} | null;
+
+    export interface ExperimentWarehouseNativeRowsLeftOut {
+      /** Exposure rows with an empty entity_id. */
+      empty_id?: number | null;
+      /** Exposed entities with no row of the metric query that counted, by variant. */
+      exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows;
+      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+      unknown_variants?: ExperimentWarehouseNativeRowsLeftOutUnknownVariants;
+    }
+
     export interface ExperimentQueryResponse {
       baseline?: ExperimentStatsBaseValidated | null;
       /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
@@ -9675,6 +9694,8 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
+      /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
@@ -10808,7 +10829,23 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    export type ErrorTrackingIssueTagColor = typeof ErrorTrackingIssueTagColor[keyof typeof ErrorTrackingIssueTagColor];
+
+
+    export const ErrorTrackingIssueTagColor = {
+      Blue: 'blue',
+      Teal: 'teal',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+      Pink: 'pink',
+      Purple: 'purple',
+    } as const;
+
     export interface ErrorTrackingIssueTag {
+      /** Named color of the tag, or null for a color picked from the label. */
+      color?: ErrorTrackingIssueTagColor | null;
       /** What the tag means, for a tooltip. */
       description: string;
       /** Key of the tag definition. */
@@ -14606,6 +14643,14 @@ export namespace Schemas {
     }
 
     /**
+     * Returned when a Support AI run was started for a ticket.
+     */
+    export interface AiRerunResponse {
+      /** ID of the Support AI run that was started. */
+      workflow_id: string;
+    }
+
+    /**
      * * `persisted` - persisted
      * * `suggested` - suggested
      * * `escalated_with_findings` - escalated_with_findings
@@ -16434,6 +16479,26 @@ export namespace Schemas {
      */
     export type AnomalyBucketDetails = { [key: string]: unknown } | null;
 
+    /**
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change
+     */
+    export type AnomalyJudgeKindEnum = typeof AnomalyJudgeKindEnum[keyof typeof AnomalyJudgeKindEnum];
+
+
+    export const AnomalyJudgeKindEnum = {
+      Spike: 'spike',
+      Drop: 'drop',
+      Flatline: 'flatline',
+      TrendBreak: 'trend_break',
+      LevelShift: 'level_shift',
+      PatternChange: 'pattern_change',
+    } as const;
+
     export interface AnomalyBucket {
       /** The start of the bucket, in the project timezone. */
       bucket_start: string;
@@ -16464,6 +16529,20 @@ export namespace Schemas {
          * @nullable
          */
       details: AnomalyBucketDetails;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     export interface AnomalyDashboard {
@@ -16489,6 +16568,20 @@ export namespace Schemas {
          * @nullable
          */
       score: number | null;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     /**
@@ -16737,6 +16830,20 @@ export namespace Schemas {
       value: number | null;
       /** Whether the detector flagged the bucket. */
       flag: boolean;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     export interface AnomalySeriesPoints {
@@ -31680,6 +31787,36 @@ export namespace Schemas {
       ticket_number: number;
     }
 
+    /**
+     * * `pass_rate` - pass_rate
+     * * `mean` - mean
+     * * `true_rate` - true_rate
+     * * `category_rate` - category_rate
+     */
+    export type ExperimentScoreStatisticEnum = typeof ExperimentScoreStatisticEnum[keyof typeof ExperimentScoreStatisticEnum];
+
+
+    export const ExperimentScoreStatisticEnum = {
+      PassRate: 'pass_rate',
+      Mean: 'mean',
+      TrueRate: 'true_rate',
+      CategoryRate: 'category_rate',
+    } as const;
+
+    /**
+     * * `run` - run
+     * * `exact` - exact
+     * * `combine` - combine
+     */
+    export type ExperimentScoreVersionPolicyEnum = typeof ExperimentScoreVersionPolicyEnum[keyof typeof ExperimentScoreVersionPolicyEnum];
+
+
+    export const ExperimentScoreVersionPolicyEnum = {
+      Run: 'run',
+      Exact: 'exact',
+      Combine: 'combine',
+    } as const;
+
     export interface CompositeInput {
       /**
          * Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.
@@ -31687,8 +31824,12 @@ export namespace Schemas {
          * @pattern ^[a-z][a-z0-9_]{0,31}$
          */
       alias: string;
-      /** Exact immutable version of an ordinary input scorer. */
+      /** Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact. */
       scorer_version_id: string;
+      statistic?: ExperimentScoreStatisticEnum;
+      version_policy?: ExperimentScoreVersionPolicyEnum;
+      /** @maxLength 128 */
+      category?: string;
     }
 
     export interface CompositeConfig {
@@ -31697,7 +31838,7 @@ export namespace Schemas {
          * @maxLength 1024
          */
       expression: string;
-      /** Named, version-pinned input scorers for the same item. Nested composites are not supported. */
+      /** Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers. */
       inputs: CompositeInput[];
     }
 
@@ -31790,7 +31931,20 @@ export namespace Schemas {
       latest_version: number | null;
     }
 
+    /**
+     * * `item` - Item
+     * * `experiment` - Experiment
+     */
+    export type ScoreDefinitionScopeEnum = typeof ScoreDefinitionScopeEnum[keyof typeof ScoreDefinitionScopeEnum];
+
+
+    export const ScoreDefinitionScopeEnum = {
+      Item: 'item',
+      Experiment: 'experiment',
+    } as const;
+
     export interface CompositeValidation {
+      scope?: ScoreDefinitionScopeEnum;
       /** Expected formula output kind.
        *
        * * `categorical` - categorical
@@ -45777,6 +45931,30 @@ export namespace Schemas {
       includeBreakdown?: boolean;
     }
 
+    /**
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple
+     */
+    export type IssueTagColorEnum = typeof IssueTagColorEnum[keyof typeof IssueTagColorEnum];
+
+
+    export const IssueTagColorEnum = {
+      Blue: 'blue',
+      Teal: 'teal',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+      Pink: 'pink',
+      Purple: 'purple',
+    } as const;
+
     export interface ErrorTrackingIssueTagRead {
       /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
@@ -45784,6 +45962,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
       source: string;
     }
@@ -45985,6 +46174,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
       source: string;
       /** Whether the tag is applied to the issue after the change. */
@@ -45998,6 +46198,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
     }
 
     export interface ErrorTrackingIssueTagDefinitionsResponse {
@@ -46037,6 +46248,17 @@ export namespace Schemas {
       label: string;
       /** What the tag means. Shown with the tag. */
       description: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color: IssueTagColorEnum | null;
       /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /** Starts at 1, and goes up by one each time the filters change. */
@@ -46065,6 +46287,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label. Defaults to null.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /**
@@ -46091,6 +46324,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
@@ -49929,6 +50173,11 @@ export namespace Schemas {
          * @nullable
          */
       aggregation_group_type_index?: number | null;
+      /**
+         * Display-only name for this release condition group. It does not affect evaluation.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     /**
@@ -50255,6 +50504,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -50289,6 +50539,7 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
       MetricAllZero: 'metric_all_zero',
@@ -50368,6 +50619,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -50400,6 +50652,7 @@ export namespace Schemas {
       NewFlagNoTraffic: 'new_flag_no_traffic',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
       MetricAllZero: 'metric_all_zero',
@@ -50434,6 +50687,7 @@ export namespace Schemas {
        * * `multiple_variants_share` - Multiple Variants Share
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -50498,6 +50752,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -50891,6 +51146,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -51219,7 +51475,7 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
@@ -51546,6 +51802,8 @@ export namespace Schemas {
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
+      /** Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: ExperimentExposureQueryResponseTotalExposures;
@@ -52130,6 +52388,83 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Experiments using this shared metric (soft-deleted experiments excluded). Populated only on single-metric retrieve; always an empty list in list responses. */
       readonly linked_experiments: readonly ExperimentSavedMetricLinkedExperiment[];
+    }
+
+    /**
+     * * `ok` - Ok
+     * * `mixed_versions` - Mixed Versions
+     * * `missing_input` - Missing Input
+     * * `no_successful_items` - No Successful Items
+     * * `unavailable_statistic` - Unavailable Statistic
+     * * `overlapping_items` - Overlapping Items
+     * * `formula_error` - Formula Error
+     * * `pending` - Pending
+     * * `failed` - Failed
+     */
+    export type ExperimentScoreStatusEnum = typeof ExperimentScoreStatusEnum[keyof typeof ExperimentScoreStatusEnum];
+
+
+    export const ExperimentScoreStatusEnum = {
+      Ok: 'ok',
+      MixedVersions: 'mixed_versions',
+      MissingInput: 'missing_input',
+      NoSuccessfulItems: 'no_successful_items',
+      UnavailableStatistic: 'unavailable_statistic',
+      OverlappingItems: 'overlapping_items',
+      FormulaError: 'formula_error',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
+    export interface ExperimentScoreSource {
+      version_id: string;
+      version: number;
+      successful_items: number;
+      /** @nullable */
+      value: number | null;
+    }
+
+    export interface ExperimentScoreInput {
+      alias: string;
+      statistic: ExperimentScoreStatisticEnum;
+      version_policy: ExperimentScoreVersionPolicyEnum;
+      status: ExperimentScoreStatusEnum;
+      /** @nullable */
+      value: number | null;
+      sources: ExperimentScoreSource[];
+    }
+
+    export interface ExperimentScore {
+      status: ExperimentScoreStatusEnum;
+      kind: ScoreDefinitionKindEnum;
+      /** Output configuration used to interpret the result. */
+      config: ScoreDefinitionConfig;
+      /**
+         * Passing verdict, or null without a value or passing rule.
+         * @nullable
+         */
+      passed: boolean | null;
+      value: number | boolean | string[] | null;
+      inputs: ExperimentScoreInput[];
+      /** Definition of the experiment scorer pinned to this run. */
+      definition_id: string;
+      scorer_version_id: string;
+      version: number;
+      name: string;
+    }
+
+    export interface ExperimentScorePreview {
+      status: ExperimentScoreStatusEnum;
+      kind: ScoreDefinitionKindEnum;
+      /** Output configuration used to interpret the result. */
+      config: ScoreDefinitionConfig;
+      /**
+         * Passing verdict, or null without a value or passing rule.
+         * @nullable
+         */
+      passed: boolean | null;
+      value: number | boolean | string[] | null;
+      inputs: ExperimentScoreInput[];
     }
 
     /**
@@ -53233,6 +53568,11 @@ export namespace Schemas {
          */
       suite_key?: string | null;
       /**
+         * Exact experiment scorer version. Omit to use the suite default.
+         * @nullable
+         */
+      experiment_scorer_version_id?: string | null;
+      /**
          * Source of an external dataset. Hosted dataset provenance is derived from its revision.
          * @maxLength 255
          * @nullable
@@ -53882,7 +54222,7 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
@@ -75679,8 +76019,6 @@ export namespace Schemas {
     }
 
     export interface MessageTemplate {
-      /** Project folder for the new email template. */
-      _create_in_folder?: string;
       readonly id: string;
       /**
          * Human-readable template name shown in the library.
@@ -75728,14 +76066,6 @@ export namespace Schemas {
       draft_content?: MessageTemplateContent | null;
       /** Whether the template has unpublished edits in `draft_content`. */
       readonly has_draft: boolean;
-    }
-
-    export interface MessageTemplatePlacement {
-      /**
-         * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
-         * @nullable
-         */
-      path: string | null;
     }
 
     export interface MessagingError {
@@ -79093,6 +79423,13 @@ export namespace Schemas {
 
     export interface OfflineExperimentRead {
       /**
+         * Whether this suite has a visible default for future runs. Checked on experiment detail.
+         * @nullable
+         */
+      suite_has_score?: boolean | null;
+      /** Overall score from the run's pinned experiment formula, when visible. */
+      experiment_score?: ExperimentScore | null;
+      /**
          * Most recent item, result, or payload change.
          * @nullable
          */
@@ -79352,8 +79689,8 @@ export namespace Schemas {
       breakdown_value?: string | null;
       /** Experiment execution and cohort context. */
       experiment: OfflineExperimentRead;
-      /** Complete summary for one experiment and scorer version. */
-      summary: OfflineScorerSummary;
+      /** Item score summary. For an experiment scorer, this is null and experiment.experiment_score holds the run's result. */
+      summary: OfflineScorerSummary | null;
     }
 
     /**
@@ -84694,12 +85031,17 @@ export namespace Schemas {
       /** Project tag names assigned to this resource. */
       readonly tags: readonly string[];
       readonly kind: ScoreDefinitionKindEnum;
-      /** Whether results are reported by the caller or calculated from other item scores.
+      readonly scope: ScoreDefinitionScopeEnum;
+      /** Suites that currently use this exact version for new experiments. */
+      readonly suite_keys: readonly string[];
+      /** Suite defaults across all visible versions. Included on retrieve. */
+      assigned_suite_keys?: string[];
+      /** Whether results are reported by the caller or calculated with a formula.
        *
        * * `reported` - Reported
        * * `composite` - Composite */
       readonly calculation: ScoreDefinitionCalculationEnum;
-      /** Formula and exact input versions for a composite scorer. */
+      /** Formula and input selections for an item or experiment scorer. */
       readonly composition: CompositeConfig | null;
       /** Pinned inputs and their latest versions. Empty for reported scorers. */
       readonly input_scorers: readonly CompositeInputRead[];
@@ -93081,6 +93423,17 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+       *
+       * * `blue` - Blue
+       * * `teal` - Teal
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red
+       * * `pink` - Pink
+       * * `purple` - Purple */
+      color?: IssueTagColorEnum | null;
       /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
@@ -93854,7 +94207,7 @@ export namespace Schemas {
       readonly is_legacy?: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure?: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event?: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health?: ExperimentHealth | null;
@@ -95985,8 +96338,6 @@ export namespace Schemas {
     }
 
     export interface PatchedMessageTemplate {
-      /** Project folder for the new email template. */
-      _create_in_folder?: string;
       readonly id?: string;
       /**
          * Human-readable template name shown in the library.
@@ -98936,6 +99287,14 @@ export namespace Schemas {
          */
       tags?: string[];
       /**
+         * Apply this version to these suites for future runs. Omit to preserve existing assignments.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      apply_to_suite_keys?: string[];
+      /** Exact version to assign to the selected suites. Defaults to the current version. */
+      suite_version_id?: string;
+      /**
          * Updated scorer name.
          * @maxLength 255
          */
@@ -99408,6 +99767,8 @@ export namespace Schemas {
       auto_model_choice?: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled?: boolean;
+      /** Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Applies to tasks started after the change. */
+      chatgpt_apps_enabled?: boolean;
     }
 
     export interface PatchedSlackAppWorkspaceSettingsUpdate {
@@ -108432,6 +108793,8 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
+      /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
@@ -108454,6 +108817,8 @@ export namespace Schemas {
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
+      /** Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: QueryResponseAlternative20TotalExposures;
@@ -117225,6 +117590,13 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       tags?: string[];
+      /**
+         * Apply this version to these suites for future runs. Omit to preserve existing assignments.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      apply_to_suite_keys?: string[];
+      scope?: ScoreDefinitionScopeEnum;
       /** Reported or composite. This cannot be changed after creation.
        *
        * * `reported` - Reported
@@ -117260,6 +117632,12 @@ export namespace Schemas {
     }
 
     export interface ScoreDefinitionNewVersion {
+      /**
+         * Apply this version to these suites for future runs. Omit to preserve existing assignments.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      apply_to_suite_keys?: string[];
       /** Required for a composite scorer. Creates a new immutable formula and input selection. */
       composition?: CompositeConfig | null;
       /**
@@ -117293,12 +117671,15 @@ export namespace Schemas {
       readonly definition_id: string;
       /** Immutable version number within this scorer. */
       readonly version: number;
+      /** Suites currently assigned to this exact version. */
+      readonly suite_keys: readonly string[];
       /** Scorer value kind.
        *
        * * `categorical` - categorical
        * * `numeric` - numeric
        * * `boolean` - boolean */
       readonly kind: ScoreDefinitionKindEnum;
+      readonly scope: ScoreDefinitionScopeEnum;
       /** How this scorer's results are produced.
        *
        * * `reported` - Reported
@@ -122596,6 +122977,11 @@ export namespace Schemas {
       auto_model_choice: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled: boolean;
+      /**
+         * Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Null when this person has no ChatGPT plan that Slack tasks can use.
+         * @nullable
+         */
+      chatgpt_apps_enabled: boolean | null;
     }
 
     export interface SlackAppRepositoryOptions {
@@ -139739,7 +140125,7 @@ export namespace Schemas {
      */
     application_version?: string;
     /**
-     * Split history by this property. Model uses each item's model, falling back to the experiment's model.
+     * Split history by this property. Model uses the run's model for experiment scores. For item scores it uses the item's model, falling back to the run's model.
      *
      * * `model_version` - Model
      * * `prompt_version` - Prompt version
@@ -148914,6 +149300,11 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
+     * * `item` - Item
+     * * `experiment` - Experiment
+     */
+    scope?: LlmAnalyticsScoreDefinitionsListScope;
+    /**
      * Search scorers by name, short name, or description.
      */
     search?: string;
@@ -148937,6 +149328,14 @@ export namespace Schemas {
     export const LlmAnalyticsScoreDefinitionsListCalculation = {
       Composite: 'composite',
       Reported: 'reported',
+    } as const;
+
+    export type LlmAnalyticsScoreDefinitionsListScope = typeof LlmAnalyticsScoreDefinitionsListScope[keyof typeof LlmAnalyticsScoreDefinitionsListScope];
+
+
+    export const LlmAnalyticsScoreDefinitionsListScope = {
+      Experiment: 'experiment',
+      Item: 'item',
     } as const;
 
     export type LlmAnalyticsScoreDefinitionsListTagMatch = typeof LlmAnalyticsScoreDefinitionsListTagMatch[keyof typeof LlmAnalyticsScoreDefinitionsListTagMatch];

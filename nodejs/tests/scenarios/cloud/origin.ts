@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from 'child_process'
-import { copyFile, mkdtemp, rm, writeFile } from 'fs/promises'
+import { mkdtemp, rm } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
@@ -71,17 +71,10 @@ async function onMasterInGit(repo: string, remote: string, commit: string): Prom
         GIT_HTTP_LOW_SPEED_TIME: '30',
     }
     const inScratch = (...args: string[]): Promise<string> => run(scratch, scratchEnv, args)
-    const gitDir = path.resolve(repo, await inRepo('rev-parse', '--git-common-dir'))
     const committedS = Number(await inRepo('show', '-s', '--format=%ct', commit))
     const scratch = await mkdtemp(path.join(os.tmpdir(), 'scenario-origin-'))
     try {
         await inScratch('init', '--quiet', '--bare')
-        await writeFile(path.join(scratch, 'objects', 'info', 'alternates'), `${path.join(gitDir, 'objects')}\n`)
-        await copyFile(path.join(gitDir, 'shallow'), path.join(scratch, 'shallow')).catch((error) => {
-            if ((error as { code?: unknown }).code !== 'ENOENT') {
-                throw error
-            }
-        })
         await inScratch(
             'fetch',
             '--quiet',

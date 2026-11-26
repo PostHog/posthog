@@ -792,7 +792,6 @@ export const messagingTemplatesCreateBodyDraftContentOnePushOneChannelsMax = 20
 export const messagingTemplatesCreateBodyDraftContentOnePushOneDataMaxOne = 4000
 
 export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
-    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesCreateBodyNameMax)
@@ -1183,7 +1182,6 @@ export const messagingTemplatesUpdateBodyDraftContentOnePushOneChannelsMax = 20
 export const messagingTemplatesUpdateBodyDraftContentOnePushOneDataMaxOne = 4000
 
 export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
-    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesUpdateBodyNameMax)
@@ -1574,7 +1572,6 @@ export const messagingTemplatesPartialUpdateBodyDraftContentOnePushOneChannelsMa
 export const messagingTemplatesPartialUpdateBodyDraftContentOnePushOneDataMaxOne = 4000
 
 export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesPartialUpdateBodyNameMax)

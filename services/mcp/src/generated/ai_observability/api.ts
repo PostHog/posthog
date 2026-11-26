@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 101 enabled ops
+ * PostHog API - MCP 102 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -272,6 +272,10 @@ export const AiObservabilityOfflineExperimentsCreateBody = () => zod.object({
         .max(aiObservabilityOfflineExperimentsCreateBodySuiteKeyMax)
         .nullish()
         .describe('Stable identifier for comparing executions of the same evaluation suite.'),
+    experiment_scorer_version_id: zod
+        .string()
+        .nullish()
+        .describe('Exact experiment scorer version. Omit to use the suite default.'),
     dataset_source: zod
         .string()
         .max(aiObservabilityOfflineExperimentsCreateBodyDatasetSourceMax)
@@ -658,6 +662,200 @@ export const AiObservabilityOfflineExperimentsResultsPayloadPartialUpdateBody = 
         .describe('Top-level fields to update. Omitted fields keep their current values.'),
 })
 
+export const AiObservabilityOfflineExperimentsScorePreviewsCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyScopeDefault = `item`
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneExpressionMax = 1024
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasMax = 32
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
+    '^[a-z][a-z0-9_]{0,31}$'
+)
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemCategoryMax = 128
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemKeyMax = 128
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemLabelMax = 256
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
+export const AiObservabilityOfflineExperimentsScorePreviewsCreateBody = () => zod.object({
+    scope: zod
+        .enum(['item', 'experiment'])
+        .describe('\* `item` - Item\n\* `experiment` - Experiment')
+        .default(aiObservabilityOfflineExperimentsScorePreviewsCreateBodyScopeDefault),
+    kind: zod
+        .enum(['categorical', 'numeric', 'boolean'])
+        .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
+        .describe(
+            'Expected formula output kind.\n\n\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean'
+        ),
+    composition: zod
+        .object({
+            expression: zod
+                .string()
+                .max(aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneExpressionMax)
+                .describe(
+                    'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
+                ),
+            inputs: zod
+                .array(
+                    zod.object({
+                        alias: zod
+                            .string()
+                            .max(
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasMax
+                            )
+                            .regex(
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemAliasRegExp
+                            )
+                            .describe(
+                                'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
+                            ),
+                        scorer_version_id: zod
+                            .string()
+                            .describe(
+                                "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
+                            ),
+                        statistic: zod
+                            .enum(['pass_rate', 'mean', 'true_rate', 'category_rate'])
+                            .optional()
+                            .describe(
+                                '\* `pass_rate` - pass_rate\n\* `mean` - mean\n\* `true_rate` - true_rate\n\* `category_rate` - category_rate'
+                            ),
+                        version_policy: zod
+                            .enum(['run', 'exact', 'combine'])
+                            .optional()
+                            .describe('\* `run` - run\n\* `exact` - exact\n\* `combine` - combine'),
+                        category: zod
+                            .string()
+                            .max(
+                                aiObservabilityOfflineExperimentsScorePreviewsCreateBodyCompositionOneInputsItemCategoryMax
+                            )
+                            .optional(),
+                    })
+                )
+                .describe(
+                    'Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.'
+                ),
+        })
+        .describe('Formula and pinned input versions to validate without saving.'),
+    config: zod
+        .union([
+            zod.object({
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(
+                                    aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemKeyMax
+                                )
+                                .describe(
+                                    'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
+                                ),
+                            label: zod
+                                .string()
+                                .max(
+                                    aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOneOptionsItemLabelMax
+                                )
+                                .describe('Human-readable option label.'),
+                        })
+                    )
+                    .describe('Ordered categorical options available to the scorer.'),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .describe('\* `single` - single\n\* `multiple` - multiple')
+                    .optional()
+                    .describe(
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n\* `single` - single\n\* `multiple` - multiple'
+                    ),
+                min_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional minimum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                max_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            aiObservabilityOfflineExperimentsScorePreviewsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
+            }),
+            zod.object({
+                min: zod.number().nullish().describe('Optional inclusive minimum score.'),
+                max: zod.number().nullish().describe('Optional inclusive maximum score.'),
+                step: zod
+                    .number()
+                    .nullish()
+                    .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
+            }),
+            zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
+                true_label: zod.string().optional().describe('Optional label for a true value.'),
+                false_label: zod.string().optional().describe('Optional label for a false value.'),
+            }),
+        ])
+        .optional()
+        .describe('Output configuration to check literal categories and composite scoring rules.'),
+})
+
 export const AiObservabilityOfflineExperimentsScorerSummariesListParams = () => zod.object({
     id: zod.string().describe('Experiment UUID.'),
     project_id: zod
@@ -931,7 +1129,7 @@ export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.obj
         .enum(['model_version', 'prompt_version', 'application_version', 'suite_key', 'run_source'])
         .optional()
         .describe(
-            "Split history by this property. Model uses each item's model, falling back to the experiment's model.\n\n\* `model_version` - Model\n\* `prompt_version` - Prompt version\n\* `application_version` - Application version\n\* `suite_key` - Suite\n\* `run_source` - Run source"
+            "Split history by this property. Model uses the run's model for experiment scores. For item scores it uses the item's model, falling back to the run's model.\n\n\* `model_version` - Model\n\* `prompt_version` - Prompt version\n\* `application_version` - Application version\n\* `suite_key` - Suite\n\* `run_source` - Run source"
         ),
     created_by: zod.number().min(1).optional().describe("Filter experiments by the author's user ID."),
     created_by_is_null: zod.boolean().optional().describe('Only include experiments without an author.'),
@@ -3209,6 +3407,7 @@ export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod.string().optional().describe('Sort by name, kind, created_at, updated_at, or current_version.'),
+    scope: zod.enum(['experiment', 'item']).optional().describe('\* `item` - Item\n\* `experiment` - Experiment'),
     search: zod.string().optional().describe('Search scorers by name, short name, or description.'),
     tag_match: zod
         .enum(['any', 'all'])
@@ -3236,6 +3435,11 @@ export const llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyTagsMax = 100
 
+export const llmAnalyticsScoreDefinitionsCreateBodyApplyToSuiteKeysItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsCreateBodyApplyToSuiteKeysMax = 100
+
+export const llmAnalyticsScoreDefinitionsCreateBodyScopeDefault = `item`
 export const llmAnalyticsScoreDefinitionsCreateBodyCalculationDefault = `reported`
 export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneExpressionMax = 1024
 
@@ -3244,6 +3448,8 @@ export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAlias
 export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
     '^[a-z][a-z0-9_]{0,31}$'
 )
+export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemCategoryMax = 128
+
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyShortNameMax = 40
@@ -3261,6 +3467,15 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
         .max(llmAnalyticsScoreDefinitionsCreateBodyTagsMax)
         .optional()
         .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
+    apply_to_suite_keys: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyApplyToSuiteKeysItemMax))
+        .max(llmAnalyticsScoreDefinitionsCreateBodyApplyToSuiteKeysMax)
+        .optional()
+        .describe('Apply this version to these suites for future runs. Omit to preserve existing assignments.'),
+    scope: zod
+        .enum(['item', 'experiment'])
+        .describe('\* `item` - Item\n\* `experiment` - Experiment')
+        .default(llmAnalyticsScoreDefinitionsCreateBodyScopeDefault),
     calculation: zod
         .enum(['reported', 'composite'])
         .describe('\* `reported` - Reported\n\* `composite` - Composite')
@@ -3289,11 +3504,27 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
                                 ),
                             scorer_version_id: zod
                                 .string()
-                                .describe('Exact immutable version of an ordinary input scorer.'),
+                                .describe(
+                                    "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
+                                ),
+                            statistic: zod
+                                .enum(['pass_rate', 'mean', 'true_rate', 'category_rate'])
+                                .optional()
+                                .describe(
+                                    '\* `pass_rate` - pass_rate\n\* `mean` - mean\n\* `true_rate` - true_rate\n\* `category_rate` - category_rate'
+                                ),
+                            version_policy: zod
+                                .enum(['run', 'exact', 'combine'])
+                                .optional()
+                                .describe('\* `run` - run\n\* `exact` - exact\n\* `combine` - combine'),
+                            category: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemCategoryMax)
+                                .optional(),
                         })
                     )
                     .describe(
-                        'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                        'Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.'
                     ),
             }),
             zod.null(),
@@ -3442,6 +3673,10 @@ export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax = 255
 
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax = 100
 
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyApplyToSuiteKeysItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyApplyToSuiteKeysMax = 100
+
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyShortNameMax = 40
@@ -3452,6 +3687,15 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = () => zod.object({
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax)
         .optional()
         .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
+    apply_to_suite_keys: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsPartialUpdateBodyApplyToSuiteKeysItemMax))
+        .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyApplyToSuiteKeysMax)
+        .optional()
+        .describe('Apply this version to these suites for future runs. Omit to preserve existing assignments.'),
+    suite_version_id: zod
+        .string()
+        .optional()
+        .describe('Exact version to assign to the selected suites. Defaults to the current version.'),
     name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
@@ -3475,6 +3719,10 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = () => zod.obje
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyApplyToSuiteKeysItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyApplyToSuiteKeysMax = 100
+
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneExpressionMax = 1024
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasMax = 32
@@ -3482,6 +3730,8 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInput
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
     '^[a-z][a-z0-9_]{0,31}$'
 )
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemCategoryMax = 128
+
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyShortNameMax = 40
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax = 255
@@ -3493,6 +3743,11 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptions
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object({
+    apply_to_suite_keys: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyApplyToSuiteKeysItemMax))
+        .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyApplyToSuiteKeysMax)
+        .optional()
+        .describe('Apply this version to these suites for future runs. Omit to preserve existing assignments.'),
     composition: zod
         .union([
             zod.object({
@@ -3516,11 +3771,29 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object
                                 ),
                             scorer_version_id: zod
                                 .string()
-                                .describe('Exact immutable version of an ordinary input scorer.'),
+                                .describe(
+                                    "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
+                                ),
+                            statistic: zod
+                                .enum(['pass_rate', 'mean', 'true_rate', 'category_rate'])
+                                .optional()
+                                .describe(
+                                    '\* `pass_rate` - pass_rate\n\* `mean` - mean\n\* `true_rate` - true_rate\n\* `category_rate` - category_rate'
+                                ),
+                            version_policy: zod
+                                .enum(['run', 'exact', 'combine'])
+                                .optional()
+                                .describe('\* `run` - run\n\* `exact` - exact\n\* `combine` - combine'),
+                            category: zod
+                                .string()
+                                .max(
+                                    llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemCategoryMax
+                                )
+                                .optional(),
                         })
                     )
                     .describe(
-                        'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                        'Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.'
                     ),
             }),
             zod.null(),
@@ -3695,6 +3968,7 @@ export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateParams = () =>
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyScopeDefault = `item`
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneExpressionMax = 1024
 
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasMax = 32
@@ -3702,6 +3976,8 @@ export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositio
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
     '^[a-z][a-z0-9_]{0,31}$'
 )
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemCategoryMax = 128
+
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemKeyMax = 128
 
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemLabelMax = 256
@@ -3709,6 +3985,10 @@ export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneO
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody = () => zod.object({
+    scope: zod
+        .enum(['item', 'experiment'])
+        .describe('\* `item` - Item\n\* `experiment` - Experiment')
+        .default(llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyScopeDefault),
     kind: zod
         .enum(['categorical', 'numeric', 'boolean'])
         .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
@@ -3739,11 +4019,29 @@ export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody = () => z
                             ),
                         scorer_version_id: zod
                             .string()
-                            .describe('Exact immutable version of an ordinary input scorer.'),
+                            .describe(
+                                "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact."
+                            ),
+                        statistic: zod
+                            .enum(['pass_rate', 'mean', 'true_rate', 'category_rate'])
+                            .optional()
+                            .describe(
+                                '\* `pass_rate` - pass_rate\n\* `mean` - mean\n\* `true_rate` - true_rate\n\* `category_rate` - category_rate'
+                            ),
+                        version_policy: zod
+                            .enum(['run', 'exact', 'combine'])
+                            .optional()
+                            .describe('\* `run` - run\n\* `exact` - exact\n\* `combine` - combine'),
+                        category: zod
+                            .string()
+                            .max(
+                                llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemCategoryMax
+                            )
+                            .optional(),
                     })
                 )
                 .describe(
-                    'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                    'Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.'
                 ),
         })
         .describe('Formula and pinned input versions to validate without saving.'),

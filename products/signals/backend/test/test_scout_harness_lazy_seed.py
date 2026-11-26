@@ -593,6 +593,7 @@ class TestDiscoverCanonicalSkills:
             "signals-scout-logs",
             "signals-scout-error-tracking",
             "signals-scout-revenue-analytics",
+            "signals-scout-business-metrics",
             # Companion (non-scout) skill, seeded so store-only agents can read the
             # authoring guide via llma-skill-get.
             "authoring-scouts",
