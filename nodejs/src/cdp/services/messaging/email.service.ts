@@ -771,7 +771,9 @@ export class EmailService {
             return null
         }
         const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
-        if (invocation.hogFunction.metadata?.run_link_tag_enabled === false) {
+        // The stored config skips schema checks, so any value other than true or absent counts as an opt-out.
+        const runLinkTag: unknown = invocation.hogFunction.metadata?.run_link_tag_enabled
+        if (runLinkTag !== undefined && runLinkTag !== true) {
             return untagged
         }
         try {

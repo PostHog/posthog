@@ -4420,7 +4420,7 @@ describe('EmailService', () => {
                 clickTrackingEnabled?: boolean
                 send?: { sensitive?: boolean; tracking?: { clicks: boolean } }
                 teamOptedOut?: boolean
-                emailOptedOut?: boolean
+                storedRunLinkTag?: unknown
                 href: string
             }>([
                 {
@@ -4454,9 +4454,18 @@ describe('EmailService', () => {
                     allowlisted: true,
                     isTest: false,
                     sensitive: false,
-                    emailOptedOut: true,
+                    storedRunLinkTag: false,
                     href: STRIPPED_HREF,
                 },
+                ...['false', 0, null].map((storedRunLinkTag) => ({
+                    case: `treats a saved ${JSON.stringify(storedRunLinkTag)} as turning link tagging off`,
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    storedRunLinkTag,
+                    href: STRIPPED_HREF,
+                })),
                 {
                     case: 'leaves the links of an untracked send',
                     trackingEnabled: false,
@@ -4536,7 +4545,7 @@ describe('EmailService', () => {
                     clickTrackingEnabled,
                     send,
                     teamOptedOut,
-                    emailOptedOut,
+                    storedRunLinkTag,
                     href,
                 }) => {
                     if (teamOptedOut) {
@@ -4557,7 +4566,9 @@ describe('EmailService', () => {
                         tracking_enabled: trackingEnabled,
                         sensitive,
                         ...(clickTrackingEnabled !== undefined ? { click_tracking_enabled: clickTrackingEnabled } : {}),
-                        ...(emailOptedOut ? { run_link_tag_enabled: false } : {}),
+                        ...(storedRunLinkTag !== undefined
+                            ? { run_link_tag_enabled: storedRunLinkTag as boolean }
+                            : {}),
                     }
                     invocation.state.send = send && {
                         ...send,
