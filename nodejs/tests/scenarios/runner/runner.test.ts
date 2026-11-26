@@ -2248,9 +2248,26 @@ describe('runner through seed, drive and judge', () => {
             const [first, ...later] = result.units?.steps ?? []
             const ranMs = first.endedAt - first.startedAt
 
-            expect({ ranUnderPlan: ranMs < 10_000, later, result }).toMatchObject({
+            expect({
+                ranUnderPlan: ranMs < 10_000,
+                later,
+                loadTargets: evidenceOf(result, 'load-targets.json'),
+                result,
+            }).toMatchObject({
                 ranUnderPlan: true,
                 later: [],
+                loadTargets: {
+                    targets: { claimsPerSecond: { email: 500 } },
+                    derived: [
+                        {
+                            rate: 'claimsPerSecond.email',
+                            from: ['transactional_email'],
+                            profileTarget: 500,
+                            share: 1,
+                            target: 500,
+                        },
+                    ],
+                },
                 result: {
                     status: 'invalid',
                     ramp: {

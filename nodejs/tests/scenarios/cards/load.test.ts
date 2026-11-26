@@ -561,7 +561,11 @@ describe('load', () => {
         [
             'a load profile with a malformed entry for traffic the card does not drive',
             card,
-            { ...fullTraffic, traffic: { ...fullTraffic.traffic, event_webhook: { ratePerSecond: 0 } } },
+            {
+                ...fullTraffic,
+                traffic: { ...fullTraffic.traffic, event_webhook: { ratePerSecond: 0 } },
+                load: { ...fullTraffic.load, targets: { claimsPerSecond: { hogflow: 8, email: 60 } } },
+            },
             'profile.traffic.event_webhook.ratePerSecond: ',
         ],
         [
