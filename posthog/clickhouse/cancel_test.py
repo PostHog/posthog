@@ -1,4 +1,3 @@
-import time
 from contextlib import contextmanager, nullcontext
 from threading import Thread
 from typing import TYPE_CHECKING, Any
@@ -16,6 +15,7 @@ from posthog.clickhouse.client.connection import default_client
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.models.event.new_events_schema import events_route_scope
+from posthog.test.waiting import wait_until
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -88,15 +88,10 @@ def test_cancellation_finds_the_query_regardless_of_the_current_schema(
             assert params == {"client_query_id": "42_requested"}
 
 
-def _wait_until_running(tag: str) -> None:
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline:
-        if sync_execute("SELECT count() FROM system.processes WHERE position(query_id, %(tag)s) > 0", {"tag": tag})[0][
-            0
-        ]:
-            return
-        time.sleep(0.05)
-    raise AssertionError("The slow query did not start")
+def _is_running(tag: str) -> bool:
+    return bool(
+        sync_execute("SELECT count() FROM system.processes WHERE position(query_id, %(tag)s) > 0", {"tag": tag})[0][0]
+    )
 
 
 @pytest.mark.django_db
@@ -119,7 +114,7 @@ def test_stops_a_running_query_that_carries_the_id_of_the_query_it_was_started_f
     thread = Thread(target=run_slow_query)
     thread.start()
     try:
-        _wait_until_running(requester_query_id)
+        wait_until(lambda: _is_running(requester_query_id), timeout=15, message="the slow query did not start")
         with patch("posthog.clickhouse.cancel.default_client", side_effect=connect_to_the_test_host):
             cancel_queries_started_for(team_id, requester_query_id)
     finally:
