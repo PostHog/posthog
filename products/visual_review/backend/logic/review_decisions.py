@@ -13,6 +13,7 @@ Finalize writes the effective decisions onto the head run's rows before it commi
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
@@ -217,8 +218,9 @@ def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decis
     A row that says approved but holds no entry was accepted before rows kept a history. It counts
     as an accept with seq 0, older than any entry, so an accept from before the history still holds.
 
-    Only a member of the team's organization can decide. Snapshot metadata came from the client
-    before uploads dropped this key, so a stored entry that names anyone else is not trusted.
+    Snapshot metadata came from the client before uploads dropped this key, so a stored entry that
+    names someone outside the team's organization is not trusted: its accept or undo is dropped,
+    and its rejection still counts without a name.
     """
     rows = list(
         RunSnapshot.objects.using(WRITER_DB)
@@ -252,7 +254,11 @@ def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decis
                     continue
                 if decision.by_id not in members:
                     logger.warning("visual_review.review_decision_untrusted", run_id=str(run_id), by_id=decision.by_id)
-                    continue
+                    # A rejection only blocks, and a person can still accept over it, so it stays. It
+                    # names nobody, because the ID may belong to a user outside the organization.
+                    if decision.action != DecisionAction.REJECT:
+                        continue
+                    decision = dataclasses.replace(decision, by_id=None)
                 decisions.append(decision)
             continue
         if review_state == ReviewState.APPROVED:

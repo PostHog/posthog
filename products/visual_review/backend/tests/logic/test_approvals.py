@@ -791,6 +791,30 @@ class TestReviewDecisions:
         assert not BaselineApproval.objects.filter(repo=repo, pr_number=1, identifier="Button").exists()
         assert [entry["action"] for entry in _history(run)] == ["accept", "clear"]
 
+    def test_a_rejection_by_someone_outside_the_organization_still_blocks_and_names_nobody(self, ledger, team, user):
+        _repo, git, flow = ledger
+        run = _changed_run(git, flow)
+        outsider = User.objects.create_and_join(
+            Organization.objects.create(name="Elsewhere"), "outsider@example.com", None
+        )
+        entry = {
+            "action": "reject",
+            "old_hash": "b0",
+            "new_hash": "b1",
+            "by": outsider.id,
+            "reason": "Too blue",
+            "at": "2026-01-01T00:00:00+00:00",
+            "seq": 1,
+        }
+        RunSnapshot.objects.filter(run=run, identifier="Button").update(metadata={"review_decisions": [entry]})
+
+        listed = api.get_run_snapshots(run.id, team_id=team.id).snapshots[0]
+        with pytest.raises(errors.RunNotFullyResolvedError) as not_resolved:
+            approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True)
+
+        assert (listed.review_state, listed.decision is not None and listed.decision.by) == ("rejected", None)
+        assert [(r.identifier, r.by_id) for r in not_resolved.value.rejected] == [("Button", None)]
+
     def test_a_partial_run_that_leaves_out_a_rejected_story_stays_blocked(self, ledger, user, bob):
         _repo, git, flow = ledger
         first = _changed_run(git, flow)
