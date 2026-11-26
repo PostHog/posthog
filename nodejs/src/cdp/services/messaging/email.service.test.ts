@@ -3102,13 +3102,13 @@ describe('EmailService', () => {
             }
 
             it.each([
-                [9, false, 'the bucket does not answer', bucketRefuses, 'retries once more', false, undefined, null],
+                [9, false, 'the bucket does not answer', 'retries once more', bucketRefuses, false, undefined, null],
                 [
                     10,
                     false,
                     'the bucket does not answer',
-                    bucketRefuses,
                     'fails as attachment_unavailable',
+                    bucketRefuses,
                     true,
                     expect.stringMatching(/^attachment_unavailable: /),
                     'attachment_unavailable',
@@ -3117,8 +3117,8 @@ describe('EmailService', () => {
                     0,
                     true,
                     'the bucket does not answer',
-                    bucketRefuses,
                     'fails a test send at once as attachment_unavailable',
+                    bucketRefuses,
                     true,
                     expect.stringMatching(/^attachment_unavailable: .* after 1 try\./),
                     null,
@@ -3127,15 +3127,15 @@ describe('EmailService', () => {
                     10,
                     false,
                     'SES refuses the connection',
-                    sesRefusesTheConnection,
                     'fails as provider_error',
+                    sesRefusesTheConnection,
                     true,
                     expect.stringMatching(/^SES could not be reached /),
                     'provider_error',
                 ],
             ])(
                 'after %s retries (test send: %s), when %s, %s',
-                async (retriesSoFar, isTest, _fault, fault, _outcome, finished, error, failedStatusReason) => {
+                async (retriesSoFar, isTest, _fault, _outcome, fault, finished, error, failedStatusReason) => {
                     sendAsTransactionalEmail()
                     invocation.queueMetadata = { attachmentLoadRetries: retriesSoFar }
                     const emailService = sender()
