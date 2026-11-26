@@ -12,12 +12,13 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedAlertCheckQuery
 from products.logs.backend.anomaly_scan import TimeRange, fetch_bucket_counts
+from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.natural_language_query import gather_filter_context
 from products.logs.backend.pattern_diff import _first_seen_ever
@@ -96,6 +97,13 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
         assert (read(_PIPELINE, None) > 0) == (reader == "alert_check")
 
     @time_machine.travel(_NOW, tick=False)
+    def test_has_logs_counts_pipeline_logs_under_a_team_rule(self) -> None:
+        pipeline_only = Team.objects.create(organization=self.organization, name="Pipeline only")
+        insert_logs_and_rollups([log_row(pipeline_only.id, _START, service=_PIPELINE, pattern=_PATTERN)])
+        set_member_property_access(team=pipeline_only, membership=self.organization_membership, access="restricted")
+
+        assert HasLogsQueryRunner(pipeline_only).run() is True
+
     def test_scheduled_alert_check_counts_pipeline_logs_under_a_team_rule(self) -> None:
         set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
         alert = LogsAlertConfiguration.objects.create(
@@ -179,7 +187,9 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("change_draft_filters", False, {"filters": {"severityLevels": ["warn"]}}, 403),
             ("change_routing_labels", True, {"labels": {"team": "payments"}}, 403),
             ("change_grouping", True, {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}, 403),
-            ("change_threshold", True, {"threshold_count": 5}, 200),
+            ("change_threshold", True, {"threshold_count": 5}, 403),
+            ("change_window", True, {"window_minutes": 60}, 403),
+            ("change_check_interval", True, {"check_interval_minutes": 5}, 200),
             ("send_no_routing_labels", True, {"labels": {}}, 200),
         ]
     )

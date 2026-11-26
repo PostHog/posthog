@@ -501,9 +501,6 @@ _TIMING_AND_NAME_FIELDS = frozenset(
         "name",
         "enabled",
         "snooze_until",
-        "threshold_count",
-        "threshold_operator",
-        "window_minutes",
         "check_interval_minutes",
         "evaluation_periods",
         "datapoints_to_alarm",
@@ -1037,8 +1034,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # Drafts (enabled=false, no filters) are allowed; otherwise filter shape is required.
         if effective_enabled or filters:
             _validate_filters(filters)
-        # Only a rename, a snooze or a change to when the alert fires leaves what it reads and who it tells as
-        # they were. The edit form sends unchanged settings back on every save, so compare values, not keys.
+        # Only a rename, a snooze or a change to its schedule leaves what it reads and who it tells as they were.
+        # The threshold counts as reading, because moving it and watching the state shows the hidden counts.
+        # The edit form sends unchanged settings back on every save, so compare values, not keys.
         starts_reading = (
             self.instance is None
             or (effective_enabled and not self.instance.enabled)

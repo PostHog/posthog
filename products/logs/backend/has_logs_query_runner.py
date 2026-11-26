@@ -3,6 +3,7 @@ import datetime as dt
 from django.core.cache import cache
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -26,6 +27,9 @@ class HasLogsQueryRunner:
             query_type="HasLogsQuery",
             query=query,
             team=self.team,
+            # Property rules hide pipeline logs, and a team-wide rule applies even without a user. Whether the team
+            # has any logs reveals no log, and the answer is cached for the whole team.
+            context=HogQLContext(team_id=self.team.pk, restricted_properties=set()),
             workload=Workload.LOGS,
         )
 
