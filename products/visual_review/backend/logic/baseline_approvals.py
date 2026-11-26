@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 import structlog
@@ -305,6 +305,8 @@ class LowerLayerWalk:
         self.ledger_hashes = ledger_hashes
         # The frozen records of source runs by run id, so that each run is read once per walk.
         self.records = dict(records or {})
+        # Approvals read so far by id, so that a long chain of one pull request's approvals is read once.
+        self.approvals: dict[UUID, BaselineApproval] = {}
 
     def successors(self, closed: list[BaselineApproval]) -> dict[SuccessorKey, BaselineApproval]:
         """The open or promoted approval of the same pull request and picture, per closed approval.
@@ -341,6 +343,24 @@ class LowerLayerWalk:
         for source_run in Run.objects.using(WRITER_DB).filter(id__in=missing).only("id", "metadata"):
             self.records[source_run.id] = baseline_record.record_for_run(source_run)
 
+    def _read_approvals(self, ids: set[UUID], team_id: int, repo_id: UUID) -> None:
+        """Reads these approvals, and with them the other approvals of their pull requests and stories.
+
+        A pull request that approved a story several times chains each approval to the one before,
+        so the whole chain comes in with its first link.
+        """
+        missing = ids - set(self.approvals)
+        if not missing:
+            return
+        rows = list(BaselineApproval.objects.using(WRITER_DB).filter(team_id=team_id, repo_id=repo_id, id__in=missing))
+        if not rows:
+            return
+        same_story = Q()
+        for row in rows:
+            same_story |= Q(pr_number=row.pr_number, run_type=row.run_type, identifier=row.identifier)
+        for row in BaselineApproval.objects.using(WRITER_DB).filter(same_story, team_id=team_id, repo_id=repo_id):
+            self.approvals.setdefault(row.id, row)
+
     def _lower_layer_ids(self, nodes: list[BaselineApproval]) -> dict[UUID, UUID | None]:
         """The id of the approval each node was made over, by node id. None when nothing names it any more.
 
@@ -364,6 +384,10 @@ class LowerLayerWalk:
                 lower_ids[node.id] = entry.approval_id
         return lower_ids
 
+    @staticmethod
+    def _node_pr(steps: list[tuple[BaselineApproval, BaselineApproval]], node_id: UUID) -> int:
+        return next(node.pr_number for _top, node in steps if node.id == node_id)
+
     def closed_bases(self, approvals: list[BaselineApproval]) -> dict[UUID, BaselineApproval | None]:
         """Per given approval that rests on a lower layer that closed without a ledger entry, that layer's approval.
 
@@ -381,15 +405,20 @@ class LowerLayerWalk:
         while steps:
             lower_ids = self._lower_layer_ids([node for _top, node in steps])
             first = steps[0][1]
-            lowers = {
-                lower.id: lower
-                for lower in BaselineApproval.objects.using(WRITER_DB).filter(
-                    team_id=first.team_id,
-                    repo_id=first.repo_id,
-                    id__in={lower_id for lower_id in lower_ids.values() if lower_id is not None},
-                )
-            }
-            successors = self.successors([lower for lower in lowers.values() if _closed_without_entry(lower)])
+            self._read_approvals(
+                {lower_id for lower_id in lower_ids.values() if lower_id is not None}, first.team_id, first.repo_id
+            )
+            lowers = self.approvals
+            # Only a closed layer of another pull request can have a successor that carries its picture.
+            successors = self.successors(
+                [
+                    lowers[lower_id]
+                    for node_id, lower_id in lower_ids.items()
+                    if lower_id in lowers
+                    and _closed_without_entry(lowers[lower_id])
+                    and lowers[lower_id].pr_number != self._node_pr(steps, node_id)
+                ]
+            )
             next_steps: list[tuple[BaselineApproval, BaselineApproval]] = []
             for top, node in steps:
                 if node.id not in lower_ids:
@@ -429,19 +458,63 @@ def without_closed_lower_layers(
     return [approval for approval in approvals if approval.id not in closed]
 
 
+def _same_picture_predecessors(closed: list[BaselineApproval]) -> set[UUID]:
+    """The superseded approvals of the same pull request and picture as the closed ones.
+
+    An upper layer made over such a row stays fresh through its successor, so it depends on the
+    successor without naming it.
+    """
+    keys = {SuccessorKey.of(approval) for approval in closed}
+    rows = (
+        BaselineApproval.objects.using(WRITER_DB)
+        .filter(
+            team_id=closed[0].team_id,
+            repo_id=closed[0].repo_id,
+            state=BaselineApprovalState.SUPERSEDED,
+            pr_number__in={key.pr_number for key in keys},
+            identifier__in={key.identifier for key in keys},
+            content_hash__in={key.content_hash for key in keys},
+        )
+        .only("id", "pr_number", "run_type", "identifier", "content_hash")
+    )
+    return {row.id for row in rows if SuccessorKey.of(row) in keys}
+
+
+def _open_approvals_made_over_by_hash(closed: list[BaselineApproval]) -> list[BaselineApproval]:
+    """Open approvals written before `base_approval` existed whose effective base is a closed approval's picture."""
+    pictures = {(approval.run_type, approval.identifier, approval.content_hash) for approval in closed}
+    rows = (
+        BaselineApproval.objects.using(WRITER_DB)
+        .filter(
+            team_id=closed[0].team_id,
+            repo_id=closed[0].repo_id,
+            state=BaselineApprovalState.OPEN,
+            base_approval__isnull=True,
+            identifier__in={identifier for _run_type, identifier, _hash in pictures},
+            effective_base_hash__in={content_hash for _run_type, _identifier, content_hash in pictures},
+        )
+        .exclude(effective_base_hash=F("ledger_base_hash"))
+        .only("id", "pr_number", "run_type", "state", "identifier", "effective_base_hash")
+    )
+    return [row for row in rows if (row.run_type, row.identifier, row.effective_base_hash) in pictures]
+
+
 def open_approvals_made_over(closed: list[BaselineApproval]) -> list[BaselineApproval]:
     """The open approvals whose chain of base approvals reaches one of the closed approvals.
 
     A closed row in the chain is followed too, because a later approval of the same pull request
     names the row it replaced.
     """
-    seen = {approval.id for approval in closed}
-    frontier = set(seen)
-    made_over: list[BaselineApproval] = []
+    if not closed:
+        return []
+    seen = {approval.id for approval in closed} | _same_picture_predecessors(closed)
+    made_over = _open_approvals_made_over_by_hash(closed)
+    frontier = set(seen) | {approval.id for approval in made_over}
+    seen |= frontier
     while frontier:
         rows = list(
             BaselineApproval.objects.using(WRITER_DB)
-            .filter(base_approval_id__in=frontier)
+            .filter(team_id=closed[0].team_id, repo_id=closed[0].repo_id, base_approval_id__in=frontier)
             .exclude(id__in=seen)
             .only("id", "pr_number", "run_type", "state")
         )
@@ -742,6 +815,14 @@ def _moved_base_approvals(
     ]
 
 
+def _identifiers_rendering_the_ledger(run: Run, identifiers: set[str], current: dict[str, str]) -> set[str]:
+    """The stories whose render on this run is the ledger's picture, so the run needs no approval for them."""
+    rendered = (
+        run.snapshots.using(WRITER_DB).filter(identifier__in=identifiers).values_list("identifier", "current_hash")
+    )
+    return {identifier for identifier, current_hash in rendered if current_hash == current.get(identifier, "")}
+
+
 def _closed_approvals_the_run_rests_on(
     run: Run, rests_on: list[BaselineApproval], walk: LowerLayerWalk
 ) -> list[BaselineApproval]:
@@ -752,6 +833,11 @@ def _closed_approvals_the_run_rests_on(
     closed itself. The approval is left out while the ledger holds the picture the run ends with,
     and while an open or promoted approval of the same pull request carries the same picture.
     """
+    # A run that renders the ledger's picture again, such as after a revert, rests on no approval for it.
+    on_ledger = _identifiers_rendering_the_ledger(
+        run, {approval.identifier for approval in rests_on}, walk.ledger_hashes
+    )
+    rests_on = [approval for approval in rests_on if approval.identifier not in on_ledger]
     open_rests_on = [approval for approval in rests_on if approval.state == BaselineApprovalState.OPEN]
     closed = [approval for approval in rests_on if _closed_without_entry(approval)]
     uncovered: list[BaselineApproval] = []

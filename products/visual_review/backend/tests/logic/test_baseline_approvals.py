@@ -550,7 +550,13 @@ class TestStaleApprovals:
 
     @pytest.mark.parametrize(
         "cover",
-        ["back_to_baseline", "same_picture_approved_again", "ledger_holds_the_picture", "ledger_holds_the_child_base"],
+        [
+            "back_to_baseline",
+            "same_picture_approved_again",
+            "ledger_holds_the_picture",
+            "ledger_holds_the_child_base",
+            "reverted_to_the_ledger",
+        ],
     )
     def test_a_closed_approval_whose_picture_is_still_covered_is_not_stale(self, repo, cover) -> None:
         parent = approve(repo, 7, "Button", "b1")
@@ -567,6 +573,16 @@ class TestStaleApprovals:
             run.refresh_from_db()
         elif cover == "ledger_holds_the_child_base":
             run = _child_runs_again_on_its_own_approval(repo, parent)
+        elif cover == "reverted_to_the_ledger":
+            # The pull request pushed a revert: the run renders the ledger's picture with nothing to review.
+            run = _run(
+                repo,
+                "p7b",
+                {"Button": ("unchanged", "b0", "b0")},
+                record=_overlay_of(parent),
+                purpose=RunPurpose.REVIEW,
+                pr_number=7,
+            )
         else:
             run = _passes_unchanged_on(repo, parent)
         BaselineApproval.objects.filter(id=parent.id).update(state=BaselineApprovalState.SUPERSEDED)
@@ -608,7 +624,36 @@ class TestStaleApprovals:
             assert baseline_approvals.stale_approvals(child_run) == []
 
         assert [query["sql"] for query in queries if 'FROM "visual_review_run"' in query["sql"]] == []
-        assert len(queries) == 4
+        assert len(queries) == 6
+
+    def test_a_long_chain_of_one_pull_request_costs_no_more_queries_than_a_short_one(self, repo) -> None:
+        def queries_for_chain(pr_number: int, links: int) -> int:
+            parent = approve(repo, pr_number, "Button", f"{pr_number}-p", ledger_base_hash="b0")
+            lower = parent
+            for link in range(links):
+                lower = approve(
+                    repo,
+                    pr_number + 1,
+                    "Button",
+                    f"{pr_number}-{link}",
+                    effective_base_hash=lower.content_hash,
+                    base_approval=lower,
+                    state=BaselineApprovalState.SUPERSEDED,
+                )
+            top = approve(
+                repo,
+                pr_number + 1,
+                "Button",
+                f"{pr_number}-top",
+                effective_base_hash=lower.content_hash,
+                base_approval=lower,
+            )
+            walk = baseline_approvals.LowerLayerWalk({"Button": "b0"})
+            with CaptureQueriesContext(connections[WRITER_DB]) as queries:
+                assert walk.closed_bases([top]) == {}
+            return len(queries)
+
+        assert queries_for_chain(10, 1) == queries_for_chain(20, 8)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

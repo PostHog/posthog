@@ -835,17 +835,35 @@ class TestReconcileOpenApprovals:
             pytest.param("merged", BaselineApprovalState.VOIDED, id="parent_merged_without_rendering_it"),
         ],
     )
+    @pytest.mark.parametrize("child_names", ["the_parent", "an_earlier_parent_approval", "nothing"])
     def test_a_closed_approval_publishes_again_for_approvals_made_over_it_and_not_for_its_own_pull_request(
-        self, repo, github, mocker, django_capture_on_commit_callbacks, pull_request_state, parent_state
+        self,
+        repo,
+        github,
+        mocker,
+        django_capture_on_commit_callbacks,
+        pull_request_state,
+        parent_state,
+        child_names,
     ) -> None:
         set_baseline_mode(repo, BaselineMode.LEDGER)
         github.push("s1", "chore: no pull request named")
         ledger_advance.advance(repo)
+        # The parent approved the same picture again, so the child's approval still names the replaced row.
+        earlier = approve(repo, 1, "Button", "b1", commit_sha="old-0", state=BaselineApprovalState.SUPERSEDED)
         parent = approve(repo, 1, "Button", "b1", commit_sha="old-1")
         _pull_request_run(
             repo, 1, "head-1", metadata={METADATA_KEY: make_record(candidate_approval_ids=(parent.id,)).to_json()}
         )
-        approve(repo, 2, "Button", "b2", effective_base_hash="b1", base_approval=parent)
+        approve(
+            repo,
+            2,
+            "Button",
+            "b2",
+            effective_base_hash="b1",
+            # A row written before the base_approval column names nothing.
+            base_approval={"the_parent": parent, "an_earlier_parent_approval": earlier, "nothing": None}[child_names],
+        )
         # The child's current run counted its own approval by itself, so its record does not name the parent.
         _pull_request_run(repo, 2, "head-2", minute=1, metadata={METADATA_KEY: make_record().to_json()})
         if pull_request_state == "merged":
