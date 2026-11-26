@@ -151,9 +151,9 @@ type ActiveFault = {
 
 const SHARE_TOLERANCE = 1e-9
 
-// A refusal holds its dose from the rewrite until the client reads Postgres's answer, and hands it back when the
-// connection closes first, so a count of one is one refusal the client saw.
-export type Refusal = { answered(): void; lost(): void }
+// The proxy names a refused enqueue's table after the fault's token, so Postgres's own error names the fault it
+// answers, and a clear forgets the tokens it handed out.
+const tokenOf = (faultId: string): string => faultId.replaceAll('-', '')
 
 const isWebhookAnswer = (answer: Answer): answer is WebhookAnswer =>
     answer.kind === 'webhook-status' || answer.kind === 'webhook-ambiguous'
@@ -201,6 +201,7 @@ function countSentAgainst(throttles: ActiveFault[], now: number): void {
 export class FaultList {
     private faults: ActiveFault[] = []
     private firstApplied = new Map<string, number>()
+    private refusing = new Map<string, string>()
 
     add(rule: FaultRule): string {
         const id = randomUUID()
@@ -218,6 +219,7 @@ export class FaultList {
     clear(): void {
         this.faults = []
         this.firstApplied.clear()
+        this.refusing.clear()
     }
 
     firstAppliedAt(id: string): number | undefined {
@@ -236,21 +238,20 @@ export class FaultList {
         return rule && isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
     }
 
-    refusePg(): Refusal | undefined {
+    refusePg(): string | undefined {
         const fault = this.take({ channel: 'pg' }, { appliesNow: false })
         if (fault === undefined) {
             return undefined
         }
-        return {
-            answered: () => {
-                if (!this.firstApplied.has(fault.id)) {
-                    this.firstApplied.set(fault.id, Date.now())
-                }
-            },
-            lost: () => {
-                fault.matched -= 1
-                fault.applied -= 1
-            },
+        this.refusing.set(tokenOf(fault.id), fault.id)
+        return tokenOf(fault.id)
+    }
+
+    // Marks the fault observed once Postgres's answer to a refused enqueue passes the edge on its way to the client.
+    pgRefusalAnswered(token: string): void {
+        const id = this.refusing.get(token)
+        if (id !== undefined && !this.firstApplied.has(id)) {
+            this.firstApplied.set(id, Date.now())
         }
     }
 

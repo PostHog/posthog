@@ -9,7 +9,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { createCertificates } from './certificates'
 import { CardFault, FaultList, FaultRule, SesAnswer, SesStatusAnswer, ruleOf } from './faults'
 import { SIGNING_CERT_PATH, SnsSigner, hardBounceOf, postFeedback } from './feedback'
-import { startPgProxy } from './postgres'
+import { PgProxy, startPgProxy } from './postgres'
 import { problemsOf } from './problems'
 import { Proxy, serveConnect } from './proxy'
 import {
@@ -91,13 +91,12 @@ export type ProviderEdgeOptions = {
     region?: string
     feedbackUrl?: string
     truth?: Truth
-    pgUpstreams?: readonly string[]
 }
 
 export type ProviderEdge = {
     url: string
     caCertPath?: string
-    pgUrls: Record<string, string>
+    pgProxyOf(upstream: string): Promise<string>
     sent: readonly SesMessage[]
     addFault(rule: FaultRule): string
     firstAppliedAt(faultId: string): number | undefined
@@ -393,16 +392,18 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         })
     })
     const { port } = server.address() as AddressInfo
-    const pgProxies = await Promise.all(
-        [...new Set(options.pgUpstreams ?? [])].map(
-            async (upstream) => [upstream, await startPgProxy(upstream, () => faults.refusePg())] as const
-        )
-    )
+    // One proxy per Cyclotron database, opened when a card first routes roles through the edge to it.
+    const pgProxies = new Map<string, Promise<PgProxy>>()
+    const pgProxyOf = (upstream: string): Promise<PgProxy> => {
+        const proxy = pgProxies.get(upstream) ?? startPgProxy(upstream, faults)
+        pgProxies.set(upstream, proxy)
+        return proxy
+    }
 
     return {
         url: `http://127.0.0.1:${port}`,
         caCertPath: certificates?.caCertPath,
-        pgUrls: Object.fromEntries(pgProxies.map(([upstream, pg]) => [upstream, pg.url])),
+        pgProxyOf: async (upstream) => (await pgProxyOf(upstream)).url,
         sent,
         addFault: (rule) => faults.add(rule),
         firstAppliedAt: (faultId) => faults.firstAppliedAt(faultId),
@@ -417,7 +418,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         clearFaults,
         close: async () => {
             proxy?.close()
-            await Promise.all(pgProxies.map(([, pg]) => pg.close()))
+            await Promise.all([...pgProxies.values()].map(async (pg) => (await pg).close()))
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
         },

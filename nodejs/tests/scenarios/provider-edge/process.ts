@@ -4,12 +4,9 @@ import { pathToFileURL } from 'url'
 import { FaultRule } from './faults'
 import { FaultHold, ProviderEdge, ProviderEdgeOptions, holdOf, startProviderEdge } from './index'
 
-export type EdgeProcessOptions = Pick<
-    ProviderEdgeOptions,
-    'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl' | 'pgUpstreams'
->
+export type EdgeProcessOptions = Pick<ProviderEdgeOptions, 'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl'>
 
-export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath' | 'pgUrls'> & {
+export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath' | 'pgProxyOf'> & {
     hold(rule: FaultRule): Promise<FaultHold>
     clearFaults(): Promise<void>
     close(): Promise<void>
@@ -21,10 +18,11 @@ type Call =
     | { op: 'applied'; faultId: string }
     | { op: 'remove'; faultId: string }
     | { op: 'clear' }
+    | { op: 'pg-proxy'; upstream: string }
 
 type Request = Call & { id: number }
 
-type Started = { kind: 'started'; url: string; caCertPath?: string; pgUrls: Record<string, string> }
+type Started = { kind: 'started'; url: string; caCertPath?: string }
 
 type Message =
     | Started
@@ -53,21 +51,20 @@ async function serveEdge(options: EdgeProcessOptions): Promise<void> {
                 return edge.removeFault(call.faultId)
             case 'clear':
                 return edge.clearFaults()
+            case 'pg-proxy':
+                return edge.pgProxyOf(call.upstream)
         }
     }
     process.on('message', (request: Request) => {
-        try {
-            process.send!({ kind: 'reply', id: request.id, value: answer(request) } satisfies Message)
-        } catch (error) {
-            process.send!({ kind: 'reply', id: request.id, reason: String(error) } satisfies Message)
-        }
+        Promise.resolve()
+            .then(() => answer(request))
+            .then(
+                (value) => process.send!({ kind: 'reply', id: request.id, value } satisfies Message),
+                (error: unknown) =>
+                    process.send!({ kind: 'reply', id: request.id, reason: String(error) } satisfies Message)
+            )
     })
-    process.send!({
-        kind: 'started',
-        url: edge.url,
-        caCertPath: edge.caCertPath,
-        pgUrls: edge.pgUrls,
-    } satisfies Message)
+    process.send!({ kind: 'started', url: edge.url, caCertPath: edge.caCertPath } satisfies Message)
 }
 
 export async function startEdgeProcess(
@@ -208,7 +205,7 @@ export async function startEdgeProcess(
         await exited
     }
 
-    const { url, caCertPath, pgUrls } = await started.catch(async (error: unknown) => {
+    const { url, caCertPath } = await started.catch(async (error: unknown) => {
         await close()
         throw error
     })
@@ -216,7 +213,7 @@ export async function startEdgeProcess(
     return {
         url,
         caCertPath,
-        pgUrls,
+        pgProxyOf: (upstream) => call<string>({ op: 'pg-proxy', upstream }),
         hold: async (rule) => {
             const faultId = await call<string>({ op: 'add', rule })
             return holdOf({

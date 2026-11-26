@@ -132,7 +132,7 @@ export function roleSpecs(
         const proxy = cyclotronThroughEdge.urls[cyclotronUrl]
         if (proxy === undefined) {
             throw new Error(
-                'The card routes Cyclotron through the edge, and the edge has no Postgres proxy for the Cyclotron database the profile names: start the edge with that database in its pgUpstreams.'
+                'The card routes Cyclotron through the edge, and the edge has no Postgres proxy for the Cyclotron database the profile names: ask the edge for a proxy to each database the roles reach.'
             )
         }
         return { cyclotronUrl, proxy }

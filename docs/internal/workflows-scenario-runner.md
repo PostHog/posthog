@@ -695,7 +695,6 @@ export function startProviderEdge(options: {
   caDir?: string // creates the CA and leaf certificates; without it the edge serves plain HTTP only
   region?: string // the SNS certificate's host is sns.<region>.amazonaws.com; us-east-1 when unset
   feedbackUrl?: string // cdp-api's SES webhook, where a bounce fault posts its feedback
-  pgUpstreams?: string[] // Cyclotron databases to proxy; ProviderEdge.pgUrls maps each to its proxy's URL
 }): Promise<ProviderEdge>
 ```
 
@@ -708,6 +707,7 @@ export function startEdgeProcess(
 export type EdgeProcess = {
   url: string
   caCertPath?: string
+  pgProxyOf(upstream: string): Promise<string> // the URL of the edge's Postgres proxy for that database
   hold(rule: FaultRule): Promise<FaultHold> // the rule goes to the edge process as plain data
   clearFaults(): Promise<void>
   close(): Promise<void> // resolves once the process has exited and its port is free
@@ -757,7 +757,7 @@ export type TruthRecord = {
   - `accepted` polls with no window until the fault first answered or its signal aborts. `edge_accepted` waits on it.
   - `release` removes the fault and answers the requests it holds whose connection is still open. Removing a fault over HTTP, one or all, does the same.
 - **Recipients.** A record's recipients are what the edge received: the addresses in an SES send's `to`, `cc` and `bcc`, kept in `detail.message`, or a webhook's host. `no_loss` counts accepted effects per unit, action and recipient from them.
-- **Postgres proxy.** With `pgUpstreams`, the edge listens for each upstream on a port of its own and forwards the wire protocol both ways. A card that names `pg.enqueue_refused` starts its roles with `CYCLOTRON_NODE_DATABASE_URL` on the proxy for the database each role would reach, a profile's setting or a pooler included; every other card connects them straight to the database, so its numbers carry no proxy hop. The runner's own reads, topology and `pg.drop_connections` use the database behind the proxy. The fault refuses an `INSERT INTO cyclotron_jobs` by renaming the table before it reaches Postgres, so Postgres answers with its own `42P01`, and fails the transaction and skips the rest of the pipeline as it would for any failed statement. A refusal counts against its dose, and marks the fault observed, once the client reads that answer; a connection that closes first hands the dose back. The proxy matches a statement in a `Parse` or a simple query, an insert after another statement included, so an insert prepared under a name before the fault was armed passes; Cyclotron's enqueues are unnamed. The edge answers an encryption request "no", so a client that requires TLS stops at the connect.
+- **Postgres proxy.** `ProviderEdge.pgProxyOf(upstream)` opens a proxy for a database on first use, on a port of its own, and forwards the wire protocol both ways. A card that names `pg.enqueue_refused` starts its roles with `CYCLOTRON_NODE_DATABASE_URL` on the proxy for the database each role would reach, a profile's setting or a pooler included; every other card connects them straight to the database, so its numbers carry no proxy hop. The runner's own reads, topology and `pg.drop_connections` use the database behind the proxy. The fault refuses an `INSERT INTO cyclotron_jobs` by renaming the table after the fault before it reaches Postgres, so Postgres answers with its own `42P01`, and fails the transaction and skips the rest of the pipeline as it would for any failed statement. A refusal counts against its dose at the rename, and marks the fault observed once the edge passes Postgres's answer on to the client. The proxy matches a statement that opens a `Parse` or a simple query, so an insert after another statement in one query, or one prepared under a name before the fault was armed, passes; Cyclotron's enqueues are unnamed single statements. The edge answers an encryption request "no", so a client that requires TLS stops at the connect.
 - **Proxy and certificates.** With `caDir`, the edge creates its certificate authority and leaf certificates with the `openssl` CLI. Its CONNECT proxy terminates TLS for `hooks.example.com` and `sns.<region>.amazonaws.com`, where it serves its SNS signing certificate, and tunnels every other host unchanged. cdp-api only accepts a certificate URL on that host, so the edge serves it under the real name rather than the runner changing production code.
 
 ### Valves

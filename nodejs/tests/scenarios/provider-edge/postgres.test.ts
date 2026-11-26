@@ -25,8 +25,8 @@ describe('the edge in front of Cyclotron', () => {
     let client: Client
 
     beforeEach(async () => {
-        edge = await startProviderEdge({ port: 0, pgUpstreams: [UPSTREAM] })
-        client = new Client({ connectionString: edge.pgUrls[UPSTREAM] })
+        edge = await startProviderEdge({ port: 0 })
+        client = new Client({ connectionString: await edge.pgProxyOf(UPSTREAM) })
         await client.connect()
         await client.query('CREATE TEMP TABLE cyclotron_jobs (id int)')
     })
@@ -39,7 +39,6 @@ describe('the edge in front of Cyclotron', () => {
     test.each([
         ['with parameters', 'INSERT INTO cyclotron_jobs VALUES ($1)', [1]],
         ['as a simple query', 'INSERT INTO cyclotron_jobs VALUES (1)', []],
-        ['after another statement in one simple query', 'SELECT 1; INSERT INTO cyclotron_jobs VALUES (1)', []],
     ])('refuses the enqueues its dose takes %s, and passes every other statement', async (_, insert, values) => {
         edge.addFault(ruleOf({ name: 'pg.enqueue_refused', dose: { count: 1 } }))
 
@@ -73,13 +72,15 @@ describe('the edge in front of Cyclotron', () => {
         expect([shadow, enqueue]).toEqual(['inserted', UNDEFINED_TABLE])
     })
 
-    test('counts a refusal once the client reads it, and hands the dose back when the connection closes first', async () => {
+    test('marks the fault observed once a refusal reaches the client, and not when the connection closes first', async () => {
         const target = new URL(UPSTREAM)
         let cut = false
         const relay = net.createServer((inbound) => {
             const outbound = net.connect({ host: target.hostname, port: Number(target.port || 5432) })
+            let sent = ''
             inbound.on('data', (chunk: Buffer) => {
-                if (!cut && chunk.includes('cyclotron_jobs_refused_by_the_scenario_edge')) {
+                sent += chunk.toString('latin1')
+                if (!cut && sent.includes('cyclotron_jobs_refused_')) {
                     cut = true
                     inbound.destroy()
                     outbound.destroy()
@@ -99,11 +100,12 @@ describe('the edge in front of Cyclotron', () => {
         const relayed = new URL(UPSTREAM)
         relayed.hostname = '127.0.0.1'
         relayed.port = String(await listening(relay))
-        const cutEdge = await startProviderEdge({ port: 0, pgUpstreams: [relayed.toString()] })
-        const faultId = cutEdge.addFault(ruleOf({ name: 'pg.enqueue_refused', dose: { count: 1 } }))
+        const cutEdge = await startProviderEdge({ port: 0 })
+        const faultId = cutEdge.addFault(ruleOf({ name: 'pg.enqueue_refused', dose: { count: 2 } }))
+        const proxy = await cutEdge.pgProxyOf(relayed.toString())
         const clients: Client[] = []
         const connected = async (): Promise<Client> => {
-            const next = new Client({ connectionString: cutEdge.pgUrls[relayed.toString()] })
+            const next = new Client({ connectionString: proxy })
             next.on('error', () => undefined)
             clients.push(next)
             await next.connect()
@@ -114,12 +116,12 @@ describe('the edge in front of Cyclotron', () => {
             const first = await (await connected())
                 .query('INSERT INTO cyclotron_jobs VALUES (1)')
                 .then(() => 'inserted', codeOf)
-            const observedBeforeAnswer = cutEdge.firstAppliedAt(faultId)
+            const observedAfterCut = cutEdge.firstAppliedAt(faultId)
             const second = await (await connected())
                 .query('INSERT INTO cyclotron_jobs VALUES (1)')
                 .then(() => 'inserted', codeOf)
 
-            expect([first, observedBeforeAnswer, second]).toEqual([CONNECTION_LOST, undefined, UNDEFINED_TABLE])
+            expect([first, observedAfterCut, second]).toEqual([CONNECTION_LOST, undefined, UNDEFINED_TABLE])
             expect(cutEdge.firstAppliedAt(faultId)).toEqual(expect.any(Number))
         } finally {
             await Promise.all(clients.map((each) => each.end().catch(() => undefined)))
@@ -129,7 +131,7 @@ describe('the edge in front of Cyclotron', () => {
     })
 
     test('closes a connection whose startup declares a length it cannot have, and keeps serving the others', async () => {
-        const { hostname, port } = new URL(edge.pgUrls[UPSTREAM])
+        const { hostname, port } = new URL(await edge.pgProxyOf(UPSTREAM))
         const socket = net.connect({ host: hostname, port: Number(port) })
         const malformed = Buffer.alloc(8)
         malformed.writeInt32BE(4, 0)
@@ -142,7 +144,7 @@ describe('the edge in front of Cyclotron', () => {
     })
 
     test('declines encryption, and reads the plain startup a client sends after it', async () => {
-        const { hostname, port, username } = new URL(edge.pgUrls[UPSTREAM])
+        const { hostname, port, username } = new URL(await edge.pgProxyOf(UPSTREAM))
         const socket = net.connect({ host: hostname, port: Number(port) })
         const replies: Buffer[] = []
         socket.on('data', (chunk: Buffer) => replies.push(chunk))

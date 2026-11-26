@@ -22,7 +22,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
-import { Environment, createEnvironment } from './environment'
+import { Environment, createEnvironment, proxiesOf } from './environment'
 import { startProbeProcess } from './probe-process'
 import * as processes from './processes'
 import {
@@ -555,44 +555,38 @@ describe('scenario environment', () => {
 
         const POOLERS = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
         const SECOND = 'postgres://a@127.0.0.1:5432/cyclotron_second'
-        const PROXIES = {
-            [POOLERS[0]]: 'postgres://a@127.0.0.1:7001/cyclotron_node',
-            [POOLERS[1]]: 'postgres://a@127.0.0.1:7002/cyclotron_node',
-            [SECOND]: 'postgres://a@127.0.0.1:7003/cyclotron_second',
+        const proxyFor = (database: string): string => `postgres://a@127.0.0.1:7000/proxy-for-${database}`
+        const routed = (env: NodeJS.ProcessEnv, settings: Record<string, string>) => {
+            const args = [{ ...base, ...env }, EDGE, secretsOf({}), STATE_DIR, settings, undefined, {}] as const
+            const direct = roleSpecs(...args)
+            return {
+                direct,
+                through: (proxies: Record<string, string>) =>
+                    roleSpecs(...args, { urls: proxies, fallback: POOLERS[0] }),
+            }
         }
-        const throughEdge = (env: NodeJS.ProcessEnv, settings: Record<string, string>) =>
-            roleSpecs(
-                { ...base, ...env },
-                EDGE,
-                secretsOf({}),
-                STATE_DIR,
-                settings,
-                undefined,
-                {},
-                {
-                    urls: PROXIES,
-                    fallback: POOLERS[0],
-                }
-            )
 
         it.each<[string, NodeJS.ProcessEnv, Record<string, string>, (index: number) => string]>([
             ['each pooler', { SCENARIO_POOLER_URLS: POOLERS.join(',') }, {}, (index) => POOLERS[index % 2]],
             ['the database a profile names', {}, { CYCLOTRON_NODE_DATABASE_URL: SECOND }, () => SECOND],
         ])(
             "reaches %s through the edge's proxy for it, while the runner reads that database itself",
-            (_story, env, settings, databaseOf) => {
-                const through = throughEdge(env, settings)
+            async (_story, env, settings, databaseOf) => {
+                const { direct, through } = routed(env, settings)
+                const specs = through(await proxiesOf((database) => Promise.resolve(proxyFor(database)), direct))
 
-                expect(through.map((spec) => [spec.env.CYCLOTRON_NODE_DATABASE_URL, cyclotronUrlOf(spec)])).toEqual(
-                    through.map((_, index) => [PROXIES[databaseOf(index)], databaseOf(index)])
+                expect(specs.map((spec) => [spec.env.CYCLOTRON_NODE_DATABASE_URL, cyclotronUrlOf(spec)])).toEqual(
+                    specs.map((_, index) => [proxyFor(databaseOf(index)), databaseOf(index)])
                 )
             }
         )
 
         it('refuses to route a role to a database the edge has no proxy for', () => {
-            expect(() =>
-                throughEdge({}, { CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@127.0.0.1:5432/cyclotron_third' })
-            ).toThrow('the edge has no Postgres proxy for the Cyclotron database the profile names')
+            const { through } = routed({}, { CYCLOTRON_NODE_DATABASE_URL: SECOND })
+
+            expect(() => through({ [POOLERS[0]]: proxyFor(POOLERS[0]) })).toThrow(
+                'the edge has no Postgres proxy for the Cyclotron database the profile names'
+            )
         })
 
         it.each(CdpRole.options)(

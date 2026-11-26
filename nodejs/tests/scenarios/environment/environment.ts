@@ -37,7 +37,6 @@ import {
     ProbeFailure,
     STACK,
     createTopics,
-    cyclotronUpstreamsOf,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
     forgetSesBucket,
@@ -188,6 +187,15 @@ async function holdConnectionsDropped(sweep: () => Promise<number>): Promise<Act
     }
 }
 
+// The edge's proxy for each Cyclotron database the roles reach on their own.
+export async function proxiesOf(
+    pgProxyOf: EdgeProcess['pgProxyOf'],
+    direct: RoleSpec[]
+): Promise<Record<string, string>> {
+    const databases = [...new Set(direct.map(cyclotronUrlOf))]
+    return Object.fromEntries(await Promise.all(databases.map(async (url) => [url, await pgProxyOf(url)])))
+}
+
 export function createEnvironment({
     hogli = { command: path.join(REPO_ROOT, 'bin', 'hogli'), cwd: REPO_ROOT },
     docker = 'docker',
@@ -331,8 +339,13 @@ export function createEnvironment({
         const exitsBefore = supervisor.exits().length
         const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
-        const through = cyclotronThroughEdge ? { urls: edge.pgUrls, fallback: STACK.cyclotronNodeUrl } : undefined
-        const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas, through)
+        const direct = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
+        const specs = cyclotronThroughEdge
+            ? roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas, {
+                  urls: await proxiesOf(edge.pgProxyOf, direct),
+                  fallback: STACK.cyclotronNodeUrl,
+              })
+            : direct
         running = specs
         await createTopics(intakeTopicsOf(specs), docker)
         const groups = unionOf(consumerGroupsOf(specs), joined)
@@ -436,7 +449,6 @@ export function createEnvironment({
             trackingKeys: secrets.encryptionSaltKeys,
             caDir: path.join(stateDir, 'edge-ca'),
             feedbackUrl: `http://127.0.0.1:${portOf({ role: 'cdp-api', replica: 0 })}/public/m/ses_webhook`,
-            pgUpstreams: cyclotronUpstreamsOf(env),
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs
