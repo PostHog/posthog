@@ -448,6 +448,7 @@ export function WorkflowMetricsSummary({
                 appMetricsTrends={transactional ? transactionalTrends : workflowSummaryTrends}
                 loading={loading}
                 seriesColors={METRIC_COLORS}
+                className={transactional ? 'h-96' : undefined}
             />
         </>
     )
