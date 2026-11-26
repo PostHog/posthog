@@ -97,7 +97,6 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-
 def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
     # Callers pass ids they have already validated against the team; this reads names only.
     # nosemgrep: idor-lookup-without-team
