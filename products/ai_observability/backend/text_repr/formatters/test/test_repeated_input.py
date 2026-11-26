@@ -1,5 +1,6 @@
 import pytest
 
+from .. import repeated_input
 from ..repeated_input import RepeatedInput, RepeatedInputHistory
 
 
@@ -52,3 +53,11 @@ def test_deeply_nested_messages_do_not_exceed_the_recursion_limit() -> None:
     history.add([message])
 
     assert history.add([message]) == RepeatedInput(messages=1, generation=1)
+
+
+def test_stops_indexing_new_messages_at_the_cap_but_still_matches_indexed_ones(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(repeated_input, "MAX_INDEXED_MESSAGES", 3)
+    history = RepeatedInputHistory()
+    history.add([_text(f"message {i}") for i in range(5)])
+
+    assert history.add([_text(f"message {i}") for i in range(5)]) == RepeatedInput(messages=3, generation=1)

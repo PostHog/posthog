@@ -10,6 +10,9 @@ from posthog.dataclasses import frozen
 _TRANSPORT_METADATA_KEYS = frozenset({"cache_control", "signature", "caller"})
 _BLOCK_LIST_KEYS = frozenset({"content", "parts"})
 _STRING_CHUNK_CHARS = 1 << 16
+# Each indexed message costs about 300 bytes, and a trace's message count has no limit before the render
+# budget applies, so the history stops indexing new messages here. It still matches the ones it holds.
+MAX_INDEXED_MESSAGES = 20_000
 
 _Level = Literal["message", "blocks", "block", "payload"]
 
@@ -85,6 +88,8 @@ class RepeatedInputHistory:
                     messages=(repeated.messages if repeated else 0) + 1, generation=self._latest_generation[node]
                 )
             else:
+                if len(self._nodes) >= MAX_INDEXED_MESSAGES:
+                    break
                 node = self._nodes[key] = len(self._nodes) + 1
             self._latest_generation[node] = self.generations
         return repeated
