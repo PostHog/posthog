@@ -218,6 +218,9 @@ class ProgressReporter:
             self._dashboard.setup_started(phase)
         _emit(f"SETUP START  {phase}")
 
+    def prewarm_finished(self, count: int, duration_seconds: float) -> None:
+        _emit(f"TEAMS READY  {count} single-use teams  {_format_duration(duration_seconds)}")
+
     def print_run_header(
         self,
         *,

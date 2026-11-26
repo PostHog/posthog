@@ -58,7 +58,7 @@ from .offline_delivery import OfflineEvalDelivery
 from .ports import AI_GATEWAY_PORT, AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
 from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
-from .requirements import Infra, infra_union
+from .requirements import Infra, expand, infra_union
 from .run_report import RunReport
 from .skill_snapshot import SkillSnapshot
 
@@ -156,6 +156,21 @@ class SandboxedEvalHarness:
         self._git_dirty = _worktree_dirty()
 
     def run(self) -> int:
+        if self.options.prewarm_teams is not None:
+            reporter = ProgressReporter(total_suites=0, verbose=self.options.verbose, dashboard=self._dashboard)
+            ensure_personhog_binaries()
+            try:
+                with self._stack:
+                    self._bootstrap(expand([Infra.DEMO_DATA]), reporter)
+                    assert self._demo_data is not None
+                    reporter.setup_started(f"prepare {self.options.prewarm_teams} single-use teams")
+                    started = time.monotonic()
+                    self._demo_data.prewarm(self.options.prewarm_teams, self.options.team_setup_concurrency)
+                    reporter.prewarm_finished(self.options.prewarm_teams, time.monotonic() - started)
+            finally:
+                atexit.unregister(stop_all_subprocesses)
+            return 0
+
         # Discover before anything is provisioned: a typo'd selector should cost a
         # module import, not a database build and a Hedgebox seed.
         suites = discover_suites(self.options.selectors)
@@ -598,6 +613,7 @@ class SandboxedEvalHarness:
             posthog_client=self._posthog_client,
             sandbox_slots=asyncio.Semaphore(self.options.max_sandboxes) if Infra.SANDBOX in required else None,
             team_setup_slots=asyncio.Semaphore(self.options.team_setup_concurrency),
+            preparation_slots=asyncio.Semaphore(max(4, self.options.team_setup_concurrency)),
             one_shot_slots=asyncio.Semaphore(DEFAULT_ONE_SHOT_CONCURRENCY),
             reporter=reporter,
             engine=self._engine,

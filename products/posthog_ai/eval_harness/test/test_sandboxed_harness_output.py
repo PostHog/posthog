@@ -779,6 +779,39 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
 
 
 @pytest.mark.asyncio
+async def test_prepare_next_team_while_sandbox_is_busy(tmp_path, monkeypatch):
+    monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
+    ctx = MagicMock(
+        posthog_client=None,
+        case_filter=None,
+        sandbox_slots=asyncio.Semaphore(0),
+        preparation_slots=asyncio.Semaphore(1),
+        per_case_timeout_seconds=30,
+    )
+    case = SandboxedEvalCase(name="case", prompt="Run the task")
+    runner = AsyncMock(return_value=base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0)))
+    run = base._SandboxedEvalRun("prefetch", [case], [], ctx, case_runner=runner)
+    ready = asyncio.Event()
+    teams: list[int] = []
+
+    async def prepare(*args):
+        teams.append(len(teams) + 1)
+        ready.set()
+        return base._SandboxedCaseSetup(context=CustomPromptSandboxContext(team_id=teams[-1], user_id=1), seed={})
+
+    monkeypatch.setattr(run, "_prepare_case", prepare)
+    monkeypatch.setattr(base, "reclaim_kernels", AsyncMock())
+    async with asyncio.TaskGroup() as group:
+        for _ in range(2):
+            group.create_task(run._run_sandbox_window(case, case))
+        await asyncio.wait_for(ready.wait(), timeout=2)
+        assert teams == [1]
+        runner.assert_not_awaited()
+        ctx.sandbox_slots.release()
+    assert [call.args[1].team_id for call in runner.await_args_list] == [1, 2]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("agent_error", [None, RuntimeError("agent failed"), asyncio.CancelledError()])
 @pytest.mark.parametrize("reporting_phase", ["agent", "cleanup"])
 @pytest.mark.parametrize("custom_runner", [False, True])
