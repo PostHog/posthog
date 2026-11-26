@@ -12,6 +12,7 @@ import {
     InstructionsFormatter,
 } from '@/lib/instructions-formatter'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
+import type { FlagValue } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
@@ -65,6 +66,8 @@ const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-sea
 const INBOX_LIST_TOOL = 'inbox-reports-list'
 const INBOX_FIRST_TOOLS = [INBOX_LIST_TOOL, 'inbox-reports-retrieve']
 const INBOX_CLAIM_TOOL = 'inbox-reports-claim'
+// `true` is the flag without variants. With variants, `line` is the one that shows the line.
+const INBOX_NUDGE_FLAG_VALUES: ReadonlySet<FlagValue> = new Set([true, 'line'])
 
 // Human comment, not AI slop. Version 2.0.0 of the PostHog app for ChatGPT and Codex started
 // requesting `llm_skill:read`, but existing connections never got re-prompted for it, so their
@@ -138,7 +141,7 @@ export class InstructionsBuilder {
                 INBOX_FIRST_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name)),
             inboxClaimEnabled: state.allTools.some((tool) => tool.name === INBOX_CLAIM_TOOL),
             inboxNudgeEnabled:
-                state.toolFeatureFlags?.[MCP_SELF_DRIVING_NUDGE_FLAG] === true &&
+                INBOX_NUDGE_FLAG_VALUES.has(state.toolFeatureFlags?.[MCP_SELF_DRIVING_NUDGE_FLAG]) &&
                 state.allTools.some((tool) => tool.name === INBOX_LIST_TOOL) &&
                 isCustomerFacingSurface({
                     mcpConsumer: state.clientProfile.consumer,

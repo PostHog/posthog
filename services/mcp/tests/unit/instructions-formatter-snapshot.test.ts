@@ -204,6 +204,20 @@ describe('InstructionsFormatter prompt snapshots', () => {
             expected: { inboxFirstEnabled: false, inboxNudgeEnabled: true },
         },
         {
+            name: 'the nudge flag in its line variant',
+            first: false,
+            nudge: 'line',
+            tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
+            expected: { inboxFirstEnabled: false, inboxNudgeEnabled: true },
+        },
+        {
+            name: 'the nudge flag in a variant that shows nothing',
+            first: false,
+            nudge: 'control',
+            tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
+            expected: { inboxFirstEnabled: false, inboxNudgeEnabled: false },
+        },
+        {
             name: 'both flags on without retrieve',
             first: true,
             nudge: true,
