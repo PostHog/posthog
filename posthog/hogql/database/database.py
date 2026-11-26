@@ -829,14 +829,74 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
         warehouse_lookups,
     )
 
-    gated = frozenset(access_controlled_posthog_tables().values())
+    gated_tables = access_controlled_posthog_tables()
+    gated = frozenset(gated_tables.values())
     catalog = (lookups or warehouse_lookups(team.pk)).for_next_fingerprint()
     scopes = queried_access_controlled_resources(HogQLQuery(query=table.saved_query_sql), team, _catalog=catalog)
     if scopes is None:
         return gated
+    definitions = [table.saved_query_sql]
+    for name in catalog.walked_views:
+        view_query = catalog.view_queries.get(name)
+        if isinstance(view_query, dict) and isinstance(view_query.get("query"), str):
+            definitions.append(view_query["query"])
+    if _reads_tables_the_walk_cannot_name(definitions, catalog.looked_up_names, frozenset(gated_tables), team.pk):
+        return gated
     if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team.pk):
         return gated
     return frozenset(scopes & gated)
+
+
+def _reads_tables_the_walk_cannot_name(
+    definitions: Sequence[str], read_names: Collection[str], gated_tables: frozenset[str], team_id: int
+) -> bool:
+    """True when a definition may read a table that appears nowhere in its text, which the name walk misses.
+
+    A HogQLX tag in a table position expands to a query only at resolution. A warehouse join adds a lazy field
+    to the table it starts from, so a definition reading that field reads the joined table or view by no name.
+    """
+    from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
+    from posthog.hogql.parser import parse_select  # noqa: PLC0415
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
+
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+    from products.data_tools.backend.facade.models import DataWarehouseJoin  # noqa: PLC0415
+
+    class _TagTableFinder(TraversingVisitor):
+        found = False
+
+        def visit_join_expr(self, node: ast.JoinExpr) -> None:
+            if isinstance(node.table, ast.HogQLXTag):
+                self.found = True
+            super().visit_join_expr(node)
+
+    for definition in definitions:
+        finder = _TagTableFinder()
+        try:
+            finder.visit(parse_select(definition))
+        except BaseHogQLError:
+            return True
+        if finder.found:
+            return True
+
+    sources = set(read_names) | gated_tables
+    joined = set(
+        DataWarehouseJoin.objects.filter(team_id=team_id, source_table_name__in=sources)
+        .exclude(deleted=True)
+        .values_list("joining_table_name", flat=True)
+    )
+    if not joined:
+        return False
+    if joined & (gated_tables | {name.removeprefix("posthog.") for name in gated_tables}):
+        return True
+    # A joined view can read a gated table itself, so it fails closed instead of being walked too.
+    return (
+        DataWarehouseSavedQuery.objects.filter(
+            team_id=team_id, name__in=joined | {name.removeprefix("models.") for name in joined}
+        )
+        .exclude(deleted=True)
+        .exists()
+    )
 
 
 def _definition_changed_since_materialized(saved_query_id: str, view_names: Collection[str], team_id: int) -> bool:

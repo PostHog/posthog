@@ -29,6 +29,8 @@ _CTE_SHADOWED_TRACE_READ = (
     "(WITH `posthog.trace_spans` AS (SELECT '' AS name) SELECT name FROM `posthog.trace_spans`)"
 )
 
+_TAG_TRACE_READ = "SELECT name FROM <HogQLQuery query='SELECT name FROM posthog.trace_spans' />"
+
 
 class TestAccessControlSystemTables(BaseTest):
     """Test resource-level access control for system tables."""
@@ -659,15 +661,23 @@ class TestDeniedTableError(BaseTest):
 
     @parameterized.expand(
         [
-            ("tracing_none", "none", "SELECT name FROM posthog.trace_spans", False, True),
-            ("tracing_viewer", "viewer", "SELECT name FROM posthog.trace_spans", False, False),
-            ("cte_shadows_trace_table", "none", _CTE_SHADOWED_TRACE_READ, False, True),
-            ("edited_after_build", "none", "SELECT '' AS name", True, True),
-            ("unedited_without_trace_read", "none", "SELECT '' AS name", False, False),
+            ("tracing_none", "none", "SELECT name FROM posthog.trace_spans", False, False, True),
+            ("tracing_viewer", "viewer", "SELECT name FROM posthog.trace_spans", False, False, False),
+            ("cte_shadows_trace_table", "none", _CTE_SHADOWED_TRACE_READ, False, False, True),
+            ("edited_after_build", "none", "SELECT '' AS name", True, False, True),
+            ("unedited_without_trace_read", "none", "SELECT '' AS name", False, False, False),
+            ("trace_read_in_a_query_tag", "none", _TAG_TRACE_READ, False, False, True),
+            ("trace_read_through_a_warehouse_join", "none", "SELECT event AS name FROM events", False, True, True),
         ]
     )
     def test_materialized_view_over_trace_tables_follows_tracing_access(
-        self, _name: str, access_level: str, view_sql: str, edited_after_build: bool, denied: bool
+        self,
+        _name: str,
+        access_level: str,
+        view_sql: str,
+        edited_after_build: bool,
+        join_events_to_spans: bool,
+        denied: bool,
     ) -> None:
         from posthog.hogql.database.database import read_posthog_table_scopes
         from posthog.hogql.parser import parse_select
@@ -678,6 +688,7 @@ class TestDeniedTableError(BaseTest):
 
         from products.access_control.backend.models.access_control import AccessControl
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+        from products.data_tools.backend.facade.models import DataWarehouseJoin
         from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         self.organization.available_product_features = [
@@ -695,6 +706,15 @@ class TestDeniedTableError(BaseTest):
             url_pattern="https://bucket.example.com/slow_spans/*",
             columns={"name": "String"},
         )
+        if join_events_to_spans:
+            DataWarehouseJoin.objects.create(
+                team=self.team,
+                source_table_name="events",
+                source_table_key="event",
+                joining_table_name="posthog.trace_spans",
+                joining_table_key="name",
+                field_name="spans",
+            )
         built_at = datetime.now(UTC)
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
