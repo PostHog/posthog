@@ -384,7 +384,7 @@ function check(
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
                   ...derived.problems,
-                  ...checkSesLimiter(card, loaded.profile, derived.load ?? loaded.profile.load, defaults),
+                  ...checkSesLimiter(card, loaded.profile, derived.load, defaults),
                   ...checkFaultFreeBaseline(card, loaded.profile),
                   ...checkIntakeReplicaValves(card, loaded.profile),
                   ...checkAcceptedBoundaryReplicas(card, loaded.profile),

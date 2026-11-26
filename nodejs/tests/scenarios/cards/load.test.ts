@@ -559,6 +559,12 @@ describe('load', () => {
             'profile.traffic.bounce_followup: load admission cannot derive targets from bounce_followup, since its claims per unit are not modelled',
         ],
         [
+            'a load profile with a malformed entry for traffic the card does not drive',
+            card,
+            { ...fullTraffic, traffic: { ...fullTraffic.traffic, event_webhook: { ratePerSecond: 0 } } },
+            'profile.traffic.event_webhook.ratePerSecond: ',
+        ],
+        [
             'a load block without an email claim target and an SES limiter capacity under one batch',
             card,
             { ...profile, load: { targets: { claimsPerSecond: { hogflow: 4 } }, tolerance: 0.1 } },

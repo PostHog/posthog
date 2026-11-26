@@ -212,7 +212,7 @@ describe('scorecard', () => {
         })
     })
 
-    it("records the load targets a card's own traffic derives from its profile's targets", () => {
+    it("records how a card's own traffic derives its load targets, without the profile's numbers", () => {
         const loaded = loadText('chaos card', {
             card: JSON.stringify({
                 ...SMOKE.card,
@@ -231,14 +231,8 @@ describe('scorecard', () => {
         })
 
         expect(scorecardOf(RESULT, loaded, PROVENANCE).load_targets).toEqual([
-            {
-                rate: 'claimsPerSecond.hogflow',
-                from: ['event_email', 'event_webhook'],
-                profileTarget: 8,
-                share: 1,
-                target: 8,
-            },
-            { rate: 'claimsPerSecond.email', from: ['event_email'], profileTarget: 6, share: 0.5, target: 3 },
+            { rate: 'claimsPerSecond.hogflow', from: ['event_email', 'event_webhook'], share: 1 },
+            { rate: 'claimsPerSecond.email', from: ['event_email'], share: 0.5 },
         ])
     })
 

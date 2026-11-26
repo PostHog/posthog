@@ -36,25 +36,42 @@ function judgedRatesOf({ targets }: Load): JudgedRate[] {
           ]
 }
 
-function modelledTrafficOf(card: Card, profile: Profile): { traffic: ModelledTraffic[]; problems: string[] } {
+type Modelled = { traffic: ModelledTraffic[]; problems: string[]; complete: boolean }
+
+function modelledTrafficOf(card: Card, profile: Profile): Modelled {
     const listed = card.drive.traffic.map(({ name }) => name)
     const traffic: ModelledTraffic[] = []
     const problems: string[] = []
+    let complete = true
     for (const [name, shape] of Object.entries(profile.traffic)) {
+        const times = listed.filter((listedName) => listedName === name).length
         const kind = TRAFFIC.find((known) => known.name === name)
-        const parsed = kind?.profile.safeParse(shape).data
-        const unit = parsed && kind?.unitLoad?.(parsed.parks)
-        if (unit === undefined) {
+        if (kind === undefined) {
+            problems.push(
+                `profile.traffic.${name}: unknown traffic kind ${name}, so load admission cannot derive targets`
+            )
+            continue
+        }
+        const parsed = kind.profile.safeParse(shape)
+        if (!parsed.success) {
+            complete = false
+            problems.push(...(times > 0 ? [] : shapeProblemsOf(name, parsed.error.issues)))
+            continue
+        }
+        if (kind.unitLoad === undefined) {
             problems.push(
                 `profile.traffic.${name}: load admission cannot derive targets from ${name}, since its claims per unit are not modelled`
             )
             continue
         }
-        const times = listed.filter((listedName) => listedName === name).length
-        traffic.push({ name, ratePerSecond: parsed!.ratePerSecond, listed: times, unit })
+        const { ratePerSecond, parks } = parsed.data
+        traffic.push({ name, ratePerSecond, listed: times, unit: kind.unitLoad(parks) })
     }
-    return { traffic, problems }
+    return { traffic, problems, complete: complete && problems.length === 0 }
 }
+
+const shapeProblemsOf = (name: string, issues: { path: PropertyKey[]; message: string }[]): string[] =>
+    issues.map(({ path, message }) => `${['profile', 'traffic', name, ...path.map(String)].join('.')}: ${message}`)
 
 function derivationOf(card: Card, traffic: ModelledTraffic[], judged: JudgedRate): Derivation {
     const { rate, what, reaches, profileTarget, per } = judged
@@ -76,8 +93,8 @@ export function loadTargetsOf(card: Card, profile: Profile): { load?: DerivedLoa
     if (profile.load === undefined) {
         return { problems: [] }
     }
-    const { traffic, problems } = modelledTrafficOf(card, profile)
-    if (problems.length > 0) {
+    const { traffic, problems, complete } = modelledTrafficOf(card, profile)
+    if (!complete) {
         return { problems }
     }
     const judged = judgedRatesOf(profile.load)

@@ -817,6 +817,9 @@ export function createRunner(
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
+                if (loaded.admission.load) {
+                    writeJson(evidenceDir, 'load-targets.json', loaded.admission.load)
+                }
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed, dependencies })
                 if (writerCpuReads.length > 0) {
                     writeJson(evidenceDir, 'writer-cpu.json', writerCpuReads)
