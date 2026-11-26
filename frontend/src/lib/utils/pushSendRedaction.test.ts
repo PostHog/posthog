@@ -24,6 +24,7 @@ describe('push send redaction', () => {
         ['a saved workflow test send', '/api/environments/1/hog_flows/0190-abc/invocations', REDACTED],
         ['the workflow list', '/api/projects/1/hog_flows/', BODY],
         ['an email send', '/api/projects/1/messaging/send/email/', BODY],
+        ['the push numbers', '/api/projects/1/transactional_push_log/stats/', BODY],
         ['the push page', '/api/projects/1/messaging_templates/push/', BODY],
     ])('redacts only the bodies of a push send: %s', (_name, name, body) => {
         const response = body === BODY ? RESPONSE : REDACTED
@@ -32,8 +33,10 @@ describe('push send redaction', () => {
         expect(requestsOf(event)).toEqual([{ name, requestBody: body, responseBody: response }])
     })
 
-    it('redacts a test send response recorded without its request', () => {
-        const name = '/api/projects/1/hog_flows/new/invocations/'
+    it.each([
+        ['a test send', '/api/projects/1/hog_flows/new/invocations/'],
+        ['the push log', '/api/projects/1/transactional_push_log/?limit=50&date_from=2026-11-01'],
+    ])('redacts a response recorded without its request: %s', (_name, name) => {
         const event = redactPushSendsInReplay(recorded([{ name, responseBody: RESPONSE }]))
 
         expect(requestsOf(event)).toEqual([{ name, responseBody: REDACTED }])
