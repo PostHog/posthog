@@ -211,6 +211,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
     MarketingAnalyticsRecommendationResolutionState as MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule as MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsConversionSourceKind as MarketingAnalyticsRecommendationsConversionSourceKind,
     MarketingAnalyticsRecommendationsDataGapKind as MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsSourceType as MarketingAnalyticsRecommendationsSourceType,
     MarketingAnalyticsRetentionInterval as MarketingAnalyticsRetentionInterval,
@@ -6458,6 +6459,21 @@ class ExperimentWarehouseNativeNode(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ExperimentWarehouseNativeRowsLeftOut(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    empty_id: int | None = Field(default=None, description="Exposure rows with an empty entity_id.")
+    exposed_without_rows: dict[str, int] | None = Field(
+        default=None,
+        description=("Exposed entities with no row of the metric query that counted, by variant."),
+    )
+    unknown_variants: dict[str, int] | None = Field(
+        default=None,
+        description=("Exposure rows whose variant is not one the flag serves, counted by the value seen."),
+    )
+
+
 class ExternalQueryError(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7435,6 +7451,17 @@ class MarketingAnalyticsRecommendationResolution(BaseModel):
             "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp."
         ),
     )
+
+
+class MarketingAnalyticsRecommendationsConversionSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalNames: list[str] = Field(
+        ...,
+        description="Names of the conversion goals CPAs count. Empty for `google_ads`.",
+    )
+    kind: MarketingAnalyticsRecommendationsConversionSourceKind
 
 
 class MarketingAnalyticsRecommendationsDataGap(BaseModel):
@@ -20557,6 +20584,13 @@ class ExperimentQueryResponse(BaseModel):
         description="Whether exposures were served from the precomputation system",
     )
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native metric query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -22592,6 +22626,10 @@ class MarketingAnalyticsRecommendationsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | None = Field(
+        default=None,
+        description=("The conversions CPAs count. Null when no Google Ads account was read."),
+    )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,
         description=("Data the rules needed but could not read, so some figures use a fallback."),
@@ -24043,6 +24081,13 @@ class QueryResponseAlternative19(BaseModel):
         description="Whether exposures were served from the precomputation system",
     )
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native metric query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -25165,6 +25210,10 @@ class QueryResponseAlternative38(BaseModel):
 class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | None = Field(
+        default=None,
+        description=("The conversions CPAs count. Null when no Google Ads account was read."),
     )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,
@@ -32133,6 +32182,13 @@ class CachedExperimentQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native metric query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     timezone: str
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
@@ -32256,6 +32312,10 @@ class CachedMarketingAnalyticsRecommendationsQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | None = Field(
+        default=None,
+        description=("The conversions CPAs count. Null when no Google Ads account was read."),
     )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,
@@ -32568,6 +32628,15 @@ class ConversionGoalFilter1(BaseModel):
     )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -32634,6 +32703,15 @@ class ConversionGoalFilter2(BaseModel):
     )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -32705,6 +32783,15 @@ class ConversionGoalFilter3(BaseModel):
     schema_map: dict[str, str | Any]
     table_name: str
     timestamp_field: str
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -33386,6 +33473,13 @@ class ExperimentExposureQueryResponse(BaseModel):
         ),
     )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native exposure query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
@@ -35085,6 +35179,13 @@ class QueryResponseAlternative20(BaseModel):
         ),
     )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native exposure query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
@@ -35546,6 +35647,14 @@ class TraceQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    eventsLimit: conint(ge=1, le=10000) | None = Field(
+        default=None,
+        description=(
+            "Return only the earliest events of the trace by timestamp. The latency,"
+            " token and cost totals still cover every matching event. Leave unset to"
+            " return every event."
+        ),
+    )
     includeSentiment: bool | None = Field(
         default=None,
         description=("Include stored sentiment evaluation results for the trace and its generations."),
@@ -36178,6 +36287,13 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native exposure query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     timezone: str
@@ -36627,6 +36743,14 @@ class HogQLQuery(BaseModel):
         ),
     )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Rows to return in place of the default row limit, capped at the maximum"
+            " for the query's context. Ignored when the query sets its own LIMIT, uses"
+            " UNION, or runs as raw SQL."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     offset: conint(ge=0) | None = Field(

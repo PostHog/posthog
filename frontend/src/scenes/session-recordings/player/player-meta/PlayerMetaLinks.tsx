@@ -36,7 +36,8 @@ export function PinToPlaylistButton({
     size = 'xsmall',
     type,
     labelled = false,
-}: Pick<LemonButtonProps, 'size' | 'type'> & { labelled?: boolean } = {}): JSX.Element {
+    iconOnly = false,
+}: Pick<LemonButtonProps, 'size' | 'type'> & { labelled?: boolean; iconOnly?: boolean } = {}): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
@@ -67,7 +68,7 @@ export function PinToPlaylistButton({
                 size={size}
                 type={type}
             >
-                {description}
+                {iconOnly ? null : description}
             </PlaylistPopoverButton>
         </AccessControlAction>
     )

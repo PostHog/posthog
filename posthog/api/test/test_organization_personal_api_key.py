@@ -360,17 +360,27 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
             secure_values
         )
 
-    @parameterized.expand([("roll",), ("revoke",), ("roll_all",), ("revoke_all",)])
-    def test_admin_can_invalidate_organization_owner_key(self, action: str) -> None:
+    @parameterized.expand(
+        [(action, active) for action in ("roll", "revoke", "roll_all", "revoke_all") for active in (True, False)]
+    )
+    def test_admin_can_only_invalidate_organization_owner_key_while_active(self, action: str, active: bool) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         owner = User.objects.create_and_join(
             self.organization, "org-owner@example.com", None, level=OrganizationMembership.Level.OWNER
         )
         key = self._create_key(owner)
         old_secret = key.secure_value
+        self.organization.is_active = active
+        self.organization.save(update_fields=["is_active"])
 
         url = self._bulk_action_url(action) if action.endswith("_all") else self._action_url(key, action)
         response = self.client.post(url)
+
+        if not active:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+            assert response.json()["code"] == "organization_deactivated"
+            assert PersonalAPIKey.objects.get(pk=key.pk).secure_value == old_secret
+            return
 
         assert response.status_code == status.HTTP_200_OK, response.content
         if action in ("roll", "roll_all"):

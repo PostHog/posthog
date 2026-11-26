@@ -173,7 +173,11 @@ import {
   type GatewayEnvInput,
 } from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
-import { readProductLaunch, readRunLaunch } from "./launch/run-launch";
+import {
+  codexConfigOverrides,
+  readProductLaunch,
+  readRunLaunch,
+} from "./launch/run-launch";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
 import {
   CliProcessRegistry,
@@ -2264,35 +2268,44 @@ export class AgentServer {
     );
     this.initializingTelemetry = telemetry;
 
-    const gatewayEnv = this.configureEnvironment({
-      runSpanContext: telemetry?.getRunSpanContext(),
-      isInternal: launch.internal,
-      originProduct: launch.originProduct,
-      gatewayProduct: launch.policy.billingProduct,
-      signalReportId: launch.signalReportId,
-      aiStage: launch.aiStage,
-      aiAgentName: launch.aiAgentName,
-      taskId: payload.task_id,
-      taskRunId: payload.run_id,
-      taskUserId: launch.userId,
-      taskTitle: launch.title,
-      taskOriginKey: launch.originKey,
-      repositories: launch.repositories,
-      runtimeAdapter,
-      sandboxEnvironmentId: launch.sandboxEnvironmentId,
-      snapshotKind: launch.snapshotKind,
-      prewarmed: launch.prewarmed,
-      executionEnvironment: "cloud",
-      sharedPromptCache: launch.sharedPromptCache,
-      runPolicySource: launch.policySource,
-    });
+    const ownSubscription =
+      (runtimeAdapter === "codex"
+        ? this.config.codexModelAccess
+        : this.config.claudeModelAccess) === "own-subscription";
+    let gatewayEnv: GatewayEnv | null = null;
+    if (ownSubscription) {
+      this.exportServerEnvironment();
+    } else {
+      gatewayEnv = this.configureEnvironment({
+        runSpanContext: telemetry?.getRunSpanContext(),
+        isInternal: launch.internal,
+        originProduct: launch.originProduct,
+        gatewayProduct: launch.policy.billingProduct,
+        signalReportId: launch.signalReportId,
+        aiStage: launch.aiStage,
+        aiAgentName: launch.aiAgentName,
+        taskId: payload.task_id,
+        taskRunId: payload.run_id,
+        taskUserId: launch.userId,
+        taskTitle: launch.title,
+        taskOriginKey: launch.originKey,
+        repositories: launch.repositories,
+        runtimeAdapter,
+        sandboxEnvironmentId: launch.sandboxEnvironmentId,
+        snapshotKind: launch.snapshotKind,
+        prewarmed: launch.prewarmed,
+        executionEnvironment: "cloud",
+        sharedPromptCache: launch.sharedPromptCache,
+        runPolicySource: launch.policySource,
+      });
+    }
 
     // Only that stamped header makes the run id a trace the generations land
     // in. Unconditional so a re-init on this instance drops a stale run's id.
     this.stampedRunTraceId =
-      gatewayEnv.openaiCustomHeaders?.["X-PostHog-Trace-Id"] ?? null;
+      gatewayEnv?.openaiCustomHeaders?.["X-PostHog-Trace-Id"] ?? null;
 
-    if (this.config.repoReadyFile && gatewayEnv.anthropicBaseUrl) {
+    if (this.config.repoReadyFile && gatewayEnv?.anthropicBaseUrl) {
       // Authed so this cache-warm matches the session's own authed fetch
       // (the models cache is keyed on auth presence).
       void fetchGatewayModels({
@@ -2415,22 +2428,22 @@ export class AgentServer {
         : undefined,
       claudeGatewayEnv:
         runtimeAdapter !== "codex" && claudeSubscriptionToken === null
-          ? gatewayEnv
+          ? (gatewayEnv ?? undefined)
           : undefined,
       claudeMachineAuth:
         runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
           ? { oauthToken: claudeSubscriptionToken }
           : undefined,
-      claudeModelsGatewayUrl:
+      claudeListModels:
         runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
-          ? gatewayEnv.anthropicBaseUrl
+          ? () => posthogAPI.getTaskModels()
           : undefined,
       codexOptions:
         runtimeAdapter === "codex"
           ? {
               cwd: codexProcessCwd(this.config),
               // Routing a plan run through the gateway would bill us as well.
-              ...(codexSubscriptionTokens
+              ...(codexSubscriptionTokens || !gatewayEnv
                 ? {}
                 : codexAuthFromGatewayEnv(gatewayEnv)),
               // Bundled-binary hint for the native codex CLI: the codex
@@ -2450,18 +2463,11 @@ export class AgentServer {
                   ? this.config.reasoningEffort
                   : undefined,
               serviceTier: this.config.serviceTier,
-              // Codex runs at most 3 sub-agents per session at once by default; the main agent does
-              // not count. A run that starts more sub-agents at once sets its own limit.
-              ...(launch.codexMaxSubagents && {
-                configOverrides: {
-                  "agents.max_concurrent_threads_per_session":
-                    launch.codexMaxSubagents,
-                },
-              }),
+              configOverrides: codexConfigOverrides(launch),
               developerInstructions: codexInstructions,
               httpHeaders: codexSubscriptionTokens
                 ? undefined
-                : gatewayEnv.openaiCustomHeaders,
+                : gatewayEnv?.openaiCustomHeaders,
               chatgptAuthTokens: codexSubscriptionTokens ?? undefined,
               refreshChatgptAuthTokens: codexSubscriptionTokens
                 ? () => this.refreshCodexSubscriptionTokens()
@@ -5154,8 +5160,17 @@ export class AgentServer {
   }
 
   private configureEnvironment(input: GatewayEnvInput = {}): GatewayEnv {
-    const { apiKey, apiUrl, projectId } = this.config;
     const gatewayEnv = buildGatewayEnv(this.config, input, this.logger);
+    this.exportServerEnvironment();
+
+    // Task-specific gateway config is returned rather than written to
+    // process.env so that concurrent sessions do not clobber each other's
+    // gateway URL, auth token, or custom headers.
+    return gatewayEnv;
+  }
+
+  private exportServerEnvironment(): void {
+    const { apiKey, apiUrl, projectId } = this.config;
 
     // Server-level constants that don't vary per task — safe to keep in
     // process.env so spawned tools (PostHog MCP, workspace-server, etc.) can
@@ -5167,11 +5182,6 @@ export class AgentServer {
       POSTHOG_AUTH_HEADER: `Bearer ${apiKey}`,
       POSTHOG_PROJECT_ID: String(projectId),
     });
-
-    // Task-specific gateway config is returned rather than written to
-    // process.env so that concurrent sessions do not clobber each other's
-    // gateway URL, auth token, or custom headers.
-    return gatewayEnv;
   }
 
   private handleProductQuestion(

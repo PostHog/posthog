@@ -70,11 +70,10 @@ from products.experiments.backend.hogql_queries.precompute_policy import precomp
 
 def resolve_exposure_config_for_builder(
     exposure_config: ExperimentEventExposureConfig | ActionsNode,
-    team: Team,
     start_date: Optional[datetime],
 ) -> ExperimentEventExposureConfig | ActionsNode:
     if isinstance(exposure_config, ExperimentEventExposureConfig) and exposure_config.event == DEFAULT_EXPOSURE_EVENT:
-        return exposure_config.model_copy(update={"event": resolve_default_exposure_event(team, start_date)})
+        return exposure_config.model_copy(update={"event": resolve_default_exposure_event(start_date)})
     return exposure_config
 
 
@@ -90,7 +89,6 @@ class ExposureQueryParams:
 
 def get_exposure_config_params_for_builder(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
-    team: Team,
     start_date: Optional[datetime],
 ) -> ExposureQueryParams:
     criteria = normalize_to_exposure_criteria(exposure_criteria)
@@ -101,14 +99,12 @@ def get_exposure_config_params_for_builder(
     if isinstance(stored_exposure, ExperimentWarehouseNativeExposureConfig):
         raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
     if criteria is None:
-        exposure_config = ExperimentEventExposureConfig(
-            event=resolve_default_exposure_event(team, start_date), properties=[]
-        )
+        exposure_config = ExperimentEventExposureConfig(event=resolve_default_exposure_event(start_date), properties=[])
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if stored_exposure is None:
             exposure_config = ExperimentEventExposureConfig(
-                event=resolve_default_exposure_event(team, start_date), properties=[]
+                event=resolve_default_exposure_event(start_date), properties=[]
             )
         elif (
             isinstance(stored_exposure, ExperimentEventExposureConfig)
@@ -117,7 +113,7 @@ def get_exposure_config_params_for_builder(
             # A config naming $feature_flag_called explicitly is the default exposure, not a
             # custom one (same convention as get_exposure_event_and_property), so it follows
             # the same event resolution while keeping its property filters.
-            exposure_config = resolve_exposure_config_for_builder(stored_exposure, team, start_date)
+            exposure_config = resolve_exposure_config_for_builder(stored_exposure, start_date)
         else:
             exposure_config = stored_exposure
         # Activation only composes with the default exposure; a custom exposure_config

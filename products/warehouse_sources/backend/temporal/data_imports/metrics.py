@@ -120,6 +120,15 @@ def get_run_deferred_metric() -> MetricCounter:
     )
 
 
+def get_organization_deactivated_skipped_metric() -> MetricCounter:
+    # Same visibility gap as the deferral metric: the skip leaves no job row, so this counter is
+    # the only record that runs of a deactivated organization stood down.
+    return workflow.metric_meter().create_counter(
+        "data_import_organization_deactivated_skipped",
+        "Scheduled runs that stood down because the organization is deactivated.",
+    )
+
+
 def get_progressless_stand_down_metric(source_type: str | None) -> MetricCounter:
     # The resumable cap is justified only while attempts continue, and this counts where they did
     # not, so a source that cannot checkpoint at all shows up as a class rather than as a ticket.

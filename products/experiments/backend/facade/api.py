@@ -13,7 +13,10 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.exceptions import (
+    PermissionDenied as DjangoPermissionDenied,
+    ValidationError as DjangoValidationError,
+)
 
 import pydantic
 import structlog
@@ -44,8 +47,8 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids
 from products.experiments.backend.models.experiment import (
-    LEGACY_METRIC_KINDS,
     Experiment as ExperimentModel,
+    ExperimentMetricsRecalculation,
     experiment_variants,
     flag_has_live_experiment as _flag_has_live_experiment,
 )
@@ -54,11 +57,15 @@ from products.experiments.backend.models.team_experiments_config import (
     validate_recalculation_times as _validate_stored_recalculation_times,
 )
 from products.experiments.backend.running_time_target import load_running_time_target
-from products.experiments.backend.warehouse_native_sources import user_may_read_warehouse_native_results
+from products.experiments.backend.warehouse_native_sources import (
+    user_may_read_warehouse_native_results,
+    validate_warehouse_native_connection_access,
+)
 from products.experiments.stats.shared.enums import DifferenceType
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
 from .contracts import (
+    ActiveRecalculationRun,
     CreateExperimentInput,
     DigestCompletedExperiment,
     DigestLaunchedExperiment,
@@ -72,7 +79,11 @@ from .contracts import (
     ExperimentRunningTimeOutlook,
     ExperimentRunningTimeTarget,
     ExperimentValidationError,
+    LatestRecalculation,
     LinkedExperiment,
+    MetricRecalculationResult,
+    RecalculationRun,
+    RequestedRecalculation,
     RunningExperiment,
     RunningTimeMode,
     StoredArmResult,
@@ -80,8 +91,10 @@ from .contracts import (
     TeamExperimentsSettings,
     TeamExperimentsSettingsUpdate,
     Unset,
+    WarehouseNativeResultAccessDenied,
 )
-from .enums import MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
+from .enums import LEGACY_METRIC_KINDS, MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
+from .warehouse_native_access import warehouse_native_connection_id
 
 logger = structlog.get_logger(__name__)
 
@@ -212,13 +225,19 @@ def _nodes_read_without_exposure_copy(experiment: ExperimentModel) -> list[dict[
 
 
 def get_experiment_health(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
+    *,
+    team_id: int,
+    experiment_id: int,
+    reader_access: ExperimentHealthReaderAccess,
+    user: User | None,
+    at_launch: bool = False,
 ) -> ExperimentHealth:
     """The findings and the result of each health check that reads the experiment, its flag, its linked metrics,
     and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows, and the
-    flag's settings that decide the variant. The metric queries compile with `user`'s warehouse access."""
+    flag's settings that decide the variant. The metric queries compile with `user`'s warehouse access. With
+    `at_launch`, a draft's checks that run only after launch run as if it launched now."""
     return evaluate_experiment_health(
-        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
+        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user, at_launch=at_launch
     )
 
 
@@ -439,6 +458,15 @@ def get_experiment_team_id(experiment_id: int) -> int | None:
     return ExperimentModel.objects.filter(pk=experiment_id).values_list("team_id", flat=True).first()
 
 
+def experiment_ids_created_by(*, team_id: int, user_id: int, experiment_ids: Collection[str] | None) -> frozenset[str]:
+    """Ids of the team's experiments that the user created, deleted experiments included, among `experiment_ids`
+    (or among all of them when it is None)."""
+    experiments = ExperimentModel.objects.filter(team_id=team_id, created_by_id=user_id)
+    if experiment_ids is not None:
+        experiments = experiments.filter(id__in=[int(id) for id in experiment_ids if id.isdigit()])
+    return frozenset(str(id) for id in experiments.values_list("id", flat=True))
+
+
 def team_has_launched_experiments(team_id: int) -> bool:
     """Whether the team has a running or stopped experiment, deleted and archived ones included. Experiments are saved
     on the project's root team, so pass that team's id."""
@@ -558,6 +586,125 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
     )
 
     dispatch.start_metrics_recalculation_workflow(recalculation_id, team_id=team_id, organization_id=organization_id)
+
+
+def request_metrics_recalculation(
+    *, team_id: int, experiment_id: int, user_id: int, trigger: str
+) -> RequestedRecalculation:
+    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
+        recalculation,
+    )
+
+    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    user = User.objects.get(id=user_id)
+    payload = recalculation.request_recalculation(experiment, user, trigger)
+    return RequestedRecalculation(**_run_summary_fields(payload), is_existing=payload["is_existing"])
+
+
+def get_latest_recalculation(*, team_id: int, experiment_id: int, user_id: int | None) -> LatestRecalculation | None:
+    """None when the experiment has no run and no timeseries data to show.
+
+    Raises WarehouseNativeResultAccessDenied when the reader may not read the stored results.
+    """
+    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
+        recalculation,
+    )
+
+    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    _check_warehouse_native_result_access(experiment, user_id)
+    active = recalculation.get_active_recalculation(experiment)
+    latest = recalculation.get_latest_recalculation(experiment)
+    payload: dict[str, Any] | None
+    if latest is not None:
+        payload = _recalculation_run_payload(latest)
+    else:
+        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
+        # placeholder so the user sees results immediately, even while a first run is active (its pending
+        # payload would blank them out); an active run still rides along for polling. Pure read, no
+        # workflow start.
+        payload = recalculation.build_timeseries_cold_start_payload(experiment)
+        if payload is None and active is not None:
+            payload = _recalculation_run_payload(active)
+
+    if payload is None:
+        return None
+    run = _recalculation_run(payload)
+    return LatestRecalculation(
+        **{field.name: getattr(run, field.name) for field in dataclasses.fields(run)},
+        active_run=ActiveRecalculationRun(id=str(active.id), status=active.status) if active is not None else None,
+        result_source=payload.get("result_source", "recalculation"),
+        exceeds_recalculation_age_limit=recalculation.exceeds_recalculation_age_limit(experiment),
+    )
+
+
+def get_recalculation_run(
+    *, team_id: int, experiment_id: int, recalculation_id: str, user_id: int | None
+) -> RecalculationRun | None:
+    """Raises WarehouseNativeResultAccessDenied when the reader may not read the stored results."""
+    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
+        recalculation,
+    )
+
+    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    _check_warehouse_native_result_access(experiment, user_id)
+    recalc = recalculation.get_recalculation_by_id(experiment, recalculation_id)
+    return None if recalc is None else _recalculation_run(_recalculation_run_payload(recalc))
+
+
+def _check_warehouse_native_result_access(experiment: ExperimentModel, user_id: int | None) -> None:
+    # A stored run holds totals read from the customer's warehouse. The check runs on the instance that the reads use,
+    # so a change to the exposure criteria after the check cannot serve totals of a connection the reader may not read.
+    connection_id = warehouse_native_connection_id(experiment.exposure_criteria)
+    if connection_id is None:
+        return
+    user = User.objects.filter(id=user_id).first() if user_id is not None else None
+    try:
+        validate_warehouse_native_connection_access(experiment.team, user, connection_id)
+    except DjangoPermissionDenied as error:
+        raise WarehouseNativeResultAccessDenied(str(error)) from error
+
+
+def _recalculation_run_payload(recalc: ExperimentMetricsRecalculation) -> dict[str, Any]:
+    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
+        recalculation,
+    )
+
+    return recalculation.build_job_payload(recalc, include_results=True, include_live_progress=True)
+
+
+def _run_summary_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(payload["id"]),
+        "experiment_id": payload["experiment_id"],
+        "status": payload["status"],
+        "total_metrics": payload["total_metrics"],
+        "completed_metrics": payload["completed_metrics"],
+        "failed_metrics": payload["failed_metrics"],
+        "metric_errors": payload["metric_errors"],
+        "created_at": payload["created_at"],
+        "started_at": payload["started_at"],
+        "completed_at": payload["completed_at"],
+        "query_to": payload["query_to"],
+    }
+
+
+def _recalculation_run(payload: dict[str, Any]) -> RecalculationRun:
+    return RecalculationRun(
+        **_run_summary_fields(payload),
+        metric_retries=payload["metric_retries"],
+        results=tuple(
+            MetricRecalculationResult(
+                metric_uuid=item["metric_uuid"],
+                status=item["status"],
+                result=item["result"],
+                error_message=item["error_message"],
+                configuration_status=item["configuration_status"],
+            )
+            for item in payload["results"]
+        ),
+        rows_read=payload.get("rows_read"),
+        estimated_rows_total=payload.get("estimated_rows_total"),
+    )
 
 
 def validate_recalculation_times(times: Sequence[str] | None) -> None:

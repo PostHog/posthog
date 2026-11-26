@@ -87,11 +87,11 @@ symbol stores. The rendezvous score is adjusted by the latest server load
 snapshot and the caller's own local in-flight count, so highly loaded pods
 become less likely to receive new work before they return overload outcomes.
 
-Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. Terminal `ErrorKind`s fail the batch.
+Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. `ERROR_KIND_POISON` fails the event that owns the item, and the other events of the request continue. The other terminal `ErrorKind`s fail the batch, including `ERROR_KIND_INVALID_PAYLOAD`, because it means the two modes disagree on the wire format.
 
 ### Compatibility with the Node error-tracking consumer
 
-The Node consumer still talks only to cymbal's HTTP `POST /process` endpoint. Cymbal preserves the response array shape and input ordering after internal remote resolution, so Node-side request chunking by HTTP body size remains valid and no generated type changes are needed. See [`cymbal/docs/compatibility.md`](../cymbal/docs/compatibility.md).
+The Node consumer still talks only to cymbal's HTTP `POST /process` endpoint. Cymbal preserves the response array length and input ordering after internal remote resolution, so Node-side request chunking by HTTP body size remains valid and no generated type changes are needed. See [`cymbal/docs/compatibility.md`](../cymbal/docs/compatibility.md).
 
 ## Configuration
 

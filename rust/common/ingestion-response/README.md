@@ -56,4 +56,4 @@ A server uses these only when the failure is not specific to an item, for exampl
 ## Implementations
 
 - Rust servers: this crate. `PerItemResults` extracts the opt-in from an axum request, and `ItemResults` checks the length and answers with the header.
-- Node ingestion: `nodejs/src/ingestion/common/service-response.ts` parses a response and turns each result into a pipeline result. A `fail` item goes to the DLQ. A `retry` item goes there too, because this client makes no resend attempts. Each item's warnings become ingestion warnings, and the all-retry rule fails a batch of more than one item.
+- Node ingestion: `nodejs/src/ingestion/common/service-response.ts` parses a response and turns each result into a pipeline result. A `fail` item goes to the DLQ. A `retry` item goes there too, unless the caller passes a handler that sends it somewhere else. Each item's warnings become ingestion warnings, and the all-retry rule fails a batch of more than one item when the caller passes no handler.

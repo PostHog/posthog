@@ -23,12 +23,12 @@ operations = [
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.metrics4_input ADD COLUMN IF NOT EXISTS _source_topic String, "
         "ADD COLUMN IF NOT EXISTS _source_partition UInt32",
-        node_roles=[NodeRole.APM],
+        node_roles=[NodeRole.INGESTION_APM],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
-    run_sql_with_exceptions(WRITABLE_METRICS_KAFKA_METRICS_TABLE_SQL(), node_roles=[NodeRole.APM]),
-    run_sql_with_exceptions(METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV(), node_roles=[NodeRole.APM]),
-    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.kafka_metrics_avro4_mv", node_roles=[NodeRole.APM]),
-    run_sql_with_exceptions(KAFKA_METRICS_AVRO4_MV(), node_roles=[NodeRole.APM]),
+    run_sql_with_exceptions(WRITABLE_METRICS_KAFKA_METRICS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_APM]),
+    run_sql_with_exceptions(METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV(), node_roles=[NodeRole.INGESTION_APM]),
+    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.kafka_metrics_avro4_mv", node_roles=[NodeRole.INGESTION_APM]),
+    run_sql_with_exceptions(KAFKA_METRICS_AVRO4_MV(), node_roles=[NodeRole.INGESTION_APM]),
 ]

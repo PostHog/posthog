@@ -38,13 +38,22 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
         assert response.status_code == 400
 
     def test_disallowed_domain_returns_error_page_with_hostname(self):
-        response = self._get_authorize(redirect_url="https://evil.com/page")
+        response = self.client.get(
+            "/toolbar_oauth/authorize/",
+            {"redirect": "https://evil.com/page", "code_challenge": "test_challenge"},
+            follow=True,
+        )
+        assert response.redirect_chain == [("/toolbar_oauth/error", 302)]
         assert response.status_code == 403
-        content = response.content.decode()
-        assert "Domain not authorized" in content
-        assert "evil.com" in content
-        assert "authorized URLs" in content
-        assert "/settings/project-toolbar#authorized-urls" in content
+        assert response.context["posthog_app_context"]["toolbar_oauth_error"] == {
+            "title": "Domain not authorized",
+            "message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+            "detail": (
+                "The hostname evil.com needs to be added to your project's "
+                "authorized URLs before the toolbar can be used on this site."
+            ),
+            "links_to_authorized_urls": True,
+        }
 
     def test_requires_authentication(self):
         self.client.logout()

@@ -72,7 +72,6 @@ def summarize_with_openai(
     """Generate summary using OpenAI API via LLM gateway with structured outputs."""
     resolved_distinct_id = user_id or team_distinct_id(team_id)
     client = build_openai_client(
-        "llma_summarization",
         ai_product="aio_summarization",
         properties={"team_id": str(team_id)},
         distinct_id=resolved_distinct_id,

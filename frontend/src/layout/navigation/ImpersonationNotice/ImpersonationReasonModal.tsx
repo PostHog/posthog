@@ -61,6 +61,9 @@ export function ImpersonationReasonModal({
     }
 
     const handleClose = (): void => {
+        if (loading) {
+            return
+        }
         setReason(initialReason)
         onClose?.()
     }
@@ -74,7 +77,7 @@ export function ImpersonationReasonModal({
         <LemonModal
             isOpen={isOpen}
             onClose={handleClose}
-            closable={closable}
+            closable={closable && !loading}
             inline={inline}
             title={title}
             footer={
@@ -85,6 +88,7 @@ export function ImpersonationReasonModal({
                             status={cancel.status}
                             onClick={cancel.onClick}
                             sideAction={cancel.sideAction}
+                            disabledReason={loading ? 'Wait for the request to finish.' : undefined}
                         >
                             {cancel.label}
                         </LemonButton>

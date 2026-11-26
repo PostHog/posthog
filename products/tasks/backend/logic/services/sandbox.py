@@ -1211,6 +1211,10 @@ def _get_modal_evals_sandbox_class() -> SandboxClass:
         STREAMLIT_APP_NAME = "posthog-sandbox-evals"
         # Evals are their own cost centre already — a self-driving eval stays in the evals app.
         SELF_DRIVING_APP_NAME = "posthog-sandbox-evals"
+        # Eval images build from the local Dockerfile inside the create activity, so a cold build
+        # must fit in one attempt. ModalSandbox cannot cancel a create, so a timed-out attempt
+        # keeps running and makes a second sandbox next to the retry's.
+        creation_timeout_seconds = 30 * 60
 
     return ModalEvalsSandbox
 

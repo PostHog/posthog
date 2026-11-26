@@ -24,7 +24,7 @@ from django.db import (
     connections as db_connections,
 )
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseNotFound, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve
@@ -828,6 +828,8 @@ class QueryTimeCountingMiddleware:
                 # A client can send any method token, so unknown methods share one label.
                 "method": method if method in self.LABELLED_METHODS else "other",
                 "status_class": f"{response.status_code // 100}xx",
+                # Set by views that want the query count sliced further; other routes keep the base labels.
+                **(getattr(request, "_pg_queries_labels", None) or {}),
             },
         )
 
@@ -1475,6 +1477,24 @@ class UnversionedStaticPathMiddleware:
     def __call__(self, request: HttpRequest) -> HttpResponse:
         if is_hobby():
             request.path_info = self.VERSIONED_STATIC_PATH.sub("/static/", request.path_info, count=1)
+        return self.get_response(request)
+
+
+class MissingStaticFileMiddleware:
+    """Answers 404 for a /static/ path that WhiteNoise did not serve.
+
+    Without it the request goes on to the login middleware and to the frontend
+    catch-all route, so each missing file costs a database connection. A browser with developer
+    tools open asks for the source map of every chunk, and the production image ships no source
+    maps, so one page load can open more connections than Postgres allows.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.path_info.startswith(settings.STATIC_URL):
+            return HttpResponseNotFound(content_type="text/plain")
         return self.get_response(request)
 
 

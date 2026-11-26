@@ -11,12 +11,12 @@ import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
 import { EmailHtmlBlockView } from './components/EmailHtmlBlockView'
 import { EmailImageBlockView } from './components/EmailImageBlockView'
 import { EmailVariableChip } from './components/EmailVariableChip'
-import { EmailBlockStyle } from './emailDocument'
+import { EmailBlockStyle, SECTION_PADDING } from './emailDocument'
 import { parseLiquidOutput } from './emailVariables'
-import { safeColor, safeEmailLink, safeEmailStyle, safeEmailVisibility } from './renderEmailHtml'
+import { lineHeightCss, safeColor, safeEmailLink, safeEmailStyle, safeEmailVisibility } from './renderEmailHtml'
 
 const COLUMN_BLOCKS =
-    '(paragraph | heading | bulletList | orderedList | blockquote | horizontalRule | emailImage | emailButton | emailSpacer | emailHtml)+'
+    'paragraph | heading | bulletList | orderedList | blockquote | horizontalRule | emailImage | emailButton | emailSpacer | emailHtml'
 const STYLED_BLOCKS = [
     'paragraph',
     'bulletList',
@@ -27,6 +27,7 @@ const STYLED_BLOCKS = [
     'emailButton',
     'emailColumns',
     'emailColumn',
+    'emailSection',
     'emailHtml',
 ]
 
@@ -34,15 +35,33 @@ function sidesCss(sides: EmailBlockStyle['padding']): string | undefined {
     return sides ? `${sides.top}px ${sides.right}px ${sides.bottom}px ${sides.left}px` : undefined
 }
 
+/** The divider as the email draws it. A background rather than a border, so the padding around it can't collapse. */
+function dividerCanvasCss(style: EmailBlockStyle): string {
+    const color = style.borderColor ?? '#dddddd'
+    const length = Math.min(Math.max(style.width ?? 0, 0) || 100, 100)
+    return [
+        'box-sizing:content-box',
+        'margin:0',
+        'border:0',
+        `padding:${sidesCss(style.padding) ?? '8px 0'}`,
+        `height:${Math.max(style.lineWidth ?? 0, 0) || 1}px`,
+        `background:linear-gradient(${color},${color}) ${style.textAlign ?? 'center'} top/${length}% 100% no-repeat content-box`,
+        ...(style.backgroundColor ? [`background-color:${style.backgroundColor}`, 'background-clip:border-box'] : []),
+    ].join(';')
+}
+
 /** How a block's style looks on the canvas. The email itself comes from `renderEmailHtml`. */
 export function blockStyleToCanvasCss(rawStyle: EmailBlockStyle | null | undefined, typeName: string): string {
-    const style = safeEmailStyle(rawStyle)
+    // A section has padding of its own, even with every setting cleared.
+    const style = safeEmailStyle(rawStyle ?? (typeName === 'emailSection' ? {} : null))
     if (!style) {
         return ''
     }
     const isButton = typeName === 'emailButton'
     const isImage = typeName === 'emailImage'
-    const isDivider = typeName === 'horizontalRule'
+    if (typeName === 'horizontalRule') {
+        return dividerCanvasCss(style)
+    }
     const isList = typeName === 'bulletList' || typeName === 'orderedList'
     const properties: Record<string, string | undefined> = {
         color: isButton ? undefined : style.color,
@@ -50,11 +69,11 @@ export function blockStyleToCanvasCss(rawStyle: EmailBlockStyle | null | undefin
         'font-family': !isButton ? style.fontFamily : undefined,
         'font-weight': !isButton && style.fontWeight ? String(style.fontWeight) : undefined,
         'font-size': !isButton && style.fontSize ? `${style.fontSize}px` : undefined,
-        'line-height': !isButton && style.lineHeight ? `${style.lineHeight}%` : undefined,
+        'line-height': !isButton && style.lineHeight ? lineHeightCss(style.lineHeight) : undefined,
         'letter-spacing': !isButton && style.letterSpacing ? `${style.letterSpacing}px` : undefined,
         'text-transform': !isButton && style.uppercase ? 'uppercase' : undefined,
         'text-align': style.textAlign,
-        padding: sidesCss(style.padding),
+        padding: sidesCss(style.padding ?? (typeName === 'emailSection' ? SECTION_PADDING : undefined)),
         'padding-left': isList ? `${(style.padding?.left ?? 0) + (style.listIndent ?? 24)}px` : undefined,
         gap: style.columnGap !== undefined ? `${style.columnGap}px` : undefined,
         '--email-list-gap': style.listItemGap !== undefined ? `${style.listItemGap}px` : undefined,
@@ -62,7 +81,7 @@ export function blockStyleToCanvasCss(rawStyle: EmailBlockStyle | null | undefin
         '--email-link-decoration': style.linkUnderline === false ? 'none' : undefined,
         'border-radius': !isButton && !isImage && style.borderRadius ? `${style.borderRadius}px` : undefined,
         border:
-            !isButton && !isImage && !isDivider && style.borderWidth
+            !isButton && !isImage && style.borderWidth
                 ? `${style.borderWidth}px solid ${style.borderColor ?? '#e5e5e5'}`
                 : undefined,
     }
@@ -149,6 +168,7 @@ function withCanvasStyle<T extends Node<any, any>>(extension: T): T {
 }
 
 const EmailDocumentNode = Document.extend({
+    content: '(block | emailSection)+',
     addAttributes() {
         return { page: { default: {} }, ownPlainText: { default: false } }
     },
@@ -322,7 +342,7 @@ export const EmailHtmlBlock = Node.create({
 
 export const EmailColumn = Node.create({
     name: 'emailColumn',
-    content: COLUMN_BLOCKS,
+    content: `(${COLUMN_BLOCKS})+`,
     isolating: true,
     defining: true,
     // A click in a column's empty space should place the cursor, not select the column for Backspace to delete.
@@ -364,6 +384,21 @@ export const EmailColumns = Node.create({
     },
     renderHTML({ HTMLAttributes }) {
         return ['div', mergeAttributes(HTMLAttributes, { 'data-email-columns': '', class: 'email-canvas-columns' }), 0]
+    },
+})
+
+export const EmailSection = Node.create({
+    name: 'emailSection',
+    // In no group, so it only goes where it's named: a list or quote takes any block, and neither sends a section.
+    content: `(${COLUMN_BLOCKS} | emailColumns)+`,
+    isolating: true,
+    defining: true,
+    draggable: true,
+    parseHTML() {
+        return [{ tag: 'div[data-email-section]' }]
+    },
+    renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, { 'data-email-section': '', class: 'email-canvas-section' }), 0]
     },
 })
 
@@ -526,6 +561,7 @@ export const emailSchemaExtensions = [
     EmailHtmlBlock,
     EmailColumn,
     withCanvasStyle(EmailColumns),
+    withCanvasStyle(EmailSection),
     EmailVariable,
     EmailLink,
     EmailTextStyle,
@@ -556,11 +592,14 @@ export function buildEmailExtensions(placeholder: string): any[] {
         ...emailSchemaExtensions,
         Placeholder.configure({
             placeholder: ({ editor, node, pos }) => {
+                if (node.type.name === 'heading') {
+                    return `Heading ${node.attrs.level}`
+                }
                 if (node.type.name !== 'paragraph') {
                     return ''
                 }
                 const $pos = editor.state.doc.resolve(pos)
-                return $pos.depth > 0 && $pos.node($pos.depth).type.name === 'emailColumn'
+                return ['emailColumn', 'emailSection'].includes($pos.parent.type.name)
                     ? 'Type / for blocks'
                     : placeholder
             },

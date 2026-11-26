@@ -398,7 +398,12 @@ describe('Pipeline Integration Tests', () => {
             const step1Map = new Map<
                 string,
                 AsyncStepConfig<{ message: Message; headers: TestHeaders }, OverflowOutput>
-            >([['redirect-event', { delay: 0, result: redirect('Mock redirect', OVERFLOW_OUTPUT, true) }]])
+            >([
+                [
+                    'redirect-event',
+                    { delay: 0, result: redirect('Mock redirect', OVERFLOW_OUTPUT, { preserveKey: true }) },
+                ],
+            ])
 
             // Define step
             const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }, string>(
@@ -1253,7 +1258,10 @@ describe('Pipeline Integration Tests', () => {
             >([
                 ['drop-event', { delay: 0, result: drop('Mock drop') }],
                 ['dlq-event', { delay: 0, result: dlq('Mock DLQ') }],
-                ['redirect-event', { delay: 0, result: redirect('Mock redirect', OVERFLOW_OUTPUT, true) }],
+                [
+                    'redirect-event',
+                    { delay: 0, result: redirect('Mock redirect', OVERFLOW_OUTPUT, { preserveKey: true }) },
+                ],
                 ['ok-event', { delay: 0, result: ok({ message: messages[3], headers: { token: 'test-token' } }) }],
             ])
 

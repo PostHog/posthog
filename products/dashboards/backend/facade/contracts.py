@@ -6,6 +6,7 @@ No Django imports: the facade maps dashboard and tile rows to these, and callers
 product hold only these.
 """
 
+from collections.abc import Sequence
 from dataclasses import field
 from datetime import datetime
 from typing import Any, Literal, Protocol
@@ -21,7 +22,9 @@ from products.dashboards.backend.facade.enums import (
     DashboardCreationMode,
     DashboardTemplateOrdering,
     DashboardTemplateScope,
+    QueryBatchEngine,
     QueryBatchLanguage,
+    QueryBatchTargetFormat,
 )
 
 GRID_COLUMNS = 12
@@ -401,14 +404,61 @@ class DashboardExtras:
     quick_filter_ids: list[str] | None
 
 
+# Cached tiles draw time and number fields. A query batch table also has string, boolean and other columns.
+FrameFieldType = Literal["time", "number", "string", "boolean", "other"]
+
+
+@frozen
+class FrameField:
+    """One column of a frame: the time of each point, or its values."""
+
+    name: str
+    type: FrameFieldType
+    # A time field holds epoch milliseconds. A number field holds null for a gap.
+    values: Sequence[JsonValue]
+    unit: str | None = None
+    # The series' labels, on each value field of a pivoted table.
+    labels: dict[str, str] | None = None
+
+
+@frozen
+class FrameMeta:
+    """What a frame covers: its bucket size and date range."""
+
+    # PostHog's interval name: second_15 to week for metrics, minute to month for trends.
+    interval: str | None = None
+    date_from: datetime | None = None
+    date_to: datetime | None = None
+    # The same series over the compared period, with that period's dates.
+    previous: bool = False
+    # The table had more rows than were returned, so the frame is cut.
+    truncated: bool = False
+
+
+@frozen
+class Frame:
+    """One chart-ready series, the contract between a tile's query and its chart (Dash's `DataFrame`)."""
+
+    # None for a table frame, which has no series name.
+    name: str | None
+    labels: dict[str, str]
+    fields: list[FrameField]
+    meta: FrameMeta
+
+
 @frozen
 class QueryBatchTarget:
-    """A panel's query. For `insight`, `query` is JSON `{query: <query node>, filters?, variables?}`.
-    For `hogql`, it is the SQL, which reads the batch's time range through `{filters}`."""
+    """A panel's query. For `query`, `query` is a PostHog query node as JSON, bare or as
+    `{query: <query node>, filters?, variables?}`. For `hogql`, it is the SQL, which reads the batch's time range
+    through `{filters}`. For `promql` and `logql`, it is the expression, run as a range query over the batch's time
+    range. `legend` and `format` are the client's and come back unchanged on the target's line."""
 
     ref_id: str
     language: QueryBatchLanguage
     query: str
+    legend: str | None = None
+    format: QueryBatchTargetFormat | None = None
+    engine: QueryBatchEngine | None = None
 
 
 @frozen
@@ -422,3 +472,17 @@ class QueryBatchInput:
     interval: str | None = None
     swr: bool = False
     cache_only: bool = False
+    max_data_points: int | None = None
+    tile: str | None = None
+
+
+class DashboardCustomizationRejected(ValueError):
+    """A dashboard's group key or group settings break a group rule.
+
+    The API answers 400 with `message`, on `field` when it names one.
+    """
+
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.field = field

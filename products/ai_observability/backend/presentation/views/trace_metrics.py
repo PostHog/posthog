@@ -11,8 +11,8 @@ from posthog.errors import ExposedCHQueryError
 from posthog.helpers.impersonation import is_impersonated
 
 from ...facade import api, contracts
+from .list_filters import TraceDateRangeQuerySerializer
 from .trace_resource import THROTTLED_RESPONSE, TraceResourceViewSet, request_user
-from .traces import TraceDateRangeQuerySerializer
 
 
 class TraceMetricsQuerySerializer(TraceDateRangeQuerySerializer):

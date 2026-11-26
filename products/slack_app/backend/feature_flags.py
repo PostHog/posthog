@@ -39,6 +39,8 @@ from __future__ import annotations
 import json
 from urllib.parse import urlsplit
 
+from django.core.cache import cache
+
 import structlog
 import posthoganalytics
 
@@ -60,8 +62,10 @@ SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
 SLACK_APP_JEV_NEEDS_REPO_FLAG = "slack-app-jev-needs-repo"
 SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 SLACK_APP_DAILY_SUMMARY_FLAG = "slack-app-daily-summary"
-SLACK_APP_FRUSTRATION_RESPONSE_FLAG = "slack-app-frustration-response"
 SLACK_APP_FRUSTRATION_GIF_FLAG = "slack-app-frustration-gif"
+SLACK_APP_WEB_SETTINGS_FLAG = "slack-app-web-settings"
+SLACK_APP_CHATGPT_APPS_FLAG = "slack-app-chatgpt-apps"
+WEB_SETTINGS_FLAG_CACHE_SECONDS = 60
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -89,6 +93,7 @@ def _workspace_flag_enabled(
     *,
     failure_log_key: str,
     distinct_id: str | None = None,
+    on_error: bool = False,
 ) -> bool:
     """Evaluate one gate under the settings this module documents.
 
@@ -101,21 +106,23 @@ def _workspace_flag_enabled(
     a caller can pass what it already holds.
     Without one the gate falls back to the Slack workspace, which no person rule can
     match.
+
+    ``on_error`` is the answer when the flag cannot be evaluated. The SDK returns None for
+    that, or raises.
     """
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag,
-                distinct_id or f"slack_workspace:{integration.integration_id}",
-                groups={"organization": _organization_id(integration)},
-                person_properties=_region_properties(),
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
+        enabled = posthoganalytics.feature_enabled(
+            flag,
+            distinct_id or f"slack_workspace:{integration.integration_id}",
+            groups={"organization": _organization_id(integration)},
+            person_properties=_region_properties(),
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
         )
     except Exception:
         logger.exception(failure_log_key, integration_id=integration.id)
-        return False
+        return on_error
+    return on_error if enabled is None else bool(enabled)
 
 
 def is_slack_app_oauth_enabled(integration: IntegrationRecord) -> bool:
@@ -174,6 +181,23 @@ def is_slack_app_byos_enabled(
     )
 
 
+def is_slack_app_chatgpt_apps_setting_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for the personal setting that keeps the apps on a ChatGPT plan out of Slack runs.
+
+    ``distinct_id`` is the PostHog user whose plan the run uses. Off, Slack runs keep the apps
+    the plan has, as they did before the setting existed.
+    A failed evaluation counts as on, so a flag outage cannot give thread participants the
+    apps of an owner who kept them off.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_CHATGPT_APPS_FLAG,
+        integration,
+        failure_log_key="slack_app_chatgpt_apps_feature_flag_check_failed",
+        distinct_id=distinct_id,
+        on_error=True,
+    )
+
+
 def is_slack_app_assistant_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the DM assistant: the install must hold the scopes the DM surface
     calls — ``im:history`` in particular, without which the assistant would answer
@@ -182,9 +206,9 @@ def is_slack_app_assistant_enabled(integration: IntegrationRecord) -> bool:
 
 
 def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
-    """Gate for the "Fork to DM" menu under a reply.
+    """Gate for the fork menu under a reply.
 
-    A fork lands in a DM and is answered there, so it inherits the assistant
+    A fork can land in a DM and be answered there, so it inherits the assistant
     surface's scope requirements wholesale — ``im:history`` in particular, without
     which the forked thread would answer once and then go deaf to follow-ups.
     Gating on the assistant scopes rather than its flag keeps the two rollouts
@@ -242,22 +266,31 @@ def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord, distin
     )
 
 
+def is_slack_app_web_settings_enabled(integration: IntegrationRecord) -> bool:
+    """Gate for the settings that people change on the web: channel settings apply only while it is on. The
+    decision is about the workspace's organization, not about one person, so no distinct ID is passed.
+
+    The Slack webhook can check it more than once for one message, and a remote evaluation can take seconds, so
+    the decision is kept for a minute."""
+    cache_key = f"slack_app_web_settings_flag:{_organization_id(integration)}:{integration.integration_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    enabled = _workspace_flag_enabled(
+        SLACK_APP_WEB_SETTINGS_FLAG,
+        integration,
+        failure_log_key="slack_app_web_settings_feature_flag_check_failed",
+    )
+    cache.set(cache_key, enabled, timeout=WEB_SETTINGS_FLAG_CACHE_SECONDS)
+    return enabled
+
+
 def is_slack_app_daily_summary_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     """The daily work focus also tells the person what moved in the channels they share with the bot."""
     return _workspace_flag_enabled(
         SLACK_APP_DAILY_SUMMARY_FLAG,
         integration,
         failure_log_key="slack_app_daily_summary_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_frustration_response_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
-    """Every answered message is classified, and an unhappy one gets a reaction. Each verdict is one model call."""
-    return _workspace_flag_enabled(
-        SLACK_APP_FRUSTRATION_RESPONSE_FLAG,
-        integration,
-        failure_log_key="slack_app_frustration_response_feature_flag_check_failed",
         distinct_id=distinct_id,
     )
 
