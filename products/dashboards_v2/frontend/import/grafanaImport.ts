@@ -14,6 +14,7 @@ import {
     chartPanel,
     idMaker,
     importedTile,
+    inline,
     isBoardTime,
     notePanel,
     reportBuilder,
@@ -117,11 +118,6 @@ function variableValue(variable: Json): string | undefined {
         ? values.map(escapeRegex).join('|')
         : escapeString(values[0])
 }
-
-const inline = (value: unknown): string =>
-    String(value)
-        .replace(/[`\r\n]+/g, ' ')
-        .trim()
 
 interface Converter {
     report: ReportBuilder
