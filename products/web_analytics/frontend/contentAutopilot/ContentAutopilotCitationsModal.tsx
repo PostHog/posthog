@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
@@ -11,7 +9,6 @@ import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { ContentAutopilotCitationsActions } from './ContentAutopilotCitationsActions'
 import { type CitationsLookup, contentAutopilotCitationsModalLogic } from './contentAutopilotCitationsModalLogic'
 import { ContentAutopilotCitationsTable } from './ContentAutopilotCitationsTable'
-import { QuillContentAutopilotCitationsModal } from './QuillContentAutopilotCitationsModal'
 import { segmentPrompts } from './utils'
 
 /** The lookup's window in words, such as "Last 90 days" or "October 18 - November 17, 2026". */
@@ -25,7 +22,10 @@ const modalTitle = ({ kind, value }: CitationsLookup): string =>
           ? 'Answers that cite this page'
           : `Answers that searched for "${value}"`
 
-/** The answers behind the cited page, cited site or engine search picked anywhere on the AI visibility page. */
+/**
+ * The answers behind the cited page, cited site or engine search picked anywhere on the AI visibility page.
+ * A dialog on every screen size, because the answers table needs the width.
+ */
 export const ContentAutopilotCitationsModal = (): JSX.Element => {
     const { lookup, citations, citationsLoading, citationsFailed, hasMoreCitations, isOwnPage } = useValues(
         contentAutopilotCitationsModalLogic
@@ -33,8 +33,6 @@ export const ContentAutopilotCitationsModal = (): JSX.Element => {
     const { closeCitations, loadCitations, loadMoreCitations, openCitationPrompt } = useActions(
         contentAutopilotCitationsModalLogic
     )
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-
     const title = lookup ? modalTitle(lookup) : ''
     const description = lookup
         ? `Answers to ${segmentPrompts(lookup.branded)}, newest first. Date range: ${lookupRange(lookup)}.`
@@ -52,9 +50,7 @@ export const ContentAutopilotCitationsModal = (): JSX.Element => {
             ) : (
                 <>
                     {citations ? (
-                        <span className={todayRailNav ? 'text-xs text-muted-foreground' : 'text-xs text-muted'}>
-                            {pluralize(citations.count, 'answer')}
-                        </span>
+                        <span className="text-xs text-muted-foreground">{pluralize(citations.count, 'answer')}</span>
                     ) : null}
                     <ContentAutopilotCitationsTable
                         citations={citations?.results ?? []}
@@ -63,30 +59,18 @@ export const ContentAutopilotCitationsModal = (): JSX.Element => {
                     />
                     {hasMoreCitations ? (
                         <div className="flex justify-center">
-                            {todayRailNav ? (
-                                <Button
-                                    variant="outline"
-                                    onClick={loadMoreCitations}
-                                    loading={citationsLoading}
-                                    data-attr="content-autopilot-citations-load-more"
-                                >
-                                    Show more answers
-                                </Button>
-                            ) : (
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    onClick={loadMoreCitations}
-                                    loading={citationsLoading}
-                                    data-attr="content-autopilot-citations-load-more"
-                                >
-                                    Show more answers
-                                </LemonButton>
-                            )}
+                            <Button
+                                variant="outline"
+                                onClick={loadMoreCitations}
+                                loading={citationsLoading}
+                                data-attr="content-autopilot-citations-load-more"
+                            >
+                                Show more answers
+                            </Button>
                         </div>
                     ) : null}
                     {citationsFailed && citations ? (
-                        <span className={todayRailNav ? 'text-xs text-destructive-foreground' : 'text-xs text-danger'}>
+                        <span className="text-xs text-destructive-foreground">
                             Couldn't load more answers. Try again, and if it keeps happening contact support.
                         </span>
                     ) : null}
@@ -95,22 +79,15 @@ export const ContentAutopilotCitationsModal = (): JSX.Element => {
         </div>
     ) : null
 
-    if (todayRailNav) {
-        return (
-            <QuillContentAutopilotCitationsModal
-                open={!!lookup}
-                title={title}
-                description={description}
-                onClose={closeCitations}
-            >
-                {content}
-            </QuillContentAutopilotCitationsModal>
-        )
-    }
-
     return (
-        <LemonModal isOpen={!!lookup} onClose={closeCitations} title={title} description={description} width={960}>
-            {content}
-        </LemonModal>
+        <Dialog open={!!lookup} onOpenChange={(next) => !next && closeCitations()}>
+            <DialogContent size="wide">
+                <DialogHeader>
+                    <DialogTitle>{title}</DialogTitle>
+                    {description ? <DialogDescription>{description}</DialogDescription> : null}
+                </DialogHeader>
+                <DialogBody>{content}</DialogBody>
+            </DialogContent>
+        </Dialog>
     )
 }

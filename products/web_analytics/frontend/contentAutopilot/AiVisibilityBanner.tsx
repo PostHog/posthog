@@ -1,8 +1,12 @@
-import { LemonBanner } from '@posthog/lemon-ui'
-
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
-import { QuillAiVisibilityBanner } from './QuillAiVisibilityBanner'
+import {
+    Button,
+    Callout,
+    CalloutActions,
+    CalloutClose,
+    CalloutContent,
+    CalloutDescription,
+    CalloutIcon,
+} from '@posthog/quill'
 
 export interface AiVisibilityBannerAction {
     children: React.ReactNode
@@ -19,17 +23,33 @@ export interface AiVisibilityBannerProps {
     children: React.ReactNode
 }
 
-/** A banner in AI visibility: a quill callout under the new navigation, a Lemon banner otherwise. */
-export const AiVisibilityBanner = (props: AiVisibilityBannerProps): JSX.Element => {
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+const TONES = { error: 'destructive', info: 'info', warning: 'warning', success: 'success' } as const
 
-    if (todayRailNav) {
-        return <QuillAiVisibilityBanner {...props} />
-    }
-    const { type, action, onClose, className, children } = props
-    return (
-        <LemonBanner type={type} action={action} onClose={onClose} className={className}>
-            {children}
-        </LemonBanner>
-    )
-}
+/** Carries its own quill scope, because the suggest dialogs are Lemon modals that portal outside the page's scope. */
+export const AiVisibilityBanner = ({
+    type,
+    action,
+    onClose,
+    className,
+    children,
+}: AiVisibilityBannerProps): JSX.Element => (
+    <Callout tone={TONES[type]} className={className} data-quill>
+        <CalloutIcon />
+        <CalloutContent>
+            <CalloutDescription>{children}</CalloutDescription>
+        </CalloutContent>
+        {action ? (
+            <CalloutActions>
+                <Button
+                    variant="outline"
+                    onClick={action.onClick}
+                    loading={action.loading}
+                    data-attr={action['data-attr']}
+                >
+                    {action.children}
+                </Button>
+            </CalloutActions>
+        ) : null}
+        {onClose ? <CalloutClose onClick={onClose} /> : null}
+    </Callout>
+)

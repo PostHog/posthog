@@ -5,9 +5,9 @@ import { TableCell, TableRow, cn } from '@posthog/quill'
 import type { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 
 import { type AiVisibilityColumn, cellParts, columnKey, forRow } from './aiVisibilityTableColumns'
-import { QuillAiVisibilityTableExpandButton } from './QuillAiVisibilityTableExpandButton'
+import { AiVisibilityTableExpandButton } from './AiVisibilityTableExpandButton'
 
-export function QuillAiVisibilityTableRow<T extends Record<string, any>>({
+export function AiVisibilityTableRow<T extends Record<string, any>>({
     record,
     index,
     rowCount,
@@ -44,7 +44,7 @@ export function QuillAiVisibilityTableRow<T extends Record<string, any>>({
                 {expandable ? (
                     <TableCell>
                         {canExpand ? (
-                            <QuillAiVisibilityTableExpandButton expanded={expanded} onToggle={onToggleExpanded} />
+                            <AiVisibilityTableExpandButton expanded={expanded} onToggle={onToggleExpanded} />
                         ) : null}
                     </TableCell>
                 ) : null}

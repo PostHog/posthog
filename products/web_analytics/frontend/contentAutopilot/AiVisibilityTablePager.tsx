@@ -1,7 +1,7 @@
 import { IconChevronRight } from '@posthog/icons'
 import { Button, Text } from '@posthog/quill'
 
-export function QuillAiVisibilityTablePager({
+export function AiVisibilityTablePager({
     page,
     pageSize,
     entryCount,

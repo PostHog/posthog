@@ -21,7 +21,7 @@ import { ContentAutopilotSiteFields } from './ContentAutopilotSiteFields'
 import { ContentAutopilotSourceFields } from './ContentAutopilotSourceFields'
 
 /** The site's own settings on the settings page, with a confirmation before the site is deleted. */
-export const QuillContentAutopilotSiteSettingsCard = ({
+export const ContentAutopilotSiteSettingsCard = ({
     siteLabel,
     draft,
     deleting,

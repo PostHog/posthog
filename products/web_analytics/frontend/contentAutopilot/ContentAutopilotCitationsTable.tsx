@@ -71,9 +71,7 @@ export const ContentAutopilotCitationsTable = ({
                             position={citation.target_best_position}
                         />
                         {citation.mentioned && !citation.cited ? (
-                            <AiVisibilityTag type="success" size="small">
-                                Mentioned
-                            </AiVisibilityTag>
+                            <AiVisibilityTag type="success">Mentioned</AiVisibilityTag>
                         ) : null}
                     </span>
                 ),

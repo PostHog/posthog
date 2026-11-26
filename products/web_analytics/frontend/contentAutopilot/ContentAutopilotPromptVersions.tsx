@@ -41,11 +41,7 @@ export const ContentAutopilotPromptVersions = ({ promptId }: { promptId: string 
                     render: (_, { version, is_current }) => (
                         <div className="flex items-center gap-2 whitespace-nowrap">
                             <span>{version}</span>
-                            {is_current ? (
-                                <AiVisibilityTag type="success" size="small">
-                                    Current
-                                </AiVisibilityTag>
-                            ) : null}
+                            {is_current ? <AiVisibilityTag type="success">Current</AiVisibilityTag> : null}
                         </div>
                     ),
                 },

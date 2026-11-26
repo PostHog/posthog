@@ -42,19 +42,13 @@ export const ContentAutopilotAnswerMentionList = ({
                             ) : (
                                 <span className="flex items-center gap-1.5">
                                     <span className="font-semibold">{brand.name}</span>
-                                    <AiVisibilityTag type="success" size="small">
-                                        You
-                                    </AiVisibilityTag>
+                                    <AiVisibilityTag type="success">You</AiVisibilityTag>
                                 </span>
                             )}
                         </span>
                         <span className="flex items-center gap-2 text-xs text-secondary whitespace-nowrap">
                             {pluralize(count, 'mention')}
-                            {cited ? (
-                                <AiVisibilityTag type="highlight" size="small">
-                                    Cited
-                                </AiVisibilityTag>
-                            ) : null}
+                            {cited ? <AiVisibilityTag type="highlight">Cited</AiVisibilityTag> : null}
                         </span>
                     </li>
                 ))}

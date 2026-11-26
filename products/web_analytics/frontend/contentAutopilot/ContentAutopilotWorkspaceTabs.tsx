@@ -9,7 +9,7 @@ export interface ContentAutopilotWorkspaceTabDefinition {
     content: JSX.Element
 }
 
-export const QuillContentAutopilotWorkspaceTabs = ({
+export const ContentAutopilotWorkspaceTabs = ({
     tabs,
     activeKey,
     onChange,

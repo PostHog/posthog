@@ -213,7 +213,6 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                     {prompt.branded ? (
                                         <AiVisibilityTag
                                             type="muted"
-                                            size="small"
                                             className="ml-2 align-middle"
                                             title="This prompt names your brand, so answers to it almost always mention you."
                                         >

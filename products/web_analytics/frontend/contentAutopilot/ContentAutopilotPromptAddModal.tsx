@@ -1,10 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    Button,
+    Credenza,
+    CredenzaBody,
+    CredenzaContent,
+    CredenzaDescription,
+    CredenzaFooter,
+    CredenzaHeader,
+    CredenzaTitle,
+    Field,
+    FieldDescription,
+    FieldLabel,
+    Input,
+    Textarea,
+} from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { pluralize } from 'lib/utils/strings'
 
 import {
@@ -13,7 +25,6 @@ import {
 } from 'products/web_analytics/frontend/generated/api.zod'
 
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
-import { QuillContentAutopilotPromptAddModal } from './QuillContentAutopilotPromptAddModal'
 import { promptLines } from './utils'
 
 export const ContentAutopilotPromptAddModal = (): JSX.Element => {
@@ -21,7 +32,7 @@ export const ContentAutopilotPromptAddModal = (): JSX.Element => {
     const { addPrompts, closeAddPrompts } = useActions(contentAutopilotPromptsLogic)
     const [text, setText] = useState('')
     const [topic, setTopic] = useState('')
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const id = useId()
 
     useEffect(() => {
         if (!addPromptsOpen) {
@@ -39,75 +50,63 @@ export const ContentAutopilotPromptAddModal = (): JSX.Element => {
               : undefined
     const submitLabel = count > 0 ? `Add ${pluralize(count, 'prompt')}` : 'Add prompts'
 
-    if (todayRailNav) {
-        return (
-            <QuillContentAutopilotPromptAddModal
-                open={addPromptsOpen}
-                submitting={addPromptsSubmitting}
-                text={text}
-                topic={topic}
-                topicMaxLength={aeoPromptsBulkImportBodyPromptsItemTopicMax}
-                submitLabel={submitLabel}
-                disabledReason={disabledReason}
-                onTextChange={setText}
-                onTopicChange={setTopic}
-                onSubmit={() => addPrompts(text, topic)}
-                onClose={closeAddPrompts}
-            />
-        )
-    }
-
     return (
-        <LemonModal
-            isOpen={addPromptsOpen}
-            onClose={addPromptsSubmitting ? undefined : closeAddPrompts}
-            title="Add prompts"
-            description="Write each prompt the way a person would ask an AI assistant."
-            width={640}
-            footer={
-                <>
-                    <LemonButton
-                        type="secondary"
+        // While the prompts save, the dialog stays open.
+        <Credenza open={addPromptsOpen} onOpenChange={(next) => !next && !addPromptsSubmitting && closeAddPrompts()}>
+            <CredenzaContent>
+                <CredenzaHeader>
+                    <CredenzaTitle>Add prompts</CredenzaTitle>
+                    <CredenzaDescription>
+                        Write each prompt the way a person would ask an AI assistant.
+                    </CredenzaDescription>
+                </CredenzaHeader>
+                <CredenzaBody className="flex flex-col gap-4">
+                    <Field>
+                        <FieldLabel htmlFor={`${id}-prompts`}>Prompts</FieldLabel>
+                        <Textarea
+                            id={`${id}-prompts`}
+                            value={text}
+                            onChange={(event) => setText(event.target.value)}
+                            rows={6}
+                            placeholder="What's the best open source session replay tool?"
+                            autoFocus
+                            data-attr="content-autopilot-prompts-add-text"
+                        />
+                        <FieldDescription>
+                            One prompt per line. A prompt that is already tracked gets the topic below.
+                        </FieldDescription>
+                    </Field>
+                    <Field>
+                        <FieldLabel htmlFor={`${id}-topic`}>Topic</FieldLabel>
+                        <Input
+                            id={`${id}-topic`}
+                            value={topic}
+                            onChange={(event) => setTopic(event.target.value)}
+                            maxLength={aeoPromptsBulkImportBodyPromptsItemTopicMax}
+                            placeholder="Session replay"
+                        />
+                        <FieldDescription>Optional. Groups the prompts in the overview and the list.</FieldDescription>
+                    </Field>
+                </CredenzaBody>
+                <CredenzaFooter>
+                    <Button
+                        variant="outline"
                         onClick={closeAddPrompts}
                         disabledReason={addPromptsSubmitting ? 'Wait for the prompts to save' : undefined}
                     >
                         Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
+                    </Button>
+                    <Button
+                        variant="primary"
                         onClick={() => addPrompts(text, topic)}
                         loading={addPromptsSubmitting}
                         disabledReason={disabledReason}
                         data-attr="content-autopilot-prompts-add-submit"
                     >
                         {submitLabel}
-                    </LemonButton>
-                </>
-            }
-        >
-            <div className="flex flex-col gap-4">
-                <LemonField.Pure
-                    label="Prompts"
-                    help="One prompt per line. A prompt that is already tracked gets the topic below."
-                >
-                    <LemonTextArea
-                        value={text}
-                        onChange={setText}
-                        minRows={6}
-                        placeholder="What's the best open source session replay tool?"
-                        autoFocus
-                        data-attr="content-autopilot-prompts-add-text"
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure label="Topic" help="Optional. Groups the prompts in the overview and the list.">
-                    <LemonInput
-                        value={topic}
-                        onChange={setTopic}
-                        maxLength={aeoPromptsBulkImportBodyPromptsItemTopicMax}
-                        placeholder="Session replay"
-                    />
-                </LemonField.Pure>
-            </div>
-        </LemonModal>
+                    </Button>
+                </CredenzaFooter>
+            </CredenzaContent>
+        </Credenza>
     )
 }

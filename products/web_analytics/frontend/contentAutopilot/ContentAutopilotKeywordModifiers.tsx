@@ -97,9 +97,7 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                                         isCitationGap(modifier, modifiers.baseline_cited_rate)
                                     ).length
                                     return gaps ? (
-                                        <AiVisibilityTag type="danger" size="small">
-                                            {pluralize(gaps, 'gap')}
-                                        </AiVisibilityTag>
+                                        <AiVisibilityTag type="danger">{pluralize(gaps, 'gap')}</AiVisibilityTag>
                                     ) : (
                                         <span className="text-muted">-</span>
                                     )

@@ -132,7 +132,7 @@ export const ContentAutopilotPromptOverview = ({
                         data-attr="content-autopilot-prompt-overview-searches"
                     >
                         {stats.top_words.map((word) => (
-                            <AiVisibilityTag key={word.word} size="small">
+                            <AiVisibilityTag key={word.word}>
                                 {word.word} <span className="text-muted">{word.count}</span>
                             </AiVisibilityTag>
                         ))}

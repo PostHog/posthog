@@ -1,9 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import { ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
-
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -27,39 +24,26 @@ const SEGMENTS: { value: BrandedSegmentEnumApi; label: string; tooltip: string }
 export const ContentAutopilotBrandedSegmentControl = ({ tab }: { tab: AiVisibilityFilterTab }): JSX.Element => {
     const { brandedSegment } = useValues(contentAutopilotFiltersLogic)
     const { setBrandedSegment } = useActions(contentAutopilotFiltersLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-
-    if (todayRailNav) {
-        return (
-            <ToggleGroup
-                variant="outline"
-                aria-label="Branded prompts"
-                value={[brandedSegment]}
-                onValueChange={(next: string[]) => {
-                    // Clicking the chosen segment again empties the group, which keeps the current segment.
-                    if (next[0]) {
-                        setBrandedSegment(next[0] as BrandedSegmentEnumApi, tab)
-                    }
-                }}
-                data-attr={`content-autopilot-${tab}-branded-segment`}
-            >
-                {SEGMENTS.map(({ value, label, tooltip }) => (
-                    <Tooltip key={value}>
-                        <TooltipTrigger render={<ToggleGroupItem value={value} />}>{label}</TooltipTrigger>
-                        <TooltipContent>{tooltip}</TooltipContent>
-                    </Tooltip>
-                ))}
-            </ToggleGroup>
-        )
-    }
 
     return (
-        <LemonSegmentedButton
-            size="small"
-            value={brandedSegment}
-            onChange={(segment) => setBrandedSegment(segment, tab)}
-            options={SEGMENTS}
+        <ToggleGroup
+            variant="outline"
+            aria-label="Branded prompts"
+            value={[brandedSegment]}
+            onValueChange={(next: string[]) => {
+                // Clicking the chosen segment again empties the group, which keeps the current segment.
+                if (next[0]) {
+                    setBrandedSegment(next[0] as BrandedSegmentEnumApi, tab)
+                }
+            }}
             data-attr={`content-autopilot-${tab}-branded-segment`}
-        />
+        >
+            {SEGMENTS.map(({ value, label, tooltip }) => (
+                <Tooltip key={value}>
+                    <TooltipTrigger render={<ToggleGroupItem value={value} />}>{label}</TooltipTrigger>
+                    <TooltipContent>{tooltip}</TooltipContent>
+                </Tooltip>
+            ))}
+        </ToggleGroup>
     )
 }

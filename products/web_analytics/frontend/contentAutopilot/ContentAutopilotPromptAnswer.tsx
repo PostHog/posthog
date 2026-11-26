@@ -145,7 +145,7 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                                             />
                                         ) : null}
                                         {shownCheck.target_urls.includes(url) ? (
-                                            <AiVisibilityTag type="success" size="small" className="ml-2">
+                                            <AiVisibilityTag type="success" className="ml-2">
                                                 Your site
                                             </AiVisibilityTag>
                                         ) : null}

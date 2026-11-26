@@ -23,7 +23,7 @@ import type { AEOEngineSettingApi, CheckFrequencyEnumApi } from 'products/web_an
 
 import { engineLabel } from './utils'
 
-export const QuillAiVisibilityEnginesTable = ({
+export const AiVisibilityEnginesTable = ({
     engines,
     loading,
     frequencyOptions,

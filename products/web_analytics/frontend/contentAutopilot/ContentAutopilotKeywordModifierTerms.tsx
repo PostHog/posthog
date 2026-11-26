@@ -57,9 +57,7 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 render: (_, modifier) => (
                     <span className="flex items-center justify-end gap-2 tabular-nums">
                         {isCitationGap(modifier, baselineCitedRate) ? (
-                            <AiVisibilityTag type="danger" size="small">
-                                Gap
-                            </AiVisibilityTag>
+                            <AiVisibilityTag type="danger">Gap</AiVisibilityTag>
                         ) : null}
                         {modifier.cited_rate === null ? '-' : percentage(modifier.cited_rate, 0)}
                         {baselineCitedRate !== null ? (

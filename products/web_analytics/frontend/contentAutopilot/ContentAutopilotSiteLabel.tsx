@@ -32,13 +32,9 @@ export const ContentAutopilotSiteLabel = ({
             )}
             <span className="min-w-0 truncate font-semibold">{children ?? domain}</span>
             {isTarget ? (
-                <AiVisibilityTag type="success" size="small">
-                    Your site
-                </AiVisibilityTag>
+                <AiVisibilityTag type="success">Your site</AiVisibilityTag>
             ) : isCompetitor ? (
-                <AiVisibilityTag type="warning" size="small">
-                    Competitor
-                </AiVisibilityTag>
+                <AiVisibilityTag type="warning">Competitor</AiVisibilityTag>
             ) : null}
         </span>
     )

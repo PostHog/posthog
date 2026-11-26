@@ -28,7 +28,7 @@ const lookupFor = (kind: CitationsLookup['kind'], value: string): CitationsLooku
 })
 
 const TargetTag = (): JSX.Element => (
-    <AiVisibilityTag type="success" size="small" className="shrink-0">
+    <AiVisibilityTag type="success" className="shrink-0">
         Your site
     </AiVisibilityTag>
 )

@@ -1,16 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
-
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AI_VISIBILITY_TAB_FILTERS, type AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
 import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
-import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
 import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
@@ -24,8 +19,8 @@ import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSitePicker } from './ContentAutopilotSitePicker'
 import {
     type ContentAutopilotWorkspaceTabDefinition,
-    QuillContentAutopilotWorkspaceTabs,
-} from './QuillContentAutopilotWorkspaceTabs'
+    ContentAutopilotWorkspaceTabs,
+} from './ContentAutopilotWorkspaceTabs'
 
 const FilteredTab = ({
     tab,
@@ -46,7 +41,6 @@ export const ContentAutopilot = (): JSX.Element => {
     const { profile, workspaceTab, onboardingOpen, siteProfilesLoading, workspaceError } =
         useValues(contentAutopilotLogic)
     const { loadWorkspace, setWorkspaceTab } = useActions(contentAutopilotLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const tabs: ContentAutopilotWorkspaceTabDefinition[] = [
         {
@@ -84,7 +78,7 @@ export const ContentAutopilot = (): JSX.Element => {
     ]
 
     return (
-        <div className="flex flex-col gap-4 pb-4">
+        <div className="flex flex-col gap-4 pb-4" data-quill>
             {workspaceError ? (
                 <AiVisibilityBanner
                     type="error"
@@ -109,32 +103,12 @@ export const ContentAutopilot = (): JSX.Element => {
                     <ContentAutopilotSitePicker />
                     <ContentAutopilotSettings />
                 </div>
-            ) : todayRailNav ? (
-                <QuillContentAutopilotWorkspaceTabs
+            ) : (
+                <ContentAutopilotWorkspaceTabs
                     tabs={tabs}
                     activeKey={workspaceTab}
                     onChange={setWorkspaceTab}
                     onOpenSettings={profile ? () => setWorkspaceTab('settings') : undefined}
-                />
-            ) : (
-                <LemonTabs<ContentAutopilotWorkspaceTab>
-                    activeKey={workspaceTab}
-                    onChange={setWorkspaceTab}
-                    data-attr="content-autopilot-workspace-tabs"
-                    rightSlot={
-                        profile ? (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconGear />}
-                                onClick={() => setWorkspaceTab('settings')}
-                                tooltip="Settings"
-                                aria-label="Settings"
-                                data-attr="content-autopilot-settings"
-                            />
-                        ) : null
-                    }
-                    tabs={tabs}
                 />
             )}
             <ContentAutopilotPromptAddModal />

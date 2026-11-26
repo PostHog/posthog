@@ -1,16 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconArrowRight, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonDialog } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { ContentAutopilotOnboardingStep, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSiteFields } from './ContentAutopilotSiteFields'
+import { ContentAutopilotSiteSettingsCard } from './ContentAutopilotSiteSettingsCard'
 import { ContentAutopilotSourceFields } from './ContentAutopilotSourceFields'
-import { QuillContentAutopilotSiteSettingsCard } from './QuillContentAutopilotSiteSettingsCard'
 
 const SETUP_STEPS: GuidedWizardStep<ContentAutopilotOnboardingStep>[] = [
     { step: 'site', label: 'Site' },
@@ -30,32 +29,15 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
     } = useValues(contentAutopilotLogic)
     const { cancelOnboarding, deleteProfile, discoverSite, saveProfile, setOnboardingStep } =
         useActions(contentAutopilotLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const saveDisabledReason = !profileDraft.domain.trim()
         ? 'Enter a site URL'
         : splitHasNoValues(profileDraft.sourceUrls)
           ? 'Add at least one sitemap or source URL'
           : undefined
-    const confirmDeleteSite = (): void => {
-        if (!profile) {
-            return
-        }
-        LemonDialog.open({
-            title: `Delete ${profile.name || profile.domain}?`,
-            description:
-                'PostHog stops any run in progress and removes this site and its proposals from the workspace. You can add the site again later.',
-            primaryButton: {
-                children: 'Delete site',
-                status: 'danger',
-                onClick: () => deleteProfile(profile.id),
-            },
-            secondaryButton: { children: 'Keep site' },
-        })
-    }
 
-    if (!onboarding && todayRailNav) {
+    if (!onboarding) {
         return (
-            <QuillContentAutopilotSiteSettingsCard
+            <ContentAutopilotSiteSettingsCard
                 siteLabel={profile ? profile.name || profile.domain : null}
                 draft={profileDraft}
                 deleting={deletedProfileLoading}
@@ -64,38 +46,6 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
                 onDelete={() => profile && deleteProfile(profile.id)}
                 onSave={saveProfile}
             />
-        )
-    }
-
-    if (!onboarding) {
-        return (
-            <LemonCard hoverEffect={false} className="w-full max-w-3xl p-4">
-                <p className="m-0 mb-4 text-secondary">Change this site's sources and research boundaries.</p>
-                <div className="flex flex-col gap-5">
-                    <ContentAutopilotSiteFields draft={profileDraft} />
-                    <ContentAutopilotSourceFields draft={profileDraft} />
-                </div>
-                <div className="mt-4 flex items-center justify-between gap-2">
-                    <LemonButton
-                        type="secondary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        onClick={confirmDeleteSite}
-                        loading={deletedProfileLoading}
-                        data-attr="content-autopilot-delete-site"
-                    >
-                        Delete site
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={saveProfile}
-                        loading={savedProfileLoading}
-                        disabledReason={saveDisabledReason}
-                    >
-                        Save settings
-                    </LemonButton>
-                </div>
-            </LemonCard>
         )
     }
 

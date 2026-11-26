@@ -4,9 +4,9 @@ import type { LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
 import { type Sorting, getNextSorting } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { type AiVisibilityColumn, columnKey } from './aiVisibilityTableColumns'
-import { QuillAiVisibilityTableHeadCell } from './QuillAiVisibilityTableHeadCell'
+import { AiVisibilityTableHeadCell } from './AiVisibilityTableHeadCell'
 
-export function QuillAiVisibilityTableHeader<T extends Record<string, any>>({
+export function AiVisibilityTableHeader<T extends Record<string, any>>({
     groups,
     columns,
     expandable,
@@ -39,7 +39,7 @@ export function QuillAiVisibilityTableHeader<T extends Record<string, any>>({
                 {columns.map((column, index) => {
                     const key = columnKey(column, index)
                     return (
-                        <QuillAiVisibilityTableHeadCell<T>
+                        <AiVisibilityTableHeadCell<T>
                             key={key}
                             column={column}
                             order={sorting?.columnKey === key ? sorting.order : null}

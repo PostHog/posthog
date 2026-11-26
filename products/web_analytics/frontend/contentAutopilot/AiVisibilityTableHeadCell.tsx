@@ -20,7 +20,7 @@ const HeaderLabel = ({ title, tooltip }: { title: React.ReactNode; tooltip?: str
         <>{title}</>
     )
 
-export function QuillAiVisibilityTableHeadCell<T extends Record<string, any>>({
+export function AiVisibilityTableHeadCell<T extends Record<string, any>>({
     column,
     order,
     onSort,

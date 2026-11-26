@@ -169,14 +169,13 @@ const meta: Meta<typeof ContentAutopilot> = {
 
 export default meta
 
-const WorkspaceTabStory = ({ tab, quill }: { tab: ContentAutopilotWorkspaceTab; quill?: boolean }): JSX.Element => {
+const WorkspaceTabStory = ({ tab }: { tab: ContentAutopilotWorkspaceTab }): JSX.Element => {
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     useEffect(() => {
         setWorkspaceTab(tab)
     }, [setWorkspaceTab, tab])
     return (
-        // The app shell puts the new navigation's screens inside a quill surface, and a story has no shell.
-        <div className="p-6" data-quill={quill || undefined}>
+        <div className="p-6">
             <ContentAutopilot />
         </div>
     )
@@ -226,17 +225,6 @@ OverviewTabFiltered.parameters = {
 
 export const RankingsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" />
 RankingsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
-
-// The new navigation renders the tabs, the filter bar and the page header in quill.
-const QUILL_FEATURE_FLAGS = [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT, FEATURE_FLAGS.TODAY_RAIL_NAV]
-
-export const RankingsTabQuill: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" quill />
-RankingsTabQuill.decorators = RankingsTab.decorators
-RankingsTabQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }
-
-export const SiteSettingsQuill: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="settings" quill />
-SiteSettingsQuill.decorators = SiteSettings.decorators
-SiteSettingsQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }
 
 export const KeywordsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="keywords" />
 KeywordsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
@@ -320,12 +308,6 @@ export const CitationsOfASearch: StoryFn<typeof ContentAutopilot> = () => (
 CitationsOfASearch.decorators = OverviewTab.decorators
 CitationsOfASearch.parameters = { testOptions: { snapshotBrowsers: [] } }
 
-export const CitationsOfYourPageQuill: StoryFn<typeof ContentAutopilot> = () => (
-    <CitationsStory tab="rankings" lookup={OWN_PAGE} />
-)
-CitationsOfYourPageQuill.decorators = OverviewTab.decorators
-CitationsOfYourPageQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS, testOptions: { snapshotBrowsers: [] } }
-
 const KeywordsEditorStory = (): JSX.Element => {
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     const { openKeywordsModal } = useActions(contentAutopilotKeywordsLogic)
@@ -334,7 +316,7 @@ const KeywordsEditorStory = (): JSX.Element => {
         openKeywordsModal()
     }, [setWorkspaceTab, openKeywordsModal])
     return (
-        <div className="p-6" data-quill>
+        <div className="p-6">
             <ContentAutopilot />
         </div>
     )
@@ -342,17 +324,3 @@ const KeywordsEditorStory = (): JSX.Element => {
 
 export const KeywordsEditorQuill: StoryFn<typeof ContentAutopilot> = () => <KeywordsEditorStory />
 KeywordsEditorQuill.decorators = KeywordsTab.decorators
-KeywordsEditorQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }
-
-export const OverviewTabQuill: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" quill />
-OverviewTabQuill.decorators = OverviewTab.decorators
-// The visibility chart animates as it draws, so the overview tab stays out of the snapshots.
-OverviewTabQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS, testOptions: { snapshotBrowsers: [] } }
-
-export const PromptsTabQuill: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="prompts" quill />
-PromptsTabQuill.decorators = PromptsTab.decorators
-PromptsTabQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }
-
-export const KeywordsTabQuill: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="keywords" quill />
-KeywordsTabQuill.decorators = KeywordsTab.decorators
-KeywordsTabQuill.parameters = { featureFlags: QUILL_FEATURE_FLAGS }

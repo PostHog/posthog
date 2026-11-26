@@ -1,7 +1,7 @@
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-export const QuillAiVisibilityTableExpandButton = ({
+export const AiVisibilityTableExpandButton = ({
     expanded,
     onToggle,
 }: {
