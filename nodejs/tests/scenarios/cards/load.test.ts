@@ -352,6 +352,22 @@ describe('load', () => {
             'valves.0.at: the valve can fire 100s into the drive, inside its 160s warm-up; set at to 160s or later',
         ],
         [
+            'a valve inside the baseline after a warm-up on a profile with host admission only',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '189999ms' }],
+            },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'valves.0.at: the valve can fire 189.999s into the drive, inside the 160s warm-up and the 30s fault-free baseline after it that load and host admission measure; set at to 190s or later',
+        ],
+        [
+            'a warm-up that leaves the paired control too short a baseline',
+            { ...card, drive: { ...card.drive, for: '227s', warmUp: '210s' } },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'drive.for: the drive ends 227s in, inside the 210s warm-up and the 30s fault-free baseline after it that load and host admission measure; run it for 240s or longer',
+        ],
+        [
             'a when valve armed before the slowest scrape that closes the baseline after a warm-up',
             {
                 ...card,
@@ -819,6 +835,15 @@ describe('load', () => {
                 valves: [{ ...emailWorkerKill, at: '197s' }],
             },
             { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
+        ],
+        [
+            'a valve at the end of the baseline after a warm-up whose sum has no exact float',
+            {
+                ...card,
+                drive: { ...card.drive, for: '60s', warmUp: '548ms' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '30548ms' }],
+            },
+            { ...profile, host: { cpuCeiling: 0.5 } },
         ],
         [
             'a when valve armed at the end of the baseline on a profile with host admission only',

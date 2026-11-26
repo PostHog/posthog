@@ -71,7 +71,7 @@ import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-a
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { LIVE_FILE, LiveRecord } from './live'
-import { RunResult, Runner, TargetRun, createRunner } from './runner'
+import { RunResult, RunWindow, Runner, TargetRun, createRunner } from './runner'
 import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
@@ -1506,22 +1506,26 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
-    it('records the warm-up its drive ran, and the baseline it admitted after it', async () => {
+    it('records the warm-up from the first offer it drove, and the baseline it admitted after it', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'transactional_email', { driveFor: '3s', warmUp: '1s' }),
             NEVER_ABORTED
         )
         results.push(result)
 
+        const journal = evidenceOf(result, 'journal.json') as JournalEntry[]
         const { drive } = evidenceOf(result, 'probes.json') as { drive: DriveWindow }
-        const iso = (at: number): string => new Date(at).toISOString()
+        const saved = evidenceOf(result, 'scorecard.json') as { warmUp: RunWindow; baseline: RunWindow }
+        const warmUpFrom = Date.parse(saved.warmUp.from)
+        const firstOfferMs = Math.min(...journal.map(({ offeredAt }) => offeredAt)) - warmUpFrom
         expect({
-            warmedAfterMs: drive.warmedAt! - drive.startedAt,
-            ...(evidenceOf(result, 'scorecard.json') as object),
-        }).toMatchObject({
-            warmedAfterMs: 1000,
-            warmUp: { from: iso(drive.startedAt), to: iso(drive.warmedAt!) },
-            baseline: { from: iso(drive.warmedAt!), to: iso(drive.endedAt) },
+            warmUpMs: Date.parse(saved.warmUp.to) - warmUpFrom,
+            firstOfferedAtWarmUpStart: firstOfferMs >= 0 && firstOfferMs < 100,
+            baseline: saved.baseline,
+        }).toEqual({
+            warmUpMs: 1000,
+            firstOfferedAtWarmUpStart: true,
+            baseline: { from: saved.warmUp.to, to: new Date(drive.endedAt).toISOString() },
         })
     }, 30_000)
 

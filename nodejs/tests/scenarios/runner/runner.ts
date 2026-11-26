@@ -348,11 +348,13 @@ const runWindowOf = (from: number, to: number): RunWindow => ({
 
 function windowsOf(
     drive: DriveWindow,
-    timeline: readonly ValveTimelineEntry[]
+    timeline: readonly ValveTimelineEntry[],
+    warmUpMs: number | undefined
 ): Pick<RunResult, 'warmUp' | 'baseline'> {
     const { baseline } = phasesOf(drive, timeline)
     return {
-        ...(drive.warmedAt !== undefined && { warmUp: runWindowOf(drive.startedAt, baseline.from) }),
+        ...(drive.warmedAt !== undefined &&
+            warmUpMs !== undefined && { warmUp: runWindowOf(drive.warmedAt - warmUpMs, baseline.from) }),
         baseline: runWindowOf(baseline.from, baseline.to),
     }
 }
@@ -688,7 +690,7 @@ export function createRunner(
                     startedAt: driveStartedAt,
                     endedAt: Math.min(Date.now(), units.steps.at(-1)?.endedAt ?? Infinity),
                     ...(card.drive.warmUp !== undefined && {
-                        warmedAt: driveStartedAt + durationMs(card.drive.warmUp),
+                        warmedAt: (units.steps[0]?.startedAt ?? driveStartedAt) + durationMs(card.drive.warmUp),
                     }),
                 }
                 driven = driveWindow
@@ -775,7 +777,11 @@ export function createRunner(
                 })
                 outcome = {
                     ...verdict,
-                    ...windowsOf(admittedWindowOf(card.drive, driveWindow, units.steps), evidence.timeline),
+                    ...windowsOf(
+                        admittedWindowOf(card.drive, driveWindow, units.steps),
+                        evidence.timeline,
+                        card.drive.warmUp === undefined ? undefined : durationMs(card.drive.warmUp)
+                    ),
                     units,
                     convergence,
                     janitorResets,
