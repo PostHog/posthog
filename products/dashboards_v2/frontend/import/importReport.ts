@@ -6,7 +6,7 @@ import { lineSpec } from '../panels/chart/viz/line/lineSpec'
 import { statSpec } from '../panels/chart/viz/stat/statSpec'
 import { markdownSpec } from '../panels/markdown/markdownSpec'
 
-export type ImportSource = 'grafana' | 'grafana-v2'
+export type ImportSource = 'grafana' | 'grafana-v2' | 'newrelic'
 
 /**
  * - `mapped`: the tile shows what it showed before.
@@ -127,6 +127,12 @@ export function idMaker(prefix: string): (title: string) => string {
 }
 
 // Long queries would make a note taller than any tile it replaces.
+/** Text from an export, made safe to put inside one line of a note's markdown. */
+export const inline = (value: unknown): string =>
+    String(value)
+        .replace(/[`\r\n]+/g, ' ')
+        .trim()
+
 const MAX_NOTE_QUERY = 1500
 
 function fence(language: string, text: string): string {
