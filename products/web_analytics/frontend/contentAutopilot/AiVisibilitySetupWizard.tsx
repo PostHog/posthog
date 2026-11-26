@@ -1,16 +1,16 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonCard } from '@posthog/lemon-ui'
+import { Card, CardContent, CardHeader } from '@posthog/quill'
 
-import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
-
+import { AiVisibilitySetupRestartDialog } from './AiVisibilitySetupRestartDialog'
 import { AiVisibilitySetupResultsStep } from './AiVisibilitySetupResultsStep'
 import { AiVisibilitySetupReviewStep } from './AiVisibilitySetupReviewStep'
+import { type AiVisibilitySetupStepDefinition, AiVisibilitySetupStepper } from './AiVisibilitySetupStepper'
 import { AiVisibilitySetupWebsiteStep } from './AiVisibilitySetupWebsiteStep'
 import { SetupWizardStep, contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
-import { openRestartSetupDialog } from './restartSetupDialog'
 
-const STEPS: GuidedWizardStep<SetupWizardStep>[] = [
+const STEPS: AiVisibilitySetupStepDefinition[] = [
     // pinned: data-attr values are API for autocapture dashboards
     { step: 'website', label: 'Your website', dataAttr: 'ai-visibility-setup-step-website' },
     { step: 'review', label: 'Review', dataAttr: 'ai-visibility-setup-step-review' },
@@ -21,8 +21,9 @@ const WAIT_REASON = 'Wait for the first check, or stop it'
 const SITE_FIRST_REASON = 'Set up your website first'
 
 export const AiVisibilitySetupWizard = ({ step }: { step: SetupWizardStep }): JSX.Element => {
-    const { siteSetUp, runInProgress, setupContext } = useValues(contentAutopilotSetupLogic)
-    const { setWizardStep, startAgain } = useActions(contentAutopilotSetupLogic)
+    const { siteSetUp, runInProgress } = useValues(contentAutopilotSetupLogic)
+    const { setWizardStep } = useActions(contentAutopilotSetupLogic)
+    const [restartOpen, setRestartOpen] = useState(false)
 
     const running = runInProgress
     const disabledSteps: Partial<Record<SetupWizardStep, string>> = running
@@ -32,30 +33,28 @@ export const AiVisibilitySetupWizard = ({ step }: { step: SetupWizardStep }): JS
           : {}
     delete disabledSteps[step]
     const goToStep = (target: SetupWizardStep): void =>
-        target === 'website' && (siteSetUp || running)
-            ? openRestartSetupDialog(setupContext, startAgain)
-            : setWizardStep(target)
+        target === 'website' && (siteSetUp || running) ? setRestartOpen(true) : setWizardStep(target)
 
     return (
-        <LemonCard hoverEffect={false} className="w-full p-0" data-attr="ai-visibility-setup-wizard">
-            <div className="overflow-x-auto border-b px-4 py-3">
-                <GuidedWizardStepper
+        <Card className="w-full" data-attr="ai-visibility-setup-wizard">
+            <CardHeader className="overflow-x-auto border-b">
+                <AiVisibilitySetupStepper
                     steps={STEPS}
                     currentStep={step}
                     onStepClick={goToStep}
                     disabledSteps={disabledSteps}
-                    aria-label="AI visibility setup"
                 />
-            </div>
-            <div className="p-6">
+            </CardHeader>
+            <CardContent className="p-6">
                 {step === 'website' ? (
                     <AiVisibilitySetupWebsiteStep />
                 ) : step === 'review' ? (
-                    <AiVisibilitySetupReviewStep />
+                    <AiVisibilitySetupReviewStep onStartAgain={() => setRestartOpen(true)} />
                 ) : (
                     <AiVisibilitySetupResultsStep />
                 )}
-            </div>
-        </LemonCard>
+            </CardContent>
+            <AiVisibilitySetupRestartDialog open={restartOpen} onOpenChange={setRestartOpen} />
+        </Card>
     )
 }

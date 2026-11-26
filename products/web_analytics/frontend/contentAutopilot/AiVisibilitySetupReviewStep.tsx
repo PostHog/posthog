@@ -1,7 +1,20 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    Button,
+    Heading,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Skeleton,
+    Switch,
+    Text,
+} from '@posthog/quill'
+
+import type { CheckFrequencyEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { AiVisibilitySetupCostPanel } from './AiVisibilitySetupCostPanel'
 import { aiVisibilitySetupReviewLogic } from './aiVisibilitySetupReviewLogic'
@@ -9,18 +22,21 @@ import { AiVisibilitySetupRunPanel } from './AiVisibilitySetupRunPanel'
 import { AiVisibilitySetupWizardFooter } from './AiVisibilitySetupWizardFooter'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
-import { FREQUENCY_OPTIONS } from './engineFrequency'
-import { openRestartSetupDialog } from './restartSetupDialog'
+import { FREQUENCY_OPTIONS, frequencyLabel } from './engineFrequency'
 import { engineLabel } from './utils'
 
 const SectionHeading = ({ title, detail }: { title: string; detail: string }): JSX.Element => (
     <div>
-        <h4 className="m-0">{title}</h4>
-        <p className="m-0 text-xs text-secondary">{detail}</p>
+        <Heading size="sm" render={<h4 className="m-0" />}>
+            {title}
+        </Heading>
+        <Text size="xs" variant="muted" render={<p className="m-0" />}>
+            {detail}
+        </Text>
     </div>
 )
 
-export const AiVisibilitySetupReviewStep = (): JSX.Element => {
+export const AiVisibilitySetupReviewStep = ({ onStartAgain }: { onStartAgain: () => void }): JSX.Element => {
     const {
         prompts,
         keywordRows,
@@ -39,7 +55,7 @@ export const AiVisibilitySetupReviewStep = (): JSX.Element => {
         jobRunning && !!job && job.steps.some((step) => step.step === name && step.status !== 'done')
     const settingUp = stepPending('prompts')
     const pickingKeywords = stepPending('keywords')
-    const { setWizardStep, startAgain } = useActions(contentAutopilotSetupLogic)
+    const { setWizardStep } = useActions(contentAutopilotSetupLogic)
     const costEngines = (setupContext?.engines ?? [])
         .filter((engine) => engine.enabled && engine.available)
         .map(({ engine, frequency }) => ({ engine, frequency }))
@@ -47,14 +63,16 @@ export const AiVisibilitySetupReviewStep = (): JSX.Element => {
 
     return (
         <div data-attr="ai-visibility-setup-review">
-            <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-                <div className="flex min-w-0 flex-col gap-6">
+            <div className="flex flex-col items-start gap-6 lg:flex-row">
+                <div className="flex w-full min-w-0 flex-1 flex-col gap-6">
                     <div>
-                        <h3 className="m-0">Review what PostHog set up</h3>
-                        <p className="m-0 mt-1 text-muted">
+                        <Heading size="sm" render={<h3 className="m-0" />}>
+                            Review what PostHog set up
+                        </Heading>
+                        <Text size="sm" variant="muted" render={<p className="m-0 mt-1" />}>
                             Turn off anything you don't want to track. Each engine that's on answers every prompt that's
                             on, on its schedule, and the keywords are counted in every answer.
-                        </p>
+                        </Text>
                     </div>
 
                     <AiVisibilitySetupRunPanel />
@@ -68,32 +86,49 @@ export const AiVisibilitySetupReviewStep = (): JSX.Element => {
                             {engines.map((setting) => (
                                 <div
                                     key={setting.engine}
-                                    className="flex items-center gap-3 rounded border px-3 py-2"
+                                    className="flex items-center gap-3 rounded-md border px-3 py-2"
                                     data-attr="ai-visibility-setup-review-engine"
                                 >
                                     <span className="flex-1">
                                         <ContentAutopilotEngineLabel engine={setting.engine} />
                                     </span>
-                                    <LemonSelect
-                                        size="small"
+                                    <Select<CheckFrequencyEnumApi>
                                         value={setting.frequency}
-                                        options={FREQUENCY_OPTIONS}
-                                        onChange={(frequency) =>
+                                        onValueChange={(frequency) =>
                                             frequency && setEngineFrequency(setting.engine, frequency)
                                         }
-                                        disabledReason={
-                                            setting.enabled ? undefined : 'Turn the engine on to choose how often'
-                                        }
-                                        data-attr="ai-visibility-setup-review-engine-frequency"
-                                    />
-                                    <LemonSwitch
+                                    >
+                                        <SelectTrigger
+                                            size="sm"
+                                            aria-label={`How often ${engineLabel(setting.engine)} checks`}
+                                            disabledReason={
+                                                setting.enabled ? undefined : 'Turn the engine on to choose how often'
+                                            }
+                                            data-attr="ai-visibility-setup-review-engine-frequency"
+                                        >
+                                            <SelectValue>
+                                                {(value: CheckFrequencyEnumApi | null) =>
+                                                    value && frequencyLabel(value)
+                                                }
+                                            </SelectValue>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {FREQUENCY_OPTIONS.map((option) => (
+                                                <SelectItem key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Switch
                                         checked={setting.enabled}
-                                        loading={!!enginesUpdating[setting.engine]}
-                                        onChange={(enabled) => toggleEngine(setting.engine, enabled)}
+                                        onCheckedChange={(enabled) => toggleEngine(setting.engine, enabled)}
                                         disabledReason={
-                                            setting.available
-                                                ? undefined
-                                                : `${engineLabel(setting.engine)} isn't available yet`
+                                            !setting.available
+                                                ? `${engineLabel(setting.engine)} isn't available yet`
+                                                : enginesUpdating[setting.engine]
+                                                  ? 'Saving…'
+                                                  : undefined
                                         }
                                         aria-label={`Check prompts on ${engineLabel(setting.engine)}`}
                                     />
@@ -112,10 +147,9 @@ export const AiVisibilitySetupReviewStep = (): JSX.Element => {
                                 }
                                 detail="The questions the engines answer. Turn one off to stop checking it."
                             />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconPlus />}
+                            <Button
+                                variant="outline"
+                                size="sm"
                                 onClick={openAddPrompts}
                                 disabledReason={
                                     runInProgress
@@ -124,35 +158,38 @@ export const AiVisibilitySetupReviewStep = (): JSX.Element => {
                                 }
                                 data-attr="ai-visibility-setup-review-add-prompts"
                             >
+                                <IconPlus />
                                 Add my own prompts
-                            </LemonButton>
+                            </Button>
                         </div>
                         {prompts && !(settingUp && prompts.length === 0) ? (
-                            <ul className="m-0 flex list-none flex-col divide-y rounded border p-0">
+                            <ul className="m-0 flex list-none flex-col divide-y rounded-md border p-0">
                                 {prompts.map((prompt) => (
                                     <li key={prompt.id} className="flex items-center gap-3 px-3 py-2">
-                                        <LemonSwitch
+                                        <Switch
                                             checked={prompt.active}
-                                            loading={!!promptsUpdating[prompt.id]}
-                                            onChange={(active) => togglePrompt(prompt.id, active)}
+                                            onCheckedChange={(active) => togglePrompt(prompt.id, active)}
+                                            disabledReason={promptsUpdating[prompt.id] ? 'Saving…' : undefined}
                                             aria-label={prompt.prompt}
                                             data-attr="ai-visibility-setup-review-prompt"
                                         />
-                                        <span className={prompt.active ? 'flex-1' : 'flex-1 text-muted'}>
+                                        <span className={prompt.active ? 'flex-1' : 'flex-1 text-muted-foreground'}>
                                             {prompt.prompt}
                                         </span>
                                         {prompt.topic ? (
-                                            <span className="shrink-0 text-xs text-secondary">{prompt.topic}</span>
+                                            <Text size="xs" variant="muted" render={<span className="shrink-0" />}>
+                                                {prompt.topic}
+                                            </Text>
                                         ) : null}
                                     </li>
                                 ))}
                             </ul>
                         ) : settingUp ? (
-                            <p className="m-0 text-muted">
+                            <Text size="sm" variant="muted" render={<p className="m-0" />}>
                                 PostHog is writing your prompts. They show here once saved.
-                            </p>
+                            </Text>
                         ) : (
-                            <LemonSkeleton className="h-40 w-full" />
+                            <Skeleton className="h-40 w-full" />
                         )}
                     </section>
 
@@ -167,64 +204,66 @@ export const AiVisibilitySetupReviewStep = (): JSX.Element => {
                             keywordRows.length > 0 ? (
                                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                                     {keywordRows.map((row) => (
-                                        <LemonSwitch
-                                            key={row.keyword}
-                                            bordered
-                                            fullWidth
-                                            checked={row.id !== null}
-                                            loading={!!keywordsUpdating[row.keyword]}
-                                            onChange={(on) => toggleKeyword(row, on)}
-                                            label={row.keyword}
-                                            data-attr="ai-visibility-setup-review-keyword"
-                                        />
+                                        <div key={row.keyword} className="rounded-md border px-3 py-2">
+                                            <Switch
+                                                checked={row.id !== null}
+                                                onCheckedChange={(on) => toggleKeyword(row, on)}
+                                                disabledReason={keywordsUpdating[row.keyword] ? 'Saving…' : undefined}
+                                                data-attr="ai-visibility-setup-review-keyword"
+                                            >
+                                                {row.keyword}
+                                            </Switch>
+                                        </div>
                                     ))}
                                 </div>
                             ) : (
-                                <p className="m-0 text-muted">
+                                <Text size="sm" variant="muted" render={<p className="m-0" />}>
                                     {pickingKeywords
                                         ? 'PostHog picks keywords after the prompts. They show here once saved.'
                                         : 'No keywords yet. You can add them on the Keywords tab.'}
-                                </p>
+                                </Text>
                             )
                         ) : (
-                            <LemonSkeleton className="h-16 w-full" />
+                            <Skeleton className="h-16 w-full" />
                         )}
                     </section>
 
                     <section className="flex flex-col gap-1" data-attr="ai-visibility-setup-review-competitors">
-                        <h4 className="m-0">Competitors</h4>
-                        <p className="m-0 text-xs text-secondary">
-                            {hasCurrentChecks
-                                ? 'Choose your competitors in First results, from the brands the answers named.'
-                                : 'Competitors appear once the first answers are in.'}
-                        </p>
+                        <SectionHeading
+                            title="Competitors"
+                            detail={
+                                hasCurrentChecks
+                                    ? 'Choose your competitors in First results, from the brands the answers named.'
+                                    : 'Competitors appear once the first answers are in.'
+                            }
+                        />
                     </section>
                 </div>
-                <div className="lg:sticky lg:top-4">
+                <div className="w-full shrink-0 lg:sticky lg:top-4 lg:w-80">
                     <AiVisibilitySetupCostPanel prompts={activePromptCount} engines={costEngines} />
                 </div>
             </div>
 
             <AiVisibilitySetupWizardFooter
                 backActions={
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => openRestartSetupDialog(setupContext, startAgain)}
+                    <Button
+                        variant="outline"
+                        onClick={onStartAgain}
                         loading={restarting}
                         data-attr="ai-visibility-setup-start-again"
                     >
                         Start again
-                    </LemonButton>
+                    </Button>
                 }
             >
-                <LemonButton
-                    type="primary"
+                <Button
+                    variant="primary"
                     onClick={() => setWizardStep('results')}
                     disabledReason={runInProgress ? 'Wait for the first check, or stop it' : undefined}
                     data-attr="ai-visibility-setup-next-results"
                 >
                     Next
-                </LemonButton>
+                </Button>
             </AiVisibilitySetupWizardFooter>
         </div>
     )

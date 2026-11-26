@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { Button, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
 
@@ -62,51 +62,51 @@ export const AiVisibilitySetupRunPanel = (): JSX.Element | null => {
     if (job && (runInProgress || cancelled)) {
         const settingUp = jobRunning && !jobRef?.onlyFirstRun
         return (
-            <LemonCard
-                hoverEffect={false}
-                className="p-4"
-                data-attr={cancelled ? 'ai-visibility-setup-cancelled' : 'ai-visibility-setup-running'}
-            >
-                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1 basis-80">
-                        <h4 className="m-0">
-                            {cancelled
-                                ? 'Setup cancelled'
-                                : settingUp
-                                  ? 'Setting up AI visibility'
-                                  : 'The first check is running'}
-                        </h4>
-                        <p className="m-0 mt-1 text-xs text-secondary">
-                            {cancelled
-                                ? `PostHog stopped before it finished. What it saved stays: ${pluralize(savedPrompts, 'prompt')} and ${pluralize(setupContext?.keywords ?? 0, 'keyword')}.${runInProgress ? ' The checks already under way are finishing.' : ''}`
-                                : stopRequested
-                                  ? "Stopping. The checks already under way finish and are kept, and the rest don't run."
-                                  : settingUp
-                                    ? 'This takes a few minutes, and you can leave this page. What PostHog saves shows below as it goes.'
-                                    : 'This takes a few minutes, and you can leave this page. The first results open when every check is in.'}
-                        </p>
-                    </div>
+            <Card size="sm" data-attr={cancelled ? 'ai-visibility-setup-cancelled' : 'ai-visibility-setup-running'}>
+                <CardHeader>
+                    <CardTitle role="heading" aria-level={4}>
+                        {cancelled
+                            ? 'Setup cancelled'
+                            : settingUp
+                              ? 'Setting up AI visibility'
+                              : 'The first check is running'}
+                    </CardTitle>
+                    <CardDescription>
+                        {cancelled
+                            ? `PostHog stopped before it finished. What it saved stays: ${pluralize(savedPrompts, 'prompt')} and ${pluralize(setupContext?.keywords ?? 0, 'keyword')}.${runInProgress ? ' The checks already under way are finishing.' : ''}`
+                            : stopRequested
+                              ? "Stopping. The checks already under way finish and are kept, and the rest don't run."
+                              : settingUp
+                                ? 'This takes a few minutes, and you can leave this page. What PostHog saves shows below as it goes.'
+                                : 'This takes a few minutes, and you can leave this page. The first results open when every check is in.'}
+                    </CardDescription>
                     {cancelled ? null : (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={cancelSetup}
-                            loading={stopping}
-                            disabledReason={!settingUp && stopRequested ? 'Stopping the checks' : undefined}
-                            data-attr={settingUp ? 'ai-visibility-setup-cancel' : 'ai-visibility-setup-stop-first-run'}
-                        >
-                            {settingUp ? 'Cancel setup' : 'Stop the checks'}
-                        </LemonButton>
+                        <CardAction>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={cancelSetup}
+                                loading={stopping}
+                                disabledReason={!settingUp && stopRequested ? 'Stopping the checks' : undefined}
+                                data-attr={
+                                    settingUp ? 'ai-visibility-setup-cancel' : 'ai-visibility-setup-stop-first-run'
+                                }
+                            >
+                                {settingUp ? 'Cancel setup' : 'Stop the checks'}
+                            </Button>
+                        </CardAction>
                     )}
-                </div>
-                <AiVisibilitySetupChecklist
-                    job={job}
-                    engineProgress={engineProgress}
-                    checksRunning={runInProgress}
-                    stopRequested={stopRequested || cancelled}
-                />
-                {banners}
-            </LemonCard>
+                </CardHeader>
+                <CardContent>
+                    <AiVisibilitySetupChecklist
+                        job={job}
+                        engineProgress={engineProgress}
+                        checksRunning={runInProgress}
+                        stopRequested={stopRequested || cancelled}
+                    />
+                    {banners}
+                </CardContent>
+            </Card>
         )
     }
 
@@ -124,27 +124,29 @@ export const AiVisibilitySetupRunPanel = (): JSX.Element | null => {
     }
 
     return (
-        <LemonCard hoverEffect={false} className="p-4" data-attr="ai-visibility-setup-not-run">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0 flex-1 basis-80">
-                    <h4 className="m-0">The first check hasn't run</h4>
-                    <p className="m-0 mt-1 text-xs text-secondary">
-                        {stopRequested ? 'You stopped it. ' : ''}Run it now to see your first results in a few minutes.
-                        Each engine also checks the prompts that are on, on its schedule.
-                    </p>
-                </div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={() => startFirstRun(activePrompts === 0 && pausedPrompts > 0)}
-                    loading={starting}
-                    disabledReason={firstRunDisabledReason}
-                    data-attr="content-autopilot-first-run-now"
-                >
-                    Run the first check
-                </LemonButton>
-            </div>
-            {banners}
-        </LemonCard>
+        <Card size="sm" data-attr="ai-visibility-setup-not-run">
+            <CardHeader>
+                <CardTitle role="heading" aria-level={4}>
+                    The first check hasn't run
+                </CardTitle>
+                <CardDescription>
+                    {stopRequested ? 'You stopped it. ' : ''}Run it now to see your first results in a few minutes. Each
+                    engine also checks the prompts that are on, on its schedule.
+                </CardDescription>
+                <CardAction>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => startFirstRun(activePrompts === 0 && pausedPrompts > 0)}
+                        loading={starting}
+                        disabledReason={firstRunDisabledReason}
+                        data-attr="content-autopilot-first-run-now"
+                    >
+                        Run the first check
+                    </Button>
+                </CardAction>
+            </CardHeader>
+            {startError || firstRunStep?.status === 'failed' || pollError ? <CardContent>{banners}</CardContent> : null}
+        </Card>
     )
 }

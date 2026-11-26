@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 export const AiVisibilitySetupWizardFooter = ({
     onBack,
@@ -14,9 +14,9 @@ export const AiVisibilitySetupWizardFooter = ({
     <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t pt-4">
         <div className="flex flex-wrap items-center gap-2">
             {onBack ? (
-                <LemonButton type="secondary" onClick={onBack} data-attr="ai-visibility-setup-back">
+                <Button variant="outline" onClick={onBack} data-attr="ai-visibility-setup-back">
                     Back
-                </LemonButton>
+                </Button>
             ) : null}
             {backActions}
         </div>

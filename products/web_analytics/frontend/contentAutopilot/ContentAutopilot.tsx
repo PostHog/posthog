@@ -93,11 +93,7 @@ export const ContentAutopilot = (): JSX.Element => {
                 // Setup runs as a wizard in place of the tabs, until the first results are in.
                 <ContentAutopilotPromptsOverview />
             ) : (
-                <ContentAutopilotWorkspaceTabs
-                    tabs={tabs}
-                    activeKey={workspaceTab}
-                    onChange={setWorkspaceTab}
-                />
+                <ContentAutopilotWorkspaceTabs tabs={tabs} activeKey={workspaceTab} onChange={setWorkspaceTab} />
             )}
             <ContentAutopilotPromptAddModal />
             <ContentAutopilotPromptSuggestModal />

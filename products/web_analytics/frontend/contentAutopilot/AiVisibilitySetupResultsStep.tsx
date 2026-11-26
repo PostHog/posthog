@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { Button, Heading, Text } from '@posthog/quill'
 
 import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { AiVisibilityFirstResults } from './AiVisibilityFirstResults'
@@ -28,33 +28,35 @@ export const AiVisibilitySetupResultsStep = (): JSX.Element => {
                 </>
             ) : (
                 <div>
-                    <h3 className="m-0">No results yet</h3>
-                    <p className="m-0 mt-1 text-muted">
+                    <Heading size="sm" render={<h3 className="m-0" />}>
+                        No results yet
+                    </Heading>
+                    <Text size="sm" variant="muted" render={<p className="m-0 mt-1" />}>
                         Run the first check to see how AI answers see you in a few minutes. Otherwise each engine checks
                         your prompts on its schedule, and the overview fills in as the answers arrive.
-                    </p>
+                    </Text>
                 </div>
             )}
             <AiVisibilitySetupWizardFooter onBack={() => setWizardStep('review')}>
                 {hasChecks ? null : (
-                    <LemonButton
-                        type="secondary"
+                    <Button
+                        variant="outline"
                         onClick={() => startFirstRun(false)}
                         loading={starting}
                         disabledReason={firstRunDisabledReason}
                         data-attr="ai-visibility-setup-results-run"
                     >
                         Run the first check
-                    </LemonButton>
+                    </Button>
                 )}
-                <LemonButton
-                    type="primary"
+                <Button
+                    variant="primary"
                     onClick={finish}
                     // pinned: data-attr values are API for autocapture dashboards
                     data-attr="ai-visibility-first-results-dismiss"
                 >
                     Go to the overview
-                </LemonButton>
+                </Button>
             </AiVisibilitySetupWizardFooter>
         </div>
     )

@@ -1,5 +1,5 @@
 import { IconCheck, IconMinus, IconX } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/quill'
 
 import type { AEOSetupJobApi, AEOSetupStepApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -74,15 +74,15 @@ const engineRow = (progress: EngineProgress, queued: boolean, checksRunning: boo
 const RowIcon = ({ state }: { state: RowState }): JSX.Element => {
     switch (state) {
         case 'done':
-            return <IconCheck className="text-success" />
+            return <IconCheck className="text-success-foreground" />
         case 'failed':
-            return <IconX className="text-danger" />
+            return <IconX className="text-destructive-foreground" />
         case 'running':
             return <Spinner className="text-base" />
         case 'skipped':
-            return <IconMinus className="text-muted" />
+            return <IconMinus className="text-muted-foreground" />
         default:
-            return <span className="inline-block size-4 rounded-full border border-primary" />
+            return <span className="inline-block size-4 rounded-full border border-border" />
     }
 }
 
@@ -116,8 +116,10 @@ export const AiVisibilitySetupChecklist = ({
                     <span className="flex w-5 shrink-0 justify-center text-base">
                         <RowIcon state={row.state} />
                     </span>
-                    <span className={row.state === 'waiting' ? 'flex-1 text-secondary' : 'flex-1'}>{row.label}</span>
-                    <span className="text-xs text-secondary tabular-nums">{row.note}</span>
+                    <span className={row.state === 'waiting' ? 'flex-1 text-muted-foreground' : 'flex-1'}>
+                        {row.label}
+                    </span>
+                    <span className="text-xs text-muted-foreground tabular-nums">{row.note}</span>
                 </li>
             ))}
         </ol>

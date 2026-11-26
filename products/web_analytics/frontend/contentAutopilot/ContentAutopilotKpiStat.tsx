@@ -16,11 +16,11 @@ export const ContentAutopilotKpiStat = ({
     'data-attr': dataAttr,
 }: Pick<KpiCardContent, 'value'> &
     Partial<Pick<KpiCardContent, 'note' | 'delta'>> & {
-    label: string
-    description: string
-    onClick?: () => void
-    'data-attr': string
-}): JSX.Element => (
+        label: string
+        description: string
+        onClick?: () => void
+        'data-attr': string
+    }): JSX.Element => (
     <div className="min-w-0">
         <Tooltip>
             <TooltipTrigger

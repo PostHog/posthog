@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Text } from '@posthog/quill'
 
 import { AddableBrandKind, aiVisibilityAddBrandLogic } from './aiVisibilityAddBrandLogic'
 
@@ -23,6 +23,7 @@ export const AiVisibilityAddBrandForm = ({
     const logic = aiVisibilityAddBrandLogic({ formKey, defaultKind: kinds[0] })
     const { domain, kind, adding, error, disabledReason } = useValues(logic)
     const { setDomain, setKind, addBrand } = useActions(logic)
+    const options = KIND_OPTIONS.filter((option) => kinds.includes(option.value))
 
     return (
         <div className="flex flex-col gap-1" data-attr="ai-visibility-add-brand">
@@ -35,38 +36,49 @@ export const AiVisibilityAddBrandForm = ({
                     }
                 }}
             >
-                <LemonInput
-                    size="small"
+                <Input
+                    size="sm"
                     value={domain}
-                    onChange={setDomain}
+                    onChange={(event) => setDomain(event.target.value)}
                     placeholder={placeholder}
                     aria-label="Domain"
-                    className="w-72"
-                    status={error ? 'danger' : undefined}
+                    aria-invalid={!!error}
+                    className="w-72 max-w-full"
                     data-attr="ai-visibility-add-brand-domain"
                 />
-                {kinds.length > 1 ? (
-                    <LemonSelect
-                        size="small"
-                        value={kind}
-                        onChange={(value) => value && setKind(value)}
-                        options={KIND_OPTIONS.filter((option) => kinds.includes(option.value))}
-                        aria-label="Kind"
-                        data-attr="ai-visibility-add-brand-kind"
-                    />
+                {options.length > 1 ? (
+                    <Select<AddableBrandKind> value={kind} onValueChange={(value) => value && setKind(value)}>
+                        <SelectTrigger size="sm" aria-label="Kind" data-attr="ai-visibility-add-brand-kind">
+                            <SelectValue>
+                                {(value: AddableBrandKind | null) =>
+                                    options.find((option) => option.value === value)?.label
+                                }
+                            </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                            {options.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 ) : null}
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    htmlType="submit"
+                <Button
+                    variant="primary"
+                    type="submit"
                     loading={adding}
                     disabledReason={disabledReason}
                     data-attr="ai-visibility-add-brand-submit"
                 >
                     {kinds.length === 1 && kinds[0] === 'own' ? 'Set as your brand' : 'Add brand'}
-                </LemonButton>
+                </Button>
             </form>
-            {error ? <p className="m-0 text-xs text-danger">{error}</p> : null}
+            {error ? (
+                <Text size="xs" render={<p className="m-0 text-destructive-foreground" />}>
+                    {error}
+                </Text>
+            ) : null}
         </div>
     )
 }
