@@ -111,7 +111,8 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["name", "description"],
         "match_id": True,
     },
-    "feature_flag": FEATURE_FLAG_SEARCH_CONFIG,
+    # PostHog AI's entity search shares FEATURE_FLAG_SEARCH_CONFIG, so ID matching is set here for this search only.
+    "feature_flag": {**FEATURE_FLAG_SEARCH_CONFIG, "match_id": True},
     "notebook": {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},
@@ -121,6 +122,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "klass": Cohort,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+        "match_id": True,
     },
     "event_definition": {
         "klass": EventDefinition,
