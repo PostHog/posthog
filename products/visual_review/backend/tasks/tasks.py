@@ -92,6 +92,9 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     from ..logic.github_api import GITHUB_READ_REFUSED
 
     run_uuid = UUID(run_id)
+    if not runs.may_classify(run_uuid):
+        logger.info("visual_review.diff_processing_skipped", run_id=run_id, team_id=team_id)
+        return
     outcome = "completed"
     diffed_count = 0
     retrying = False
@@ -149,6 +152,31 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
                     logger.warning("visual_review.diff_count_failed", run_id=run_id, exc_info=True)
                     cumulative_diffed_count = diffed_count
                 runs.capture_run_processing_metrics(run_uuid, outcome=outcome, diffed_count=cumulative_diffed_count)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.sync_rejection_comment",
+    bind=True,
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=3,
+)
+@with_team_scope()
+def sync_rejection_comment(self, team_id: int, run_id: str) -> None:
+    """Post or edit the PR comment that lists the rejections blocking a pull request. Retries on rate limits only."""
+    from posthog.egress.github.transport import GitHubRateLimitError
+
+    from ..logic import comments
+
+    try:
+        comments.sync_rejection_comment(UUID(run_id), team_id=team_id)
+    except GitHubRateLimitError as e:
+        logger.warning("visual_review.rejection_comment_rate_limited", run_id=run_id, retry=self.request.retries)
+        try:
+            self.retry(countdown=min(e.retry_after or 60, 600), exc=e)
+        except self.MaxRetriesExceededError:
+            logger.warning("visual_review.rejection_comment_retries_exhausted", run_id=run_id)
 
 
 @shared_task(

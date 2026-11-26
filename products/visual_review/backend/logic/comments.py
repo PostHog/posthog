@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from django.db import transaction
+
 import structlog
 
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from ..db import WRITER_DB
-from ..facade.enums import ReviewDecision, RunPurpose
+from ..facade.enums import DecisionChannel, ReviewDecision, RunPurpose
 from ..models import Repo, Run
-from . import comment_markdown, github_api, run_queries
+from . import comment_markdown, github_api, review_decisions, run_queries
 
 logger = structlog.get_logger(__name__)
 
@@ -146,6 +148,23 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         )
 
 
+def _accepted_by(run: Run) -> list[comment_markdown.AcceptedBy]:
+    """Who accepted the run's changes, for a run whose accepts come from the pull request's decisions."""
+    if not review_decisions.decides_by_pull_request(run):
+        return []
+    groups = review_decisions.approver_groups(review_decisions.review_run(run))
+    approvers = {by_id: comment_markdown._resolve_approver(by_id) for by_id in {group.by_id for group in groups}}
+    return [
+        comment_markdown.AcceptedBy(
+            approver=approvers[group.by_id],
+            via_agent=group.via == DecisionChannel.MCP,
+            count=group.count,
+            earlier_commit_shas=(group.commit_shas if any(sha != run.commit_sha for sha in group.commit_shas) else ()),
+        )
+        for group in groups
+    ]
+
+
 def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> None:
     """Report an approval on the PR, as an update of this run's own review prompt.
 
@@ -164,7 +183,9 @@ def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> No
         return
 
     approver = comment_markdown._resolve_approver(run.approved_by_id)
-    body = comment_markdown._build_approval_comment_body(run, repo, approver, add_images=add_images)
+    body = comment_markdown._build_approval_comment_body(
+        run, repo, approver, add_images=add_images, accepted_by=_accepted_by(run)
+    )
     comment_id = _comment_id(run)
 
     try:
@@ -239,3 +260,93 @@ def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None, add_
     if run is None:
         return
     _post_approval_comment(run, run.repo, add_images=add_images)
+
+
+REJECTION_COMMENT_KEY = "github_rejection_comment_id"
+
+
+def _rejection_comment(head: Run) -> tuple[Run, int] | None:
+    """The run of the pull request that holds the rejection comment's ID, and the ID."""
+    holder = (
+        Run.objects.using(WRITER_DB)
+        .filter(
+            team_id=head.team_id,
+            repo_id=head.repo_id,
+            pr_number=head.pr_number,
+            run_type=head.run_type,
+            metadata__has_key=REJECTION_COMMENT_KEY,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if holder is None:
+        return None
+    value = holder.metadata.get(REJECTION_COMMENT_KEY)
+    return (holder, value) if isinstance(value, int) else None
+
+
+def _open_rejections(head: Run) -> list[comment_markdown.OpenRejection]:
+    rejections = review_decisions.review_run(head).rejections()
+    rejecters = {by_id: comment_markdown._resolve_approver(by_id) for by_id in {r.by_id for r in rejections}}
+    return [
+        comment_markdown.OpenRejection(
+            identifier=rejection.key.identifier,
+            commit_sha=rejection.commit_sha,
+            rejecter=rejecters[rejection.by_id],
+            via_agent=rejection.via == DecisionChannel.MCP,
+            reason=rejection.reason,
+        )
+        for rejection in rejections
+    ]
+
+
+def _remember_rejection_comment(head: Run, comment_id: int) -> None:
+    with transaction.atomic(using=WRITER_DB):
+        locked = Run.objects.using(WRITER_DB).select_for_update(of=("self",)).get(id=head.id, team_id=head.team_id)
+        locked.metadata = {**(locked.metadata or {}), REJECTION_COMMENT_KEY: comment_id}
+        locked.save(using=WRITER_DB, update_fields=["metadata"])
+
+
+def sync_rejection_comment(run_id: UUID, team_id: int) -> None:
+    """Post or edit the one PR comment per run type that lists the rejections blocking the pull request.
+
+    A reject posts the comment, which notifies the author. An undo or an accept over a rejection edits
+    it in place, which notifies nobody, because it unblocks. Best-effort: a failure leaves the comment
+    as it was. Lets a GitHub rate limit through, so the task retries.
+    """
+    run = Run.objects.using(WRITER_DB).select_related("repo").filter(id=run_id, team_id=team_id).first()
+    if run is None or run.pr_number is None:
+        return
+    repo = run.repo
+    if not repo.enable_pr_comments or not repo.repo_full_name:
+        return
+    head = review_decisions.head_run(run)
+    rejections = _open_rejections(head)
+    body = comment_markdown._build_rejection_comment_body(head, repo, rejections)
+    existing = _rejection_comment(head)
+    try:
+        if existing is not None:
+            response = github_api._github_api_request(
+                method="PATCH", repo=repo, path=f"issues/comments/{existing[1]}", json={"body": body}
+            )
+            # Only a deleted comment is fixed by posting a new one.
+            if response.status_code != 404:
+                if response.status_code != 200:
+                    logger.warning(
+                        "visual_review.rejection_comment_update_failed",
+                        run_id=str(run.id),
+                        status_code=response.status_code,
+                    )
+                return
+        if not rejections:
+            return
+        response = github_api._github_api_request(
+            method="POST", repo=repo, path=f"issues/{head.pr_number}/comments", json={"body": body}
+        )
+        comment_id = response.json().get("id") if response.status_code == 201 else None
+        if isinstance(comment_id, int):
+            _remember_rejection_comment(head, comment_id)
+    except GitHubRateLimitError:
+        raise
+    except Exception:
+        logger.warning("visual_review.rejection_comment_error", run_id=str(run.id), exc_info=True)

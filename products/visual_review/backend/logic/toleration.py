@@ -18,7 +18,7 @@ from ..db import WRITER_DB
 from ..facade.contracts import TOLERATION_PILEUP_WINDOW_DAYS, VARIANT_PILEUP_MIN
 from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ActorType, ReviewState, SnapshotResult, ToleratedReason
 from ..models import Run, RunSnapshot, ToleratedHash
-from . import commit_status, errors, run_queries
+from . import commit_status, errors, review_decisions, run_queries
 from .run_queries import SnapshotKey
 
 
@@ -57,7 +57,13 @@ def mark_snapshot_as_tolerated(
 
     Creates a ToleratedHash entry tied to the current baseline, reclassifies the
     snapshot as UNCHANGED, and recalculates run summary counts.
+
+    In ledger mode a rejected pair cannot be tolerated, because a toleration would pass the gate
+    over the rejection on every later run.
     """
+    unlocked = run_queries.get_run(run_id, team_id=team_id)
+    if unlocked.pr_number is not None:
+        review_decisions.lock_pull_request(unlocked.repo_id, unlocked.run_type, unlocked.pr_number)
     run = run_queries._get_run_for_update(run_id, team_id=team_id)
     try:
         snapshot = RunSnapshot.objects.get(id=snapshot_id, run=run, team_id=team_id)
@@ -69,6 +75,13 @@ def mark_snapshot_as_tolerated(
 
     if not snapshot.current_hash:
         raise ValueError("Snapshot has no current hash")
+
+    key = review_decisions.key_of(snapshot.identifier, snapshot.baseline_hash, snapshot.current_hash)
+    if review_decisions.pull_request_decisions(run).effective(key).rejected:
+        raise errors.SnapshotRejectedError(
+            f"{snapshot.identifier} is rejected on this pull request, so it cannot be tolerated. "
+            "Fix the code and push, or undo the rejection first."
+        )
 
     # Explicit team_id in the lookup (not just defaults) so the IDOR audit
     # rule sees the scope; ProductTeamManager also auto-filters by canonical

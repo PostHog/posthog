@@ -586,12 +586,13 @@ def _republish_after_close(run: Run, closed: list[BaselineApproval]) -> None:
     commit_status.publish_after_approvals_close(run.repo, closed)
 
 
-def record_approvals(run: Run, user_id: int, *, carried_commit_sha: str = "") -> int:
+def record_approvals(run: Run, user_id: int, *, carried_commit_sha: str = "", name_deciders: bool = False) -> int:
     """Write one approval row per approved change of a finalized run. Returns the number written.
 
     `carried_commit_sha` is the baseline commit finalize pushed to the pull request branch, if any.
-    The caller holds the ledger lock and then the run's row lock, inside a transaction on the
-    writer database.
+    With `name_deciders` each row names the person whose accept counts, which finalize wrote onto the
+    snapshot, instead of the person who finalized. The caller holds the ledger lock and then the
+    run's row lock, inside a transaction on the writer database.
     """
     record = baseline_record.record_for_run(run)
     if record is None:
@@ -636,7 +637,7 @@ def record_approvals(run: Run, user_id: int, *, carried_commit_sha: str = "") ->
                 commit_sha=run.commit_sha,
                 carried_commit_sha=carried_commit_sha,
                 source_run=run,
-                approved_by_id=user_id,
+                approved_by_id=(snapshot.reviewed_by_id or user_id) if name_deciders else user_id,
                 approved_at=now,
             )
         )

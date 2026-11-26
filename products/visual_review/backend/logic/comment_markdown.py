@@ -218,23 +218,57 @@ def _build_superseded_approval_body(run: Run, repo: Repo, approver: _Approver | 
     return f"{note}\n\n{_build_approval_comment_body(run, repo, approver)}"
 
 
-def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None, add_images: bool = False) -> str:
+def _approver_text(approver: _Approver | None) -> str:
+    if approver is None:
+        return "a reviewer"
+    if approver.is_github_login:
+        return f"@{approver.label}"
+    return _escape_markdown(approver.label)
+
+
+@dataclass(frozen=True)
+class AcceptedBy:
+    """The accepts one person made through one channel, as the approval comment lists them."""
+
+    approver: _Approver | None
+    via_agent: bool
+    count: int
+    # The commits the accepts were made on, empty when all of them were made on the finalized run.
+    earlier_commit_shas: tuple[str, ...] = ()
+
+
+def _accepted_by_text(groups: list[AcceptedBy]) -> str:
+    """'Accepted by @alice (12, on `abc1234` and `def5678`), bob (6, via MCP).'"""
+    parts = []
+    for group in groups:
+        details = [str(group.count)]
+        if group.earlier_commit_shas:
+            details.append("on " + " and ".join(f"`{sha[:7]}`" for sha in group.earlier_commit_shas))
+        if group.via_agent:
+            details.append("via MCP")
+        parts.append(f"{_approver_text(group.approver)} ({', '.join(details)})")
+    return f"Accepted by {', '.join(parts)}."
+
+
+def _build_approval_comment_body(
+    run: Run,
+    repo: Repo,
+    approver: _Approver | None,
+    add_images: bool = False,
+    accepted_by: list[AcceptedBy] | None = None,
+) -> str:
     """Build the markdown body of the post-approval PR comment.
 
     Always a textual summary of what changed. When ``add_images`` is set, a
     before/after table of the approved snapshot images is appended so another
     reviewer can eyeball them without leaving the PR (omitted when no image can
-    be resolved).
+    be resolved). ``accepted_by`` names who accepted the changes, when that is
+    known per snapshot.
     """
     counts = Counter(_postable_snapshot_qs(run).values_list("result", flat=True))
     suppressed_only = not counts and _reviewable_snapshot_qs(run).exists()
 
-    if approver is None:
-        approver_text = "a reviewer"
-    elif approver.is_github_login:
-        approver_text = f"@{approver.label}"
-    else:
-        approver_text = _escape_markdown(approver.label)
+    approver_text = _approver_text(approver)
     baseline_sha = run.metadata.get("baseline_commit_sha")
     sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
 
@@ -248,6 +282,8 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     ]
     if summary:
         sections.append(f"{summary}.")
+        if accepted_by:
+            sections.append(_accepted_by_text(accepted_by))
     elif suppressed_only:
         sections.append("All visual changes in this run were quarantined or tolerated.")
     if add_images:
@@ -290,3 +326,44 @@ def _resolve_approver(user_id: int | None) -> _Approver | None:
     if user.first_name:
         return _Approver(label=user.first_name, is_github_login=False)
     return None
+
+
+@dataclass(frozen=True)
+class OpenRejection:
+    """One rejection that blocks the head run of a pull request, as the rejection comment lists it."""
+
+    identifier: str
+    commit_sha: str
+    rejecter: _Approver | None
+    via_agent: bool
+    reason: str
+
+
+_REASON_COMMENT_LIMIT = 500
+
+
+def _build_rejection_comment_body(run: Run, repo: Repo, rejections: list[OpenRejection]) -> str:
+    """The PR comment that lists the rejections blocking the pull request, edited in place as they change."""
+    link = f"[View in PostHog Visual Review]({app_urls.run_url(run, repo)})"
+    if not rejections:
+        return (
+            "✅ **No visual changes are rejected** on this PR any more. Each rejection was undone, accepted anyway, "
+            f"or the story renders a new picture.\n\n{link}\n"
+        )
+    noun = "a visual change" if len(rejections) == 1 else f"{len(rejections)} visual changes"
+    lines = [f"❌ **Rejected {noun}** on this PR:", ""]
+    for rejection in rejections:
+        who = _approver_text(rejection.rejecter)
+        if rejection.via_agent:
+            who = f"an agent for {who}"
+        reason = _escape_markdown(_TABLE_BREAKING_CHARS_RE.sub(" ", rejection.reason[:_REASON_COMMENT_LIMIT]))
+        lines.append(
+            f"- {_snapshot_name_cell(rejection.identifier)} on `{rejection.commit_sha[:7]}`, by {who}: {reason}"
+        )
+    lines += [
+        "",
+        "Finalize stays blocked until each story renders a different picture or its rejection is undone.",
+        "",
+        link,
+    ]
+    return "\n".join(lines) + "\n"
