@@ -39,19 +39,35 @@ class TestFormatUpdatedSince:
 
 
 class TestRequestParams:
-    def test_tickets_incremental_sends_updated_since_and_ordering(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, filter_param, expected_filter",
+        [
+            ("tickets", "updated_since", "2026-03-04T00:00:00Z"),
+            ("alerts", "query", "updated_at:>'2026-03-04T00:00:00Z'"),
+        ],
+    )
+    def test_incremental_sends_updated_filter_and_ordering(
+        self, endpoint: str, filter_param: str, expected_filter: str
+    ) -> None:
         result = _driver().run(
-            "tickets",
-            [_response({"tickets": [{"id": 1}]})],
+            endpoint,
+            [_response({endpoint: [{"id": 1}]})],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
 
         assert result.raised is None
+        assert result.rows == [{"id": 1}]
         request = result.requests[0]
-        assert request.param("updated_since") == "2026-03-04T00:00:00Z"
+        assert request.param(filter_param) == expected_filter
         assert request.param("order_by") == "updated_at"
         assert request.param("order_type") == "asc"
+
+    def test_alerts_full_refresh_sends_no_query(self) -> None:
+        result = _driver().run("alerts", [_response({"alerts": [{"id": 1}]})])
+
+        assert result.raised is None
+        assert result.requests[0].param("query") is None
 
 
 class TestPagination:
@@ -148,6 +164,44 @@ class TestFanout:
             "https://acme.freshservice.com/api/v2/applications/9/users"
         ]
         assert result.rows == [{"id": 100, "application_id": 9}]
+
+    def test_csat_response_object_becomes_one_row_and_missing_responses_are_skipped(self) -> None:
+        result = _driver().run(
+            "ticket_csat_responses",
+            [
+                _response({"tickets": [{"id": 7}, {"id": 9}]}),
+                _response({"code": "access_denied"}, status=404),
+                _response({"csat_response": {"id": 3, "overall_rating": 101}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [request.path for request in result.requests[1:]] == [
+            "/api/v2/tickets/7/csat_response",
+            "/api/v2/tickets/9/csat_response",
+        ]
+        assert result.rows == [{"id": 3, "overall_rating": 101, "ticket_id": 9}]
+
+    def test_solution_articles_bind_each_folder_and_follow_its_pages(self) -> None:
+        next_url = "https://acme.freshservice.com/api/v2/solutions/articles?folder_id=4&per_page=100&page=2"
+        result = _driver().run(
+            "solution_articles",
+            [
+                _response({"folders": [{"id": 4}, {"id": 5}]}),
+                _response({"articles": [{"id": 1, "folder_id": 4}]}, next_url=next_url),
+                _response({"articles": [{"id": 3, "folder_id": 4}]}),
+                _response({"articles": [{"id": 2, "folder_id": 5}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(request.path, request.param("folder_id"), request.param("page")) for request in result.requests] == [
+            ("/api/v2/solutions/folders", None, None),
+            ("/api/v2/solutions/articles", "4", None),
+            ("/api/v2/solutions/articles", "4", "2"),
+            ("/api/v2/solutions/articles", "5", None),
+        ]
+        assert result.rows == [{"id": 1, "folder_id": 4}, {"id": 3, "folder_id": 4}, {"id": 2, "folder_id": 5}]
 
 
 class TestApprovals:

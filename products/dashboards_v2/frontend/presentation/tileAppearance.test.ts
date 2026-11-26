@@ -1,7 +1,7 @@
-import type { Dashboard, Tile } from '../dashboard/dashboardTypes'
-import type { MenuAction } from '../dashboard/menuAction'
-import { findTile } from '../dashboard/tileTree'
-import { everyTile } from '../dashboard/tileTree'
+import type { Dashboard, Tile } from '../dashboard/document/dashboardTypes'
+import { findTile } from '../dashboard/document/tileTree'
+import { everyTile } from '../dashboard/document/tileTree'
+import type { MenuAction } from '../menu/menuAction'
 import { DEFAULT_WIDGETS } from '../widgets/defaultWidgets'
 import { type PresentationEdit, applyPresentationEdit } from './presentationEdits'
 import { backgroundColorAction, showAction } from './tileAppearance'
@@ -66,8 +66,8 @@ describe('showAction', () => {
         expect(pick('blue').checked).toBe(true)
         expect(findTile(board, 'a')?.widget).toMatchObject({ appearance: { backgroundColor: 'var(--color-blue-500)' } })
 
-        pick('none').onSelect!()
-        expect(pick('none').checked).toBe(true)
+        pick('default').onSelect!()
+        expect(pick('default').checked).toBe(true)
         expect(findTile(board, 'a')?.widget.appearance).not.toHaveProperty('backgroundColor')
     })
 })

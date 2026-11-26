@@ -321,7 +321,12 @@ export function QuillHogFunctionList({
                     />
                 </InputGroup>
                 {!hideFeedback ? (
-                    <Button variant="link-muted" onClick={() => openFeedbackDialog(props.type)}>
+                    <Button
+                        variant="link-muted"
+                        size="inline"
+                        className="text-[length:var(--text-ui,0.8125rem)]"
+                        onClick={() => openFeedbackDialog(props.type)}
+                    >
                         Can't find what you're looking for?
                     </Button>
                 ) : null}
@@ -380,7 +385,7 @@ export function QuillHogFunctionList({
                             fullWidth
                             // The sparkline loads once per row, so a row must keep its function across a sort or a search.
                             getRowId={(hogFunction) => hogFunction.id}
-                            pageSize={filteredHogFunctions.length > PAGE_SIZE ? PAGE_SIZE : undefined}
+                            pageSize={PAGE_SIZE}
                             empty={
                                 <Empty>
                                     <EmptyHeader>

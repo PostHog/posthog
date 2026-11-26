@@ -7,8 +7,8 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
+import { FilterPillContent } from '../bar/FilterPillContent'
 import { type FilterControlProps, summarizeValues } from '../filterDefinition'
-import { FilterPillContent } from '../FilterPillContent'
 import type { SelectFilterConfig, SelectFilterValue } from './selectFilterSpec'
 
 export function SelectFilter({

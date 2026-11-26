@@ -223,6 +223,89 @@ describe('humanizeActivity', () => {
         expect(text(result.summary?.action)).toBe(action)
     })
 
+    it.each<{
+        name: string
+        before: Record<string, any> | null
+        after: Record<string, any> | null
+        expected: string[]
+        unexpected?: string[]
+    }>([
+        {
+            name: 'mobile masking turned on',
+            before: { maskAllInputs: true, mobile: { maskAllImages: true } },
+            after: { maskAllInputs: true, mobile: { maskAllText: true, maskAllImages: true } },
+            expected: ['enabled masking all text in mobile session replay'],
+        },
+        {
+            name: 'mobile masking turned off',
+            before: { maskAllInputs: true, mobile: { maskAllText: true, maskAllImages: true } },
+            after: { maskAllInputs: true, mobile: { maskAllText: true, maskAllImages: false } },
+            expected: ['disabled masking all images in mobile session replay'],
+            unexpected: ['masking all text in mobile'],
+        },
+        {
+            name: 'mobile masking set when there was no config',
+            before: null,
+            after: { mobile: { maskAllText: true, maskAllImages: true } },
+            expected: [
+                'enabled masking all text in mobile session replay',
+                'enabled masking all images in mobile session replay',
+            ],
+            unexpected: ['masking all inputs', 'masking text selector'],
+        },
+        {
+            name: 'web masking changed alongside unchanged mobile masking',
+            before: { maskAllInputs: false, mobile: { maskAllText: true } },
+            after: { maskAllInputs: true, mobile: { maskAllText: true } },
+            expected: ['enabled masking all inputs in session replay'],
+            unexpected: ['mobile session replay'],
+        },
+        {
+            name: 'config with inputs unmasked cleared',
+            before: { maskAllInputs: false, mobile: { maskAllText: true } },
+            after: null,
+            expected: [
+                'enabled masking all inputs in session replay',
+                'disabled masking all text in mobile session replay',
+            ],
+        },
+        {
+            name: 'inputs unmasked on a config with no maskAllInputs key',
+            before: { mobile: { maskAllText: true } },
+            after: { maskAllInputs: false, mobile: { maskAllText: true } },
+            expected: ['disabled masking all inputs in session replay'],
+        },
+    ])('describes a masking config change: $name', ({ before, after, expected, unexpected = [] }) => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.TEAM,
+            detail: {
+                merge: null,
+                trigger: null,
+                name: 'Example',
+                changes: [
+                    {
+                        type: ActivityScope.TEAM,
+                        action: 'changed',
+                        field: 'session_recording_masking_config',
+                        before,
+                        after,
+                    },
+                ],
+            },
+        })
+        const text = (value: Description | undefined): string =>
+            (render(<>{value}</>).container.textContent || '').replace(/\s+/g, ' ').trim()
+
+        const action = text(teamActivityDescriber(logItem, true).summary?.action)
+
+        for (const phrase of expected) {
+            expect(action).toContain(phrase)
+        }
+        for (const phrase of unexpected) {
+            expect(action).not.toContain(phrase)
+        }
+    })
+
     it.each<{ activity: string; isSystem?: boolean; jobType?: string; action: string; description: string }>([
         {
             activity: 'stopped_ingesting',

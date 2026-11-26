@@ -30,6 +30,7 @@ const persistedRule: ErrorTrackingTagRule = {
     key: 'rule_0123',
     label: 'Firefox',
     description: 'Errors from Firefox.',
+    color: 'teal',
     filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
     order_key: 0,
     disabled_data: { message: 'The rule failed.' },
@@ -53,7 +54,7 @@ describe('tagRuleModalLogic', () => {
                 '/api/projects/:team_id/error_tracking/issues/tag_definitions/': () => ({
                     results: rules
                         .filter((rule) => !rule.disabled_data)
-                        .map(({ key, label, description }) => ({ key, label, description })),
+                        .map(({ key, label, description, color }) => ({ key, label, description, color })),
                 }),
             },
             post: {
@@ -89,6 +90,7 @@ describe('tagRuleModalLogic', () => {
             {
                 label: 'Firefox users',
                 description: '',
+                color: 'orange',
                 filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
                 order_key: persistedRule.order_key + 1,
             },
@@ -98,7 +100,12 @@ describe('tagRuleModalLogic', () => {
             persistedRule,
             'PUT',
             `${TAG_RULES_PATH}${persistedRule.id}/`,
-            { label: 'Firefox users', description: persistedRule.description, filters: persistedRule.filters },
+            {
+                label: 'Firefox users',
+                description: persistedRule.description,
+                color: persistedRule.color,
+                filters: persistedRule.filters,
+            },
         ],
     ])('%s and reloads the list', async (_, rule, method, path, body) => {
         const logic = tagRuleModalLogic()
@@ -114,6 +121,7 @@ describe('tagRuleModalLogic', () => {
                 ...logic.values.rule,
                 filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
             })
+            logic.actions.updateColor('orange')
         }
         logic.actions.updateLabel('Firefox users')
         await expectLogic(logic, () => logic.actions.saveRule()).toFinishAllListeners()
@@ -147,7 +155,12 @@ describe('tagRuleModalLogic', () => {
             {
                 method: 'PUT',
                 path: `${TAG_RULES_PATH}${persistedRule.id}/`,
-                body: { label: persistedRule.label, description: persistedRule.description, filters },
+                body: {
+                    label: persistedRule.label,
+                    description: persistedRule.description,
+                    color: persistedRule.color,
+                    filters,
+                },
             },
         ])
         dialog.mockRestore()

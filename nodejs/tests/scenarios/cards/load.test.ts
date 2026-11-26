@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
 
+import { pairProblemsOf } from '../runner/pair'
 import { admissionsOf } from '../runner/status'
 
 const card = {
@@ -115,6 +116,13 @@ describe('load', () => {
     it.each<[string, object | string, object | string | undefined, string | string[]]>([
         ['a card that is not YAML', 'id: [', undefined, 'card: '],
         ['a card with the wrong shape', { ...card, clock: 'scheduled' }, undefined, 'clock: '],
+        [
+            'a card that runs paired and names a reason it runs unpaired',
+            { ...card, pair: true, unpaired: 'it judges no no_loss' },
+            undefined,
+            'unpaired: a card that runs paired names no reason to run unpaired',
+        ],
+        ['a blank reason the card runs unpaired', { ...card, unpaired: ' ' }, undefined, 'unpaired: '],
         [
             'an unknown traffic kind',
             { ...card, drive: { ...card.drive, traffic: [{ name: 'event_sms' }] } },
@@ -239,6 +247,28 @@ describe('load', () => {
             'drive.ramp: every step of a ramp that stops on a break must last longer than 0ms',
         ],
         [
+            'a warm-up that lasts the whole drive',
+            { ...card, drive: { ...card.drive, warmUp: '30s' } },
+            undefined,
+            'drive.warmUp: the warm-up must end before the drive does',
+        ],
+        [
+            'a warm-up on a ramp',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    warmUp: '5s',
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.warmUp: a drive with a ramp takes no warm-up',
+        ],
+        [
             'a stop on break with a valve the stop could leave due',
             {
                 ...card,
@@ -337,6 +367,48 @@ describe('load', () => {
             { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '36s' }] },
             { ...profile, settings: sesSettings, load: emailLoad },
             "valves.0.at: the valve can fire 36s into the drive, inside the 30s fault-free baseline and the role scrape that closes it, which load admission's claim rates need; set at to 37s or later",
+        ],
+        [
+            'a valve that fires inside the warm-up on a profile without admission',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '100s' }],
+            },
+            undefined,
+            'valves.0.at: the valve can fire 100s into the drive, inside its 160s warm-up; set at to 160s or later',
+        ],
+        [
+            'a valve inside the baseline after a warm-up on a profile with host admission only',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '189999ms' }],
+            },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'valves.0.at: the valve can fire 189.999s into the drive, inside the 160s warm-up and the 30s fault-free baseline after it that load and host admission measure; set at to 190s or later',
+        ],
+        [
+            'a warm-up whose floor is no whole second, which the floor names in milliseconds',
+            { ...card, drive: { ...card.drive, for: '30s', warmUp: '548ms' } },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'drive.for: the drive ends 30s in, inside the 0.548s warm-up and the 30s fault-free baseline after it that load and host admission measure; run it for 30548ms or longer',
+        ],
+        [
+            'a warm-up that leaves the paired control too short a baseline',
+            { ...card, drive: { ...card.drive, for: '227s', warmUp: '210s' } },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'drive.for: the drive ends 227s in, inside the 210s warm-up and the 30s fault-free baseline after it that load and host admission measure; run it for 240s or longer',
+        ],
+        [
+            'a when valve armed before the slowest scrape that closes the baseline after a warm-up',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, at: '190s' }],
+            },
+            { ...profile, settings: sesSettings, load: emailLoad },
+            "valves.0.at: the valve can fire 190s into the drive, inside the 160s warm-up, the 30s fault-free baseline after it and the role scrape that closes it, which load admission's claim rates need; set at to 197s or later",
         ],
         [
             'a valve offset longer than a timer can wait',
@@ -811,6 +883,29 @@ describe('load', () => {
             { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
         ],
         [
+            'a when valve armed once the slowest scrape that closes the baseline after a warm-up is in',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, at: '197s' }],
+            },
+            { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
+        ],
+        [
+            'a valve at the end of the baseline after a warm-up whose sum has no exact float',
+            {
+                ...card,
+                drive: { ...card.drive, for: '60s', warmUp: '548ms' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '30548ms' }],
+            },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+        ],
+        [
+            'a valve-free drive shorter than the floor whose warm-up is spelled 0s, which runs as one without a warm-up',
+            { ...card, drive: { ...card.drive, for: '35s', warmUp: '0s' }, valves: [] },
+            { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
+        ],
+        [
             'a when valve armed at the end of the baseline on a profile with host admission only',
             { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '30s' }] },
             { ...profile, host: { cpuCeiling: 0.5 } },
@@ -834,6 +929,12 @@ describe('load', () => {
     it.each<[string, [object, object], [object, object], boolean]>([
         ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],
         ['leaves out the cloud pair', [card, profile], [{ ...card, pair: true }, profile], true],
+        [
+            'leaves out why the card runs unpaired',
+            [card, profile],
+            [{ ...card, unpaired: 'it judges no no_loss' }, profile],
+            true,
+        ],
         [
             'ignores the key order of the profile settings',
             [card, { ...profile, settings }],
@@ -861,6 +962,18 @@ describe('load', () => {
         ...readdirSync(path.join(__dirname, 'dev')).map((file) => [path.join('dev', file), 'dev'] as const),
     ])('loads the shipped card %s on the %s target with the shipped definitions and profile', (file, target) => {
         expect(load(path.join(__dirname, file), { target }).card.id).toBe(path.basename(file, '.yaml'))
+    })
+
+    it('runs every shipped card that applies valves as a pair, or names why it runs unpaired', () => {
+        const shipped = readdirSync(__dirname)
+            .filter((file) => file.endsWith('.yaml'))
+            .map((file) => load(path.join(__dirname, file)))
+            .filter(({ card }) => card.valves.length > 0)
+
+        expect(
+            shipped.filter(({ card }) => !card.pair && card.unpaired === undefined).map(({ card }) => card.id)
+        ).toEqual([])
+        expect(shipped.filter(({ card }) => card.pair).flatMap((loaded) => pairProblemsOf(loaded, true))).toEqual([])
     })
 
     it('admits a chaos card on a full-traffic profile against the targets its own traffic derives', () => {
@@ -893,7 +1006,7 @@ describe('load', () => {
         expect(admission.load?.targets).toEqual(fullTraffic.load.targets)
     })
 
-    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept'])(
+    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'cyclotron-enqueue-replay'])(
         'loads the chaos card %s on a profile with load and host admission',
         (id) => {
             const admitted = {

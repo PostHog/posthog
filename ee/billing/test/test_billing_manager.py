@@ -55,7 +55,7 @@ from ee.billing.billing_manager import (
     handle_billing_service_error,
     http_session,
 )
-from ee.billing.billing_types import BillingProvider, BillingStatus, Product
+from ee.billing.billing_types import BillingLimits, BillingProvider, BillingStatus, Product
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 from ee.models.license import License, LicenseManager
 
@@ -2528,3 +2528,28 @@ class TestDisputeSignalsPr(BaseTest):
                     self.organization, {"refund_id": "r1", "credits": 1500, "metadata": {}}
                 )
         assert str(status_code) in str(context.exception)
+
+
+class TestGetLimiting(SimpleTestCase):
+    license = License(key="key123::secret123")
+
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_posts_the_orgs_as_a_system_call(self, post: MagicMock) -> None:
+        answer: BillingLimits = {"usage_through": "2026-11-24T09:55:00Z", "limits": []}
+        post.return_value = MagicMock(status_code=200, json=MagicMock(return_value=answer))
+
+        result = BillingManager(self.license).get_limiting(["org-1"])
+
+        assert result == answer
+        (url,) = post.call_args.args
+        assert url == "https://billing.posthog.com/api/internal/limiting"
+        assert post.call_args.kwargs["json"] == {"organization_ids": ["org-1"]}
+        token = post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        payload = jwt.decode(token, "secret123", algorithms=["HS256"], audience="posthog:license-key")
+        assert payload["service_action"] == "limiting"
+        assert "organization_id" not in payload
+
+    @patch("ee.billing.billing_manager.http_session.post", return_value=MagicMock(status_code=404))
+    def test_a_billing_without_the_endpoint_is_an_error_not_an_empty_answer(self, post: MagicMock) -> None:
+        with self.assertRaises(BillingServiceResponseError):
+            BillingManager(self.license).get_limiting([])

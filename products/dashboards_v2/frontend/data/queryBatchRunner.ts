@@ -3,8 +3,10 @@ import { getCookie } from 'lib/api'
 import { getDashboardV2QueryBatchCreateUrl } from 'products/dashboards/frontend/generated/api'
 import type { QueryBatchRequestApi } from 'products/dashboards/frontend/generated/api.schemas'
 
+import type { TimeRange } from '../dashboard/document/dashboardTypes'
 import type { DataFrame, QueryRequest, QueryResult, RunQuery } from '../widgets/chart/vizTypes'
 import { type Frame, type QueryBatchLine, readNdjson } from './queryBatchLines'
+import { QueryBatchTimer, startBoardLoad } from './queryBatchTiming'
 
 const NO_ANSWER = 'No answer came back for this query'
 // The endpoint answers 429 while this person's earlier batches still hold its slots, which frees up within seconds.
@@ -17,20 +19,39 @@ const COALESCE_MS = 30
 // `_BUSY` in `products/dashboards/backend/v2/query_batch.py`.
 export const BUSY_ERROR = 'Too many dashboards are loading at once. Try again shortly.'
 
-interface Pending {
+type Pending = {
     request: QueryRequest
     resolve: (result: QueryResult) => void
     reject: (error: Error) => void
+    queuedAt: number
+    context: Record<string, unknown>
     retriedBusy?: boolean
 }
 
+export interface QueryBatchRunnerOptions {
+    /** Read when a query is asked, and added to its batch's timing event, such as the tab on screen. */
+    context?: () => Record<string, unknown>
+}
+
+// TODO(2026-11-25): Send no time when the request has none, once the query batch endpoint accepts that.
+// The endpoint requires a time range on every query, so a query with no range of its own here gets this one.
+const UNTIL_BATCH_ACCEPTS_NO_TIME: TimeRange = { from: 'now-7d', to: 'now' }
+
 function batchTarget(request: QueryRequest, index: number): QueryBatchRequestApi['queries'][number] {
-    const { query, time, legend } = request
+    const { query, legend } = request
+    const time = request.time ?? UNTIL_BATCH_ACCEPTS_NO_TIME
     const refId = String(index)
     const target: QueryBatchRequestApi['queries'][number]['target'] =
         query.language === 'hogql' || query.language === 'promql' || query.language === 'logql'
             ? { refId, language: query.language, query: query.query }
-            : { refId, language: 'query', query: JSON.stringify(query.query) }
+            : {
+                  refId,
+                  language: 'query',
+                  // A `date_from` in its filters, even null, keeps the range saved in the query instead of `time`.
+                  query: JSON.stringify(
+                      request.time ? query.query : { query: query.query, filters: { date_from: null } }
+                  ),
+              }
     return {
         target: legend ? { ...target, legend } : target,
         time: { from: time.from, to: time.to },
@@ -76,8 +97,9 @@ export function resultFromLine(line: QueryBatchLine): QueryResult | Error {
     }
 }
 
-async function postBatch(teamId: number, body: QueryBatchRequestApi): Promise<Response> {
+async function postBatch(teamId: number, body: QueryBatchRequestApi, timer: QueryBatchTimer): Promise<Response> {
     for (let attempt = 0; ; attempt++) {
+        timer.attempt()
         const response = await fetch(getDashboardV2QueryBatchCreateUrl(String(teamId)), {
             method: 'POST',
             credentials: 'same-origin',
@@ -86,9 +108,11 @@ async function postBatch(teamId: number, body: QueryBatchRequestApi): Promise<Re
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                traceparent: timer.trace.traceparent,
             },
             body: JSON.stringify(body),
         })
+        timer.response(response.status, response.headers.get('traceresponse'))
         if (response.status !== 429 || attempt >= THROTTLE_RETRY_DELAYS_MS.length) {
             return response
         }
@@ -96,38 +120,57 @@ async function postBatch(teamId: number, body: QueryBatchRequestApi): Promise<Re
     }
 }
 
-async function runBatch(teamId: number, batch: Pending[], retry: (pending: Pending) => void): Promise<void> {
+async function runBatch(
+    teamId: number,
+    batch: Pending[],
+    timer: QueryBatchTimer,
+    retry: (pending: Pending) => void
+): Promise<void> {
     const unanswered = new Map(batch.map((pending, index) => [index, pending]))
     let error = new Error(NO_ANSWER)
     try {
-        const response = await postBatch(teamId, {
-            format: 'frames',
-            queries: batch.map((pending, index) => batchTarget(pending.request, index)),
-        })
+        const response = await postBatch(
+            teamId,
+            {
+                format: 'frames',
+                queries: batch.map((pending, index) => batchTarget(pending.request, index)),
+            },
+            timer
+        )
         if (!response.ok || !response.body) {
             error = new Error(`The query batch failed with status ${response.status}`)
         } else {
-            await readNdjson(response.body, (line) => {
-                const pending = unanswered.get(line.i)
-                if (!pending) {
-                    return
-                }
-                unanswered.delete(line.i)
-                // Another tab, or a slot not yet freed, held this person's one running batch.
-                if (line.error === BUSY_ERROR && !pending.retriedBusy) {
-                    retry({ ...pending, retriedBusy: true })
-                    return
-                }
-                const result = resultFromLine(line)
-                if (result instanceof Error) {
-                    pending.reject(result)
-                } else {
-                    pending.resolve(result)
-                }
-            })
+            await readNdjson(
+                response.body,
+                (line) => {
+                    const pending = unanswered.get(line.i)
+                    if (!pending) {
+                        return
+                    }
+                    unanswered.delete(line.i)
+                    // Another tab, or a slot not yet freed, held this person's one running batch.
+                    const busy = line.error === BUSY_ERROR && !pending.retriedBusy
+                    timer.line(line, busy)
+                    if (busy) {
+                        retry({ ...pending, retriedBusy: true, queuedAt: performance.now() })
+                        return
+                    }
+                    const result = resultFromLine(line)
+                    if (result instanceof Error) {
+                        pending.reject(result)
+                    } else {
+                        pending.resolve(result)
+                    }
+                },
+                (byteLength) => timer.chunk(byteLength)
+            )
         }
     } catch (e) {
         error = e instanceof Error ? e : new Error(String(e))
+        timer.fail(error)
+    }
+    if (!timer.failed && unanswered.size > 0) {
+        timer.fail(error)
     }
     // A rejected query leaves the chart cache, so the chart asks again the next time it mounts.
     unanswered.forEach((pending) => pending.reject(error))
@@ -139,7 +182,9 @@ async function runBatch(teamId: number, batch: Pending[], retry: (pending: Pendi
  * Only one stream runs at a time, because the server runs one batch per person and answers the rest busy: charts that
  * ask while a stream is open are sent together once it ends.
  */
-export function createQueryBatchRunner(teamId: number): RunQuery {
+export function createQueryBatchRunner(teamId: number, options: QueryBatchRunnerOptions = {}): RunQuery {
+    // The scene makes a runner per visit, so its creation stands in for the board mounting.
+    const board = startBoardLoad()
     let queued: Pending[] = []
     let timer: ReturnType<typeof setTimeout> | null = null
     let running = false
@@ -153,10 +198,16 @@ export function createQueryBatchRunner(teamId: number): RunQuery {
         queued = queued.slice(MAX_QUERIES_PER_BATCH)
         running = true
         let retryingBusy = false
-        void runBatch(teamId, batch, (pending) => {
+        const batchTimer = new QueryBatchTimer(board, batch)
+        void runBatch(teamId, batch, batchTimer, (pending) => {
             queued.push(pending)
             retryingBusy = true
         }).finally(() => {
+            try {
+                batchTimer.capture(batch[0].context)
+            } catch {
+                // Timing must never hold up the next batch.
+            }
             setTimeout(
                 () => {
                     running = false
@@ -169,7 +220,7 @@ export function createQueryBatchRunner(teamId: number): RunQuery {
 
     return (request) =>
         new Promise<QueryResult>((resolve, reject) => {
-            queued.push({ request, resolve, reject })
+            queued.push({ request, resolve, reject, queuedAt: performance.now(), context: options.context?.() ?? {} })
             if (!running && timer === null) {
                 timer = setTimeout(flush, COALESCE_MS)
             }

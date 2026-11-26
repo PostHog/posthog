@@ -16,7 +16,6 @@ from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from typing import Optional
 
 import pydantic
@@ -46,6 +45,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.facade.enums import MetricSourceRole
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.metric_resolution import ExperimentMetric, build_metric, scheduled_metric_definitions
 from products.experiments.backend.metric_utils import format_quantile_level
@@ -69,17 +69,6 @@ MAX_SCANNED_METRICS = 50
 MAX_AGGREGATE_GROUPS = 200
 
 MetricSourceNode = EventsNode | ActionsNode
-
-
-class MetricSourceRole(StrEnum):
-    """What one source node means to its metric, so a hit can say which side of the metric fired."""
-
-    SOURCE = "source"
-    STEP = "step"
-    NUMERATOR = "numerator"
-    DENOMINATOR = "denominator"
-    RETENTION_START = "retention_start"
-    RETENTION_COMPLETION = "retention_completion"
 
 
 @dataclass(frozen=True)

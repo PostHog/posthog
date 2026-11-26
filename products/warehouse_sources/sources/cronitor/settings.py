@@ -21,6 +21,23 @@ METRICS_WINDOW_SECONDS = 30 * 24 * 3600
 # complete_count, duration_p99, ...) but some may be plan-gated, so start with the core set.
 METRICS_FIELDS = ("duration_p50", "duration_p90", "success_rate", "run_count")
 
+# Site analytics query constraints from the public docs: at most 10 aggregates per request, and a
+# custom range must end no later than now. Day buckets in UTC keep one row per site per day.
+SITE_METRICS_FIELDS = (
+    "session_count",
+    "pageview_count",
+    "error_count",
+    "bounce_rate",
+    "session_duration_avg",
+    "page_load_total_p50",
+    "page_load_total_p95",
+    "web_vital_lcp_p50",
+    "web_vital_cls_p50",
+    "web_vital_fid_p50",
+)
+SITE_METRICS_LOOKBACK_DAYS = 365
+SITE_METRICS_WINDOW_DAYS = 30
+
 
 @dataclass(frozen=False)
 class CronitorEndpointConfig:
@@ -29,7 +46,7 @@ class CronitorEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable field to partition by. None when the endpoint has no reliably parseable timestamp.
     partition_key: Optional[str] = None
-    sort_mode: Literal["asc", "desc"] = "asc"
+    sort_mode: Optional[Literal["asc", "desc"]] = "asc"
 
 
 CRONITOR_ENDPOINTS: dict[str, CronitorEndpointConfig] = {
@@ -87,6 +104,32 @@ CRONITOR_ENDPOINTS: dict[str, CronitorEndpointConfig] = {
         # `last_seen` moves every time the error recurs, so partition on the stable first sighting.
         partition_key="first_seen",
     ),
+    "maintenance_windows": CronitorEndpointConfig(
+        name="maintenance_windows",
+        primary_keys=["key"],
+        # Windows are edited and cancelled in place and the list has no updated-since filter.
+        partition_key="created",
+    ),
+    "environments": CronitorEndpointConfig(
+        name="environments",
+        primary_keys=["key"],
+        partition_key="created",
+    ),
+    "site_daily_metrics": CronitorEndpointConfig(
+        name="site_daily_metrics",
+        primary_keys=["site_key", "ts"],
+        incremental_fields=[
+            {
+                "label": "ts",
+                "type": IncrementalFieldType.DateTime,
+                "field": "ts",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        partition_key="ts",
+        # Rows are read one site at a time, so `ts` is not ascending across the run.
+        sort_mode=None,
+    ),
 }
 
 
@@ -108,6 +151,11 @@ PAGINATED_LIST_ENDPOINTS: dict[str, CronitorListEndpoint] = {
     # `orderBy=started` keeps the page walk stable while issues are opened mid-sync.
     "issues": CronitorListEndpoint(path="/issues", envelope_key="issues", params=(("orderBy", "started"),)),
     "sites": CronitorListEndpoint(path="/sites", envelope_key="data"),
+    # Without `past` the list returns only ongoing and upcoming windows.
+    "maintenance_windows": CronitorListEndpoint(
+        path="/maintenance_windows", envelope_key="data", params=(("past", "true"),)
+    ),
+    "environments": CronitorListEndpoint(path="/environments", envelope_key="environments"),
 }
 
 # The site errors list carries no site attribution of its own, so it is fanned out over the sites

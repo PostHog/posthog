@@ -18,7 +18,7 @@ import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
-const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
+export const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
 export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = {
@@ -242,29 +242,57 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     )
 }
 
-const SCRAPED_FAULT_SECONDS = MIN_BASELINE_SECONDS + (SAMPLE_INTERVAL_MS + SCRAPE_TIMEOUT_MS) / 1000
+const durationTextOf = (ms: number): string => (ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`)
 
-function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
+const SCRAPED_FAULT_MS = MIN_BASELINE_SECONDS * 1000 + SAMPLE_INTERVAL_MS + SCRAPE_TIMEOUT_MS
+
+function faultFreeOf(card: Card, profile: Profile): { ms: number; inside: string } | undefined {
+    const warmUpMs = card.drive.warmUp === undefined ? 0 : durationMs(card.drive.warmUp)
+    const warmUp = warmUpMs / 1000
     if (profile.load === undefined && profile.host === undefined) {
-        return []
+        return warmUpMs === 0 ? undefined : { ms: warmUpMs, inside: `its ${warmUp}s warm-up` }
     }
     const scraped = Object.keys(profile.load?.targets.claimsPerSecond ?? {}).length > 0
-    const first = scraped ? SCRAPED_FAULT_SECONDS : MIN_BASELINE_SECONDS
-    const baseline = scraped
-        ? `the ${MIN_BASELINE_SECONDS}s fault-free baseline and the role scrape that closes it, which load admission's claim rates need`
-        : `the ${MIN_BASELINE_SECONDS}s fault-free baseline that load and host admission measure`
-    const driveSeconds = stepsOf(card.drive).at(-1)!.toMs / 1000
-    return card.valves.flatMap((entry, i) => {
-        const seconds = durationMs(entry.at ?? '0s') / 1000
-        if (seconds < first) {
-            return [
-                `valves.${i}.at: the valve can fire ${seconds}s into the drive, inside ${baseline}; set at to ${first}s or later`,
-            ]
-        }
-        return seconds < driveSeconds
-            ? []
-            : [`valves.${i}.at: ${seconds}s is past the drive's end at ${driveSeconds}s, so the valve never fires`]
-    })
+    const after = warmUpMs === 0 ? '' : ' after it'
+    return scraped
+        ? {
+              ms: warmUpMs + SCRAPED_FAULT_MS,
+              inside: `${warmUpMs === 0 ? 'the' : `the ${warmUp}s warm-up, the`} ${MIN_BASELINE_SECONDS}s fault-free baseline${after} and the role scrape that closes it, which load admission's claim rates need`,
+          }
+        : {
+              ms: warmUpMs + MIN_BASELINE_SECONDS * 1000,
+              inside: `${warmUpMs === 0 ? 'the' : `the ${warmUp}s warm-up and the`} ${MIN_BASELINE_SECONDS}s fault-free baseline${after} that load and host admission measure`,
+          }
+}
+
+function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
+    const faultFree = faultFreeOf(card, profile)
+    if (faultFree === undefined) {
+        return []
+    }
+    const driveMs = stepsOf(card.drive).at(-1)!.toMs
+    const tooShort =
+        durationMs(card.drive.warmUp ?? '0s') > 0 && driveMs < faultFree.ms
+            ? [
+                  `drive.for: the drive ends ${driveMs / 1000}s in, inside ${faultFree.inside}; run it for ${durationTextOf(faultFree.ms)} or longer`,
+              ]
+            : []
+    return [
+        ...tooShort,
+        ...card.valves.flatMap((entry, i) => {
+            const atMs = durationMs(entry.at ?? '0s')
+            if (atMs < faultFree.ms) {
+                return [
+                    `valves.${i}.at: the valve can fire ${atMs / 1000}s into the drive, inside ${faultFree.inside}; set at to ${durationTextOf(faultFree.ms)} or later`,
+                ]
+            }
+            return atMs < driveMs
+                ? []
+                : [
+                      `valves.${i}.at: ${atMs / 1000}s is past the drive's end at ${driveMs / 1000}s, so the valve never fires`,
+                  ]
+        }),
+    ]
 }
 
 const SES_SHARE = 0.5
@@ -408,4 +436,4 @@ function check(
 }
 
 export const cardHashOf = (card: Card, profileHash: string): string =>
-    sha256({ card: { ...card, gates: undefined, pair: undefined }, profileHash })
+    sha256({ card: { ...card, gates: undefined, pair: undefined, unpaired: undefined }, profileHash })
