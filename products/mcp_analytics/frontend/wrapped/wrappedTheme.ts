@@ -23,7 +23,7 @@ import * as scientistPng from '@posthog/brand/hoggies/png/scientist'
 import * as sleepyPng from '@posthog/brand/hoggies/png/sleepy'
 import * as starPng from '@posthog/brand/hoggies/png/star'
 import * as superheroPng from '@posthog/brand/hoggies/png/superhero'
-import * as workflowsPng from '@posthog/brand/hoggies/png/workflows'
+import * as transformerPng from '@posthog/brand/hoggies/png/transformer'
 import * as workmaxxingPng from '@posthog/brand/hoggies/png/workmaxxing'
 
 import { HoggiePngProps, pngHoggie } from 'lib/brand/hoggies'
@@ -75,7 +75,7 @@ const hoggies = {
     coolCar: pngHoggie(coolCarPng),
     hourglass: pngHoggie(hourglassPng),
     star: pngHoggie(starPng),
-    workflows: pngHoggie(workflowsPng),
+    transformer: pngHoggie(transformerPng),
     hoot: pngHoggie(hootPng),
     gladiator: pngHoggie(gladiatorPng),
     evel: pngHoggie(evelPng),
@@ -159,7 +159,8 @@ export const SPEED_THEMES: Record<SpeedTier, WrappedCardTheme> = {
 
 export const ARCHETYPE_HOGGIES: Record<ArchetypeEnumApi, Hoggie> = {
     one_hit_wonder: hoggies.star,
-    swiss_army_knife: hoggies.workflows,
+    // One machine that turns into whatever the job needs.
+    swiss_army_knife: hoggies.transformer,
     night_owl: hoggies.hoot,
     weekend_warrior: hoggies.gladiator,
     speed_demon: hoggies.evel,
