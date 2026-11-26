@@ -2160,6 +2160,16 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         assert key_denied != key_granted
 
+    def test_userless_trace_read_does_not_share_a_denied_members_cache_key(self) -> None:
+        query = {"kind": "HogQLQuery", "query": "select uuid from posthog.trace_spans"}
+        userless_runner = HogQLQueryRunner(query=query, team=self.team, user=None)
+        assert "restricted_resources" not in userless_runner.get_cache_payload()
+
+        self._ac(resource="tracing", access_level="none")
+        key_denied = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        assert key_denied != userless_runner.get_cache_key()
+
     def test_default_denied_resource_partitions_cache_without_access_control(self):
         self.organization.available_product_features = []
         self.organization.save()

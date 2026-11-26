@@ -637,6 +637,7 @@ class TestDeniedTableError(BaseTest):
         from posthog.models.sharing_configuration import SharingConfiguration
         from posthog.shared_link_user import SharedLinkUser
 
+        principal: SharedLinkUser | ProjectSecretAPIKeyUser
         if scopes is None:
             principal = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
         else:

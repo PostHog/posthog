@@ -137,7 +137,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, access_controlled_posthog_tables
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -3971,9 +3971,13 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # and SharedLinkUser (shared renders); broaden for isinstance.
         user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
 
-        # Userless runs fail-closed - every access-controlled table is denied.
+        # Userless runs fail closed on every access-controlled table except the `posthog.*` product
+        # tables, which they read. Keying those scopes as restricted would hand a userless warm's rows to
+        # a denied member or shared link, whose key lists the same scopes.
         if user is None:
-            return ["*"] if queried_resources is None else sorted(queried_resources) or None
+            if queried_resources is None:
+                return ["*"]
+            return sorted(queried_resources - set(access_controlled_posthog_tables().values())) or None
 
         # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
         # partition on the readable scopes so a narrower token can't be served a broader principal's
