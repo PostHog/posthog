@@ -5,6 +5,8 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+
 from parameterized import parameterized
 
 from posthog.test.fixtures import create_app_metric2
@@ -70,10 +72,17 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
         self._metric(flow, first_send)
         self._metric(flow, NOW - timedelta(hours=2))
 
+        test_depth = len(connection.atomic_blocks)
+        capture_depths: list[int] = []
+        scoped_capture.return_value.__enter__.return_value.side_effect = lambda **_: capture_depths.append(
+            len(connection.atomic_blocks)
+        )
+
         capture_workflow_first_real_sends()
 
         flow.refresh_from_db()
         assert flow.first_real_send_at == first_send
+        assert capture_depths == [test_depth]
         [event] = captured_events(scoped_capture)
         assert event["event"] == "workflow first real send"
         assert event["distinct_id"] == str(self.team.uuid)
