@@ -475,14 +475,21 @@ class PlatformCopyDictField(serializers.DictField):
         return {}
 
 
-def require_pipeline_log_access(*, team_id: int, user: object, filters: dict) -> None:
-    # Scheduled checks run without a user, so only the team's default rules apply to them.
+def pipeline_logs_hidden(*, team_id: int, user: object, filters: dict) -> bool:
+    """Whether an alert with these filters reads pipeline logs that `user`'s property rules hide."""
     services = set(filters.get("serviceNames") or [])
     if services and not services & PIPELINE_LOG_SERVICE_NAMES:
-        return
-    if access_control_api.get_restricted_properties_with_group_type_index_for_team(
-        team_id=team_id, user=user if isinstance(user, User) else None
-    ):
+        return False
+    return bool(
+        access_control_api.get_restricted_properties_with_group_type_index_for_team(
+            team_id=team_id, user=user if isinstance(user, User) else None
+        )
+    )
+
+
+def require_pipeline_log_access(*, team_id: int, user: object, filters: dict) -> None:
+    # Scheduled checks run without a user, so only the team's default rules apply to them.
+    if pipeline_logs_hidden(team_id=team_id, user=user, filters=filters):
         raise PermissionDenied(
             "Your property access permissions do not allow alerts on pipeline logs. "
             "Pick the services this alert watches, without PostHog pipeline services."
@@ -2262,13 +2269,16 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if alert.platform_owned and rows_needed > MAX_MERGED_EVENT_ROWS:
             raise ValidationError({"offset": f"Offset plus limit must be at most {MAX_MERGED_EVENT_ROWS}."})
         history = _with_platform_history(alert, queryset, kind=kind, rows_needed=rows_needed)
+        # The checks count every log, so a member who cannot see pipeline logs gets the state changes without
+        # the counts.
+        (shown,) = _shown_from_copies([alert])
+        hide_counts = pipeline_logs_hidden(team_id=alert.team_id, user=request.user, filters=shown.filters or {})
         page = self.paginate_queryset(history)
-        if page is not None:
-            serializer = LogsAlertEventSerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = LogsAlertEventSerializer(history, many=True)
-        return Response(serializer.data)
+        data = LogsAlertEventSerializer(history if page is None else page, many=True).data
+        if hide_counts:
+            for event in data:
+                event["result_count"] = None
+        return Response(data) if page is None else self.get_paginated_response(data)
 
     @extend_schema(
         request=None,

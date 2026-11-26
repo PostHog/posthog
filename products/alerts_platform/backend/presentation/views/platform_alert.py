@@ -747,21 +747,26 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             and resource_permitted(self.request, self.user_access_control, resource, access_level, scope_action)
         ]
 
-    def _require_pipeline_log_access(self, source_kind: str, source_config: dict[str, Any]) -> None:
-        # Logs checks run without the member, so the member's property rules cannot hide pipeline logs from them.
+    def _pipeline_logs_hidden(self, source_kind: str, source_config: dict[str, Any]) -> bool:
         # A malformed config is refused by the source's own validation later.
         if source_kind != PlatformAlertConfigurationSourceKind.LOGS.value or not isinstance(source_config, dict):
-            return
+            return False
         filters = source_config.get("filters")
         names = filters.get("serviceNames") if isinstance(filters, dict) else None
         if names is not None and not (isinstance(names, list) and all(isinstance(name, str) for name in names)):
-            return
+            return False
         services = set(names or [])
         if services and not services & PIPELINE_LOG_SERVICE_NAMES:
-            return
-        if access_control_api.get_restricted_properties_with_group_type_index_for_team(
-            team_id=self._canonical_team_id(), user=cast(User, self.request.user)
-        ):
+            return False
+        return bool(
+            access_control_api.get_restricted_properties_with_group_type_index_for_team(
+                team_id=self._canonical_team_id(), user=cast(User, self.request.user)
+            )
+        )
+
+    def _require_pipeline_log_access(self, source_kind: str, source_config: dict[str, Any]) -> None:
+        # Logs checks run without the member, so the member's property rules cannot hide pipeline logs from them.
+        if self._pipeline_logs_hidden(source_kind, source_config):
             raise PermissionDenied(
                 "Your property access permissions do not allow alerts on pipeline logs. "
                 "Pick the services this alert watches, without PostHog pipeline services."
@@ -1110,7 +1115,9 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         limit = query.validated_data["limit"]
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
-        self._readable_configuration(team_id, configuration_id)
+        current = self._readable_configuration(team_id, configuration_id)
+        # Checks count every log, so a member who cannot see pipeline logs gets the state changes without the values.
+        hide_values = self._pipeline_logs_hidden(current.source_kind, current.source_config)
         read = platform_api.alert_events(
             team_id=team_id, configuration_id=configuration_id, since=timezone.now() - EVENTS_LOOKBACK, limit=limit
         )
@@ -1121,7 +1128,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                     "kind": PlatformAlertEventKind.CHECK,
                     "previous_state": check.previous_state,
                     "state": check.state,
-                    "value": check.value,
+                    "value": None if hide_values else check.value,
                     "error_message": check.error_message,
                     "grouping_key": check.grouping_key,
                     "condition": check.condition,

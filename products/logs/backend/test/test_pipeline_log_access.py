@@ -15,9 +15,10 @@ from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, Property
 from posthog.models import User
 
 from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedAlertCheckQuery
 from products.logs.backend.anomaly_scan import TimeRange, fetch_bucket_counts
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.natural_language_query import gather_filter_context
 from products.logs.backend.pattern_diff import _first_seen_ever
 from products.logs.backend.platform_ownership import hand_over
@@ -405,3 +406,61 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert (response.status_code == 403) == refused, response.json()
+
+    @parameterized.expand(
+        [
+            ("logs_restricted_pipeline", "logs", "restricted", _PIPELINE, None),
+            ("logs_restricted_app", "logs", "restricted", _APP, 6),
+            ("logs_granted_pipeline", "logs", "granted", _PIPELINE, 6),
+            ("platform_restricted_pipeline", "platform", "restricted", _PIPELINE, None),
+            ("platform_restricted_app", "platform", "restricted", _APP, 6),
+            ("platform_granted_pipeline", "platform", "granted", _PIPELINE, 6),
+        ]
+    )
+    def test_alert_history_counts_follow_property_access(
+        self, _name: str, api: str, access: PropertyAccess, service: str, expected: int | None
+    ) -> None:
+        filters = {"serviceNames": [service]}
+        condition = {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5}
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
+        ):
+            if api == "logs":
+                logs_alert = LogsAlertConfiguration.objects.create(
+                    team=self.team, created_by=self.user, name="Alert", filters=filters, **condition
+                )
+                LogsAlertEvent.objects.create(
+                    alert=logs_alert,
+                    threshold_breached=True,
+                    state_before="not_firing",
+                    state_after="firing",
+                    result_count=6,
+                )
+                url = f"/api/projects/{self.team.pk}/logs/alerts/{logs_alert.pk}/events/"
+            else:
+                alert = self.client.post(
+                    f"/api/projects/{self.team.pk}/platform_alerts/",
+                    {"source_kind": "logs", "source_config": {"filters": filters, "condition": condition}},
+                    format="json",
+                ).json()
+                platform_testing.record_check(
+                    alert["id"],
+                    team_id=self.team.id,
+                    at=timezone.now() - dt.timedelta(minutes=5),
+                    previous_state="not_firing",
+                    state="firing",
+                    value=6,
+                )
+                url = f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/events/"
+            set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+
+            response = self.client.get(url)
+
+        assert response.status_code == 200, response.json()
+        events = response.json()
+        events = events["results"] if api == "logs" else events
+        count_field = "result_count" if api == "logs" else "value"
+        assert [
+            (event["state"] if api == "platform" else event["state_after"], event[count_field]) for event in events
+        ] == [("firing", expected)]
