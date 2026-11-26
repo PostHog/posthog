@@ -679,9 +679,18 @@ export function getApiLimitErrorType(error: PostHogApiError): 'rate_limited' | '
 export function isExpectedApiError(error: unknown): boolean {
     const apiError = findRecoverableApiError(error)
     if (apiError instanceof PostHogApiError) {
-        return (apiError.status >= 400 && apiError.status < 500) || getApiLimitErrorType(apiError) !== undefined
+        return (
+            (apiError.status >= 400 && apiError.status < 500) ||
+            getApiLimitErrorType(apiError) !== undefined ||
+            isQueryTimeout(apiError)
+        )
     }
     return apiError instanceof PostHogValidationError || findPostHogPermissionError(error) !== undefined
+}
+
+// The backend's query timeout carries no stable code, so only its detail tells it apart from a proxy's 504.
+function isQueryTimeout(error: PostHogApiError): boolean {
+    return error.status === 504 && drfDetail(error.body)?.startsWith('Query has hit the max execution time') === true
 }
 
 function drfDetail(body: string): string | undefined {
@@ -772,9 +781,14 @@ export function handleToolError(
 
     const apiError = findRecoverableApiError(error)
     if (apiError && isExpectedApiError(apiError)) {
+        // A transient limit clears by rerunning the same request, so it skips the endpoint's narrow-the-query hint.
         const retryHint =
             apiError instanceof PostHogApiError
-                ? getToolRecoveryHint({ status: apiError.status, retryAfterSeconds: apiError.retryAfterSeconds })
+                ? getToolRecoveryHint(
+                      getApiLimitErrorType(apiError) === 'rate_limited'
+                          ? { status: apiError.status, retryAfterSeconds: apiError.retryAfterSeconds }
+                          : apiError
+                  )
                 : undefined
         const message = retryHint ? `${apiError.message}\n\n${retryHint}` : apiError.message
         return {

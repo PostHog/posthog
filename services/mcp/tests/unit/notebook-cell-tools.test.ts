@@ -763,7 +763,7 @@ describe('notebook cell tools', () => {
                 markdown: 'Some notes.',
                 title: 'Notes',
             })
-        ).rejects.toThrow(/heading in the markdown/)
+        ).rejects.toMatchObject({ errorType: 'validation', message: expect.stringMatching(/heading in the markdown/) })
         expect(state.saveBodies).toHaveLength(0)
     })
 

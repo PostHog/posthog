@@ -284,7 +284,7 @@ describe('explain-chart', () => {
                 headline: 'Conversion fell.',
                 chapters: [{ title: 'A drop', start: '2026-10-02' }],
             })
-        ).rejects.toThrow(message)
+        ).rejects.toMatchObject({ errorType: 'validation', message: expect.stringContaining(message) })
     })
 
     it.each([
@@ -325,7 +325,10 @@ describe('explain-chart', () => {
         })
 
         if (drawnAs === null) {
-            await expect(call).rejects.toThrow('one value over time')
+            await expect(call).rejects.toMatchObject({
+                errorType: 'validation',
+                message: expect.stringContaining('one value over time'),
+            })
             return
         }
         const result = await call

@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
+import { MCPToolResultError } from '@/lib/errors'
 import type { Context, ToolBase } from '@/tools/types'
 
 import {
@@ -323,38 +324,41 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     params: z.infer<typeof NotebooksAddCellSchema>
 ) => {
     if ((params.cell_type === 'sql' || params.cell_type === 'python') && !params.code?.trim()) {
-        throw new Error(`A ${params.cell_type} cell requires non-empty code.`)
+        throw new MCPToolResultError(`A ${params.cell_type} cell requires non-empty code.`, 'validation')
     }
     if (params.cell_type === 'markdown' && !params.markdown?.trim()) {
-        throw new Error('A markdown cell requires non-empty markdown.')
+        throw new MCPToolResultError('A markdown cell requires non-empty markdown.', 'validation')
     }
     if (params.visualization && params.cell_type !== 'sql') {
-        throw new Error(
-            `visualization applies to sql cells only, not ${params.cell_type} cells. A python cell plots with matplotlib.`
+        throw new MCPToolResultError(
+            `visualization applies to sql cells only, not ${params.cell_type} cells. A python cell plots with matplotlib.`,
+            'validation'
         )
     }
     if (params.cell_type === 'saved_insight' && !params.insight_short_id?.trim()) {
-        throw new Error('A saved_insight cell requires insight_short_id.')
+        throw new MCPToolResultError('A saved_insight cell requires insight_short_id.', 'validation')
     }
     if (params.cell_type === 'component') {
         if (!params.tag_name) {
-            throw new Error('A component cell requires tag_name.')
+            throw new MCPToolResultError('A component cell requires tag_name.', 'validation')
         }
         // Executable and deprecated tags must go through their owning cell types so runs,
         // identity, and result write-back stay consistent.
         if (['SQLV2', 'PythonV2', 'Python', 'DuckSQL', 'HogQLSQL'].includes(params.tag_name)) {
-            throw new Error(
-                `Use cell_type 'sql' or 'python' for executable cells instead of tag_name ${params.tag_name}.`
+            throw new MCPToolResultError(
+                `Use cell_type 'sql' or 'python' for executable cells instead of tag_name ${params.tag_name}.`,
+                'validation'
             )
         }
         if (hasHogQLQuerySource(params.props)) {
-            throw new Error(
-                "Use cell_type 'sql' for SQL instead of a component with a HogQLQuery source. A sql cell runs the query, names a dataframe other cells can reference, and charts its result when you set visualization."
+            throw new MCPToolResultError(
+                "Use cell_type 'sql' for SQL instead of a component with a HogQLQuery source. A sql cell runs the query, names a dataframe other cells can reference, and charts its result when you set visualization.",
+                'validation'
             )
         }
         const widgetViewError = getNotebookWidgetViewError(params.tag_name, params.props?.view)
         if (widgetViewError) {
-            throw new Error(widgetViewError)
+            throw new MCPToolResultError(widgetViewError, 'validation')
         }
     }
 
@@ -365,8 +369,9 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
 
     if (params.cell_type === 'markdown') {
         if (title) {
-            throw new Error(
-                'A markdown cell has no header to title — put the heading in the markdown itself (e.g. "## Weekly signups").'
+            throw new MCPToolResultError(
+                'A markdown cell has no header to title — put the heading in the markdown itself (e.g. "## Weekly signups").',
+                'validation'
             )
         }
         const proseNodeId = `${STORED_NODE_ID_PREFIX}${uuidv4()}`
