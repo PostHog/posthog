@@ -14,7 +14,7 @@ from posthog.models.tag import tagify
 from posthog.models.utils import strict_fetch
 
 from products.cdp.backend.validation import build_html_wrap_design, html_wrap_design_needs_refresh
-from products.messaging.backend.facade.contracts import EmailTemplateSummary
+from products.messaging.backend.facade.contracts import EmailTemplateSummary, MessageTemplateListFilter
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 
 
@@ -83,17 +83,35 @@ def _with_tags(queryset: models.QuerySet[MessageTemplate]) -> models.QuerySet[Me
     )
 
 
-def team_templates(team_id: int, *, transactional: bool | None = None) -> models.QuerySet[MessageTemplate]:
-    queryset = MessageTemplate.objects.filter(team_id=team_id, deleted=False)
-    if transactional is not None:
-        queryset = queryset.filter(transactional_hog_flow_id__isnull=not transactional)
+def team_templates(team_id: int, filters: MessageTemplateListFilter) -> models.QuerySet[MessageTemplate]:
+    queryset = _filtered(MessageTemplate.objects.filter(team_id=team_id, deleted=False), filters)
     # The pk tiebreak keeps pages stable, as the mixin ordering did for the queryset view.
     return _with_tags(queryset).order_by("-created_at", "-pk")
 
 
-def team_basic_templates(team_id: int, *, transactional: bool | None = None) -> models.QuerySet[MessageTemplate]:
+def _filtered(
+    queryset: models.QuerySet[MessageTemplate], filters: MessageTemplateListFilter
+) -> models.QuerySet[MessageTemplate]:
+    if filters.transactional is not None:
+        queryset = queryset.filter(transactional_hog_flow_id__isnull=not filters.transactional)
+    if filters.created_by_id is not None:
+        queryset = queryset.filter(created_by_id=filters.created_by_id)
+    if filters.tags:
+        queryset = queryset.filter(
+            pk__in=queryset.filter(tagged_items__tag__name__in=[tagify(tag) for tag in filters.tags]).values("pk")
+        )
+    if filters.search:
+        queryset = queryset.filter(
+            models.Q(name__icontains=filters.search)
+            | models.Q(description__icontains=filters.search)
+            | models.Q(pk__in=queryset.filter(tagged_items__tag__name__icontains=filters.search).values("pk"))
+        )
+    return queryset
+
+
+def team_basic_templates(team_id: int, filters: MessageTemplateListFilter) -> models.QuerySet[MessageTemplate]:
     return strict_fetch(
-        team_templates(team_id, transactional=transactional)
+        team_templates(team_id, filters)
         .defer("content", "draft_content")
         .annotate(has_draft=models.ExpressionWrapper(models.Q(draft_content__isnull=False), models.BooleanField()))
     )
@@ -142,6 +160,12 @@ def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any
         # Tags live on their own rows. Saving the template too would write back every column this
         # read saw, so a tag edit would overwrite content a concurrent publish had just committed.
         if fields:
+            if (
+                "sensitive" in fields
+                and fields["sensitive"] != template.sensitive
+                and "click_tracking_enabled" not in fields
+            ):
+                fields["click_tracking_enabled"] = None
             _apply_fields(template, fields)
             template.save()
         if tags_changed:
