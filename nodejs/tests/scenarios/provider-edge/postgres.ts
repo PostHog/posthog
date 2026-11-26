@@ -7,6 +7,11 @@ const DECLINED = Buffer.from('N')
 const PARSE = 'P'.charCodeAt(0)
 const QUERY = 'Q'.charCodeAt(0)
 const ERROR_RESPONSE = 'E'.charCodeAt(0)
+const COMMAND_COMPLETE = 'C'.charCodeAt(0)
+const READY_FOR_QUERY = 'Z'.charCodeAt(0)
+const IDLE = 'I'.charCodeAt(0)
+const IN_TRANSACTION = 'T'.charCodeAt(0)
+const ROLLED_BACK = Buffer.from('ROLLBACK\0')
 const MESSAGE_FIELD = 'M'.charCodeAt(0)
 const DEFAULT_PORT = 5432
 const STARTUP_MIN_BYTES = 8
@@ -20,7 +25,11 @@ const ENDPOINT_PARAMETERS = ['host', 'hostaddr', 'port']
 const ENQUEUE = /^(\s*INSERT\s+INTO\s+)cyclotron_jobs(?![\w$.])/i
 const REFUSED = /cyclotron_jobs_refused_([0-9a-f]{32})/
 
-export type PgRefusals = { refusePg(): string | undefined; pgRefusalAnswered(token: string): void }
+export type PgFaults = {
+    refusePg(): string | undefined
+    pgRefusalAnswered(token: string): void
+    losePgCommitReply(): boolean
+}
 
 export type PgProxy = { url: string; close(): Promise<void> }
 
@@ -80,9 +89,9 @@ function startupLength(header: Buffer): number {
     return length
 }
 
-// A refused enqueue names a table that does not exist, so Postgres answers it with its own error and handles the
-// transaction it fails and the rest of the client's pipeline as it would for any failed statement.
-function refusedMessage(message: Buffer, refusals: PgRefusals): Buffer | undefined {
+type Enqueue = { start: number; end: number; statement: string }
+
+function enqueueOf(message: Buffer): Enqueue | undefined {
     const type = message[0]
     if (type !== PARSE && type !== QUERY) {
         return undefined
@@ -90,13 +99,13 @@ function refusedMessage(message: Buffer, refusals: PgRefusals): Buffer | undefin
     const start = type === PARSE ? message.indexOf(0, TYPED_HEADER_BYTES) + 1 : TYPED_HEADER_BYTES
     const end = message.indexOf(0, start)
     const statement = message.toString('utf8', start, end)
-    if (!ENQUEUE.test(statement)) {
-        return undefined
-    }
-    const token = refusals.refusePg()
-    if (token === undefined) {
-        return undefined
-    }
+    return ENQUEUE.test(statement) ? { start, end, statement } : undefined
+}
+
+// A refused enqueue names a table that does not exist, so Postgres answers it with its own error and handles the
+// transaction it fails and the rest of the client's pipeline as it would for any failed statement.
+function refusedMessage(message: Buffer, { start, end, statement }: Enqueue, token: string): Buffer {
+    const type = message[0]
     const body = Buffer.concat([
         message.subarray(TYPED_HEADER_BYTES, start),
         Buffer.from(statement.replace(ENQUEUE, `$1cyclotron_jobs_refused_${token}`)),
@@ -125,6 +134,16 @@ export function refusalTokenOf(message: Buffer): string | undefined {
     return undefined
 }
 
+// Postgres has committed a transaction once it reports the connection idle again, unless a statement since the last
+// report failed or ended the transaction with a rollback.
+function committed(replies: Buffer[]): boolean {
+    return replies.every(
+        (reply) =>
+            reply[0] !== ERROR_RESPONSE &&
+            !(reply[0] === COMMAND_COMPLETE && reply.subarray(TYPED_HEADER_BYTES).equals(ROLLED_BACK))
+    )
+}
+
 function relay(from: net.Socket, to: net.Socket, frames: (chunk: Buffer) => void): void {
     from.on('data', (chunk: Buffer) => {
         try {
@@ -144,14 +163,19 @@ function relay(from: net.Socket, to: net.Socket, frames: (chunk: Buffer) => void
     from.on('close', (hadError) => (hadError ? to.destroy() : to.end()))
 }
 
-function connect(client: net.Socket, server: net.Socket, refusals: PgRefusals): void {
+function connect(client: net.Socket, server: net.Socket, faults: PgFaults): void {
     let started = false
+    let enqueued = false
+    let held: Buffer[] = []
     const fromClient = framesOf(
         () => (started ? TYPED_HEADER_BYTES : STARTUP_MIN_BYTES),
         (header) => (started ? typedLength(header) : startupLength(header)),
         (message) => {
             if (started) {
-                server.write(refusedMessage(message, refusals) ?? message)
+                const enqueue = enqueueOf(message)
+                const token = enqueue && faults.refusePg()
+                enqueued ||= enqueue !== undefined
+                server.write(enqueue && token ? refusedMessage(message, enqueue, token) : message)
                 return
             }
             const code = message.readInt32BE(4)
@@ -163,23 +187,43 @@ function connect(client: net.Socket, server: net.Socket, refusals: PgRefusals): 
             server.write(message)
         }
     )
+    const answer = (message: Buffer): void => {
+        const token = refusalTokenOf(message)
+        client.write(message, (error) => {
+            if (token !== undefined && !error) {
+                faults.pgRefusalAnswered(token)
+            }
+        })
+    }
     const fromServer = framesOf(
         () => TYPED_HEADER_BYTES,
         typedLength,
         (message) => {
-            const token = refusalTokenOf(message)
-            client.write(message, (error) => {
-                if (token !== undefined && !error) {
-                    refusals.pgRefusalAnswered(token)
-                }
-            })
+            if (!enqueued) {
+                answer(message)
+                return
+            }
+            held.push(message)
+            if (message[0] !== READY_FOR_QUERY) {
+                return
+            }
+            const replies = held
+            held = []
+            const status = message[TYPED_HEADER_BYTES]
+            enqueued = status === IN_TRANSACTION
+            if (status === IDLE && committed(replies) && faults.losePgCommitReply()) {
+                client.destroy()
+                server.destroy()
+                return
+            }
+            replies.forEach(answer)
         }
     )
     relay(client, server, fromClient)
     relay(server, client, fromServer)
 }
 
-export async function startPgProxy(upstream: string, refusals: PgRefusals): Promise<PgProxy> {
+export async function startPgProxy(upstream: string, faults: PgFaults): Promise<PgProxy> {
     const target = new URL(upstream)
     const overrides = ENDPOINT_PARAMETERS.filter((name) => target.searchParams.has(name))
     if (overrides.length > 0) {
@@ -203,7 +247,7 @@ export async function startPgProxy(upstream: string, refusals: PgRefusals): Prom
             allowHalfOpen: true,
             noDelay: true,
         })
-        connect(track(client), track(server), refusals)
+        connect(track(client), track(server), faults)
     })
     await new Promise<void>((resolve, reject) => {
         proxy.once('error', reject)

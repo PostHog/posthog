@@ -163,6 +163,89 @@ describe('the edge in front of Cyclotron', () => {
         }
     })
 
+    describe('with a commit reply lost', () => {
+        let direct: Client
+        let schema: string
+        let opened: Client[]
+
+        const rowsOf = async (): Promise<number[]> =>
+            (await direct.query(`SELECT id FROM ${schema}.cyclotron_jobs ORDER BY id`)).rows.map(({ id }) => id)
+
+        const proxied = async (): Promise<Client> => {
+            const next = new Client({ connectionString: await edge.pgProxyOf(UPSTREAM) })
+            next.on('error', () => undefined)
+            opened.push(next)
+            await next.connect()
+            await next.query(`SET search_path TO ${schema}`)
+            return next
+        }
+
+        beforeEach(async () => {
+            opened = []
+            schema = `edge_commit_${Math.random().toString(36).slice(2)}`
+            direct = new Client({ connectionString: UPSTREAM })
+            await direct.connect()
+            await direct.query(`CREATE SCHEMA ${schema}`)
+            await direct.query(`CREATE TABLE ${schema}.cyclotron_jobs (id int)`)
+        })
+
+        afterEach(async () => {
+            await Promise.all(opened.map((each) => each.end().catch(() => undefined)))
+            await direct.query(`DROP SCHEMA ${schema} CASCADE`)
+            await direct.end()
+        })
+
+        test.each<[string, [string, unknown[]][]]>([
+            ['with parameters', [['INSERT INTO cyclotron_jobs VALUES ($1)', [1]]]],
+            ['as a simple query', [['INSERT INTO cyclotron_jobs VALUES (1)', []]]],
+            [
+                'in a transaction, at its commit',
+                [
+                    ['BEGIN', []],
+                    ['INSERT INTO cyclotron_jobs VALUES ($1)', [1]],
+                    ['COMMIT', []],
+                ],
+            ],
+        ])('commits an enqueue %s and cuts the client before its reply', async (_, statements) => {
+            const faultId = edge.addFault(ruleOf({ name: 'pg.commit_reply_lost', dose: { count: 1 } }))
+            const faulted = await proxied()
+            const answers: string[] = []
+            for (const [statement, values] of statements) {
+                answers.push(await faulted.query(statement, values).then(() => 'answered', codeOf))
+            }
+            await (await proxied()).query('INSERT INTO cyclotron_jobs VALUES (2)')
+
+            expect(answers.at(-1)).toBe(CONNECTION_LOST)
+            expect(answers.slice(0, -1).every((answer) => answer === 'answered')).toBe(true)
+            expect(edge.firstAppliedAt(faultId)).toEqual(expect.any(Number))
+            expect(await rowsOf()).toEqual([1, 2])
+        })
+
+        test('keeps its dose through enqueues that do not commit', async () => {
+            const faultId = edge.addFault(ruleOf({ name: 'pg.commit_reply_lost', dose: { count: 1 } }))
+            const faulted = await proxied()
+
+            await faulted.query('BEGIN')
+            await faulted.query('INSERT INTO cyclotron_jobs VALUES ($1)', [1])
+            const rolledBack = await faulted.query('ROLLBACK').then(() => 'answered', codeOf)
+            const failed = await faulted
+                .query('INSERT INTO cyclotron_jobs VALUES ($1)', ['one'])
+                .then(() => 'answered', codeOf)
+            const observedBeforeCommit = edge.firstAppliedAt(faultId)
+            const committed = await faulted
+                .query('INSERT INTO cyclotron_jobs VALUES ($1)', [3])
+                .then(() => 'answered', codeOf)
+
+            expect([rolledBack, failed, observedBeforeCommit, committed]).toEqual([
+                'answered',
+                '22P02',
+                undefined,
+                CONNECTION_LOST,
+            ])
+            expect(await rowsOf()).toEqual([3])
+        })
+    })
+
     test('closes a connection whose startup declares a length it cannot have, and keeps serving the others', async () => {
         const { hostname, port } = new URL(await edge.pgProxyOf(UPSTREAM))
         const socket = net.connect({ host: hostname, port: Number(port) })
