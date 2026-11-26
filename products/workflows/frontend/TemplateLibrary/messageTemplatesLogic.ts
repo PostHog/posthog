@@ -273,6 +273,8 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             null as MessagingTemplatesListParams | null,
             { templatesPageLoaded: (_, { listParams }) => listParams, listInvalidated: () => null },
         ],
+        // A failed count shows the guide's template step as not done, rather than hiding the whole guide.
+        templateCount: [null as number | null, { loadTemplateCountFailure: (state) => state ?? 0 }],
         templates: [
             [] as MessageTemplate[],
             {
@@ -312,11 +314,10 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
                     try {
-                        const newTemplate = await api.messaging.createTemplate(template)
+                        await api.messaging.createTemplate(template)
                         lemonToast.success('Template created successfully')
                         actions.templatesAdded()
-                        // The server lists the newest first, so the next page starts after it.
-                        return [newTemplate, ...values.templates]
+                        return values.templates
                     } catch {
                         lemonToast.error('Failed to create template')
                         return values.templates
@@ -340,14 +341,14 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 duplicateTemplate: async (template: MessageTemplate) => {
                     try {
-                        const duplicatedTemplate = await api.messaging.createTemplate({
+                        await api.messaging.createTemplate({
                             name: `${template.name} (copy)`,
                             description: template.description,
                             content: template.content,
                         })
                         lemonToast.success('Template duplicated successfully')
                         actions.templatesAdded()
-                        return [duplicatedTemplate, ...values.templates]
+                        return values.templates
                     } catch {
                         lemonToast.error('Failed to duplicate template')
                         return values.templates
@@ -411,11 +412,10 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 actions.listInvalidated()
             }
         },
+        // Only the server knows whether a new template matches the filters and where it falls in the order.
         templatesAdded: () => {
             actions.loadTemplateCount()
-            if (values.hasActiveFilters) {
-                actions.listInvalidated()
-            }
+            actions.listInvalidated()
         },
         // A create's own success clears the loading flag before this reload lands, so paging waits on the reload.
         listInvalidated: () => actions.loadTemplates(),

@@ -218,6 +218,44 @@ describe('messageTemplatesLogic', () => {
         expect(logic.values.templateCount).toBe(4)
     })
 
+    it('shows a duplicate once when the filter clears before the duplicate answers', async () => {
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        everything = [...stored]
+        stored = [stored[0]]
+        logic.actions.setCreatedByFilter(7)
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        const copy = template('d', 'Welcome (copy)', [])
+        let answerDuplicate = (): void => {}
+        useMocks({
+            post: {
+                '/api/projects/:team_id/messaging_templates/': async () => {
+                    everything = [copy, ...(everything ?? [])]
+                    await new Promise<void>((release) => (answerDuplicate = release))
+                    return [201, copy]
+                },
+            },
+        })
+
+        logic.actions.duplicateTemplate(stored[0])
+        await waitFor(() => expect(everything).toHaveLength(4))
+        logic.actions.setCreatedByFilter(null)
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        answerDuplicate()
+        await expectLogic(logic).toDispatchActions(['duplicateTemplateSuccess'])
+
+        await waitFor(() => expect(names()).toEqual(['Welcome (copy)', 'Welcome', 'Invoice', 'Plain']))
+    })
+
+    it('shows the template step as not done when the count fails, rather than hiding the setup guide', async () => {
+        holdCounts = true
+        await remount()
+        await waitFor(() => expect(heldCounts).toHaveLength(1))
+
+        heldCounts[0](500)
+
+        await waitFor(() => expect(logic.values.templateCount).toBe(0))
+    })
+
     it('keeps paging off after a filtered create until the reloaded first page lands', async () => {
         stored = many(TEMPLATES_PAGE_SIZE + 1, 'Match')
         logic.actions.setCreatedByFilter(7)
