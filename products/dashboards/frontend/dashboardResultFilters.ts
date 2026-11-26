@@ -69,18 +69,37 @@ function withoutResultFilter(value: unknown): unknown {
 
 type FilterableInsight = Exclude<InsightQueryNode, { kind: NodeKind.WebOverviewQuery | NodeKind.WebStatsTableQuery }>
 
+function hasFilterableAggregation(source: InsightQueryNode): boolean {
+    switch (source.kind) {
+        case NodeKind.FunnelsQuery: {
+            const aggregation = source.funnelsFilter?.funnelAggregateByHogQL
+            return (
+                source.aggregation_group_type_index != null ||
+                !aggregation ||
+                aggregation === 'person_id' ||
+                aggregation === 'properties.$session_id'
+            )
+        }
+        case NodeKind.RetentionQuery:
+            return !source.retentionFilter?.customAggregationTarget
+        case NodeKind.LifecycleQuery:
+            return !source.customAggregationTarget
+        default:
+            return true
+    }
+}
+
 export function canFilterInsight(query: unknown): query is InsightVizNode<FilterableInsight> {
     if (!query || typeof query !== 'object' || !isInsightVizNode(query) || !INSIGHT_KINDS.has(query.source.kind)) {
         return false
     }
     const source = query.source
     return (
+        hasFilterableAggregation(source) &&
         !(
             'series' in source &&
             source.series?.some((series) => series.kind !== NodeKind.EventsNode && series.kind !== NodeKind.ActionsNode)
-        ) &&
-        !('customAggregationTarget' in source && source.customAggregationTarget) &&
-        !('retentionFilter' in source && source.retentionFilter?.customAggregationTarget)
+        )
     )
 }
 

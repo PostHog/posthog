@@ -3,6 +3,7 @@ from pydantic import ValidationError
 from posthog.schema import (
     ActorsQuery,
     FunnelsActorsQuery,
+    FunnelsQuery,
     InsightActorsQuery,
     PathsV2ActorsQuery,
     StickinessActorsQuery,
@@ -52,10 +53,16 @@ def _parse_insight_selection(
         raise QueryError("The Other breakdown cannot be used as a dashboard filter", node=node)
     _normalize_breakdown(query.source, breakdown, node)
     series = getattr(insight, "series", None)
+    funnel_aggregation = (
+        insight.funnelsFilter.funnelAggregateByHogQL
+        if isinstance(insight, FunnelsQuery) and insight.aggregation_group_type_index is None and insight.funnelsFilter
+        else None
+    )
     if (
         (series and any(item.kind not in ("EventsNode", "ActionsNode") for item in series))
         or getattr(insight, "customAggregationTarget", False)
         or getattr(getattr(insight, "retentionFilter", None), "customAggregationTarget", False)
+        or funnel_aggregation not in (None, "", "person_id", "properties.$session_id")
     ):
         raise QueryError("This insight does not identify PostHog users or groups", node=node)
     return query.source

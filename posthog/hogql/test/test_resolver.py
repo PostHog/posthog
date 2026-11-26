@@ -211,6 +211,23 @@ class TestResolver(BaseTest):
                 ),
                 "product analytics datapoint",
             ),
+            (
+                "custom_funnel_aggregation",
+                json.dumps(
+                    {
+                        "kind": "ActorsQuery",
+                        "source": {
+                            "kind": "FunnelsActorsQuery",
+                            "source": {
+                                "kind": "FunnelsQuery",
+                                "series": [{"kind": "EventsNode", "event": "signup"}],
+                                "funnelsFilter": {"funnelAggregateByHogQL": "properties.$account_id"},
+                            },
+                        },
+                    }
+                ),
+                "does not identify PostHog users or groups",
+            ),
             ("oversized", "x" * 100_001, "too large"),
         ]
     )

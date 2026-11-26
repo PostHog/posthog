@@ -8,6 +8,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyGroupFilter, Propert
 import { dashboardResultFilterLogic } from './dashboardResultFilterLogic'
 import {
     DashboardResultSelection,
+    canFilterInsight,
     getDashboardResultActors,
     getDashboardResultTargets,
     readDashboardResultFilter,
@@ -33,6 +34,29 @@ const selection: DashboardResultSelection = {
 }
 
 describe('dashboard result population filters', () => {
+    it.each([
+        { aggregation: undefined, group: undefined, allowed: true },
+        { aggregation: 'person_id', group: undefined, allowed: true },
+        { aggregation: 'properties.$session_id', group: undefined, allowed: true },
+        { aggregation: 'properties.$account_id', group: undefined, allowed: false },
+        { aggregation: 'properties.$account_id', group: 0, allowed: true },
+    ])(
+        'funnel with aggregation $aggregation and group $group is filterable: $allowed',
+        ({ aggregation, group, allowed }) => {
+            expect(
+                canFilterInsight({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: query.source.series,
+                        aggregation_group_type_index: group,
+                        funnelsFilter: { funnelAggregateByHogQL: aggregation },
+                    },
+                })
+            ).toBe(allowed)
+        }
+    )
+
     it('preserves OR groups and skips the source, opted-out tiles, and SQL', () => {
         const properties: PropertyGroupFilter = {
             type: FilterLogicalOperator.Or,
