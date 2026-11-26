@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQuery
+from posthog.schema import CachedHogQLQueryResponse, HogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -1763,6 +1763,7 @@ class TestSystemTablesFileSystemCanvasVisibility(NonAtomicBaseTest):
                 Channel.objects.filter(id=channel.id).update(channel_type=Channel.ChannelType.PERSONAL)
             after = HogQLQueryRunner(query=query, team=self.team).run(user=other)
 
+        assert isinstance(before, CachedHogQLQueryResponse) and isinstance(after, CachedHogQLQueryResponse)
         assert ([row[0] for row in before.results], after.results) == ([str(canvas)], [])
 
     def test_canvas_rows_are_dropped_for_a_key_without_canvas_scope(self):
