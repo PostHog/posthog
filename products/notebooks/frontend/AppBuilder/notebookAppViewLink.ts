@@ -43,3 +43,12 @@ export function notebookAppViewPath(
     const inputs = Object.fromEntries(variables.map(({ name, value }) => [name, value]))
     return combineUrl(urls.project(project, urls.notebook(shortId)), { view: 'app' }, { appView: { tab, inputs } }).url
 }
+
+export function notebookAppViewLink(
+    project: string,
+    shortId: string,
+    tab: string,
+    variables: NotebookVariable[]
+): string {
+    return urls.absolute(notebookAppViewPath(project, shortId, tab, variables))
+}
