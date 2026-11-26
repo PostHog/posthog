@@ -91,6 +91,16 @@ class TestFileSystemAPI(APIBaseTest):
                 viewed_at=now - timedelta(days=min(days)),
                 view_days=[(now - timedelta(days=day)).date() for day in days],
             )
+        FileSystem.objects.create(team=self.team, path="Docs/hidden", type="hog_flow", ref="hidden", surface="web")
+        FileSystemViewLog.objects.create(
+            team=self.team,
+            user=self.user,
+            type="hog_flow",
+            ref="hidden",
+            surface="web",
+            viewed_at=now,
+            view_days=[(now - timedelta(days=day)).date() for day in range(6)],
+        )
         url = f"/api/projects/{self.team.id}/file_system/frequent/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200, response.content)
@@ -560,7 +570,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual([listed["results"], searched["results"], counted["count"]], [[], [], 0])
         self.assertEqual(retrieved.status_code, status.HTTP_404_NOT_FOUND)
 
-    @parameterized.expand([("retired_type",), ("scene",), ("deleted_object",)])
+    @parameterized.expand([("retired_type",), ("unfiled_type",), ("scene",), ("deleted_object",)])
     def test_recents_skip_views_without_an_entry(self, unlisted_view: str) -> None:
         _folder, retired = self._create_retired_row_in_folder()
         dashboard = Dashboard.objects.create(team=self.team, name="Viewed earlier", created_by=self.user)
@@ -569,6 +579,7 @@ class TestFileSystemAPI(APIBaseTest):
         )
         view_type, view_ref = {
             "retired_type": ("link", retired.ref),
+            "unfiled_type": ("hog_flow", "0190a1b2-0000-7000-8000-000000000002"),
             "scene": ("scene", "ProjectHomepage"),
             "deleted_object": ("dashboard", "999999"),
         }[unlisted_view]
@@ -576,7 +587,21 @@ class TestFileSystemAPI(APIBaseTest):
         self.client.post(
             f"{base}/log_view/", {"type": "dashboard", "ref": entry.ref, "viewed_at": "2026-09-01T00:00:00Z"}
         )
-        self.client.post(f"{base}/log_view/", {"type": view_type, "ref": view_ref, "viewed_at": "2026-09-02T00:00:00Z"})
+        if unlisted_view == "unfiled_type":
+            FileSystem.objects.create(team=self.team, path="Hand filed/Welcome", type=view_type, ref=view_ref)
+            visible_view = FileSystemViewLog.objects.get(team=self.team, type="dashboard")
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type=view_type,
+                ref=str(view_ref),
+                surface=visible_view.surface,
+                viewed_at=visible_view.viewed_at + timedelta(days=1),
+            )
+        else:
+            self.client.post(
+                f"{base}/log_view/", {"type": view_type, "ref": view_ref, "viewed_at": "2026-09-02T00:00:00Z"}
+            )
 
         recents = self.client.get(f"{base}/?order_by=-last_viewed_at&limit=1").json()
 
