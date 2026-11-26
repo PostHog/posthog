@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -789,9 +789,15 @@ class TestTransactionalEmail(APIBaseTest):
         assert (response.json()["attr"], response.json()["code"]) == (attr, code or "marketing_copies_unsupported")
         assert pipeline.queued == []
 
-    @parameterized.expand([("accepted_before", True), ("never_accepted", False)])
-    def test_a_keyed_send_whose_category_was_archived_replays_only_an_accepted_send(
-        self, mock_post, _flag, _capture, _name, accepted_before
+    @parameterized.expand(
+        [
+            ("accepted_recently", timedelta(0)),
+            ("accepted_after_its_key_lapsed", timedelta(days=5)),
+            ("never_accepted", None),
+        ]
+    )
+    def test_a_keyed_send_whose_category_was_archived_replays_only_a_recent_accepted_send(
+        self, mock_post, _flag, _capture, _name, accepted_ago
     ):
         category = self._category("newsletter", MessageCategoryType.MARKETING)
         pipeline = FakeCdpApi()
@@ -803,25 +809,24 @@ class TestTransactionalEmail(APIBaseTest):
             body = self._code_send(category="newsletter")
             return client.post(self.send_email_url, body, format="json", headers={"Idempotency-Key": key})
 
-        first = send() if accepted_before else None
-        if first is not None:
-            now = timezone.now()
+        first = send() if accepted_ago is not None else None
+        if accepted_ago is not None:
+            accepted_at = timezone.now() - accepted_ago
             sync_execute(
                 f"INSERT INTO {EMAIL_STATUS_DATA_TABLE} (team_id, message_id, status, version, created_at, status_at) "
                 "VALUES",
-                [(self.team.id, keyed_message_id(self.team.id, key), "queued", 0, now, now)],
+                [(self.team.id, keyed_message_id(self.team.id, key), "queued", 0, accepted_at, accepted_at)],
             )
         MessageCategory.objects.filter(pk=category.pk).update(deleted=True)
 
         retry = send()
 
-        if first is None:
-            assert (retry.status_code, retry.json()["code"]) == (400, "category_not_found"), retry.json()
-            assert pipeline.queued == []
-        else:
+        if first is not None and accepted_ago == timedelta(0):
             assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
             assert (retry.json()["message_id"], retry.json()["replayed"]) == (first.json()["message_id"], True)
-            assert len(pipeline.queued) == 1
+        else:
+            assert (retry.status_code, retry.json()["code"]) == (400, "category_not_found"), retry.json()
+        assert len(pipeline.queued) == (0 if first is None else 1)
 
     @parameterized.expand(
         [

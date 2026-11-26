@@ -106,7 +106,7 @@ from products.messaging.backend.facade.transactional_email import (
     TransactionalEmailError,
     TransactionalEmailStage,
     check_transactional_update,
-    keyed_send_exists,
+    keyed_send_holds_its_key,
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
@@ -1977,7 +1977,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             try:
                 row = get_category_by_key(self.team_id, key)
             except MessageCategoryMissing:
-                if not (idempotency_key and keyed_send_exists(self.team_id, idempotency_key)):
+                if not (idempotency_key and keyed_send_holds_its_key(self.team_id, idempotency_key)):
                     raise
                 row = get_category_by_key(self.team_id, key, deleted=True)
         except MessageCategoryMissing:

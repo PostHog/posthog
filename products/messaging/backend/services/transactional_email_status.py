@@ -30,6 +30,9 @@ _RETENTION = timedelta(days=EMAIL_STATUS_RETENTION_DAYS)
 _CONSUMER_LAG = timedelta(hours=2)
 _KEYED_RUN_ID_NAMESPACE = UUID("c2b7f0a4-4c3e-4b8e-9d4f-6a1f3e5d2b90")
 _TRANSACTIONAL_EMAIL_RUN_SCOPE = "transactional-email"
+# IDEMPOTENCY_KEY_TTL_MS in the Node cyclotron manager, less a margin. Until a key lapses, CDP refuses any request under
+# it that differs from the first, so only a true retry gets through.
+_KEY_HELD = timedelta(hours=92)
 # Every row of a message carries the message's own created_at, so the window prunes to its partition.
 _EMAIL_STATUS_QUERY = f"""
 SELECT argMax(status, version), argMax(status_at, version), argMax({EMAIL_STATUS_SHOWN_REASON}, version)
@@ -70,9 +73,10 @@ def keyed_message_id(team_id: int, idempotency_key: str) -> UUID:
     return uuid5(_KEYED_RUN_ID_NAMESPACE, name)
 
 
-def keyed_send_exists(team_id: int, idempotency_key: str) -> bool:
+def keyed_send_holds_its_key(team_id: int, idempotency_key: str) -> bool:
     message_id = keyed_message_id(team_id, idempotency_key)
-    return message_created_at(team_id, message_id, Workload.ONLINE, EMAIL_STATUS_EVENTS_TABLE) is not None
+    created_at = message_created_at(team_id, message_id, Workload.ONLINE, EMAIL_STATUS_EVENTS_TABLE)
+    return created_at is not None and created_at > datetime.now(UTC) - _KEY_HELD
 
 
 # The events cluster has no email_status table, so a project that reads events_json still looks a send up here.
