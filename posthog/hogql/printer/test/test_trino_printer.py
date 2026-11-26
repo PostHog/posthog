@@ -659,6 +659,10 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             '(CAST((cardinality("a"."xs") + 1) AS BIGINT) / CAST(2 AS BIGINT))',
         ),
         (
+            "SELECT intDiv(t % 7, 2) FROM (SELECT arrayJoin(range(0, 10)) AS t FROM users)",
+            "CAST(MOD(",
+        ),
+        (
             "SELECT d + 1 FROM (SELECT toDate('2024-01-01') AS d UNION ALL SELECT toDateTime('2024-01-01 00:00:00') AS d)",
             "date_add('second'",
         ),
