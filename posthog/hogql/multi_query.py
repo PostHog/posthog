@@ -6,8 +6,6 @@ import posthoganalytics
 
 from posthog.hogql import ast
 from posthog.hogql.batch import BatchQueryResult
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.dataclasses import frozen
@@ -178,7 +176,10 @@ def _without_table_alias(query: ast.SelectQuery, output_columns: tuple[str, ...]
     for index, (before, after) in enumerate(zip(query.select, rewritten.select)):
         if isinstance(before, ast.Alias) or before == after:
             continue
-        name = output_columns[index] if output_columns else HogQLPrinter(context=HogQLContext()).visit(before)
+        # The resolver, not the syntax printer, determines output names (especially for fields).
+        if output_columns is None:
+            return query
+        name = output_columns[index]
         if isinstance(after, ast.Field) and after.chain == [name]:
             continue
         if name in aliases or name in field_names:

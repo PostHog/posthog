@@ -213,9 +213,14 @@ class TestMultiQueryPlanner(SimpleTestCase):
                 "SELECT count() AS n FROM events WHERE event = 'a' AND timestamp >= '2026-01-01'",
             ),
             (
-                "table_alias_keeps_output_name",
+                "table_alias_without_output_metadata",
                 "SELECT count(e.properties.$browser) FROM events AS e",
-                "SELECT count(properties.$browser) AS `count(e.properties.$browser)` FROM events",
+                None,
+            ),
+            (
+                "table_alias_field_without_output_metadata",
+                "SELECT e.event, count() AS n FROM events AS e GROUP BY e.event ORDER BY n DESC LIMIT 3",
+                None,
             ),
             (
                 "table_alias_and_group_by_alias",
@@ -247,6 +252,19 @@ class TestMultiQueryPlanner(SimpleTestCase):
         query = clone_expr(parse_select(sql), clear_types=True, clear_locations=True)
         expected = clone_expr(parse_select(expected_sql or sql), clear_types=True, clear_locations=True)
         self.assertEqual(normalise_for_sharing(query, None), expected)
+
+    def test_table_alias_preserves_resolved_output_name(self) -> None:
+        query = clone_expr(
+            parse_select("SELECT e.event, count() AS n FROM events AS e GROUP BY e.event"),
+            clear_types=True,
+            clear_locations=True,
+        )
+        expected = clone_expr(
+            parse_select("SELECT event, count() AS n FROM events GROUP BY event"),
+            clear_types=True,
+            clear_locations=True,
+        )
+        self.assertEqual(normalise_for_sharing(query, ("event", "n")), expected)
 
     @parameterized.expand(
         [
