@@ -436,6 +436,10 @@ start:
             - postgresql
             - redis
         hidden: true
+    start:aeo:fake-gateway:
+        cmd: python -m products.aeo.backend.dev.fake_gateway
+        description: 'Start the fake AI gateway for AI visibility on :8080, so setup and the engines run with no gateway token'
+        hidden: true
     start:agent-proxy:
         cmd: pnpm --filter @posthog/agent-proxy dev
         description: Run the agent-proxy Node service for task-run live streaming with auto-reload
