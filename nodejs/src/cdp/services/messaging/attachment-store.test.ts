@@ -66,6 +66,29 @@ const admittedLoad = (
 
 const minutesFromNow = (minutes: number): Date => new Date(Date.now() + minutes * MINUTE_MS)
 
+const loadCountingGets = async (
+    load: (at: S3AttachmentStore) => Promise<unknown>
+): Promise<{ outcome: string; gets: number }> => {
+    const at = buildAttachmentStore(config)!
+    let gets = 0
+    at.s3.middlewareStack.add(
+        (next, context) => (args) => {
+            gets += context.commandName === 'GetObjectCommand' ? 1 : 0
+            return next(args)
+        },
+        { step: 'initialize' }
+    )
+    try {
+        const outcome = await load(at).then(
+            () => 'loaded',
+            (error) => (error instanceof AttachmentsNotAdmittedError ? 'refused' : String(error))
+        )
+        return { outcome, gets }
+    } finally {
+        at.s3.destroy()
+    }
+}
+
 const settledWithin = async <T>(ms: number, promise: Promise<T>): Promise<T> => {
     let timer: NodeJS.Timeout | undefined
     try {
@@ -570,7 +593,27 @@ describe('S3AttachmentStore', () => {
             const files = [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }]
             const ended = await inAdmissionFor(files, (admission) => Promise.resolve(admission))
 
-            await expect(store.load(1, ended, AbortSignal.timeout(10000))).rejects.toThrow(AttachmentsNotAdmittedError)
+            expect(await loadCountingGets((at) => at.load(1, ended, AbortSignal.timeout(10000)))).toEqual({
+                outcome: 'refused',
+                gets: 0,
+            })
+        })
+
+        it('loads only the admitted files when a caller swaps the list on its live admission', async () => {
+            const admitted = file()
+            const swappedIn = file()
+            await uploaded(1, admitted)
+            await uploaded(1, swappedIn)
+            const files = [{ sha256: admitted.sha256, filename: 'a.pdf', sizeBytes: admitted.bytes.length }]
+
+            const loaded = await inAdmissionFor(files, (admission) => {
+                Reflect.set(admission, 'files', [
+                    { sha256: swappedIn.sha256, filename: 'b.pdf', sizeBytes: swappedIn.bytes.length },
+                ])
+                return store.load(1, admission, AbortSignal.timeout(10000))
+            })
+
+            expect(loaded).toEqual([{ file: files[0], bytes: new Uint8Array(admitted.bytes) }])
         })
 
         it.each([
@@ -594,9 +637,9 @@ describe('S3AttachmentStore', () => {
             const live = await handedOut
 
             try {
-                await expect(loadFrom(() => store.load(1, live, AbortSignal.timeout(10000)))).rejects.toThrow(
-                    AttachmentsNotAdmittedError
-                )
+                expect(
+                    await loadCountingGets((at) => loadFrom(() => at.load(1, live, AbortSignal.timeout(10000))))
+                ).toEqual({ outcome: 'refused', gets: 0 })
             } finally {
                 endSend()
                 await sending

@@ -160,7 +160,14 @@ export function admittedFiles(admission: Admission): readonly Readonly<EmailAtta
 
 const sameFiles = (admitted: readonly EmailAttachmentMetadata[], files: readonly EmailAttachmentMetadata[]): boolean =>
     admitted.length === files.length &&
-    admitted.every((file, at) => file.sha256 === files[at].sha256 && file.sizeBytes === files[at].sizeBytes)
+    admitted.every(
+        (file, at) =>
+            file.sha256 === files[at].sha256 &&
+            file.sizeBytes === files[at].sizeBytes &&
+            file.filename === files[at].filename &&
+            file.contentType === files[at].contentType &&
+            file.contentId === files[at].contentId
+    )
 
 export function settledBeforeAbort<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {

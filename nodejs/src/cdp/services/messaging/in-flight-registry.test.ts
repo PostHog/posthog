@@ -128,12 +128,23 @@ describe('InFlightRegistry', () => {
                 () => admissionHeldBy(oneFileOf(MIB), () => requireAdmission(oneFileOf(MIB + 1))),
             ],
             [
-                'for files the caller changed after their admission',
+                'for files the caller resized after their admission',
                 'other_files',
                 () => {
                     const files = oneFileOf(MIB)
                     return admissionHeldBy(files, () => {
                         files[0].sizeBytes = 64 * MIB
+                        requireAdmission(files)
+                    })
+                },
+            ],
+            [
+                'for files the caller renamed after their admission',
+                'other_files',
+                () => {
+                    const files = oneFileOf(MIB)
+                    return admissionHeldBy(files, () => {
+                        files[0].filename = 'other.pdf'
                         requireAdmission(files)
                     })
                 },
