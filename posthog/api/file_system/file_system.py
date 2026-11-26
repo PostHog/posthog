@@ -1238,7 +1238,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 objects_to_delete.append((team_id, file_type, ref))
 
         self._ensure_can_change_pipelines((team_id, file_type) for team_id, file_type, _ in objects_to_delete)
-        # Every object needs the same editor access as through its own API.
         objects = [(file_type, ref, team_id) for team_id, file_type, ref in objects_to_delete]
         if (
             objects
