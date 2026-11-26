@@ -31,6 +31,8 @@ from products.stamphog.backend.facade.enums import (
     AudienceReason,
     ChannelResolutionSource,
     DigestRunStatus,
+    HumanRequestSource,
+    HumanRequestStatus,
     ReviewMode,
     ReviewRunStatus,
     ReviewVerdict,
@@ -47,11 +49,21 @@ from products.stamphog.backend.logic.channel_resolution import (
 )
 from products.stamphog.backend.logic.engine_pregate import EnginePregateError, GateAttestation, pregate_skip_reason
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
+from products.stamphog.backend.logic.human_requests import HumanRequestAsk
 from products.stamphog.backend.logic.policy_files import checked_repo_policy_yaml
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.logic.workflow_proofs import RunOrder, seen_on_head
-from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import (
+    DigestRun,
+    HumanRequest,
+    HumanRequestParticipant,
+    PullRequest,
+    PullRequestAudience,
+    ReviewRun,
+    StamphogRepoConfig,
+)
 from products.stamphog.backend.tasks.digest import send_daily_digests
+from products.stamphog.backend.tasks.human_requests import refresh_human_request
 from products.stamphog.backend.tasks.tasks import (
     pending_attestation_checks,
     process_inbox_pr_review,
@@ -4406,3 +4418,182 @@ def test_a_sandbox_created_after_its_teardown_tears_itself_down(team, stamphog_c
 
     assert len(stamphog_chain.sandbox_class.created_configs) == 1
     assert stamphog_chain.sandbox_class.destroy_returned
+
+
+HUMAN_CHANNEL = "C0HUMAN"
+
+
+def _escalated_engine_output() -> str:
+    return json.dumps(
+        {
+            "final_verdict": "ESCALATE",
+            "reviewer": {"reasoning": "A migration needs an owner's eyes.", "issues": ["drops a column"]},
+            "gates": [{"name": "size", "passed": True}],
+            "review_body": "Escalated by stamphog.",
+        }
+    )
+
+
+def _human_repo_config(team_id: int) -> StamphogRepoConfig:
+    repo_config = _repo_config(team_id)
+    repo_config.human_request_enabled = True
+    repo_config.human_request_slack_channel_id = HUMAN_CHANNEL
+    repo_config.human_request_slack_channel_name = "reviews"
+    repo_config.save()
+    Integration.objects.create(team_id=team_id, kind="slack", config={}, sensitive_config={"access_token": "x"})
+    return repo_config
+
+
+def _ask_people(team_id: int, number: int, sandbox: Any) -> HumanRequest:
+    ask = HumanRequestAsk(
+        requested_by_user_id=None,
+        requested_via=HumanRequestSource.SLACK,
+        requester_slack_user_id="U0ASKER",
+        note="Touches billing.",
+    )
+    with patch.object(activities, "get_sandbox_class_for_backend", lambda backend: sandbox):
+        queued = request_manual_review(team_id, None, REPO, number, human=ask)
+    assert queued.human_request is not None
+    return HumanRequest.objects.for_team(team_id).get(id=queued.human_request.id)
+
+
+def _cards() -> list[dict]:
+    return [
+        m for m in fakes.FakeSlackIntegration.posted_messages if m["channel"] == HUMAN_CHANNEL and not m["thread_ts"]
+    ]
+
+
+def _thread_replies() -> list[dict]:
+    return [m for m in fakes.FakeSlackIntegration.posted_messages if m["thread_ts"]]
+
+
+def _rendered(blocks: list[dict]) -> str:
+    return json.dumps(blocks, ensure_ascii=False)
+
+
+def _refresh(request: HumanRequest) -> HumanRequest:
+    refresh_human_request(team_id=request.team_id, human_request_id=str(request.id))
+    request.refresh_from_db()
+    return request
+
+
+@pytest.mark.parametrize(
+    "files, engine_output, reviewer_exit_code, expect_status, expect_card",
+    [
+        pytest.param(_pr_files(), _refused_engine_output(), 0, HumanRequestStatus.OPEN, True, id="refused"),
+        pytest.param(_pr_files(), _escalated_engine_output(), 0, HumanRequestStatus.OPEN, True, id="escalate"),
+        pytest.param([_big_api_file("lib/big.py", 1300)], None, 0, HumanRequestStatus.OPEN, True, id="gated"),
+        pytest.param(_pr_files(), None, 1, HumanRequestStatus.OPEN, True, id="failed"),
+        pytest.param(
+            _pr_files(), fakes.approved_engine_output(), 0, HumanRequestStatus.STAMPHOG_APPROVED, False, id="approved"
+        ),
+        # A visible WAIT gets another review of the head, so nobody is asked yet.
+        pytest.param(_pr_files(), _waiting_engine_output(), 0, HumanRequestStatus.PENDING, False, id="wait"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_human_request_posts_one_card_when_stamphog_does_not_approve(
+    team,
+    stamphog_chain: StamphogChain,
+    files: list[dict],
+    engine_output: str | None,
+    reviewer_exit_code: int,
+    expect_status: HumanRequestStatus,
+    expect_card: bool,
+) -> None:
+    _human_repo_config(team.id)
+    stamphog_chain.recorder.register_pr(
+        REPO, 170, _silent_review_pr(170, "sha170a", changed_files=len(files), additions=12, deletions=3), files
+    )
+    sandbox = fakes.make_fake_sandbox_class(engine_output or fakes.approved_engine_output())
+    sandbox.reviewer_exit_code = reviewer_exit_code
+
+    request = _ask_people(team.id, 170, sandbox)
+    # A second refresh of the same state, as a verdict retry or a repeated ask queues, posts nothing new.
+    request = _refresh(request)
+
+    assert request.status == expect_status
+    cards = _cards()
+    assert len(cards) == int(expect_card)
+    if expect_card:
+        blocks = _rendered(cards[0]["blocks"])
+        assert "Touches billing." in blocks
+        assert "<@U0ASKER>" in blocks
+        assert "+12 −3" in blocks
+        assert ("couldn't finish its review" in blocks) is (reviewer_exit_code != 0)
+        assert [m["ts"] for m in fakes.FakeSlackIntegration.updated_messages] == [cards[0]["ts"]]
+    else:
+        assert fakes.FakeSlackIntegration.updated_messages == []
+
+
+@pytest.mark.parametrize("silent", [False, True], ids=["visible_refusal", "withheld_silent_refusal"])
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_verdict_reaches_a_waiting_request_only_once_github_shows_it(
+    team, stamphog_chain: StamphogChain, silent: bool
+) -> None:
+    repo_config = _human_repo_config(team.id)
+    stamphog_chain.recorder.register_pr(REPO, 171, _silent_review_pr(171, "sha171a"), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=171, author_login="devex-dev"
+    )
+    request = HumanRequest.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha171a", requested_via=HumanRequestSource.API
+    )
+    output = {"reviewer_raw": _refused_engine_output()} | ({"review_trigger": "reviewhog_clean"} if silent else {})
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha171a", status=ReviewRunStatus.REVIEWING, output=output
+    )
+
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    run.refresh_from_db()
+    request.refresh_from_db()
+    assert (run.verdict, run.verdict_withheld) == (ReviewVerdict.REFUSED, silent)
+    assert request.status == (HumanRequestStatus.PENDING if silent else HumanRequestStatus.OPEN)
+    cards = _cards()
+    assert len(cards) == int(not silent)
+    if not silent:
+        assert "billing change" in _rendered(cards[0]["blocks"])
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain: StamphogChain) -> None:
+    _human_repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172a"), _pr_files())
+    request = _ask_people(team.id, 172, fakes.make_fake_sandbox_class(_refused_engine_output()))
+    (card,) = _cards()
+    HumanRequestParticipant.objects.for_team(team.id).create(
+        team_id=team.id, human_request=request, slack_user_id="U0LOOKER", display_name="Lou"
+    )
+
+    # A person approves the head: the card says who, and nobody else is asked to look.
+    recorder.pr_reviews[(REPO, 172)] = [
+        {
+            "user": {"login": "maintainer", "type": "User"},
+            "author_association": "MEMBER",
+            "state": "APPROVED",
+            "commit_id": "sha172a",
+        }
+    ]
+    request = _refresh(request)
+    assert (request.status, request.approved_by_login) == (HumanRequestStatus.APPROVED, "maintainer")
+    approved_card = fakes.FakeSlackIntegration.updated_messages[-1]
+    assert "Approved by maintainer" in _rendered(approved_card["blocks"])
+    assert not any(block["type"] == "actions" for block in approved_card["blocks"])
+
+    # A push makes that approval stale. Nothing reviews the new head, so the card opens again, and the
+    # people looking hear about the push once however often the request refreshes.
+    recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172b"), _pr_files())
+    request = _refresh(request)
+    request = _refresh(request)
+    assert (request.status, request.head_sha, request.approved_by_login) == (HumanRequestStatus.OPEN, "sha172b", "")
+    (ping,) = _thread_replies()
+    assert ping["thread_ts"] == card["ts"]
+    assert ping["text"].startswith("<@U0LOOKER> new commits were pushed.")
+
+    recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172b", state="closed", merged=True), _pr_files())
+    request = _refresh(request)
+    assert request.status == HumanRequestStatus.MERGED
+    assert "Merged." in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
+    assert len(_cards()) == 1
