@@ -12,6 +12,9 @@ from posthog.settings import CLICKHOUSE_DATABASE
 _SEND_RECEIVE_TIMEOUT_SECONDS = 15
 
 
+_UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+
 def _lookup_hosts() -> dict[str, str]:
     # Cancel requests do not carry the query's schema override, so either cluster can own the query.
     clusters = {settings.CLICKHOUSE_CLUSTER: settings.CLICKHOUSE_HOST}
@@ -82,11 +85,12 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
 
 
 def cancel_queries_started_for(team_id: int, client_query_id: str) -> None:
-    """Cancels the running queries of a team that carry `client_query_id` anywhere in their query id.
+    """Cancels the query of a team that runs under `client_query_id`, and the queries started for it.
 
-    A query started on behalf of another one puts that query's id after its own, as in
+    A query started on behalf of another one puts that query's id after its own, which is a UUID, as in
     `{team_id}_{own_id}_{client_query_id}_{random}`. `cancel_query_on_cluster` matches a query id by its
-    start, so it does not find such a query. This finds it, and also the query that owns the id.
+    start, so it does not find such a query. The match is on these two whole shapes, because a caller
+    chooses its client query id, and one that merely contains this id belongs to another query.
     """
     statsd.incr("clickhouse.query.cancellation.requested", tags={"team_id": team_id})
     for cluster, lookup_host in _lookup_hosts().items():
@@ -98,10 +102,15 @@ def cancel_queries_started_for(team_id: int, client_query_id: str) -> None:
                     """
                     SELECT FQDN(), query_id
                     FROM clusterAllReplicas(%(cluster)s, system.processes)
-                    WHERE startsWith(query_id, %(team_prefix)s) AND position(query_id, %(tag)s) > 0
+                    WHERE match(query_id, concat(%(start)s, regexpQuoteMeta(%(client_query_id)s), %(end)s))
                     SETTINGS max_execution_time = 2, skip_unavailable_shards = 1
                     """,
-                    {"cluster": cluster, "team_prefix": f"{team_id}_", "tag": f"_{client_query_id}_"},
+                    {
+                        "cluster": cluster,
+                        "start": f"^{team_id}_({_UUID_PATTERN}_)?",
+                        "client_query_id": client_query_id,
+                        "end": "_[A-Za-z0-9]{8}$",
+                    },
                     sync_client=client,
                 )
         except Exception as e:
