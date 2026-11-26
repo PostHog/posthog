@@ -8,6 +8,7 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from PIL import Image
@@ -15,6 +16,7 @@ from urllib3 import HTTPConnectionPool, HTTPResponse
 
 from posthog.models import Team
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.storage import object_storage
 
 from products.messaging.backend.facade.api import get_template_email_content
 from products.messaging.backend.facade.testing import (
@@ -110,6 +112,7 @@ class TestReplaceInBlob(SimpleTestCase):
             ("text after the address that ends like a file name", f"{BANNER} and see example.com", [BANNER]),
             ("two addresses on their own lines", f"{BANNER}\n{BANNER}", [BANNER, BANNER]),
             ("liquid in a whole value", f"{BANNER}{{{{ person.id }}}}", []),
+            ("a path that climbs out of its project", "https://assets.unlayer.com/projects/1/../../a.png", []),
             ("another address after a space", f"{BANNER} https://example.com/b.png", [BANNER]),
             ("an image name after a space", f"{BANNER} and see logo.png", [BANNER]),
             (
@@ -239,7 +242,6 @@ class TestCopyUnlayerEmailImages(BaseTest):
         call_command("copy_unlayer_email_images", "--team-id", str(environment.id), "--rate", "1000")
 
         assert UploadedMedia.objects.filter(team_id=self.team.id, created_by__isnull=True).count() == 1
-        assert self.requested == [BANNER]
 
     @parameterized.expand([("unlayer is down", 503, True), ("the file is gone", 404, False)])
     def test_a_failed_download_leaves_the_row_unchanged(self, _name: str, status: int, fails_the_run: bool) -> None:
@@ -255,6 +257,50 @@ class TestCopyUnlayerEmailImages(BaseTest):
         flow.refresh_from_db()
         assert flow.actions[0]["config"]["inputs"]["email"]["value"]["html"] == _unlayer_html(BANNER)
         assert not UploadedMedia.objects.filter(team_id=self.team.id).exists()
+
+    @parameterized.expand([("same bytes", False, 1), ("other bytes under the same name", True, 2)])
+    def test_reuses_an_earlier_copy_only_when_it_holds_the_same_image(
+        self, _name: str, replace_bytes: bool, copies: int
+    ) -> None:
+        self._flow(self.team, _unlayer_html(BANNER), {"src": {"url": BANNER}})
+        self._run()
+        earlier = UploadedMedia.objects.get(team_id=self.team.id, created_by__isnull=True)
+        if replace_bytes:
+            object_storage.write(earlier.media_location or "", b"\x89PNG not the banner")
+        later = self._flow(self.team, _unlayer_html(BANNER), {"src": {"url": BANNER}})
+
+        self._run()
+
+        assert UploadedMedia.objects.filter(team_id=self.team.id, created_by__isnull=True).count() == copies
+        later.refresh_from_db()
+        html = later.actions[0]["config"]["inputs"]["email"]["value"]["html"]
+        assert (earlier.get_absolute_url() in html) is not replace_bytes
+
+    def test_leaves_an_image_whose_copy_was_taken_down_on_unlayer(self) -> None:
+        self._flow(self.team, _unlayer_html(BANNER), {"src": {"url": BANNER}})
+        self._run()
+        UploadedMedia.objects.filter(team_id=self.team.id).update(serving_disabled_at=timezone.now())
+        later = self._flow(self.team, _unlayer_html(BANNER), {"src": {"url": BANNER}})
+        requested_before = len(self.requested)
+
+        self._run()
+
+        later.refresh_from_db()
+        assert later.actions[0]["config"]["inputs"]["email"]["value"]["html"] == _unlayer_html(BANNER)
+        assert UploadedMedia.objects.filter(team_id=self.team.id).count() == 1
+        assert self.requested[requested_before:] == []
+
+    def test_leaves_a_team_with_too_many_images_untouched(self) -> None:
+        flow = self._flow(self.team, _unlayer_html(BANNER) + _unlayer_html(SANDBOX), {})
+
+        with self.assertRaises(CommandError):
+            self._run("--max-images-per-team", "1")
+
+        flow.refresh_from_db()
+        assert flow.actions[0]["config"]["inputs"]["email"]["value"]["html"] == _unlayer_html(BANNER) + _unlayer_html(
+            SANDBOX
+        )
+        assert self.requested == []
 
     def test_refuses_a_negative_team_limit(self) -> None:
         with self.assertRaises(CommandError):

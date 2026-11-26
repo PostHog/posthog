@@ -20,6 +20,7 @@ import structlog
 
 from posthog.models import Team
 from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL, ObjectStorageUnavailable, UploadedMedia, sniff_image
+from posthog.storage import object_storage
 
 from products.workflows.backend.models.hog_flow.hog_flow import defer_hog_flow_reloads
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
@@ -52,6 +53,7 @@ _PROJECT_PATH = re.compile(r"/projects/([0-9]+)/.+", re.ASCII)
 _ENTITY_QUOTE = re.compile(r"&(?:quot|#34|#39|apos);", re.IGNORECASE)
 _PER_IMAGE_SECONDS = 30
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024
+DEFAULT_MAX_IMAGES_PER_TEAM = 1000
 
 ImageStatus = Literal["copied", "reused", "would_copy", "failed"]
 RowStatus = Literal["rewritten", "would_rewrite", "unchanged", "skipped_shared_template", "deleted", "error"]
@@ -72,7 +74,7 @@ class ImageOutcome:
     @property
     def may_succeed_later(self) -> bool:
         """A failure a later run can fix, unlike a file Unlayer no longer serves or one that is not an image."""
-        if self.status != "failed":
+        if self.status != "failed" or self.failure == "taken_down":
             return False
         return (
             self.http_status is None
@@ -98,6 +100,8 @@ class TeamReport:
     team_id: int
     images: list[ImageOutcome] = field(default_factory=list)
     rows: list[RowOutcome] = field(default_factory=list)
+    # Set when the team was left untouched, such as for having more images than one run copies.
+    skipped: str | None = None
 
 
 class RateLimiter:
@@ -130,7 +134,8 @@ def source_key(url: str) -> str | None:
         return None
     # `%20` and a literal space name the same file, and so do `/projects` and `//projects`.
     path = quote(unquote("/" + parts.path.lstrip("/")), safe="/")
-    if not _PROJECT_PATH.fullmatch(path):
+    # `..`, `.` and empty segments would let one file go by many keys, and so be downloaded and copied many times.
+    if not _PROJECT_PATH.fullmatch(path) or any(segment in ("", ".", "..") for segment in path.split("/")[1:]):
         return None
     return f"https://{UNLAYER_HOST}{path}"
 
@@ -234,7 +239,7 @@ def copy_team_images(
     fetch: bool,
     limiter: RateLimiter,
     max_bytes: int = DEFAULT_MAX_BYTES,
-    include_shared_templates: bool = False,
+    max_images: int = DEFAULT_MAX_IMAGES_PER_TEAM,
 ) -> TeamReport:
     """Copy the team's Unlayer images into its media library, then point its stored emails at the copies.
 
@@ -247,7 +252,7 @@ def copy_team_images(
     keys: set[str] = set()
     for target in TARGETS:
         row_ids = find_row_ids(target, UNLAYER_HOST, team_ids=team_ids)
-        if target == "hog_flow_templates" and not include_shared_templates:
+        if target == "hog_flow_templates":
             shared = _shared_template_ids(team, row_ids)
             for row_id in shared:
                 try:
@@ -272,18 +277,24 @@ def copy_team_images(
                 continue
             rows.append((target, row_id))
 
+    if len(keys) > max_images:
+        report.skipped = f"{len(keys)} images, over the limit of {max_images}"
+        return report
+
     copies: dict[str, str] = {}
-    existing = _existing_copies(team, keys)
+    candidates = _existing_copies(team, keys)
     for key in sorted(keys):
         project = _PROJECT_PATH.fullmatch(urlsplit(key).path).group(1)  # type: ignore[union-attr]
-        media = existing.get(_file_name(key))
-        if media is not None:
-            copies[key] = media.get_absolute_url()
-            report.images.append(
-                ImageOutcome(key, project, "reused", media_id=str(media.pk), media_url=copies[key], http_status=None)
-            )
-            continue
-        outcome = _copy(team, key, project, dry_run=dry_run, fetch=fetch, limiter=limiter, max_bytes=max_bytes)
+        outcome = _copy(
+            team,
+            key,
+            project,
+            candidates.get(_file_name(key), []),
+            dry_run=dry_run,
+            fetch=fetch,
+            limiter=limiter,
+            max_bytes=max_bytes,
+        )
         report.images.append(outcome)
         if outcome.status == "failed":
             logger.info(
@@ -296,7 +307,7 @@ def copy_team_images(
             )
         if outcome.status == "would_copy":
             copies[key] = f"(copy of {key})"
-        elif outcome.status == "copied" and outcome.media_url is not None:
+        elif outcome.status in ("copied", "reused") and outcome.media_url is not None:
             copies[key] = outcome.media_url
 
     # Workers reload the changed workflows once at the end, not once per saved row.
@@ -307,8 +318,19 @@ def copy_team_images(
 
 
 def _copy(
-    team: Team, key: str, project: str, *, dry_run: bool, fetch: bool, limiter: RateLimiter, max_bytes: int
+    team: Team,
+    key: str,
+    project: str,
+    candidates: list[UploadedMedia],
+    *,
+    dry_run: bool,
+    fetch: bool,
+    limiter: RateLimiter,
+    max_bytes: int,
 ) -> ImageOutcome:
+    # Staff stopped serving an earlier copy, so a new copy would put the image back.
+    if any(media.serving_disabled_at is not None for media in candidates):
+        return ImageOutcome(key, project, "failed", failure="taken_down")
     if dry_run and not fetch:
         return ImageOutcome(key, project, "would_copy")
     fetched, via_double_slash = _download(key, limiter=limiter, max_bytes=max_bytes)
@@ -321,16 +343,25 @@ def _copy(
     if sniffed is None:
         outcome.failure = "not_an_image"
         return outcome
+    # Anyone with media access can upload under the copy's name, so a copy is reused only when it holds these bytes.
+    digest = hashlib.sha256(fetched.content).digest()
+    for media in candidates:
+        stored = object_storage.read_bytes(media.media_location or "", missing_ok=True)
+        if stored is not None and hashlib.sha256(stored).digest() == digest:
+            outcome.status = "reused"
+            outcome.media_id = str(media.pk)
+            outcome.media_url = media.get_absolute_url()
+            return outcome
     if dry_run:
         outcome.status = "would_copy"
         return outcome
-    media = _save(team, key, fetched.content, sniffed.content_type, sniffed.width, sniffed.height)
-    if media is None:
+    copy = _save(team, key, fetched.content, sniffed.content_type, sniffed.width, sniffed.height)
+    if copy is None:
         outcome.failure = "storage_unavailable"
         return outcome
     outcome.status = "copied"
-    outcome.media_id = str(media.pk)
-    outcome.media_url = media.get_absolute_url()
+    outcome.media_id = str(copy.pk)
+    outcome.media_url = copy.get_absolute_url()
     return outcome
 
 
@@ -383,7 +414,7 @@ def _count_row(target: str, row_id: Any, team_ids: list[int]) -> int:
 
 def _shared_template_ids(team: Team, row_ids: list[Any]) -> set[Any]:
     # A template shared with the organization or every team would point other teams' new workflows at this
-    # team's copy, so it stays on Unlayer unless asked.
+    # team's copy, which that team could delete, so it stays on Unlayer.
     if not row_ids:
         return set()
     return set(
@@ -393,28 +424,21 @@ def _shared_template_ids(team: Team, row_ids: list[Any]) -> set[Any]:
     )
 
 
-def _existing_copies(team: Team, keys: set[str]) -> dict[str, UploadedMedia]:
+def _existing_copies(team: Team, keys: set[str]) -> dict[str, list[UploadedMedia]]:
     names = {_file_name(key) for key in keys}
-    copies: dict[str, UploadedMedia] = {}
+    copies: dict[str, list[UploadedMedia]] = {}
     if not names:
         return copies
-    # Only rows this tool saved, which have no uploader, so a file someone uploads under the same name isn't used.
     for media in (
         # `team_id` resolves an environment to its project, which is where `save_content` keeps the copy.
         UploadedMedia.objects.filter(
-            team_id=team.pk,
-            created_by__isnull=True,
-            purpose=MEDIA_PURPOSE_EMAIL,
-            file_name__in=names,
-            pending=False,
-            archived_at__isnull=True,
-            serving_disabled_at__isnull=True,
+            team_id=team.pk, created_by__isnull=True, purpose=MEDIA_PURPOSE_EMAIL, file_name__in=names, pending=False
         )
         .exclude(media_location__isnull=True)
         .exclude(media_location="")
         .order_by("created_at")
     ):
-        copies.setdefault(media.file_name or "", media)
+        copies.setdefault(media.file_name or "", []).append(media)
     return copies
 
 

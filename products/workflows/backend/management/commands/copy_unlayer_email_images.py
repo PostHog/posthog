@@ -9,6 +9,7 @@ from posthog.models import Team
 
 from products.workflows.backend.services.unlayer_images import (
     DEFAULT_MAX_BYTES,
+    DEFAULT_MAX_IMAGES_PER_TEAM,
     RateLimiter,
     TeamReport,
     copy_team_images,
@@ -36,9 +37,10 @@ class Command(BaseCommand):
             "--max-bytes", type=int, default=DEFAULT_MAX_BYTES, help="Largest image to copy, in bytes (default 10 MB)"
         )
         parser.add_argument(
-            "--include-shared-templates",
-            action="store_true",
-            help="Also rewrite workflow templates shared with the organization or every team",
+            "--max-images-per-team",
+            type=int,
+            default=DEFAULT_MAX_IMAGES_PER_TEAM,
+            help="Leave a team with more images than this untouched and report it (default 1000)",
         )
         parser.add_argument("--report", type=str, help="Write one JSON line per image and row to this file")
 
@@ -56,6 +58,8 @@ class Command(BaseCommand):
             raise CommandError("--after-team-id and --max-teams only work with --all-teams")
         if (options.get("max_teams") or 0) < 0 or (options.get("after_team_id") or 0) < 0:
             raise CommandError("--max-teams and --after-team-id can't be negative")
+        if options["max_images_per_team"] < 1:
+            raise CommandError("--max-images-per-team must be 1 or more")
         if options["rate"] <= 0:
             raise CommandError("--rate must be above 0")
 
@@ -94,11 +98,15 @@ class Command(BaseCommand):
                         fetch=not options["no_fetch"],
                         limiter=limiter,
                         max_bytes=options["max_bytes"],
-                        include_shared_templates=options["include_shared_templates"],
+                        max_images=options["max_images_per_team"],
                     )
                 except Exception as error:
                     # One team's failure must not stop the batch. Its rows keep their Unlayer addresses.
                     self.stdout.write(self.style.ERROR(f"team {team_id}: failed with {type(error).__name__}: {error}"))
+                    failures += 1
+                    continue
+                if report.skipped is not None:
+                    self.stdout.write(self.style.ERROR(f"team {team_id}: left untouched, {report.skipped}"))
                     failures += 1
                     continue
                 failures += sum(1 for row in report.rows if row.status == "error")
@@ -150,6 +158,8 @@ def _counts(counts: dict[str, int]) -> str:
 
 
 def _write_report(file: IO[str], report: TeamReport) -> None:
+    if report.skipped is not None:
+        file.write(json.dumps({"team_id": report.team_id, "kind": "team", "skipped": report.skipped}) + "\n")
     for image in report.images:
         file.write(json.dumps({"team_id": report.team_id, "kind": "image", **asdict(image)}) + "\n")
     for row in report.rows:
