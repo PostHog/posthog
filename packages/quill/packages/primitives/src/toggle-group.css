@@ -26,24 +26,20 @@
     }
 
     /*
-     * The selected item takes the brand fill of a checked Checkbox, Radio or
-     * Switch, so a column of groups shows at a glance which item each row has on.
-     * The group scope outranks the outline variant's hover fill, so the item
-     * stays filled under the cursor.
+     * The selected item marks its top edge with the brand color, so a column of
+     * groups shows at a glance which item each row has on. A pseudo-element draws
+     * the mark, so it keeps the item's size and leaves the focus ring alone.
      */
-    .quill-toggle-group .quill-toggle-group__item:is([aria-pressed='true'], [data-pressed]) {
-        color: var(--primary-foreground);
+    .quill-toggle-group__item:is([aria-pressed='true'], [data-pressed])::after {
+        position: absolute;
+        inset-inline: -1px;
+        inset-block-start: -1px;
+        height: 2px;
+        pointer-events: none;
+        content: '';
         background-color: var(--primary);
-        border-color: var(--primary);
-    }
-
-    .quill-toggle-group
-        .quill-toggle-group__item:is([aria-pressed='true'], [data-pressed]):not(
-            :disabled,
-            [aria-disabled='true']
-        ):hover {
-        color: var(--primary-foreground);
-        background-color: color-mix(in oklab, var(--primary) 95%, black);
+        border-start-start-radius: inherit;
+        border-start-end-radius: inherit;
     }
 
     /*
