@@ -12,13 +12,18 @@ from posthog.settings import CLICKHOUSE_DATABASE
 _SEND_RECEIVE_TIMEOUT_SECONDS = 15
 
 
-def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
-    initiator_host = None
+def _lookup_hosts() -> dict[str, str]:
     # Cancel requests do not carry the query's schema override, so either cluster can own the query.
     clusters = {settings.CLICKHOUSE_CLUSTER: settings.CLICKHOUSE_HOST}
     events_host = settings.CLICKHOUSE_EVENTS_ONLINE_HOST or settings.CLICKHOUSE_EVENTS_OFFLINE_HOST
     if events_host:
         clusters[settings.CLICKHOUSE_EVENTS_CLUSTER] = events_host
+    return clusters
+
+
+def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
+    initiator_host = None
+    clusters = _lookup_hosts()
 
     statsd.incr("clickhouse.query.cancellation.requested", tags={"team_id": team_id})
     for cluster, lookup_host in clusters.items():
@@ -74,3 +79,41 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
             statsd.incr("clickhouse.query.cancellation.on_cluster", tags={"team_id": team_id})
         if cancellation_error is not None:
             raise cancellation_error
+
+
+def cancel_queries_started_for(team_id: int, client_query_id: str) -> None:
+    """Cancels the running queries of a team that carry `client_query_id` anywhere in their query id.
+
+    A query started on behalf of another one puts that query's id after its own, as in
+    `{team_id}_{own_id}_{client_query_id}_{random}`. `cancel_query_on_cluster` matches a query id by its
+    start, so it does not find such a query. This finds it, and also the query that owns the id.
+    """
+    statsd.incr("clickhouse.query.cancellation.requested", tags={"team_id": team_id})
+    for cluster, lookup_host in _lookup_hosts().items():
+        try:
+            with default_client(
+                host=lookup_host, database=CLICKHOUSE_DATABASE, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS
+            ) as client:
+                running = sync_execute(
+                    """
+                    SELECT FQDN(), query_id
+                    FROM clusterAllReplicas(%(cluster)s, system.processes)
+                    WHERE startsWith(query_id, %(team_prefix)s) AND position(query_id, %(tag)s) > 0
+                    SETTINGS max_execution_time = 2, skip_unavailable_shards = 1
+                    """,
+                    {"cluster": cluster, "team_prefix": f"{team_id}_", "tag": f"_{client_query_id}_"},
+                    sync_client=client,
+                )
+        except Exception as e:
+            logger.info("Failed to look up queries started for %s: %s", client_query_id, e)
+            statsd.incr("clickhouse.query.cancellation.no_initiator_host", tags={"team_id": team_id})
+            continue
+        for host, query_id in running:
+            with default_client(host=host, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
+                sync_execute(
+                    "KILL QUERY WHERE query_id=%(query_id)s SETTINGS max_execution_time = 5",
+                    {"query_id": query_id},
+                    sync_client=client,
+                )
+            logger.info("Cancelled query %s started for %s, team %s", query_id, client_query_id, team_id)
+            statsd.incr("clickhouse.query.cancellation.ok", tags={"team_id": team_id})
