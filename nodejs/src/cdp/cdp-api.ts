@@ -310,7 +310,6 @@ type WorkerRenderContext = { person: CyclotronPerson | undefined; groups: Groups
 
 const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number> = {
     idempotency_key_reused: 422,
-    idempotency_unavailable: 503,
     intake_unavailable: 503,
     invalid_request: 400,
     not_sendable: 400,
