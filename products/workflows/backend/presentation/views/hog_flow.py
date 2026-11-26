@@ -1170,8 +1170,8 @@ def _refuse_a_non_boolean_run_link_tag(actions: list) -> None:
             continue
         config = step_action.get("config")
         if (
-            step_action.get("type") == "function_email"
-            and isinstance(config, dict)
+            isinstance(config, dict)
+            and (step_action.get("type") == "function_email" or config.get("template_id") == "template-email")
             and not isinstance(config.get("run_link_tag_enabled", True), bool)
         ):
             raise serializers.ValidationError({"run_link_tag_enabled": "Must be true or false."})

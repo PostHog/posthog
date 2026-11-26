@@ -1136,19 +1136,20 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("off", False, 201),
-            ("on", True, 201),
-            ("null", None, 400),
-            ("string", "false", 400),
-            ("number", 0, 400),
+            ("off", False, 201, "function_email"),
+            ("on", True, 201, "function_email"),
+            ("null", None, 400, "function_email"),
+            ("string", "false", 400, "function_email"),
+            ("number", 0, 400, "function_email"),
+            ("string_on_a_function_step", "true", 400, "function"),
         ]
     )
-    def test_email_run_link_tag_switch_takes_only_a_boolean(self, _name, sent, expected_status) -> None:
+    def test_email_run_link_tag_switch_takes_only_a_boolean(self, _name, sent, expected_status, action_type) -> None:
         sync_template_to_db(_email_function_template())
         hog_flow, action = self._create_hog_flow_with_action(
             {"template_id": "template-email", "inputs": _valid_email_inputs(), "run_link_tag_enabled": sent}
         )
-        action["type"] = "function_email"
+        action["type"] = action_type
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
 
