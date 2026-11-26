@@ -850,22 +850,25 @@ def _compute_system_table_access_decision(
     # table stays queryable here instead of disappearing (see build_access_control_guard).
     allowlisted_scopes = user_access_control.allowlisted_resource_ids_by_scope
 
+    # `posthog.*` tables carry no object ids, so an object grant never keeps them.
+    gated_tables = [
+        *(
+            (name, cast(APIScopeObject, table.access_scope), table.access_control_id is not None)
+            for name, table in scoped_tables.items()
+        ),
+        *((name, access_scope, False) for name, access_scope in access_controlled_posthog_tables().items()),
+    ]
+
     denied: set[str] = set(unentitled)
-    for name, table in scoped_tables.items():
-        access_scope = cast(APIScopeObject, table.access_scope)
+    for name, access_scope, narrowable_to_grants in gated_tables:
         access = user_access_control.access_level_for_resource(access_scope)
         if access and access.access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
         # Keep the table only when the guard can actually narrow its rows to the grant, so a table
         # whose ids don't key those grants (resource_level_access_only) still fails closed.
-        if access_scope in allowlisted_scopes and table.access_control_id is not None:
+        if access_scope in allowlisted_scopes and narrowable_to_grants:
             continue
         denied.add(name)
-
-    for qualified_name, access_scope in access_controlled_posthog_tables().items():
-        access = user_access_control.access_level_for_resource(access_scope)
-        if not access or access.access_level == NO_ACCESS_LEVEL:
-            denied.add(qualified_name)
 
     return user_access_control, denied
 
@@ -877,16 +880,15 @@ def system_table_denials(
     *,
     unentitled: Collection[str] | None = None,
 ) -> frozenset[str]:
-    """The bare names of the ``system.*`` tables this user may not read.
+    """The tables this user may not read: bare names for ``system.*`` tables, qualified names
+    (``posthog.trace_spans``) for product tables under ``posthog.``.
 
     Runs the access-control and entitlement checks that ``create_for`` would run, and nothing else,
     so a caller that only needs the answer does not pay for a whole database build. Pass
     ``unentitled`` from :func:`unentitled_system_tables` to read the organization's entitlements once
     across many users.
     """
-    denied = _compute_system_table_access_decision(team, user, user_access_control, unentitled=unentitled)[1]
-    # Qualified names are `posthog.*` tables, not system tables.
-    return frozenset(name for name in denied if "." not in name)
+    return frozenset(_compute_system_table_access_decision(team, user, user_access_control, unentitled=unentitled)[1])
 
 
 class Database(BaseModel):

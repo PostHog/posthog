@@ -9,7 +9,7 @@ from posthog.schema import HogQLQuery, HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, system_table_denials
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
@@ -611,6 +611,10 @@ class TestDeniedTableError(BaseTest):
             AccessControl.objects.create(team=self.team, resource="tracing", access_level=access_level)
 
         database = Database.create_for(team=self.team, user=self.user if access_level is not None else None)
+
+        if access_level is not None:
+            denials = system_table_denials(self.team, self.user)
+            assert ("posthog.trace_spans" in denials) is denied
 
         for table_name in ("posthog.trace_spans", "posthog.trace_attributes"):
             if denied:

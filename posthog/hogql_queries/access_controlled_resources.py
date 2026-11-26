@@ -383,10 +383,16 @@ def queried_access_controlled_resources(
         return _with_fallback_parents(scopes, bypassed_scopes) - (bypassed_scopes - scopes_from_system_tables)
 
     # Structured queries can reference warehouse tables without a HogQLQuery in their tree.
-    return (
-        _with_fallback_parents({"warehouse_table", "warehouse_view"}, bypassed_scopes) - bypassed_scopes
-        if _references_data_warehouse(query)
-        else set()
+    if not _references_data_warehouse(query):
+        return set()
+    # Its scope is kept even when bypassed on warehouse objects, as for tables a HogQL query names.
+    table_scopes = {
+        scope
+        for table_name in _data_warehouse_table_names(query)
+        if (scope := access_controlled_posthog_tables().get(table_name)) is not None
+    }
+    return _with_fallback_parents({"warehouse_table", "warehouse_view"} | table_scopes, bypassed_scopes) - (
+        bypassed_scopes - table_scopes
     )
 
 
@@ -400,6 +406,26 @@ def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) ->
     return scopes | {
         parent for child, parent in RESOURCE_FALLBACK_MAP.items() if child in scopes and child not in bypassed_scopes
     }
+
+
+def _data_warehouse_table_names(value) -> Iterator[str]:
+    """Table names read by the warehouse nodes anywhere in a structured query's tree."""
+    if isinstance(value, (DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode)):
+        yield value.table_name
+    elif isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:
+        if value.table_name:
+            yield value.table_name
+        elif isinstance(value.id, str):
+            yield value.id
+    elif isinstance(value, BaseModel):
+        for item in value.__dict__.values():
+            yield from _data_warehouse_table_names(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _data_warehouse_table_names(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _data_warehouse_table_names(item)
 
 
 def _references_data_warehouse(value) -> bool:

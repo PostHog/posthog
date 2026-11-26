@@ -187,12 +187,20 @@ class TestQueriedAccessControlledResources(BaseTest):
     def test_accounts_query_communication_fields_require_ticket_access(self, _name, query_kwargs):
         assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {"account", "ticket"}
 
-    def test_structured_query_with_data_warehouse_series(self):
-        query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])
+    @parameterized.expand(
+        [
+            ("warehouse_table", "some_dw_table", set()),
+            ("trace_spans", "posthog.trace_spans", {"tracing"}),
+        ]
+    )
+    def test_structured_query_with_data_warehouse_series(self, _name, table_name, extra_scopes):
+        node = self._dw_node().model_copy(update={"table_name": table_name})
+        query = TrendsQuery(series=[EventsNode(event="$pageview"), node])
         assert queried_access_controlled_resources(query, self.team) == {
             "external_data_source",
             "warehouse_table",
             "warehouse_view",
+            *extra_scopes,
         }
 
     def test_nested_data_warehouse_node_is_detected(self):

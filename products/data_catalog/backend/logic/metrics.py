@@ -217,7 +217,9 @@ def _refine(metric: Metric, fields: dict) -> None:
 
 def _denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
     if user_access_control.is_organization_admin:
-        return {f"system.{name}" for name in system_table_denials(team, user, user_access_control)}
+        return {
+            name if "." in name else f"system.{name}" for name in system_table_denials(team, user, user_access_control)
+        }
     return Database.create_for(
         team=team, user=user, user_access_control=user_access_control, trigger=DatabaseBuildTrigger.METRIC_ACCESS
     )._denied_tables
