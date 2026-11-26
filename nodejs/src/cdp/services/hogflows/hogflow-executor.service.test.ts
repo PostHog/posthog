@@ -84,6 +84,7 @@ type DeliveredEmail = { to: string[]; subject: string; attachments: { filename: 
 
 class SesV2Fake {
     readonly delivered: DeliveredEmail[] = []
+    requests = 0
     endpoint = ''
     private readonly answers: ('accept' | 'throttle')[] = []
     private readonly server = createServer((request, response) => void this.handle(request, response))
@@ -124,6 +125,7 @@ class SesV2Fake {
                 .end(JSON.stringify({ message: `No route for ${request.method} ${request.url}` }))
             return
         }
+        this.requests++
         if (this.answers.shift() === 'throttle') {
             response
                 .writeHead(429, { 'content-type': 'application/json', 'x-amzn-errortype': 'TooManyRequestsException' })
@@ -4375,7 +4377,10 @@ if (not res.success) { throw Error(res.error) }`,
             }
 
             expect(metrics.filter((m) => m.metric_name === 'email_sent')).toHaveLength(sent)
-            expect(ses.delivered).toHaveLength(sent)
+            expect({ requests: ses.requests, delivered: ses.delivered.length }).toEqual({
+                requests: sent,
+                delivered: sent,
+            })
         })
 
         it.each([
