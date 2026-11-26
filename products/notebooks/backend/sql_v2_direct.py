@@ -21,7 +21,10 @@ from django.utils import timezone
 import sqlparse
 import structlog
 
+from posthog.schema import HogQLQuery
+
 from posthog.hogql import ast
+from posthog.hogql.database.database import access_controlled_posthog_tables
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 
@@ -32,6 +35,7 @@ from posthog.clickhouse.client.execute_async import (
     get_query_status,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.query_status_access import read_scopes_from_labels
 
 from products.notebooks.backend.models import NotebookNodeRun
@@ -269,6 +273,21 @@ def _query_status_timings(status: Any) -> dict[str, float]:
     return timings
 
 
+def stored_run_read_scopes(run: NotebookNodeRun, team: Team) -> list[str]:
+    """The gated product resources a run's rows were read from, for runs stored before they were recorded too."""
+    recorded = (run.envelope or {}).get("read_scopes")
+    if recorded is not None:
+        return list(recorded)
+    gated = set(access_controlled_posthog_tables().values())
+    if run.node_type != NotebookNodeRun.NodeType.HOGQL:
+        # The callback stamps every kernel envelope, so one without the key predates recording,
+        # and the kernel that produced it may have held any gated rows.
+        return sorted(gated) if run.envelope is not None else []
+    queried = queried_access_controlled_resources(HogQLQuery(query=run.code), team)
+    # An unparseable query could read anything, so it is held to every gated resource.
+    return sorted(gated if queried is None else queried & gated)
+
+
 def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
     """Advance a direct (hogql) run from its async query status and return its transient rows.
 
@@ -325,8 +344,7 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
         if timings:
             envelope["timings"] = timings
         # Kept with the run, so its rows stay gated on what the query read after the status expires.
-        if read_scopes := read_scopes_from_labels(getattr(status, "labels", None)):
-            envelope["read_scopes"] = sorted(read_scopes)
+        envelope["read_scopes"] = sorted(read_scopes_from_labels(getattr(status, "labels", None)))
         # The direct lane never involves the sandbox or the frame store, so labeling it
         # keeps those runs out of the inline bucket they would otherwise fall into and makes
         # a transport comparison count only the runs a transport choice applies to.

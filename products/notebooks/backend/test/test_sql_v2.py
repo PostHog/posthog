@@ -1715,7 +1715,6 @@ class TestSQLV2RunResult(APIBaseTest):
         [
             ("kernel_none", NotebookNodeRun.NodeType.PYTHON, "none", 403),
             ("kernel_viewer", NotebookNodeRun.NodeType.PYTHON, "viewer", 200),
-            ("direct_none", NotebookNodeRun.NodeType.HOGQL, "none", 200),
         ]
     )
     def test_result_stored_before_reads_were_recorded(self, _name, node_type, access_level, expected):
@@ -1751,6 +1750,16 @@ class TestSQLV2RunResult(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         (cell,) = [cell for cell in response.json()["cells"] if cell["node_id"] == "n1"]
         self.assertEqual(cell["last_run"]["error"], expected_error)
+
+    @parameterized.expand([("none", 403), ("viewer", 200)])
+    @patch("products.notebooks.backend.sql_v2_direct.get_query_status", side_effect=QueryNotFoundError())
+    def test_a_run_stored_before_read_scopes_is_gated_on_its_query(self, access_level, expected, _mock_status):
+        _set_tracing_access(self, access_level)
+        run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [["GET /api"]]})
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            code="select name from posthog.trace_spans"
+        )
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
 
     @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
     def test_completed_query_never_overwrites_an_interrupt(self, mock_status):

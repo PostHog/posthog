@@ -140,19 +140,6 @@ def kernel_read_scopes(team_id: int, kernel_runtime_id: UUID | None) -> list[str
     return sorted(rows[0])
 
 
-def stored_run_read_scopes(node_type: str, envelope: Any) -> list[str]:
-    """The resources a run's stored result was read from, as its readers are checked against.
-
-    The callback stamps every kernel envelope, so a kernel envelope without the key was stored
-    before reads were recorded and may hold any gated rows.
-    """
-    if not isinstance(envelope, dict):
-        return []
-    if "read_scopes" not in envelope and node_type != NotebookNodeRun.NodeType.HOGQL:
-        return sorted(set(access_controlled_posthog_tables().values()))
-    return sorted(envelope.get("read_scopes") or [])
-
-
 def seconds_until_kernel_run_is_stale(run: NotebookNodeRun) -> float | None:
     """How long a RUNNING kernel run has left before the watchdog may fail it, or None when it never will."""
     if run.node_type == NotebookNodeRun.NodeType.HOGQL or run.status != NotebookNodeRun.Status.RUNNING:
