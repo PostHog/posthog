@@ -42,6 +42,7 @@ jobs:
             devex: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex || 'true' }}
             test-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.test-rules || 'true' }}
             desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
+            team-security: ${{ steps.oversized.outputs.force_all == 'true' && 'unknown' || steps.filter.outputs.team-security || 'false' }}
             # Pushes default to 'false' because the semgrep-ci action already scans the whole tree on a push.
             scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
             idor-rule: ${{ steps.filter.outputs.idor-rule || 'false' }}
@@ -183,6 +184,61 @@ jobs:
                         - '**/Cargo.toml'
                         - '.semgrep/rules/devex/posthog-sdk-major-pin.yaml'
                         - '.github/workflows/ci-security.yaml'
+
+                      # Mirror the required reviewer patterns in the master ruleset. Keep this
+                      # filter aligned when those patterns change; the ruleset remains the gate.
+                      team-security:
+                        - '.github/workflows/ci-security.yaml'
+                        - '.github/actions/semgrep-ci/**'
+                        - '.github/workflows/codeql.yml'
+                        - '.github/workflows/auto-assign-*.yml'
+                        - '*/api/authentication.py'
+                        - 'posthog/api/sso.py'
+                        - 'posthog/auth.py'
+                        - 'posthog/api/scim/auth.py'
+                        - 'posthog/csp_middleware.py'
+                        - 'posthog/test/test_csp_middleware.py'
+                        - '.semgrep/rules/security/csp-header-outside-csp-middleware.*'
+                        - 'bin/dev-sandbox*'
+
+    # hogli-lint: not-a-required-gate — advisory only; the ruleset enforces the review
+    team-security-review-notice:
+        name: Team security review guidance
+        needs: changes
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.repository == 'PostHog/posthog' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 1
+        steps:
+            - name: Explain the required review
+              env:
+                  CHANGES_RESULT: ${{ needs.changes.result }}
+                  TEAM_SECURITY: ${{ needs.changes.outputs.team-security }}
+              run: |
+                  if [[ "$CHANGES_RESULT" != success ]]; then
+                      cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+                  ## Team security review could not be determined
+
+                  The changed-file check did not return a result. Check the merge requirements before merging.
+                  EOF
+                  elif [[ "$TEAM_SECURITY" == true ]]; then
+                      cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+                  ## Team security review required
+
+                  This pull request changes a path covered by the `master` ruleset. Get one approval from `team-security` before merge.
+                  EOF
+                  elif [[ "$TEAM_SECURITY" == unknown ]]; then
+                      cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+                  ## Team security review could not be determined
+
+                  This pull request is over the changed-file limit for path detection. Check the merge requirements before merging.
+                  EOF
+                  else
+                      cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+                  ## Team security review not required
+
+                  No changed path matches the team-security review patterns in the `master` ruleset.
+                  EOF
+                  fi
 
     semgrep-python:
         needs: changes
