@@ -56,6 +56,8 @@ export const OAuthErrorBody = z.object({
     error_description: z.string().optional().catch(undefined),
 })
 
+// Every OAuth request carries a credential, such as a refresh token, a device code or an OIDC token. A
+// followed redirect would send it again to an address hog didn't choose, so a 3xx comes back as an answer.
 export function oauthPost(
     runtime: Runtime,
     host: Host,
@@ -68,6 +70,7 @@ export function oauthPost(
         form,
         timeoutMs,
         posthog: true,
+        redirect: 'manual',
     })
 }
 
