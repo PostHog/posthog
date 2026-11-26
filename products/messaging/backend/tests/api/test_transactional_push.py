@@ -71,6 +71,16 @@ class TestTransactionalPushTemplates(APIBaseTest):
     def _make_transactional(self, template: MessageTemplate) -> Any:
         return self.client.post(f"{self.templates_url}{template.id}/make_transactional/", {}, format="json")
 
+    @parameterized.expand([("email", ["Welcome"]), ("push", ["Order shipped"]), (None, ["Order shipped", "Welcome"])])
+    def test_the_template_list_filters_by_type(self, _flag, template_type, names):
+        self._template()
+        MessageTemplate.objects.create(team=self.team, name="Welcome", type="email", content={})
+
+        response = self.client.get(self.templates_url, {"type": template_type} if template_type else {})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(template["name"] for template in response.json()["results"]) == names
+
     def test_making_a_push_template_transactional_creates_its_workflow_once(self, _flag):
         template = self._template()
 

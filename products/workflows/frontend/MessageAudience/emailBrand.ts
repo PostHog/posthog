@@ -203,7 +203,7 @@ async function findEmailBrand(
     projectId: string,
     probe: { design?: Record<string, any> | null }
 ): Promise<EmailBrand | null> {
-    const templates = await messagingTemplatesList(projectId, { limit: 1 })
+    const templates = await messagingTemplatesList(projectId, { limit: 1, type: 'email' })
     const templateEmail = templates.results[0]?.content?.email
     const template = emailContent(templateEmail, (templateEmail as { templating?: unknown } | undefined)?.templating)
     if (template) {

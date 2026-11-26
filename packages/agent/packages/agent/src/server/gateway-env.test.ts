@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Logger } from "../utils/logger";
-import { buildGatewayEnv } from "./gateway-env";
+import { buildGatewayEnv, buildPiProviderRoute } from "./gateway-env";
 
 const ENV_KEYS = [
-  "LLM_GATEWAY_URL",
   "AI_GATEWAY_URL",
   "AI_GATEWAY_PRODUCTS",
   "AI_GATEWAY_PRODUCT",
@@ -12,9 +11,15 @@ const ENV_KEYS = [
 ];
 
 const config = {
-  apiKey: "oauth-token",
   apiUrl: "https://us.posthog.com",
   projectId: 7,
+};
+
+const ROUTED_ENV = {
+  AI_GATEWAY_URL: "https://ai-gateway.us.posthog.com/v1",
+  AI_GATEWAY_PRODUCTS: "posthog_code",
+  AI_GATEWAY_PRODUCT: "posthog_code",
+  AI_GATEWAY_TOKEN: "phe_run",
 };
 
 function logger(): Logger {
@@ -26,7 +31,7 @@ function logger(): Logger {
   } as never;
 }
 
-describe("buildGatewayEnv", () => {
+describe("gateway routes", () => {
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
@@ -46,56 +51,62 @@ describe("buildGatewayEnv", () => {
     }
   });
 
-  // Without this flag the Claude adapter keeps `@cf/` ids, which Go refuses.
-  it.each([
-    {
-      route: "Go with a minted token",
-      env: {
-        AI_GATEWAY_URL: "https://ai-gateway.us.posthog.com/v1",
-        AI_GATEWAY_PRODUCTS: "posthog_code",
-        AI_GATEWAY_PRODUCT: "posthog_code",
-        AI_GATEWAY_TOKEN: "phe_run",
-      },
-      expected: true,
-    },
-    {
-      route: "Go without a minted token",
-      env: {
-        LLM_GATEWAY_URL: "http://llm-gateway.internal:8080",
-        AI_GATEWAY_URL: "https://ai-gateway.us.posthog.com/v1",
-        AI_GATEWAY_PRODUCTS: "posthog_code",
-        AI_GATEWAY_PRODUCT: "posthog_code",
-      },
-      expected: false,
-    },
-    {
-      route: "the legacy gateway",
-      env: {
-        LLM_GATEWAY_URL: "http://llm-gateway.internal:8080",
-        AI_GATEWAY_TOKEN: "phe_run",
-      },
-      expected: false,
-    },
-  ])("sets isAiGateway to $expected on $route", ({ env, expected }) => {
-    Object.assign(process.env, env);
+  it("sends a routed run to Go under its minted token", () => {
+    Object.assign(process.env, ROUTED_ENV);
     const gatewayEnv = buildGatewayEnv(config, {}, logger());
 
-    expect(gatewayEnv.isAiGateway).toBe(expected);
-    expect(gatewayEnv.anthropicAuthToken).toBe(
-      expected ? "phe_run" : "oauth-token",
+    expect(gatewayEnv.anthropicBaseUrl).toBe(
+      "https://ai-gateway.us.posthog.com",
     );
+    expect(gatewayEnv.openaiBaseUrl).toBe(
+      "https://ai-gateway.us.posthog.com/v1",
+    );
+    expect(gatewayEnv.anthropicAuthToken).toBe("phe_run");
+    expect(gatewayEnv.openaiApiKey).toBe("phe_run");
   });
 
-  it("routes by the server's product over the internal default", () => {
-    process.env.LLM_GATEWAY_URL = "http://llm-gateway.internal:8080";
+  it.each([
+    {
+      route: "a routed run without a minted token",
+      env: { ...ROUTED_ENV, AI_GATEWAY_TOKEN: undefined },
+      message: "AI_GATEWAY_TOKEN is required for ai_product posthog_code",
+    },
+    {
+      route: "an unlisted product",
+      env: { ...ROUTED_ENV, AI_GATEWAY_PRODUCTS: "signals_scout" },
+      message: 'AI_GATEWAY_PRODUCTS="signals_scout"',
+    },
+    {
+      route: "a run with no gateway settings",
+      env: {},
+      message: "AI_GATEWAY_URL and AI_GATEWAY_PRODUCTS must route",
+    },
+  ])("refuses $route on both runtimes", ({ env, message }) => {
+    for (const [key, value] of Object.entries(env)) {
+      if (value !== undefined) process.env[key] = value;
+    }
+
+    expect(() => buildGatewayEnv(config, {}, logger())).toThrow(message);
+    expect(() =>
+      buildPiProviderRoute(config, { properties: {} }, logger()),
+    ).toThrow(message);
+  });
+
+  it("attributes the run to the server's product over the internal default", () => {
+    Object.assign(process.env, {
+      ...ROUTED_ENV,
+      AI_GATEWAY_PRODUCTS: "signals",
+      AI_GATEWAY_PRODUCT: "",
+    });
     const gatewayEnv = buildGatewayEnv(
       config,
       { gatewayProduct: "signals", isInternal: true },
       logger(),
     );
 
-    expect(gatewayEnv.anthropicBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/signals",
+    const blob = JSON.parse(
+      gatewayEnv.openaiCustomHeaders?.["X-PostHog-Properties"] ?? "{}",
     );
+    expect(blob).toMatchObject({ ai_product: "signals", team_id: 7 });
   });
 });

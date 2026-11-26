@@ -16,10 +16,11 @@ import { useDashboard } from '../../dashboard/dashboardContext'
 import type { DashboardEdit } from '../../dashboard/edits/dashboardEdits'
 
 export function AddTileMenu({ gridId, label }: { gridId: string; label?: string }): JSX.Element {
-    const { widgets, onEdit } = useDashboard()
-    const addTile = (widget: Extract<DashboardEdit, { edit: 'addTile' }>['widget']): void => {
-        onEdit({ edit: 'addTile', grid: gridId, widget })
-        posthog.capture('dashboard v2 tile added', { widget_type: widget.type })
+    const { panels, onEdit } = useDashboard()
+    const addTile = (panel: Extract<DashboardEdit, { edit: 'addTile' }>['panel']): void => {
+        onEdit({ edit: 'addTile', grid: gridId, panel })
+        // pinned: analytics property name, kept from when panels were called widgets.
+        posthog.capture('dashboard v2 tile added', { widget_type: panel.type })
     }
     return (
         <DropdownMenu>
@@ -40,7 +41,7 @@ export function AddTileMenu({ gridId, label }: { gridId: string; label?: string 
             <DropdownMenuContent align="end">
                 <DropdownMenuGroup>
                     <DropdownMenuLabel>Add a tile</DropdownMenuLabel>
-                    {widgets.flatMap(({ type, addTileOptions }) =>
+                    {panels.flatMap(({ type, addTileOptions }) =>
                         addTileOptions.map(({ label: itemLabel, create }) => (
                             <DropdownMenuItem key={`${type}-${itemLabel}`} onClick={() => addTile(create())}>
                                 {itemLabel}

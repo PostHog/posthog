@@ -605,7 +605,7 @@ CDP_API_URL = get_from_env("CDP_API_URL", "")
 
 if not CDP_API_URL:
     CDP_API_URL = (
-        "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
+        "http://localhost:6738" if DEBUG or TEST else "http://ingestion-cdp-api.posthog.svc.cluster.local"
     )  # localhost is correct — plugin server runs on host in dev
 
 # The CDP API that takes only transactional push sends, so a push can't slow an email send. It never falls back to

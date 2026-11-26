@@ -229,7 +229,7 @@ describe("DesktopPiRpcClientFactory", () => {
         start: vi.fn(async (url: string) =>
           url === "https://us.posthog.com"
             ? "http://127.0.0.1:5678"
-            : "http://127.0.0.1:1234/legacy",
+            : "http://127.0.0.1:1234/unexpected",
         ),
         startGatewaySession: vi.fn(async () => "http://127.0.0.1:1234/session"),
       } as unknown as AuthProxyService;
