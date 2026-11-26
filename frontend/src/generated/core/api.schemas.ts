@@ -5150,6 +5150,44 @@ export interface EventIngestionRestrictionApi {
     pipelines: IngestionPipelineEnumApi[]
 }
 
+export interface ServiceAccountApi {
+    /** Stable identifier of the service account. */
+    readonly id: string
+    /** Display name of the service account. */
+    readonly name: string
+    /** User identity used for permissions and object attribution. */
+    readonly user: UserBasicApi
+    /** Whether credentials can authenticate as this account. */
+    readonly is_active: boolean
+    /** When the service account was created. */
+    readonly created_at: string
+}
+
+export interface PaginatedServiceAccountListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ServiceAccountApi[]
+}
+
+export interface ServiceAccountWriteApi {
+    /**
+     * Display name of the service account.
+     * @maxLength 150
+     */
+    name: string
+}
+
+export interface PatchedServiceAccountWriteApi {
+    /**
+     * Display name of the service account.
+     * @maxLength 150
+     */
+    name?: string
+}
+
 export interface SharePasswordApi {
     readonly id: number
     readonly created_at: string
@@ -7849,6 +7887,17 @@ export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type ServiceAccountsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type DataDeletionRequestsListParams = {

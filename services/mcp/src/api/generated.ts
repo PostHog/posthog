@@ -84835,6 +84835,28 @@ export namespace Schemas {
       results: ScoreDefinition[];
     }
 
+    export interface ServiceAccount {
+      /** Stable identifier of the service account. */
+      readonly id: string;
+      /** Display name of the service account. */
+      readonly name: string;
+      /** User identity used for permissions and object attribution. */
+      readonly user: UserBasic;
+      /** Whether credentials can authenticate as this account. */
+      readonly is_active: boolean;
+      /** When the service account was created. */
+      readonly created_at: string;
+    }
+
+    export interface PaginatedServiceAccountList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ServiceAccount[];
+    }
+
     /**
      * Read-only serializer for Integration info embedded in external references
      */
@@ -99049,6 +99071,14 @@ export namespace Schemas {
       description?: string | null;
       /** Whether the scorer is archived. */
       archived?: boolean;
+    }
+
+    export interface PatchedServiceAccountWrite {
+      /**
+         * Display name of the service account.
+         * @maxLength 150
+         */
+      name?: string;
     }
 
     export type PatchedSessionRecordingExternalReferencesItem = { [key: string]: unknown };
@@ -119904,6 +119934,14 @@ export namespace Schemas {
       policies?: ToolPolicyEntry[];
     }
 
+    export interface ServiceAccountWrite {
+      /**
+         * Display name of the service account.
+         * @maxLength 150
+         */
+      name: string;
+    }
+
     export interface ServiceEdge {
       /** The calling service. */
       caller: string;
@@ -138105,6 +138143,17 @@ export namespace Schemas {
     };
 
     export type RolesRoleMembershipsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ServiceAccountsListParams = {
     /**
      * Number of results to return per page.
      */

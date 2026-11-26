@@ -702,6 +702,22 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+export const serviceAccountsCreateBodyNameMax = 150
+
+export const ServiceAccountsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(serviceAccountsCreateBodyNameMax).describe('Display name of the service account.'),
+})
+
+export const serviceAccountsPartialUpdateBodyNameMax = 150
+
+export const ServiceAccountsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(serviceAccountsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name of the service account.'),
+})
+
 /**
  * Create a new password for the sharing configuration.
  */

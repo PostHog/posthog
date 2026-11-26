@@ -39,3 +39,5 @@ rules:
           - '/advanced_activity_logs/test_*.py'
           - '/scim/test/test_*.py'
       owners: team-platform-features
+    - match: ['/service_account.py', '/test/test_service_account.py']
+      owners: team-platform-features
