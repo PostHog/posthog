@@ -7,6 +7,7 @@ import { pluralize } from 'lib/utils/strings'
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCard } from './AiVisibilityCard'
 import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
+import { AiVisibilitySetupWizard } from './AiVisibilitySetupWizard'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
 import { ContentAutopilotEngineTopicHeatmap } from './ContentAutopilotEngineTopicHeatmap'
@@ -21,8 +22,6 @@ import { contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsO
 import { ContentAutopilotPromptsOverviewSkeleton } from './ContentAutopilotPromptsOverviewSkeleton'
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
-import { ContentAutopilotSetupCard } from './ContentAutopilotSetupCard'
-import { ContentAutopilotSetupJobCard } from './ContentAutopilotSetupJobCard'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
@@ -47,7 +46,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     const { topic } = useValues(contentAutopilotFiltersLogic)
-    const { job: setupJob, setupJobShown, setupContext } = useValues(contentAutopilotSetupLogic)
+    const { setupContext, wizardStep } = useValues(contentAutopilotSetupLogic)
 
     if (overviewError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -62,11 +61,10 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             </AiVisibilityBanner>
         )
     }
-    // A setup job saves prompts partway through, so its progress stays up until the person dismisses it.
-    if (setupJob && setupJobShown) {
-        return <ContentAutopilotSetupJobCard job={setupJob} />
+    if (wizardStep) {
+        return <AiVisibilitySetupWizard step={wizardStep} />
     }
-    if (!overview || !overviewKpis || !visibilityChart || !visibilityQuery || !sourcesQuery) {
+    if (!setupContext || !overview || !overviewKpis || !visibilityChart || !visibilityQuery || !sourcesQuery) {
         return <ContentAutopilotPromptsOverviewSkeleton />
     }
     const header = (
@@ -86,7 +84,9 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     {overview.current.failed
                         ? `${pluralize(overview.current.failed, 'check')} failed and ${overview.current.failed === 1 ? 'is' : 'are'} left out. `
                         : ''}
-                    Each number is compared with the {overview.days} days before.
+                    {overview.previous.checks > 0
+                        ? `Each number is compared with the ${overview.days} days before.`
+                        : ''}
                 </Text>
             </div>
         </div>
@@ -110,11 +110,11 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     }
     if (!hasChecks) {
         const paused = setupContext?.paused_prompts ?? 0
-        if (overview.prompts_tracked > 0) {
-            return <ContentAutopilotFirstRunCard prompts={overview.prompts_tracked} />
+        // The filter bar can hide every prompt from the overview's count, so the project's own count decides.
+        if ((setupContext?.active_prompts ?? overview.prompts_tracked) > 0) {
+            return <ContentAutopilotFirstRunCard prompts={setupContext?.active_prompts ?? overview.prompts_tracked} />
         }
-        // A configure-only setup saves its prompts paused, which the overview does not count.
-        return paused > 0 ? <ContentAutopilotFirstRunCard prompts={paused} paused /> : <ContentAutopilotSetupCard />
+        return <ContentAutopilotFirstRunCard prompts={paused} paused />
     }
 
     // The chart's legend order, so an engine sits in the same place in the chart and the table.
