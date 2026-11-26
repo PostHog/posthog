@@ -465,6 +465,11 @@
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "delete-orphaned-task-objects",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "delete-persons",
     "product": "temporal/delete_persons",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
