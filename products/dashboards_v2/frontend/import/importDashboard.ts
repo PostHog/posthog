@@ -1,3 +1,5 @@
+import { validateDashboard } from '../dashboard/validateDashboard'
+import { DEFAULT_PANELS } from '../panels/defaultPanels'
 import { grafanaRoot, importGrafana } from './grafanaImport'
 import type { ImportResult } from './importReport'
 import { importNewRelic, isNewRelic } from './newRelicImport'
@@ -9,6 +11,16 @@ export type { ImportResult } from './importReport'
  * a line copied along with it, is skipped.
  */
 export function importDashboard(text: string): ImportResult | { error: string } {
+    const result = convert(text)
+    if ('error' in result) {
+        return result
+    }
+    // A tile the query batch endpoint rejects fails every other tile's query in the same batch, so it can't open.
+    const [problem] = validateDashboard(result.dashboard, DEFAULT_PANELS)
+    return problem ? { error: `This board can't be opened: ${problem.path}: ${problem.message}` } : result
+}
+
+function convert(text: string): ImportResult | { error: string } {
     const parsed = parseJson(text)
     if (parsed === undefined) {
         return { error: "This isn't JSON. Paste a Grafana or New Relic dashboard export." }

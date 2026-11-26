@@ -19,6 +19,7 @@ import {
     notePanel,
     reportBuilder,
 } from './importReport'
+import { own } from './nrql'
 import {
     fillVariables,
     fixLogqlWindows,
@@ -230,7 +231,7 @@ function unrunnableQuery(
         [target.rawSql, target.expr, target.expression, target.query, target.sqlExpression].find(
             (candidate) => typeof candidate === 'string' && candidate.trim()
         ) ?? ''
-    const language = DATASOURCE_NAMES[type ?? ''] ?? type ?? 'an unknown datasource'
+    const language = own(DATASOURCE_NAMES, type ?? '') ?? type ?? 'an unknown datasource'
     converter.report.query(false)
     reasons.push(`${refId} queries ${language}, which PostHog can't run.`)
     return { language: /sql/i.test(language) ? 'sql' : '', text: `-- ${refId} · ${language}\n${text}` }
@@ -344,7 +345,7 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
         return done({ type: 'markdown', ...(title ? { title } : {}), config: { text } }, 'mapped')
     }
 
-    const viz = VIZ[panel.type]
+    const viz = own(VIZ, String(panel.type))
     const unit = panel.fieldConfig?.defaults?.unit ?? panel.format
     // Grafana's `percent` is already 0 to 100, but the stat's percentage format multiplies by 100.
     const scaleToFraction = viz?.type === 'stat' && unit === 'percent'
