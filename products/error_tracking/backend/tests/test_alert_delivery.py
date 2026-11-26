@@ -844,6 +844,22 @@ class TestAlertFilterEvaluation(AlertTestMixin):
         assert (skipped, delivered) == (0, 1)
         client.chat_postMessage.assert_called_once()
 
+    def test_reopen_release_cannot_come_from_the_exception(self):
+        client = self._mock_slack()
+        self._create_filtered_alert(
+            {"properties": [{"key": "reopened_by_release_version", "operator": "is_set", "type": "event"}]},
+            triggers=["issue_reopened"],
+        )
+        # Any client with the project token can send an exception that carries this property.
+        self._patch_exception_properties({"reopened_by_release_version": "9.9.9"})
+
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_reopened", extra={"reopen_reason": "new_occurrence"})
+        )
+
+        assert delivered == 0
+        client.chat_postMessage.assert_not_called()
+
     def _patch_event_properties_lookup(self):
         lookup = patch("products.error_tracking.backend.temporal.alerts.filtering.fetch_event_properties")
         mock = lookup.start()

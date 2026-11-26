@@ -331,7 +331,15 @@ def test_internal_event_names_the_assignee_only_while_it_matches_the_snapshot(
 @pytest.mark.parametrize(
     "reopened_by_release, expected_properties",
     [
-        (None, {"reopen_reason": "new_occurrence"}),
+        (
+            None,
+            {
+                "reopen_reason": "new_occurrence",
+                "reopened_by_release_version": None,
+                "reopened_by_release_project": None,
+                "reopened_by_release_id": None,
+            },
+        ),
         (
             RELEASE,
             {

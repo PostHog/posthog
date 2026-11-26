@@ -35,6 +35,17 @@ def filters_are_configured(filters: Mapping[str, Any]) -> bool:
 # like "1.10", must stay strings to compare as the internal event does.
 NUMERIC_EXTRA_KEYS = frozenset({"computed_baseline", "current_bucket_value"})
 
+# Extras an event's producer always emits, null included. Extras cross Temporal without their nulls, so they are
+# restored here, and an exception property of the same name cannot stand in for a missing one.
+EVENT_EXTRA_KEYS: dict[str, tuple[str, ...]] = {
+    "$error_tracking_issue_reopened": (
+        "reopen_reason",
+        "reopened_by_release_version",
+        "reopened_by_release_project",
+        "reopened_by_release_id",
+    ),
+}
+
 
 def _coerce_numeric(value: str) -> object:
     # Extras cross Temporal as strings; numeric filters need real numbers or
@@ -100,7 +111,9 @@ def evaluate_lifecycle_filters(
 
     # The producers always emit these keys, null included, and on the CDP plane a null
     # lifecycle value shadows the exception's own property; mirror that so both planes agree.
+    event_extra_keys = EVENT_EXTRA_KEYS.get(inputs.event, ())
     lifecycle_properties: dict[str, object] = {
+        **dict.fromkeys(event_extra_keys),
         **{
             key: _coerce_numeric(value) if key in NUMERIC_EXTRA_KEYS else value
             for key, value in (inputs.extra or {}).items()
@@ -124,7 +137,7 @@ def evaluate_lifecycle_filters(
     if exception_properties is None:
         # Conservative on purpose: one OR'd branch that needs the exception makes the
         # whole filter undecidable, even if a sibling branch would match on its own.
-        decidable_keys = LIFECYCLE_PROPERTY_KEYS | (inputs.extra or {}).keys()
+        decidable_keys = LIFECYCLE_PROPERTY_KEYS | (inputs.extra or {}).keys() | set(event_extra_keys)
         unavailable_keys = _filter_property_keys(filters, inputs.event) - decidable_keys
         if unavailable_keys:
             logger.info(

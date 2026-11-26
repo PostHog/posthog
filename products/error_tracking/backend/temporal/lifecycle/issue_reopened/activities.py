@@ -21,13 +21,15 @@ INGESTION_REOPEN_TRIGGER_JOB_TYPE = "error_tracking_ingestion"
 
 
 def reopened_event_properties(inputs: IssueReopenedWorkflowInputs) -> dict[str, object]:
-    properties: dict[str, object] = {"reopen_reason": inputs.reopen_reason.value}
+    # The release keys are null when no release reopened the issue, because a null lifecycle property hides an
+    # exception property of the same name, which any client with the project token could set.
     release = inputs.reopened_by_release
-    if release is not None:
-        properties["reopened_by_release_version"] = release.version
-        properties["reopened_by_release_project"] = release.project
-        properties["reopened_by_release_id"] = release.id
-    return properties
+    return {
+        "reopen_reason": inputs.reopen_reason.value,
+        "reopened_by_release_version": release.version if release else None,
+        "reopened_by_release_project": release.project if release else None,
+        "reopened_by_release_id": release.id if release else None,
+    }
 
 
 def record_ingestion_reopen(inputs: IssueReopenedWorkflowInputs) -> None:
