@@ -42,12 +42,14 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
     }
     if (setupContextError && !setupContext) {
         return (
-            <AiVisibilityBanner
-                type="error"
-                action={{ children: 'Try again', onClick: loadSetupContext, loading: setupContextLoading }}
-            >
-                Couldn't load setup. Try again, and if it keeps happening contact support.
-            </AiVisibilityBanner>
+            <div data-attr="content-autopilot-setup-context-error">
+                <AiVisibilityBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadSetupContext, loading: setupContextLoading }}
+                >
+                    Couldn't load setup. Try again, and if it keeps happening contact support.
+                </AiVisibilityBanner>
+            </div>
         )
     }
     if (!setupContext) {
