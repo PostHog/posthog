@@ -53,6 +53,7 @@ function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRu
         completed_at: null,
         task_id: 'task-scout',
         summary: '',
+        summary_lead: '',
         emitted_count: 0,
         emitted_finding_ids: [],
         emitted_report_ids: [],
