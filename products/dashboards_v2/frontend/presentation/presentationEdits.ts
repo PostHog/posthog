@@ -3,51 +3,56 @@ import {
     type Dashboard,
     type Tile,
     type TileAppearance,
-    isSection,
     isSectionWidget,
-} from '../dashboard/dashboardTypes'
-import { changeTileEverywhere, changeTilesWhere } from '../dashboard/tileTree'
+} from '../dashboard/document/dashboardTypes'
+import { changeTilesWhere } from '../dashboard/document/tileTree'
 
 /**
  * Presentational edits: they change how a tile looks, such as which of its parts show, and never where a tile sits or
  * what it contains. Layout edits live in `dashboardEdits.ts`. `applyEdit` sends these here and settles the layout after.
  */
 export type PresentationEdit =
-    | { edit: 'setTileParts'; id: string; parts: ContentWidgetParts }
-    | { edit: 'setTileAppearance'; id: string; appearance: TileAppearance }
-    | { edit: 'setTilesSetting'; ids: string[]; setting: TileSetting; shown: boolean }
+    | { edit: 'setTilesParts'; ids: string[]; parts: ContentWidgetParts }
+    | { edit: 'setTilesAppearance'; ids: string[]; appearance: AppearanceChange }
 
-export type TileSetting = keyof ContentWidgetParts | keyof TileAppearance
+/** A null removes the setting, so the tile goes back to its default. */
+export type AppearanceChange = { [Key in keyof TileAppearance]?: TileAppearance[Key] | null }
 
-function withSetting({ widget, ...tile }: Tile, setting: TileSetting, shown: boolean): Tile {
-    if (setting === 'border') {
-        return { ...tile, widget: { ...widget, appearance: { ...widget.appearance, border: shown } } }
+function withAppearance(current: TileAppearance | undefined, change: AppearanceChange): TileAppearance {
+    const next: Record<string, unknown> = { ...current }
+    for (const [key, value] of Object.entries(change)) {
+        if (value === null) {
+            delete next[key]
+        } else if (value !== undefined) {
+            next[key] = value
+        }
     }
+    return next
+}
+
+function changeParts({ widget, ...tile }: Tile, parts: ContentWidgetParts): Tile {
     if (isSectionWidget(widget)) {
         return { ...tile, widget }
     }
-    if (setting === 'background') {
-        return { ...tile, widget: { ...widget, appearance: { ...widget.appearance, background: shown } } }
+    return { ...tile, widget: { ...widget, parts: { ...widget.parts, ...parts } } }
+}
+
+function changeAppearance({ widget, ...tile }: Tile, change: AppearanceChange): Tile {
+    if (!isSectionWidget(widget)) {
+        return { ...tile, widget: { ...widget, appearance: withAppearance(widget.appearance, change) } }
     }
-    return { ...tile, widget: { ...widget, parts: { ...widget.parts, [setting]: shown } } }
+    if (change.border === undefined) {
+        return { ...tile, widget }
+    }
+    return { ...tile, widget: { ...widget, appearance: withAppearance(widget.appearance, { border: change.border }) } }
 }
 
 export function applyPresentationEdit(dashboard: Dashboard, edit: PresentationEdit): Dashboard {
+    const picked = (tile: Tile): boolean => edit.ids.includes(tile.id)
     switch (edit.edit) {
-        case 'setTileParts':
-            return changeTileEverywhere(dashboard, edit.id, (tile) =>
-                isSection(tile) ? tile : { ...tile, widget: { ...tile.widget, parts: edit.parts } }
-            )
-        case 'setTileAppearance':
-            return changeTileEverywhere(dashboard, edit.id, ({ widget, ...tile }) => ({
-                ...tile,
-                widget: { ...widget, appearance: edit.appearance },
-            }))
-        case 'setTilesSetting':
-            return changeTilesWhere(
-                dashboard,
-                (tile) => edit.ids.includes(tile.id),
-                (tile) => withSetting(tile, edit.setting, edit.shown)
-            )
+        case 'setTilesParts':
+            return changeTilesWhere(dashboard, picked, (tile) => changeParts(tile, edit.parts))
+        case 'setTilesAppearance':
+            return changeTilesWhere(dashboard, picked, (tile) => changeAppearance(tile, edit.appearance))
     }
 }

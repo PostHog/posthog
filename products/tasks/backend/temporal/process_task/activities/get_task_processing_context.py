@@ -72,7 +72,7 @@ from products.tasks.backend.logic.services.network_policy import (
     NetworkPolicyValidationError,
     compile_network_policy,
 )
-from products.tasks.backend.logic.services.sandbox import SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import SandboxTemplate, is_public_sandbox_repo
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -106,6 +106,7 @@ class GetTaskProcessingContextInput:
     stream_generation: str | None = None
     launches_agent: bool = False
     resume_agent_egress_enrollment: bool = False
+    supports_agent_egress_git_reads: bool = False
 
 
 @dataclass(frozen=False)
@@ -170,6 +171,7 @@ class TaskProcessingContext:
     agent_egress_observation_config: str | None = None
     agent_egress_enrollment_enabled: bool = False
     agent_egress_maintain_for_run: bool = False
+    agent_egress_git_reads: bool = False
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
@@ -1000,6 +1002,23 @@ def _agent_egress_enrollment_config(
     return config
 
 
+def _agent_egress_git_enabled(
+    context: TaskProcessingContext, enrollment: AgentEgressEnrollmentConfig | None, *, resumed: bool
+) -> bool:
+    return bool(
+        enrollment is not None
+        and enrollment.route_git_reads
+        and context.github_read_access
+        and len(context.repositories) == 1
+        and not is_public_sandbox_repo(context.repositories[0])
+        and not context.has_gitlab_credentials
+        and context.mode != "interactive"
+        and not context.custom_image_name
+        and not context.is_snapshot_resume
+        and not resumed
+    )
+
+
 def _agent_egress_observation_config(context: TaskProcessingContext, *, resumed: bool) -> str | None:
     path = settings.AGENT_EGRESS_OBSERVATION_CONFIG
     if (
@@ -1527,6 +1546,19 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         enrollment = _agent_egress_enrollment_config(context, flags=flags, input=input)
         context.agent_egress_enrollment_enabled = enrollment is not None
         context.agent_egress_maintain_for_run = enrollment is not None and enrollment.maintain_for_run
+        git_selected = input.supports_agent_egress_git_reads and _agent_egress_git_enabled(
+            context, enrollment, resumed=input.resumed_sandbox_id is not None
+        )
+        if state.get("agent_egress_git_reads") and not git_selected:
+            raise TaskRunNotReadyError("This run requires Git egress enrollment", {"run_id": context.run_id})
+        if git_selected:
+            TaskRun.update_state_atomic(context.run_id, updates={"agent_egress_git_reads": True})
+            context.state = {**(context.state or {}), "agent_egress_git_reads": True}
+            context.agent_egress_git_reads = True
+            context.baked_repo_clone_enabled = False
+            context.use_modal_resume_snapshots = False
+            context.sandbox_rotation_enabled = False
+            context.continue_as_new_enabled = False
         context.agent_egress_observation_config = (
             settings.AGENT_EGRESS_ENROLLMENT_CONFIG
             if context.agent_egress_enrollment_enabled

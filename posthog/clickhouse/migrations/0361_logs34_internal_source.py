@@ -29,7 +29,7 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 # the ingestion-events node in the multinode stack, in both cases writing through `writable_logs34`.
 # While the MV is absent the Kafka table does not consume, so the consumer group resumes from its
 # committed offset.
-_logs_ingest_role = NodeRole.APM if run_mode().is_deployed_cloud else NodeRole.INGESTION_EVENTS
+_logs_ingest_role = NodeRole.INGESTION_APM if run_mode().is_deployed_cloud else NodeRole.INGESTION_EVENTS
 
 operations = [
     run_sql_with_exceptions(

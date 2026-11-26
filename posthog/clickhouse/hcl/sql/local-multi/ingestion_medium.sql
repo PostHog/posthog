@@ -1,5 +1,5 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
--- Full CREATE schema for the local-multi/medium node. Apply to a fresh ClickHouse to build it.
+-- Full CREATE schema for the local-multi/ingestion_medium node. Apply to a fresh ClickHouse to build it.
 
 CREATE TABLE posthog.kafka_app_metrics2 (
   team_id Int64,

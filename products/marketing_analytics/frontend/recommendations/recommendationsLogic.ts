@@ -1,15 +1,19 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import {
+    MarketingAnalyticsTab,
+    RecommendationsActionLocation,
     RecommendationsEntryPoint,
     RecommendationsShownState,
+    SetupSection,
     marketingAnalyticsLogic,
     marketingAnalyticsLogicActions,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
-import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import {
     DataNodeLogicProps,
@@ -23,6 +27,7 @@ import {
     MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsConversionSource,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendationsSource,
@@ -42,12 +47,15 @@ import {
     RecommendationSection,
     RecommendationTotal,
     ResolutionOverrides,
+    DataGapNavigation,
+    ServerDataGap,
     groupRecommendations,
     reconcileResolutionOverrides,
     recommendationDataGaps,
     recommendationsShownState,
     recommendationsSource,
     sectionRecommendations,
+    serverDataGaps,
     sumImpact,
     summarizeImpact,
     unresolved,
@@ -61,11 +69,16 @@ const UNDO_TOAST_MS = 10000
 // Only the key, so connecting finds the node the section mounts with its query instead of replacing that query.
 const RECOMMENDATIONS_DATA_NODE = {
     key: RECOMMENDATIONS_QUERY_KEY,
-    dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
 } as DataNodeLogicProps
 
+function recommendationsResponse(
+    response: dataNodeLogicValues['response']
+): MarketingAnalyticsRecommendationsQueryResponse | null {
+    return response as MarketingAnalyticsRecommendationsQueryResponse | null
+}
+
 function responseRecommendations(response: dataNodeLogicValues['response']): MarketingAnalyticsRecommendation[] {
-    return (response as MarketingAnalyticsRecommendationsQueryResponse | null)?.results ?? []
+    return recommendationsResponse(response)?.results ?? []
 }
 
 interface DateFilter {
@@ -84,6 +97,11 @@ export interface recommendationsLogicValues {
     selectedSources: ExternalDataSource[]
     sources: MarketingAnalyticsRecommendationsSource[]
     dataGaps: RecommendationDataGap[]
+    serverDataGaps: ServerDataGap[]
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | null
+    setupEnabled: boolean
+    featureFlags: FeatureFlagsSet
+    utmAuditEnabled: boolean
     hasAdsSource: boolean
     connectedSourceTypes: string[]
     query: MarketingAnalyticsRecommendationsQuery
@@ -115,6 +133,7 @@ export interface recommendationsLogicActions
         Pick<
             marketingAnalyticsLogicActions,
             | 'loadSources'
+            | 'reloadAll'
             | 'reportRecommendationsShown'
             | 'reportRecommendationsOpened'
             | 'reportRecommendationsIntroDismissed'
@@ -123,7 +142,13 @@ export interface recommendationsLogicActions
             | 'reportRecommendationsActionClicked'
             | 'reportRecommendationResolved'
             | 'reportRecommendationRestored'
+            | 'openSetup'
+            | 'setActiveTab'
         > {
+    openDataGapTarget: (
+        action: DataGapNavigation,
+        location: RecommendationsActionLocation
+    ) => { action: DataGapNavigation; location: RecommendationsActionLocation }
     openRecommendations: (
         rule: MarketingAnalyticsRecommendationRule,
         entryPoint: RecommendationsEntryPoint,
@@ -174,9 +199,11 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
     connect(() => ({
         values: [
             marketingAnalyticsLogic,
-            ['dataWarehouseSources', 'integrationFilter', 'dateFilter'],
+            ['dataWarehouseSources', 'integrationFilter', 'dateFilter', 'setupEnabled'],
             teamLogic,
             ['currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
             dataNodeLogic(RECOMMENDATIONS_DATA_NODE),
             ['response', 'responseLoading', 'responseError', 'queryId'],
         ],
@@ -186,6 +213,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             marketingAnalyticsLogic,
             [
                 'loadSources',
+                'reloadAll',
                 'reportRecommendationsShown',
                 'reportRecommendationsOpened',
                 'reportRecommendationsIntroDismissed',
@@ -194,6 +222,8 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 'reportRecommendationsActionClicked',
                 'reportRecommendationResolved',
                 'reportRecommendationRestored',
+                'openSetup',
+                'setActiveTab',
             ],
         ],
     })),
@@ -228,6 +258,10 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         resolutionRemoved: (key: string) => ({ key }),
         resolutionRequestFailed: (key: string) => ({ key }),
         setShowResolved: (showResolved: boolean) => ({ showResolved }),
+        openDataGapTarget: (action: DataGapNavigation, location: RecommendationsActionLocation) => ({
+            action,
+            location,
+        }),
     }),
     reducers({
         resolutionOverrides: [
@@ -287,6 +321,24 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             (selectedSources: ExternalDataSource[]): RecommendationDataGap[] =>
                 selectedSources.flatMap(recommendationDataGaps),
         ],
+        utmAuditEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT],
+        ],
+        serverDataGaps: [
+            (s) => [s.response, s.selectedSources, s.utmAuditEnabled],
+            (
+                response: dataNodeLogicValues['response'],
+                selectedSources: ExternalDataSource[],
+                utmAuditEnabled: boolean
+            ): ServerDataGap[] =>
+                serverDataGaps(recommendationsResponse(response)?.dataGaps ?? [], selectedSources, utmAuditEnabled),
+        ],
+        conversionSource: [
+            (s) => [s.response],
+            (response: dataNodeLogicValues['response']): MarketingAnalyticsRecommendationsConversionSource | null =>
+                recommendationsResponse(response)?.conversionSource ?? null,
+        ],
         connectedSourceTypes: [
             (s) => [s.dataWarehouseSources],
             (dataWarehouseSources: { results: ExternalDataSource[] } | null): string[] =>
@@ -322,7 +374,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         disclaimer: [
             (s) => [s.response],
             (response: dataNodeLogicValues['response']): string | undefined =>
-                (response as MarketingAnalyticsRecommendationsQueryResponse | null)?.disclaimer,
+                recommendationsResponse(response)?.disclaimer,
         ],
         recommendations: [
             (s) => [s.response, s.resolutionOverrides],
@@ -487,6 +539,9 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 lemonToast.error(accessDeniedDetail(error) ?? "Couldn't restore the recommendation. Try again.")
             }
         },
+        reloadAll: () => {
+            actions.loadData('force_async')
+        },
         resolutionRemoved: () => {
             // With nothing resolved the toggle is hidden, so a later dismiss must hide its row again.
             if (values.showResolved && values.resolvedCount === 0) {
@@ -512,6 +567,20 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         },
         dismissIntro: () => {
             actions.reportRecommendationsIntroDismissed()
+        },
+        openDataGapTarget: ({ action, location }) => {
+            actions.reportRecommendationsActionClicked(action, location)
+            if (values.selectedRule !== null) {
+                actions.closeRecommendations()
+            }
+            if (action === 'edit_conversion_goals') {
+                actions.openSetup(SetupSection.CONVERSION_GOALS, 'recommendations_data_gaps')
+            } else if (values.setupEnabled) {
+                actions.openSetup(SetupSection.INTEGRATION_HEALTH, 'recommendations_data_gaps')
+            } else {
+                // Without Setup, the audit is a tab of its own.
+                actions.setActiveTab(MarketingAnalyticsTab.INTEGRATION_HEALTH)
+            }
         },
     })),
     afterMount(({ values, actions }) => {

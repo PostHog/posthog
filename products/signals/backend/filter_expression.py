@@ -39,6 +39,7 @@ class FilterExpression:
                 )
         self._nodes = 0
         self.referenced_fields: set[str] = set()
+        self._source = expression
         self._expression: ast.Expr | None = None
         if len(expression) > self.MAX_LENGTH:
             raise FilterValidationError("expression_limit", "Use an expression of at most 4096 characters.")
@@ -64,6 +65,29 @@ class FilterExpression:
 
     def predicate(self) -> ast.Expr | None:
         return clone_expr(self._expression) if self._expression is not None else None
+
+    def conditions(self) -> tuple[str, ...] | None:
+        """The source text of each top-level AND operand, or of the whole expression when it is one condition.
+
+        None when the expression is blank or its top level is OR, because repeating the whole expression would not
+        say which part excluded a record.
+        """
+        node = self._expression
+        if node is None or isinstance(node, ast.Or):
+            return None
+        conditions: list[str] = []
+        for operand in node.exprs if isinstance(node, ast.And) else [node]:
+            if operand.start is None or operand.end is None:
+                return None
+            conditions.append(self._source[operand.start : operand.end])
+        # Parser spans can disagree with the source text (a leading BOM shifts them), so a cut that is not a
+        # valid expression on its own means no conditions rather than a failed preview.
+        try:
+            for condition in conditions:
+                FilterExpression(condition, self._fields)
+        except FilterValidationError:
+            return None
+        return tuple(conditions)
 
     def _require(self, valid: bool, node: ast.Expr, message: str) -> None:
         if not valid:

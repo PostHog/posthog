@@ -1,6 +1,15 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "apply_to_suite_keys": {
+            "description": "Apply this version to these suites for future runs. Omit to preserve existing assignments.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
         "archived": {
             "description": "Whether the scorer is archived.",
             "type": "boolean"
@@ -28,6 +37,10 @@
         "short_name": {
             "description": "Updated compact label. Blank uses the full name.",
             "maxLength": 40,
+            "type": "string"
+        },
+        "suite_version_id": {
+            "description": "Exact version to assign to the selected suites. Defaults to the current version.",
             "type": "string"
         },
         "tags": {

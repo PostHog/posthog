@@ -1,5 +1,6 @@
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
@@ -72,7 +73,11 @@ export function ReportSupportingMetric({
                     Measured <TZLabel time={metric.value_at} />
                 </span>
             ) : null}
-            {metric.caption ? <p className="m-0 break-words text-[11px] text-tertiary">{metric.caption}</p> : null}
+            {metric.caption ? (
+                <LemonMarkdown className="break-words text-[11px] text-tertiary" disableImages>
+                    {metric.caption}
+                </LemonMarkdown>
+            ) : null}
         </LemonCard>
     )
 }

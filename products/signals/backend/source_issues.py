@@ -10,6 +10,8 @@ that writes and reads that record:
 - `append_source_issues` writes one row per new issue and, after commit, starts the GitHub
   writeback for a report that is visible in the inbox.
 - `open_report_for_source_issue` is the exact match grouping tries before embedding similarity.
+- `lock_source_issues` and `reported_source_issue` let a new scout report refuse an issue that an
+  open report already names, atomically across concurrent filings.
 - `source_issues_by_report` is what the writeback and the report serializer read.
 - `source_issue_author_reviewers` names the members who filed the issues, so the scout report tools
   can route the report to them.
@@ -21,13 +23,14 @@ import json
 import logging
 from collections.abc import Collection, Sequence
 
-from django.db import transaction
+from django.db import connection, transaction
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
-from products.signals.backend.artefact_schemas import SourceIssue, SuggestedReviewerEntry
+from products.signals.backend.artefact_schemas import ReportLink, SourceIssue, SuggestedReviewerEntry
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
@@ -177,6 +180,50 @@ def open_report_for_source_issue(*, team_id: int, url: str) -> SignalReport | No
         .order_by("created_at")
         .first()
     )
+
+
+# A new report may name an issue that an open report names already only when it links that report
+# with one of these kinds. Each one says the new report is separate work. A `duplicate_of` link says
+# the opposite, so it is not on the list.
+SEPARATE_REPORT_LINK_KINDS = frozenset(
+    {
+        ReportLinkKind.FOLLOW_UP_OF,
+        ReportLinkKind.PART_OF,
+        ReportLinkKind.DEPENDS_ON,
+        ReportLinkKind.RECURRENCE_OF,
+    }
+)
+
+
+def lock_source_issues(*, team_id: int, issues: Sequence[SourceIssue]) -> None:
+    """Hold a lock per issue until the caller's transaction ends.
+
+    Two filings that name one issue then check for an open report one after the other, so the second
+    sees the report the first committed. The locks are taken in URL order, so two filings that name
+    the same issues in a different order cannot deadlock.
+    """
+    with connection.cursor() as cursor:
+        for url in sorted({issue.url for issue in issues}):
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"signals-source-issue:{team_id}:{url}"]
+            )
+
+
+def reported_source_issue(
+    *, team_id: int, issues: Sequence[SourceIssue], links: Sequence[ReportLink]
+) -> tuple[SourceIssue, SignalReport] | None:
+    """The first issue that an open report already names, and that report.
+
+    An issue does not count when the new report `links` its open report with a kind in
+    `SEPARATE_REPORT_LINK_KINDS`. A closed report does not count either, as in
+    `open_report_for_source_issue`.
+    """
+    linked_report_ids = {link.report_id for link in links if link.kind in SEPARATE_REPORT_LINK_KINDS}
+    for issue in issues:
+        report = open_report_for_source_issue(team_id=team_id, url=issue.url)
+        if report is not None and str(report.id) not in linked_report_ids:
+            return issue, report
+    return None
 
 
 def _issue_author(

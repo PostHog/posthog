@@ -20,6 +20,7 @@ import {
     groupSnoozeLockedByAlert,
     describeSchedule,
     listRowMute,
+    listRowFiringSince,
     groupLabels,
     ruleMetadataEntriesError,
 } from './platformAlertFormat'
@@ -166,6 +167,42 @@ describe('platformAlertFormat', () => {
                 ? { kind: 'alert', configuration }
                 : { kind: 'group', configuration, group: alerts[groupIndex] }
         expect(listRowMute(row, new Date('2026-10-05T12:00:00Z'))).toEqual(expected)
+    })
+
+    const firing = (at: string): [PlatformAlertStateApi, string | null] => [PlatformAlertStateApi.Firing, at]
+    test.each<[string, boolean, [PlatformAlertStateApi, string | null][], number | null, string | null]>([
+        ['an alert with one group', true, [firing('2026-10-05T11:00:00Z')], null, '2026-10-05T11:00:00Z'],
+        ['an alert with one group that is not firing', true, [[PlatformAlertStateApi.NotFiring, null]], null, null],
+        [
+            'an alert with one group that errored while firing',
+            true,
+            [[PlatformAlertStateApi.Errored, '2026-10-05T11:00:00Z']],
+            null,
+            null,
+        ],
+        ['a disabled alert with one group', false, [firing('2026-10-05T11:00:00Z')], null, null],
+        [
+            'an alert with two groups',
+            true,
+            [firing('2026-10-05T10:00:00Z'), firing('2026-10-05T11:00:00Z')],
+            null,
+            null,
+        ],
+        [
+            'a group row',
+            true,
+            [firing('2026-10-05T10:00:00Z'), firing('2026-10-05T11:00:00Z')],
+            1,
+            '2026-10-05T11:00:00Z',
+        ],
+    ])('listRowFiringSince: %s', (_, enabled, groups, groupIndex, expected) => {
+        const alerts = groups.map(([state, firing_started_at]) => ({ ...makeAlert(state), firing_started_at }))
+        const configuration = makeConfiguration({ enabled, alerts })
+        const row: PlatformAlertListRow =
+            groupIndex === null
+                ? { kind: 'alert', configuration }
+                : { kind: 'group', configuration, group: alerts[groupIndex] }
+        expect(listRowFiringSince(row)).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean]>([

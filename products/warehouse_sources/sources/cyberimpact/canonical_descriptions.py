@@ -171,6 +171,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": _DOCS,
         "columns": _RECIPIENT_COLUMNS,
     },
+    "member_consents": {
+        "description": "Consent details of each member, one row per member.",
+        "docs_url": _DOCS,
+        "columns": {
+            "member_id": "ID of the member.",
+            "consentType": "Type of consent the account holds for the member, for example implied.",
+            "relationType": "Relation the consent is based on, for example active-clients or express-consent.",
+            "consentDate": "Date the consent was given.",
+            "consentExpiration": "Date the consent expires.",
+            "consentProof": "Free-text proof of the consent.",
+        },
+    },
     "templates": {
         "description": "Email templates of the account.",
         "docs_url": _DOCS,

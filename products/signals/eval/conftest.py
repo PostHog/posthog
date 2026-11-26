@@ -103,7 +103,7 @@ def gateway_client():
     Used by eval_grouping_e2e to drive the production signals pre-emit pipeline
     (`check_actionability` etc.) through the gateway, attributing cost to EVAL_TEAM_ID.
     """
-    return build_async_anthropic_client(product="signals", ai_product="signals_eval", team_id=EVAL_TEAM_ID)
+    return build_async_anthropic_client(ai_product="signals_eval", team_id=EVAL_TEAM_ID)
 
 
 @pytest.fixture

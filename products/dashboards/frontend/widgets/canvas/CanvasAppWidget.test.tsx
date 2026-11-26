@@ -2,14 +2,17 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { canvasHostLogic, handleCanvasDataRequest } from 'products/canvas/frontend/host/canvasHostLogic'
+
 import { CanvasAppWidget } from './CanvasAppWidget'
+import { canvasAppWidgetLogic } from './canvasAppWidgetLogic'
 
 describe('CanvasAppWidget', () => {
     afterEach(() => {
@@ -27,6 +30,81 @@ describe('CanvasAppWidget', () => {
     })
 
     const noCanvasSelected = { canvas: null, needsConfiguration: true }
+
+    it.each(['canvas', 'tool'] as const)(
+        'identifies each requesting tile from the canvas API in %s consent',
+        async (reason) => {
+            const canvasIds = ['11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222']
+            useMocks({
+                get: Object.fromEntries(
+                    canvasIds.map((id) => [
+                        `/api/projects/:team_id/canvases/${id}/view/`,
+                        () => [
+                            200,
+                            {
+                                canvas: { id, name: 'Release overview', channel: 'space-1' },
+                                published_build: {
+                                    id: `build-${id}`,
+                                    source_version_id: 'version-1',
+                                    artifact_url: 'https://artifacts.example.com/canvas/index.html',
+                                },
+                            },
+                        ],
+                    ])
+                ),
+                post: {
+                    '/api/projects/:team_id/canvases/:id/connectors/call/': () => [
+                        200,
+                        { status: 'needs_approval', approval_token: 'example-approval-token' },
+                    ],
+                },
+            })
+            render(
+                <>
+                    {canvasIds.map((id, index) => (
+                        <CanvasAppWidget
+                            key={id}
+                            tileId={index + 1}
+                            config={{ canvasId: id }}
+                            loading={false}
+                            result={{ canvas: { id, name: 'Outdated tile title', publishedBuildId: `build-${id}` } }}
+                        />
+                    ))}
+                </>
+            )
+
+            for (const [index, canvasId] of canvasIds.entries()) {
+                const tile = canvasAppWidgetLogic({ tileId: index + 1, canvasId })
+                await waitFor(() => expect(tile.values.renderState).toBe('built'))
+                const host = canvasHostLogic.findMounted(tile.values.hostProps)!
+                let response: Promise<unknown>
+                act(() => {
+                    response = handleCanvasDataRequest(host, 'connectorCall', {
+                        provider: 'github',
+                        tool: 'list_pull_requests',
+                        arguments: {},
+                        canvasId: 'iframe-canvas',
+                        canvasName: 'Iframe title',
+                    }).catch((error) => error)
+                })
+                if (reason === 'tool') {
+                    fireEvent.click(await screen.findByText('Allow access'))
+                    await screen.findByText('Allow once')
+                }
+
+                const identityLink = await screen.findByText(canvasId)
+                const dialog = within(identityLink.closest('[role="dialog"]') as HTMLElement)
+                expect(dialog.getByText('Release overview')).toBeInTheDocument()
+                expect(dialog.queryByText('Outdated tile title')).not.toBeInTheDocument()
+                expect(dialog.queryByText('Iframe title')).not.toBeInTheDocument()
+                expect(dialog.queryByText(canvasIds[1 - index])).not.toBeInTheDocument()
+                expect(identityLink).toHaveAttribute('href', `/project/${MOCK_DEFAULT_TEAM.id}/canvases/${canvasId}`)
+                expect(identityLink).toHaveAttribute('target', '_blank')
+                fireEvent.click(dialog.getByText('Cancel'))
+                await expect(response!).resolves.toEqual(expect.any(Error))
+            }
+        }
+    )
 
     it('lets an editor pick a canvas inline when none is selected', () => {
         const { container } = render(

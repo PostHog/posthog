@@ -166,10 +166,10 @@ class TestResolveInSessionExposureSemantics(BaseTest):
         assert semantics.unavailable_reason is None
         assert semantics.uses_stamped_fallback is True
 
-    def test_condition_matches_the_rollout_default_event_at_the_cutoff(self) -> None:
+    def test_condition_matches_the_experiment_exposure_default_at_the_cutoff(self) -> None:
         # The in-session narrowing reads the exposure event off this seam. If the seam kept the
-        # legacy default, exposures arriving as $experiment_exposure would leave every rollout
-        # experiment's in-session list empty.
+        # legacy default, exposures arriving as $experiment_exposure would leave the in-session list
+        # empty for every experiment that started at or after the cutoff.
         experiment = self._experiment(start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF)
         EventProperty.objects.get_or_create(
             team=self.team, project_id=self.team.project_id, event=EXPERIMENT_EXPOSURE_EVENT, property="$session_id"

@@ -11,7 +11,7 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
-from products.aeo.backend import auto_setup
+from products.aeo.backend import auto_setup, prompt_limit
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.facade.api import create_keywords, list_engine_settings
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, SetupRequest
@@ -208,7 +208,22 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         ]
         assert first_run.call_count == 1
 
-    def test_configure_only_keeps_existing_prompts_and_run_once_turns_the_paused_ones_on(self) -> None:
+    def test_setup_saves_the_prompts_past_the_limit_paused(self) -> None:
+        prompt_limit.set_max_active_prompts(self.team.id, 2)
+
+        job, _, first_run = self._run([_answer(PROMPTS_ANSWER), _answer(KEYWORDS_ANSWER)])
+
+        assert job["status"] == "completed"
+        assert (self._steps(job)[1], job["steps"][1]["detail"]) == (("prompts", "done", 3), "prompt_limit")
+        prompts = AEOPrompt.objects.for_team(self.team.id)
+        assert (prompts.filter(active=True).count(), prompts.filter(active=False).count()) == (2, 1)
+        assert first_run.call_count == 1
+
+    @parameterized.expand([("room_for_all", 100, 3), ("room_for_one_more", 2, 2)])
+    def test_configure_only_keeps_existing_prompts_and_run_once_turns_the_paused_ones_on(
+        self, _name: str, limit: int, expected_active: int
+    ) -> None:
+        prompt_limit.set_max_active_prompts(self.team.id, limit)
         AEOPrompt.objects.for_team(self.team.id).create(
             team=self.team,
             prompt=PROMPTS_ANSWER[0]["prompt"],
@@ -225,14 +240,14 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
             (PROMPTS_ANSWER[2]["prompt"], False),
         ]
         context = self.client.get(f"{self.url}context/").json()
-        assert (context["active_prompts"], context["paused_prompts"]) == (1, 2)
+        assert (context["active_prompts"], context["paused_prompts"], context["max_active_prompts"]) == (1, 2, limit)
 
         job, post, first_run = self._run([], body={"only_first_run": True, "activate_paused_prompts": True})
 
         assert self._steps(job)[3] == ("first_run", "done", 0)
         assert post.call_count == 0
         assert first_run.call_count == 1
-        assert prompts.filter(active=False).count() == 0
+        assert prompts.filter(active=True).count() == expected_active
 
     def test_run_only_queues_checks_without_consent_or_model_calls(self) -> None:
         self.organization.is_ai_data_processing_approved = False

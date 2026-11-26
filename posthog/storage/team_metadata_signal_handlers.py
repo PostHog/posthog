@@ -129,9 +129,8 @@ def enqueue_retired_token_metadata_clear_on_commit(team_id: int, api_token: str)
 
     The flags service trusts a cache hit without a Postgres check.
     Until the entry is gone, the token keeps resolving to the team there.
+    A Celery worker clears the entry, because the process that retires the token can lack FLAGS_REDIS_URL.
     """
-    if not settings.FLAGS_REDIS_URL:
-        return
 
     def enqueue_task() -> None:
         # Imported lazily for the same reason as in _enqueue_team_metadata_update_on_commit.
@@ -157,12 +156,10 @@ def enqueue_retired_token_metadata_clear_on_commit(team_id: int, api_token: str)
 
 def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
     """Clear team metadata cache when a Team is deleted."""
-    if not settings.FLAGS_REDIS_URL:
-        return
-
-    # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
-    kinds = ["redis"] if settings.TEST else None
-    clear_team_metadata_cache(instance, kinds=kinds)
+    if settings.FLAGS_REDIS_URL:
+        # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
+        kinds = ["redis"] if settings.TEST else None
+        clear_team_metadata_cache(instance, kinds=kinds)
     # This clear runs before the commit and does not retry. A refresh in that gap can write the entry back.
     # The S3 copy has no TTL, so a retrying task clears the entry again after the commit.
     enqueue_retired_token_metadata_clear_on_commit(instance.id, instance.api_token)

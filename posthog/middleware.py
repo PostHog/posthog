@@ -828,6 +828,8 @@ class QueryTimeCountingMiddleware:
                 # A client can send any method token, so unknown methods share one label.
                 "method": method if method in self.LABELLED_METHODS else "other",
                 "status_class": f"{response.status_code // 100}xx",
+                # Set by views that want the query count sliced further; other routes keep the base labels.
+                **(getattr(request, "_pg_queries_labels", None) or {}),
             },
         )
 

@@ -9,9 +9,14 @@ the length limits at module level, and the serializer translates RequestListEntr
 
 import ipaddress
 from collections.abc import Iterable
+from functools import lru_cache
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 import idna
+
+if TYPE_CHECKING:
+    from tldextract import TLDExtract
 
 # Caps each list so the flags service scans a short list on every /flags request.
 MAX_LISTED_HOSTS = 100
@@ -78,6 +83,46 @@ def normalize_listed_hosts(entries: Iterable[str]) -> list[str]:
         if len(hosts) > MAX_LISTED_HOSTS:
             raise RequestListEntryError(f"You can add up to {MAX_LISTED_HOSTS} domains.")
     return list(hosts)
+
+
+@lru_cache(maxsize=1)
+def _public_suffixes() -> "TLDExtract":
+    import tldextract  # noqa: PLC0415 — the model module imports this one, so a top-level import loads it in every process
+
+    # No URLs, so it reads the list bundled with the package instead of fetching one.
+    return tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
+
+
+def _is_public_suffix(host: str) -> bool:
+    return _public_suffixes()(host).suffix == host
+
+
+@lru_cache(maxsize=1)
+def _public_suffix_ancestors() -> frozenset[str]:
+    ancestors: set[str] = set()
+    for suffix in _public_suffixes().tlds:
+        labels = suffix.split(".")
+        ancestors.update(".".join(labels[i:]) for i in range(1, len(labels)))
+    # The suffix list holds Unicode names, and normalized hosts are punycode.
+    return frozenset(idna.encode(ancestor, uts46=True).decode("ascii") for ancestor in ancestors)
+
+
+def normalize_allowed_hosts(entries: Iterable[str]) -> list[str]:
+    """`normalize_listed_hosts` without domains that host other people's sites, such as vercel.app.
+
+    Blocking every site under such a domain is a valid choice. Allowing them all lets anyone in.
+    """
+    hosts = normalize_listed_hosts(entries)
+    for host in hosts:
+        is_public_suffix = _is_public_suffix(host)
+        # A domain above a suffix, such as amazonaws.com above s3.amazonaws.com, also covers other people's sites.
+        if is_public_suffix or host in _public_suffix_ancestors():
+            own_domain = f"example.{host}" if is_public_suffix else f"my-site.example.{host}"
+            raise RequestListEntryError(
+                f"'{host}' would allow every site on {host}, including other people's. "
+                f"Enter your own domain, like {own_domain}."
+            )
+    return hosts
 
 
 def normalize_listed_ips(entries: Iterable[str]) -> list[str]:

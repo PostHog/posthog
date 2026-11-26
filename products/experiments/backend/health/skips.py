@@ -41,6 +41,9 @@ SPLIT_ASSIGNS_NOBODY = "The split assigns nobody, because every release conditio
 SPLIT_CHANGED_AFTER_END = "The variant split changed after the experiment ended, so it can't be compared with the run"
 NEEDS_EXPOSURES = "Runs once enough users are exposed"
 NEEDS_PRIMARY_METRIC = "Runs once the experiment has a primary metric"
+NEEDS_PRIMARY_METRIC_RESULTS = "Runs once the primary metric has results"
+PRIMARY_METRIC_UNREADABLE = "Couldn't read the results of the primary metric"
+NEEDS_METRIC_EVENT = "Runs once a metric uses an event"
 NOT_ON_FLAG_RULE = "Couldn't check because experiments on a feature flag rule aren't supported yet"
 NOT_ON_WAREHOUSE_NATIVE_EXPOSURES = "Doesn't run when exposures come from a warehouse-native query"
 
