@@ -40,6 +40,7 @@ from posthog.schema import (
 
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.database import access_controlled_posthog_tables, credential_denied_scopes
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.metadata import enrich_hogql_validation_error
 
@@ -373,6 +374,16 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
+        # The user's own access decides the rest; a scoped key also needs each product table's read scope.
+        lacking = {
+            scope
+            for scope in set(access_controlled_posthog_tables().values())
+            if scopes_caller_lacks(request, [f"{scope}:read"])
+        }
+        with credential_denied_scopes(lacking):
+            return self._create(request, *args, **kwargs)
+
+    def _create(self, request: Request, *args, **kwargs) -> Response:
         self._validate_query_kind(request, kwargs.get("query_kind"))
         start_time = perf_counter()
         with tracer.start_as_current_span("posthog.query.upgrade"):

@@ -788,6 +788,28 @@ def read_posthog_table_scopes() -> Iterator[set[str]]:
         _read_posthog_table_scopes.reset(token)
 
 
+def record_posthog_table_read(table: Table) -> None:
+    """Called where a query references a table, so building the schema or its joins records nothing."""
+    # A cached result is checked against these on read, because its cache key may not show the table.
+    read_scopes = _read_posthog_table_scopes.get()
+    if read_scopes is not None and (scope := _access_controlled_posthog_table_types().get(type(table))):
+        read_scopes.add(scope)
+
+
+_credential_denied_scopes: ContextVar[frozenset[str]] = ContextVar("credential_denied_scopes", default=frozenset())
+
+
+@contextlib.contextmanager
+def credential_denied_scopes(scopes: Collection[str]) -> Iterator[None]:
+    """Resources whose `posthog.*` tables the request's credential, such as a scoped personal API key, may not
+    read, whatever its user may. Access decisions for a real user made inside this scope deny them too."""
+    token = _credential_denied_scopes.set(frozenset(scopes))
+    try:
+        yield
+    finally:
+        _credential_denied_scopes.reset(token)
+
+
 def denied_posthog_table_scopes(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
@@ -896,10 +918,13 @@ def _compute_system_table_access_decision(
         return None, unentitled | denied_by_access_control
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
+    credential_denied = {
+        name for name, scope in access_controlled_posthog_tables().items() if scope in _credential_denied_scopes.get()
+    }
 
     org_membership = user_access_control._organization_membership
     if org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN:
-        return user_access_control, unentitled
+        return user_access_control, unentitled | credential_denied
 
     # Resources the user holds object-level grants on despite having no resource-level access. REST
     # serves those routes and narrows the rows to the grants; the printer guard does the same, so the
@@ -915,7 +940,7 @@ def _compute_system_table_access_decision(
         *((name, access_scope, False) for name, access_scope in access_controlled_posthog_tables().items()),
     ]
 
-    denied: set[str] = set(unentitled)
+    denied: set[str] = unentitled | credential_denied
     for name, access_scope, narrowable_to_grants in gated_tables:
         access = user_access_control.access_level_for_resource(access_scope)
         if access and access.access_level != NO_ACCESS_LEVEL:
@@ -1146,11 +1171,6 @@ class Database(BaseModel):
         # First access to any warehouse table wires the deferred foreign-key joins for the whole graph.
         if not self._foreign_keys_built and self._should_build_foreign_keys_for(table_name):
             self._ensure_foreign_keys_built()
-
-        # A cached result is checked against these on read, because its cache key may not show the table.
-        read_scopes = _read_posthog_table_scopes.get()
-        if read_scopes is not None and (scope := _access_controlled_posthog_table_types().get(type(table))):
-            read_scopes.add(scope)
 
         return table
 

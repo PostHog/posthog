@@ -2163,6 +2163,22 @@ class TestTracingQueryStatusRetrieval(APIBaseTest):
         AccessControl.objects.create(resource="tracing", team=self.team, access_level=access_level)
         assert self._retrieve().status_code == expected
 
+    @parameterized.expand([(["query:read"], False), (["query:read", "tracing:read"], True)])
+    def test_a_span_query_needs_the_tracing_scope(self, scopes: list[str], allowed: bool):
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level="viewer")
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="spans", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "select name from posthog.trace_spans"}},
+                format="json",
+                headers={"Authorization": f"Bearer {value}"},
+            )
+        assert (response.status_code == 200) is allowed, response.content
+        if not allowed:
+            assert "posthog.trace_spans" in response.json()["detail"]
+
     @parameterized.expand([(["query:read"], 403), (["query:read", "tracing:read"], 200)])
     def test_a_span_result_needs_the_tracing_scope(self, scopes: list[str], expected: int):
         value = generate_random_token_personal()

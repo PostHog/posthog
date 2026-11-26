@@ -13,7 +13,7 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.compilation import MAX_VIEW_DEPTH, CompilationBudget, bounded_compilation, compilation_budget
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, record_posthog_table_read
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField, Table
 from posthog.hogql.database.s3_table import (
@@ -1639,6 +1639,7 @@ class Resolver(CloningVisitor):
                     database_table = opaque_table
 
             self._record_read(database_table, ".".join(table_name_chain))
+            record_posthog_table_read(database_table)
 
             if self.dialect == "trino":
                 database_table = lower_trino_table(database_table, self.context)
