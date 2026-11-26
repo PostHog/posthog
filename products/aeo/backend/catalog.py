@@ -324,17 +324,17 @@ _COMPETITOR_CANDIDATES_SQL = f"""
         count(*) FILTER (WHERE check_brand.cited) AS citing
     FROM posthog_aeo_check_brand AS check_brand
     JOIN posthog_aeo_citation_check AS check_row ON check_row.id = check_brand.citation_check_id
+    JOIN posthog_aeo_prompt AS prompt ON prompt.id = check_row.prompt_id
     WHERE check_brand.team_id = %s AND check_brand.created_at >= %s AND check_brand.brand_id = ANY(%s)
         AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+        AND prompt.team_id = %s AND prompt.active AND prompt.archived_at IS NULL
         AND {SEGMENT_SQL}
     GROUP BY check_brand.brand_id
-    HAVING count(*) FILTER (WHERE check_brand.mentioned) > 0 AND count(*) FILTER (WHERE check_brand.cited) > 0
+    HAVING count(*) FILTER (WHERE check_brand.mentioned) > 0
 """
 
 
 def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandidate]:
-    """Suggested brands that answers to non-branded prompts in the last `COMPETITOR_CANDIDATE_DAYS` days both
-    name and cite, ranked by the weaker of the two counts. Reads the stored brand rows only."""
     team_id = resolve_effective_team_id(team_id)
     own = own_domains(team_id)
     # The project's own brand on another domain (example.de for example.com) is not a competitor.
@@ -344,7 +344,7 @@ def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandida
         .filter(status=BrandStatus.SUGGESTED)
         .exclude(kind=BrandKind.OWN)
         .exclude(domain__in=own)
-        .only("id", "name", "domain")
+        .only("id", "name", "domain", "kind")
     )
     brands = {brand.id: brand for brand in suggested if brand.name.strip().lower() not in own_names}
     if not brands:
@@ -353,10 +353,22 @@ def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandida
     with connection.cursor() as cursor:
         cursor.execute(
             _COMPETITOR_CANDIDATES_SQL,
-            [team_id, since, list(brands), team_id, since, *segment_sql_params(BrandedSegment.NON_BRANDED)],
+            [team_id, since, list(brands), team_id, since, team_id, *segment_sql_params(BrandedSegment.NON_BRANDED)],
         )
-        rows = cursor.fetchall()
-    ranked = sorted(rows, key=lambda row: (-min(row[1], row[2]), -max(row[1], row[2]), brands[row[0]].domain))[:limit]
+        # A competitor setup suggested only has to be named. Any other brand must be cited too, which keeps out the
+        # sites the engines merely read, such as review and listing sites.
+        rows = [row for row in cursor.fetchall() if brands[row[0]].kind == BrandKind.COMPETITOR or row[2] > 0]
+    # Brands already labeled competitors, such as the ones setup found, lead: the most cited domains are often
+    # partners or platforms the product runs on, not companies it competes with.
+    ranked = sorted(
+        rows,
+        key=lambda row: (
+            brands[row[0]].kind != BrandKind.COMPETITOR,
+            -min(row[1], row[2]),
+            -max(row[1], row[2]),
+            brands[row[0]].domain,
+        ),
+    )[:limit]
     return [
         CompetitorCandidate(
             brand_id=str(brand_id),
