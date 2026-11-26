@@ -7794,10 +7794,10 @@ Diffed against: <https://api.insightly.com/v3.1/swagger/docs/v3.1>
 - [x] `/Ticket` — Insightly Service tickets, an entire product area with no table today (high). Added as `Ticket`.
 - [x] `/Quotation and /QuotationLineItem` — quotes and their line items, the pre-close revenue pipeline (medium). Added as `Quotation` and `QuotationLineItem`.
 - [x] `/Product, /Pricebook, /PricebookEntry` — lookups resolving PRODUCT_ID and PRICEBOOK_ENTRY_ID on opportunity and quotation line items (medium). Added as `Product`, `Pricebook`, and `PricebookEntry`.
-- [ ] `/Milestones` — project milestones and their completion dates, the delivery-tracking grain under Projects (medium)
-- [ ] `/OpportunityCategories, /ProjectCategories, /TaskCategories` — lookups resolving the CATEGORY_ID already present on the synced opportunities, projects and tasks (medium)
-- [ ] `/Teams and /TeamMembers` — team membership for rolling per-rep opportunity and task metrics up to teams (medium)
-- [ ] `/Prospect and /MarketingVisits` — marketing-side prospect records and site visit events, upstream of Leads (medium)
+- [x] `/Milestones` — project milestones and their completion dates, the delivery-tracking grain under Projects (medium). Added as `Milestones`, incremental through `/Milestones/Search`.
+- [x] `/OpportunityCategories, /ProjectCategories, /TaskCategories` — lookups resolving the CATEGORY_ID already present on the synced opportunities, projects and tasks (medium). Added as `OpportunityCategories`, `ProjectCategories`, and `TaskCategories`.
+- [x] `/Teams and /TeamMembers` — team membership for rolling per-rep opportunity and task metrics up to teams (medium). Added as `Teams` and `TeamMembers`.
+- [x] `/Prospect and /MarketingVisits` — marketing-side prospect records and site visit events, upstream of Leads (medium). Added as `Prospect` (incremental through `/Prospect/Search`) and `MarketingVisits`.
 
 Note: https://api.insightly.com/v3.1/swagger/docs/v3 (the URL linked from the Help page) 500s; the working spec is .../swagger/docs/v3.1, which I fetched and parsed. The API is also generically extensible: /{objectName}, /{objectName}/Search and /CustomObjects expose user-defined objects, so a dynamic-table mode would be feasible here, though the current source is a fixed 11-table list. Excluded: FileAttachments/Image/ImageField (binary), Follow/Follows, Permissions, DocumentTemplates, ActivitySets, and the Community\*/Forum\*/KnowledgeArticle\* portal surface (low analytical value for most tenants).
 
