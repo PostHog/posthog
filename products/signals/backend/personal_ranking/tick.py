@@ -347,8 +347,7 @@ def is_team_enrolled(config: PersonalRankingConfig, team: Team) -> bool:
     tick = config.tick
     if not config.enabled or not tick.enabled:
         return False
-    # The single-team form of `_eligible_teams`. It reads only this team's rows, so a tick that checks every
-    # pair does not repeat the enrollment of every project.
+    # Not `_eligible_teams`: that computes every project's enrollment, once per pair of the tick.
     if team.id in tick.skip_team_ids or team.organization_id in parse_organization_ids(tick.deny_organization_ids):
         return False
     if not is_team_enrolled_for_read(read_activity_summary_config(), team):
