@@ -188,12 +188,11 @@ def _add_foreign_key_lazy_join(
     if not _is_same_external_scope(hogql_table, target_hogql_table, warehouse_table):
         return
 
-    hogql_table.fields[field_name] = LazyJoin(
-        from_field=from_field,
-        to_field=to_field,
-        join_table=join_table,
-        resolver=FOREIGN_KEY,
-    )
+    # Swapped in, not inserted: the deferred build runs on a catalog other queries may be iterating.
+    hogql_table.fields = {
+        **hogql_table.fields,
+        field_name: LazyJoin(from_field=from_field, to_field=to_field, join_table=join_table, resolver=FOREIGN_KEY),
+    }
 
     target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
     source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
@@ -204,12 +203,12 @@ def _add_foreign_key_lazy_join(
     if _existing_field_blocks_join(target_hogql_table.fields.get(reverse_field_name), overridable_expression_field_ids):
         return
 
-    target_hogql_table.fields[reverse_field_name] = LazyJoin(
-        from_field=to_field,
-        to_field=from_field,
-        join_table=hogql_table,
-        resolver=FOREIGN_KEY,
-    )
+    target_hogql_table.fields = {
+        **target_hogql_table.fields,
+        reverse_field_name: LazyJoin(
+            from_field=to_field, to_field=from_field, join_table=hogql_table, resolver=FOREIGN_KEY
+        ),
+    }
 
 
 def _resolve_target_table(

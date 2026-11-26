@@ -3868,8 +3868,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(activitylog_after_events, Table)
         assert activitylog_after_events.fields.get("team") is None
 
+        # A query that shares this catalog may be iterating a table's fields while the build wires its joins.
+        fields_walk = iter(activitylog_after_events.fields.items())
+        next(fields_walk)
+
         # The first warehouse-table access wires the whole graph — forward and reverse joins.
         activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+        list(fields_walk)
         assert isinstance(activitylog.fields.get("team"), LazyJoin)
         assert isinstance(database.get_table("postgres.ph3.posthog_team").fields.get("posthog_activitylogs"), LazyJoin)
 
