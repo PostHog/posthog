@@ -366,6 +366,137 @@
         "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
     },
     {
+        "name": "a person scope keeps a trace whole, with the events other people sent",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "shared",
+                "minutes": 5,
+                "person_id": "00000000-0000-4000-8000-00000000000a"
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "shared",
+                "minutes": 0,
+                "person_id": "00000000-0000-4000-8000-00000000000b",
+                "properties": { "$ai_is_error": true }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "person-only",
+                "minutes": 2,
+                "person_id": "00000000-0000-4000-8000-00000000000a"
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "other-person",
+                "minutes": 3,
+                "person_id": "00000000-0000-4000-8000-00000000000b"
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "person_id": "00000000-0000-4000-8000-00000000000a" },
+        "expected_trace_ids": ["person-only", "shared"],
+        "expected_counts": { "total": 2, "errors": 1, "feedback": 0 }
+    },
+    {
+        "name": "an error scope keeps whole traces with a flagged event that failed with exactly that message",
+        "events": [
+            { "event": "$ai_span", "trace_id": "matching", "minutes": -5 },
+            {
+                "event": "$ai_generation",
+                "trace_id": "matching",
+                "minutes": 5,
+                "properties": { "$ai_is_error": true, "$ai_error_normalized": "Rate limit <N> reached" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "matching-later",
+                "minutes": 2,
+                "properties": { "$ai_is_error": true, "$ai_error_normalized": "Rate limit <N> reached" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "other-message",
+                "minutes": 3,
+                "properties": { "$ai_is_error": true, "$ai_error_normalized": "Request timed out" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "longer-message",
+                "minutes": 4,
+                "properties": { "$ai_is_error": true, "$ai_error_normalized": "Rate limit <N> reached for model" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "not-flagged",
+                "minutes": 6,
+                "properties": { "$ai_error_normalized": "Rate limit <N> reached" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "error": "Rate limit <N> reached" },
+        "expected_trace_ids": ["matching-later", "matching"],
+        "expected_counts": { "total": 2, "errors": 2, "feedback": 0 }
+    },
+    {
+        "name": "a tool scope keeps whole traces with a generation that called the tool, reading spaces and empty parts in the list",
+        "events": [
+            { "event": "$ai_span", "trace_id": "spaced", "minutes": -5 },
+            {
+                "event": "$ai_generation",
+                "trace_id": "spaced",
+                "minutes": 5,
+                "properties": { "$ai_tools_called": "search_docs, run_query" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "plain",
+                "minutes": 3,
+                "properties": { "$ai_tools_called": "run_query" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "empty-parts",
+                "minutes": 4,
+                "properties": { "$ai_tools_called": "lookup,, run_query," }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "longer-name",
+                "minutes": 1,
+                "properties": { "$ai_tools_called": "run_query_batch" }
+            },
+            {
+                "event": "$ai_span",
+                "trace_id": "span-only",
+                "minutes": 2,
+                "properties": { "$ai_tools_called": "run_query" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "tool": "run_query" },
+        "expected_trace_ids": ["empty-parts", "plain", "spaced"],
+        "expected_counts": { "total": 3, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "a failed tool scope reads the tool errors, not the tools called",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "failed",
+                "minutes": 0,
+                "properties": { "$ai_tools_called": "lookup, charge_card", "$ai_tool_errors": "lookup, charge_card" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "called-only",
+                "minutes": 1,
+                "properties": { "$ai_tools_called": "charge_card" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "failed_tool": "charge_card" },
+        "expected_trace_ids": ["failed"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
         "name": "a group scope keeps only that group's traces",
         "events": [
             {

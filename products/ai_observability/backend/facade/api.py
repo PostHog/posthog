@@ -1,6 +1,5 @@
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import replace
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
@@ -146,6 +145,7 @@ from ..logic.traces.trace_metrics import (
     has_too_many_buckets,
     previous_window,
     tiles_of,
+    zoned_selection,
 )
 from ..logic.traces.trace_metrics_queries import (
     TraceMetricsRows,
@@ -200,6 +200,11 @@ from ..logic.traces.turn import Turn, TurnSide, TurnSides, missing_reason, previ
 from ..logic.traces.turn_queries import load_turn_sources
 from ..logic.traces.turn_sides import page_turn_sides
 from ..logic.traces.turn_timing import TurnTiming, turn_verdicts
+from ..logic.traces.url_segments import (
+    MalformedUrlSegmentError as MalformedUrlSegmentError,
+    decode_url_segment as decode_url_segment,
+    encode_url_segment as encode_url_segment,
+)
 from ..logic.traces.usage import Usage
 from ..temporal.trace_summary_client import start_trace_summary
 from . import contracts
@@ -562,11 +567,7 @@ def load_trace_metrics(team: Team, user: User, selection: TraceSelection) -> Cal
     caller that holds a query concurrency slot for the load can release the slot before it runs the step.
     """
     # Buckets start at midnight in the project's zone, so every step works on the window in that zone.
-    zone = team.timezone_info
-    zoned = replace(
-        selection,
-        window=TraceWindow(start=selection.window.start.astimezone(zone), end=selection.window.end.astimezone(zone)),
-    )
+    zoned = zoned_selection(selection, team.timezone_info)
     size = bucket_size_for(zoned.window)
     if has_too_many_buckets(zoned.window, size) or has_no_previous_window(zoned.window):
         raise TraceMetricsTooHeavyError()

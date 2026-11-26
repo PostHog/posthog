@@ -15,6 +15,9 @@ export type TraceDrawerListId =
     | 'clusters'
     | 'eval-suggestions'
     | 'session-turns'
+    | 'error-traces'
+    | 'tool-traces'
+    | 'person-traces'
 
 export interface TraceDrawerListConfig {
     // Tested against the path without its project prefix. Other products use `trace` for their own ids, and on browser
@@ -116,6 +119,28 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         pathMatcher: /^\/ai-observability\/sessions(\/[^/]+)?$/,
         backTo: 'session',
         backLabel: 'Back to session',
+        rowClick: false,
+        showNavigation: true,
+    },
+    // The three entity lists open traces from an entity drawer, so rows are not clickable here and stepping stays on.
+    'error-traces': {
+        pathMatcher: /^\/ai-observability\/errors$/,
+        backTo: 'errors',
+        backLabel: 'Back to errors',
+        rowClick: false,
+        showNavigation: true,
+    },
+    'tool-traces': {
+        pathMatcher: /^\/ai-observability\/tools$/,
+        backTo: 'tools',
+        backLabel: 'Back to tools',
+        rowClick: false,
+        showNavigation: true,
+    },
+    'person-traces': {
+        pathMatcher: /^\/ai-observability\/users$/,
+        backTo: 'people',
+        backLabel: 'Back to people',
         rowClick: false,
         showNavigation: true,
     },

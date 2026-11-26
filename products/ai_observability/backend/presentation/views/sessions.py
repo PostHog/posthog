@@ -31,7 +31,7 @@ class SessionListQuerySerializer(ListFilterQuerySerializer):
         "A session is listed when one of its traces has an event that matches every filter."
     )
     search = search_field("the generations and embeddings of the session's traces")
-    person_id = person_scope_field("sessions with a trace whose events")
+    person_id = person_scope_field("sessions with a trace")
     group_key = group_scope_field("sessions with a trace whose events")
     limit = page_limit_field("sessions", default=api.SESSION_LIST_DEFAULT_LIMIT, maximum=api.SESSION_LIST_MAX_LIMIT)
 
@@ -62,6 +62,7 @@ class SessionViewSet(SessionResourceViewSet):
             selection = api.TraceSelection(
                 window=api.resolve_trace_window(self.team, query.get("date_from"), query.get("date_to")),
                 include_support_traces=is_impersonated(request),
+                search=query.get("search") or None,
                 **selection_filters(query),
             )
             build = self._read(

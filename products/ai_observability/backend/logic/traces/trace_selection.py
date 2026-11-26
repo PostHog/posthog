@@ -99,7 +99,12 @@ class TraceSelection:
     filter_test_accounts: bool | None = None
     include_support_traces: bool = False
     search: str | None = None
+    # A trace is in the person, error, tool or failed tool scope when any of its events matches, and it stays whole:
+    # the scope keeps the events that do not match, so the trace's totals and its place in the list do not change.
     person_id: str | None = None
+    error: str | None = None
+    tool: str | None = None
+    failed_tool: str | None = None
     group: TraceGroupScope | None = None
     quick_filter: QuickFilter | None = None
     session_id: str | None = None
@@ -107,7 +112,13 @@ class TraceSelection:
 
     def __post_init__(self) -> None:
         _check_filters(self.properties)
+        self._check_scopes()
         self._check_session_scope()
+
+    def _check_scopes(self) -> None:
+        for label, value in (("error", self.error), ("tool", self.tool), ("failed tool", self.failed_tool)):
+            if value is not None and not value.strip():
+                raise InvalidTraceSelectionError(f"The {label} scope can't be blank. Send a value or leave it out.")
 
     def _check_session_scope(self) -> None:
         if self.session_id is None:
@@ -116,6 +127,9 @@ class TraceSelection:
             self.properties
             or self.search
             or self.person_id
+            or self.error
+            or self.tool
+            or self.failed_tool
             or self.group
             or self.quick_filter
             or self.filter_test_accounts

@@ -1,4 +1,5 @@
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,6 +25,8 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from .trace_expression_queries import (
     EVENTS_COLUMNS,
     TRACE_EVENT_NAMES,
+    error_message,
+    event_errored,
     grouped,
     names_session,
     not_impersonated,
@@ -37,6 +40,7 @@ from .trace_selection import (
     QuickFilter,
     TracePosition,
     TraceSelection,
+    TraceWindow,
     filters_test_accounts,
 )
 
@@ -74,10 +78,46 @@ def _escape_like_pattern(term: str) -> str:
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def _person_scope(selection: TraceSelection) -> list[ast.Expr]:
-    if selection.person_id is None:
-        return []
-    return [parse_expr("person_id = {person_id}", placeholders={"person_id": ast.Constant(value=selection.person_id)})]
+def _named_in(property_name: str, name: str) -> ast.Expr:
+    return parse_expr(
+        """
+        event = '$ai_generation'
+        AND has(arrayFilter(x -> x != '', arrayMap(x -> trim(x), splitByChar(',', ifNull({names}, '')))), {name})
+        """,
+        placeholders={"names": ast.Field(chain=["properties", property_name]), "name": ast.Constant(value=name)},
+    )
+
+
+def _trace_scope_events(selection: TraceSelection) -> list[ast.Expr]:
+    events: list[ast.Expr] = []
+    if selection.person_id is not None:
+        events.append(
+            parse_expr("person_id = {person_id}", placeholders={"person_id": ast.Constant(value=selection.person_id)})
+        )
+    if selection.error is not None:
+        events.append(
+            parse_expr(
+                "{errored} AND {message} = {error}",
+                placeholders={
+                    "errored": event_errored(EVENTS_COLUMNS),
+                    "message": error_message(EVENTS_COLUMNS),
+                    "error": ast.Constant(value=selection.error),
+                },
+            )
+        )
+    if selection.tool is not None:
+        events.append(_named_in("$ai_tools_called", selection.tool))
+    if selection.failed_tool is not None:
+        events.append(_named_in("$ai_tool_errors", selection.failed_tool))
+    return events
+
+
+def _trace_scopes(selection: TraceSelection) -> list[ast.Expr]:
+    # The scopes test the grouped events and not each event read, because an event filter would drop the trace's other
+    # events and so change its totals and its place in the list.
+    return [
+        parse_expr("countIf({event}) > 0", placeholders={"event": event}) for event in _trace_scope_events(selection)
+    ]
 
 
 def _group_scope(selection: TraceSelection) -> list[ast.Expr]:
@@ -166,7 +206,6 @@ def _event_condition(team: Team, selection: TraceSelection) -> ast.Expr:
         exprs.extend(_filter_expr(team, prop) for prop in team.test_account_filters or [])
     if not selection.include_support_traces:
         exprs.append(not_impersonated())
-    exprs.extend(_person_scope(selection))
     exprs.extend(_group_scope(selection))
     if selection.session_id is not None:
         exprs.append(names_session(EVENTS_COLUMNS, [selection.session_id]))
@@ -174,6 +213,97 @@ def _event_condition(team: Team, selection: TraceSelection) -> ast.Expr:
     if search:
         exprs.append(_search_filter(team, selection, search))
     return _all(exprs)
+
+
+def counted_events(team: Team, selection: TraceSelection) -> ast.Expr:
+    """The events of the selection's window, with its read buffer, that a read over the selection counts: the AI
+    events of traces past the test account filters and the support rule, in the group and session it names. Which
+    trace each one counts for is `period_membership`'s. Leaves out the trace search."""
+    return _event_condition(team, replace(selection, search=None))
+
+
+def _membership_events(team: Team, selection: TraceSelection, window: TraceWindow) -> ast.Expr:
+    return _event_condition(
+        team, replace(selection, window=window, filter_test_accounts=False, include_support_traces=True, search=None)
+    )
+
+
+def _in_period(team: Team, selection: TraceSelection, window: TraceWindow, in_bounds: ast.Expr) -> ast.Expr:
+    def any_event(condition: ast.Expr) -> ast.Expr:
+        return parse_expr(
+            "countIf({in_bounds} AND {condition}) > 0", placeholders={"in_bounds": in_bounds, "condition": condition}
+        )
+
+    return _all(
+        [
+            any_event(parse_expr("event IN {events}", placeholders={"events": _events_in(TRACE_EVENT_NAMES)})),
+            any_event(_all(_property_filters(team, selection))),
+            *(any_event(event) for event in _trace_scope_events(selection)),
+            parse_expr(
+                "minIf(timestamp, {in_bounds}) <= {end} AND maxIf(timestamp, {in_bounds}) >= {start}",
+                placeholders={
+                    "in_bounds": in_bounds,
+                    "start": ast.Constant(value=window.start),
+                    "end": ast.Constant(value=window.end),
+                },
+            ),
+        ]
+    )
+
+
+def period_membership(
+    team: Team, selection: TraceSelection, previous: TraceWindow | None, *, holding: ast.Expr | None
+) -> ast.SelectQuery:
+    """One row per trace of the selection's window or of `previous`, with `trace_id`, `in_current` and
+    `in_previous`, under the traces list's rules for each window. With `holding`, only the traces with an event
+    `holding` matches, matched by a hash of the trace id, so a caller joins the rows back by the trace id itself.
+
+    It reads only the trace id, event and timestamp, so the test account filters and the support rule are left to
+    the rows a read counts, and every event of a trace sets its span. Leaves out the trace search."""
+    window = selection.window
+    span = window if previous is None else TraceWindow(start=previous.start, end=window.end)
+    events = [_membership_events(team, selection, span)]
+    if holding is not None:
+        # A trace's events can sit on several shards, so the shards all match against one set the initiator reads.
+        # Probing every event against a hash set costs far less than against a set of trace id strings, and a trace
+        # kept by a hash collision adds nothing, because its rows are joined back by the trace id itself.
+        trace_hash = parse_expr("cityHash64(properties.$ai_trace_id)")
+        events.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GlobalIn,
+                left=trace_hash,
+                right=parse_select(
+                    "SELECT DISTINCT {trace_hash} FROM events WHERE {events} AND {holding}",
+                    placeholders={"trace_hash": trace_hash, "events": events[0], "holding": holding},
+                ),
+            )
+        )
+    after_current_start = parse_expr(
+        "timestamp >= {start}", placeholders={"start": ast.Constant(value=window.read_bounds().start)}
+    )
+    query = parse_select(
+        """
+        SELECT properties.$ai_trace_id AS trace_id, {in_current} AS in_current, {in_previous} AS in_previous
+        FROM events
+        WHERE {events}
+        GROUP BY trace_id
+        HAVING in_current OR in_previous
+        """,
+        placeholders={
+            "in_current": _in_period(team, selection, window, after_current_start),
+            "in_previous": ast.Constant(value=False)
+            if previous is None
+            else _in_period(
+                team,
+                selection,
+                previous,
+                parse_expr("timestamp <= {end}", placeholders={"end": ast.Constant(value=previous.read_bounds().end)}),
+            ),
+            "events": _all(events),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
 
 
 def grouped_traces(team: Team, selection: TraceSelection, extra: dict[str, ast.Expr]) -> ast.SelectQuery:
@@ -193,6 +323,7 @@ def grouped_traces(team: Team, selection: TraceSelection, extra: dict[str, ast.E
         GROUP BY trace_id
         HAVING countIf(event IN {trace_events}) > 0
             AND countIf({filters}) > 0
+            AND {trace_scopes}
             AND first_timestamp <= {window_end}
             AND last_timestamp >= {window_start}
         """,
@@ -200,6 +331,7 @@ def grouped_traces(team: Team, selection: TraceSelection, extra: dict[str, ast.E
             "event_condition": _event_condition(team, selection),
             "trace_events": _events_in(TRACE_EVENT_NAMES),
             "filters": _all(_property_filters(team, selection)),
+            "trace_scopes": _all(_trace_scopes(selection)),
             "window_start": ast.Constant(value=selection.window.start),
             "window_end": ast.Constant(value=selection.window.end),
         },
@@ -398,8 +530,11 @@ def execute_selection(
     selection: TraceSelection,
     query: ast.SelectQuery | ast.SelectSetQuery,
     name: str,
+    *,
+    list_time_limit: bool = True,
 ) -> list[Any]:
-    """Runs a read over the selection's traces with the catalog its filters need."""
+    """Runs a read over the selection's traces with the catalog its filters need. A list's read stops at the lists'
+    time limit, and any other read at the general query time limit."""
     with tags_context(product=Product.LLM_ANALYTICS):
         tag_queries(name=name)
         response = execute_hogql_query(
@@ -414,7 +549,9 @@ def execute_selection(
                 database=selection_database(team, selection),
                 property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
             ),
-            settings=HogQLGlobalSettings(max_execution_time=_SELECTION_QUERY_SECONDS, timeout_overflow_mode="throw"),
+            settings=HogQLGlobalSettings(max_execution_time=_SELECTION_QUERY_SECONDS, timeout_overflow_mode="throw")
+            if list_time_limit
+            else HogQLGlobalSettings(),
         )
     return list(response.results or [])
 
