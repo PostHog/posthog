@@ -210,6 +210,13 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             if (sql.includes('MIN(created_at)') && this.watcherScanGate) {
                 return this.watcherScanGate.then(() => ({ rows: [], rowCount: 0 }))
             }
+            if (sql.includes("'watcher' AS source")) {
+                const rows = [
+                    ...this.watcherRows.map((r) => ({ source: 'watcher', expires_at: farFuture, ...r })),
+                    ...this.findRows.map((r) => ({ source: 'parked', scheduled: farFuture, ...r })),
+                ]
+                return Promise.resolve({ rows, rowCount: rows.length })
+            }
             if (sql.includes('FROM conversion_watchers')) {
                 const rows = this.watcherRows.map((r) => ({ expires_at: farFuture, ...r }))
                 return Promise.resolve({ rows, rowCount: rows.length })
@@ -921,6 +928,20 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 },
             ]
             matcher.updateRowCount = 1
+            matcher.watcherRows = [
+                {
+                    id: 'watcher-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    run_id: 'run-c',
+                    parent_run_id: null,
+                    distinct_id: 'user-1',
+                    person_id: null,
+                    flow_version: 1,
+                    goal: { events: [eventBytecode('wuc_cancelled')] },
+                    created_at: new Date('2026-11-01T09:15:00Z'),
+                } as any,
+            ]
             matcher.setHogFlows({ 'flow-1': flow })
 
             await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
@@ -932,6 +953,18 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(wake).not.toBeUndefined()
             const newState = parseJSON(wake!.params[1][0].toString('utf-8')) as any
             expect(newState.state.conversionMatched).toBe(true)
+            // The same event also counts the run's conversion through its watcher, from one lookup of both tables.
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ metric_name: 'conversion', app_source_id: 'flow-1' }),
+                'hog_flow'
+            )
+            const lookups = matcher.calls.filter(
+                (c) =>
+                    c.sql.startsWith('SELECT') &&
+                    (c.sql.includes('FROM conversion_watchers') ||
+                        c.sql.includes("status = 'available' AND scheduled >"))
+            )
+            expect(lookups).toHaveLength(1)
         })
 
         it('does not wake on a conversion match when the workflow does not exit on conversion', async () => {
