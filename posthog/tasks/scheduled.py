@@ -185,6 +185,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
     check_ses_sender_health,
+    notify_unusable_workflow_email_senders,
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
     recheck_pending_email_senders,
@@ -1159,6 +1160,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="23"),
         check_ses_sender_health.s(),
         name="workflows ses sender health check",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="9", minute="51"),
+        notify_unusable_workflow_email_senders.s(),
+        name="workflows unusable email sender notices",
     )
 
     add_periodic_task_with_expiry(

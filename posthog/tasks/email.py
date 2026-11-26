@@ -62,6 +62,9 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
@@ -1014,6 +1017,78 @@ def send_email_sender_domain_sending_stopped(team_id: int, domain: str, stopped_
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_workflow_email_sender_unusable(
+    team_id: int,
+    hog_flow_id: str,
+    hog_flow_name: str,
+    steps: list[dict[str, Any]],
+    sender_ids: list[str | None],
+    created_by_id: int | None = None,
+) -> None:
+    """
+    Tell a project's admins and the workflow's creator that a live workflow's email steps send from
+    a sender that is deleted or whose domain isn't verified, so every send from those steps fails.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    recipients = {membership.user for membership in _get_project_admins_to_notify_of_email_sending_suspension(team)}
+    creator = User.objects.filter(id=created_by_id, is_active=True).first() if created_by_id else None
+    if creator:
+        recipients.add(creator)
+    viewers = _users_who_can_view_workflow(team, hog_flow_id, created_by_id, recipients)
+    if not viewers:
+        return
+    senders_digest = hashlib.sha256("|".join(sorted(str(sender_id) for sender_id in sender_ids)).encode()).hexdigest()
+    workflow_label = single_line(hog_flow_name or "an unnamed workflow")
+    message = EmailMessage(
+        campaign_key=f"workflow_email_sender_unusable_{hog_flow_id}_{senders_digest[:32]}",
+        subject=f"Emails from '{workflow_label}' in project '{single_line(str(team))}' are failing",
+        template_name="workflow_email_sender_unusable",
+        template_context={
+            "team": team,
+            "hog_flow_name": workflow_label,
+            "steps": steps,
+            "workflow_path": f"/project/{team.id}/workflows/{hog_flow_id}/workflow",
+            "channels_path": f"/project/{team.id}/workflows/channels",
+        },
+    )
+    for user in viewers:
+        message.add_user_recipient(user)
+    message.send()
+
+
+def _users_who_can_view_workflow(
+    team: Team, hog_flow_id: str, created_by_id: int | None, users: Collection[User]
+) -> list[User]:
+    """The `users` that the workflow detail route lets view this workflow, checked the way that route checks them."""
+    workflows = Resource(type=ResourceType.HOG_FLOW, project_id=team.id)
+    workflow = Resource(type=ResourceType.HOG_FLOW, id=hog_flow_id, project_id=team.id, created_by_id=created_by_id)
+    with authorization.authorization_session():
+        return [
+            user
+            for user in users
+            if _can_view_workflow(Subject(user_id=user.pk), Resource.project(team.id), workflows, workflow)
+        ]
+
+
+def _can_view_workflow(subject: Subject, project: Resource, workflows: Resource, workflow: Resource) -> bool:
+    in_project, on_workflows, on_workflow = authorization.check(
+        [
+            CheckRequest(resource=resource, action=Action.VIEW, subject=subject)
+            for resource in (project, workflows, workflow)
+        ]
+    )
+    return in_project and on_workflow and (on_workflows or _granted_any(subject, workflows))
+
+
+def _granted_any(subject: Subject, workflows: Resource) -> bool:
+    allowed = authorization.list_objects(resource=workflows, action=Action.VIEW, subject=subject)
+    return allowed.complete and not allowed.excluded and bool(allowed.ids)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

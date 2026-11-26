@@ -1,0 +1,28 @@
+{% extends "email/base.html" %}
+{% block heading %}Emails from {{ hog_flow_name }} are failing{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        The workflow <b>{{ hog_flow_name }}</b> in project <b>{{ team }}</b> is live, but these email steps use a sender that can't send. Every email sent from that sender fails until you fix it.
+    </p>
+    <ul>
+        {% for step in steps %}
+            <li><b>{{ step.name }}</b>:{% if step.missing %} A sender can't be found.{% endif %}{% if step.unverified %} A sender's domain isn't verified yet.{% endif %}</li>
+        {% endfor %}
+    </ul>
+    <p><b>How to fix it</b></p>
+    <ul>
+        <li>Open the workflow and choose verified senders for each step above.</li>
+        <li>Or verify the sender's domain in <a href="{% absolute_uri channels_path %}">Channels</a> in Workflows.</li>
+    </ul>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri workflow_path %}">Open workflow</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{% absolute_uri workflow_path %}">{% absolute_uri workflow_path %}</a>
+        </p>
+    </div>
+{% endblock %}

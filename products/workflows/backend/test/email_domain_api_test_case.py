@@ -58,6 +58,12 @@ class EmailDomainApi(_PostHogTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()["id"]
 
+    def verified_sender(self, email: str) -> int:
+        sender = self.create_sender(email)
+        self.publish(self.records_to_publish(sender, domain=email.split("@")[1]), *ALL_KINDS)
+        assert self.verify(sender).status_code == status.HTTP_200_OK
+        return sender
+
     def get_status(self, integration_id: int, *, refresh: bool = True, as_browser: bool = False) -> Any:
         url = f"/api/projects/{self.team.id}/integrations/{integration_id}/email/status"
         params = {"refresh": str(refresh).lower()}
