@@ -97,6 +97,7 @@ import type {
 } from '../../types'
 import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeLogic'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
+import { aiRerunRefresh } from './aiRerunRefresh'
 import { changedTicketFields } from './ticketFieldChanges'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
@@ -1815,22 +1816,23 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 cache.disposables.dispose('aiTriagePolling')
                 return
             }
-            let triage: AITriage | undefined
             cache.aiTriageRefreshInFlight = true
+            let fetched: unknown
             try {
-                const fetched = await conversationsTicketsRetrieve(String(getCurrentTeamId()), ticketId)
-                triage = (fetched.ai_triage ?? undefined) as AITriage | undefined
+                fetched = (await conversationsTicketsRetrieve(String(getCurrentTeamId()), ticketId)).ai_triage
             } catch {
                 return
             } finally {
                 cache.aiTriageRefreshInFlight = false
             }
-            const runFinished =
-                triage?.status !== 'in_progress' && (triage?.finished_at ?? null) !== cache.aiRerunPreviousFinishedAt
-            if (triage && (runFinished || triage.status === 'in_progress')) {
+            if (cache.disposables.isDisposed) {
+                return
+            }
+            const { triage, finished } = aiRerunRefresh(fetched, cache.aiRerunPreviousFinishedAt ?? null)
+            if (triage) {
                 actions.setAiTriage(triage)
             }
-            if (runFinished) {
+            if (finished) {
                 cache.disposables.dispose('aiTriagePolling')
             }
         },
