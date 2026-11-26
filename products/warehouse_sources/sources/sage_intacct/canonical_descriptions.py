@@ -37,4 +37,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developer.sage.com/intacct/apis/intacct/1/intacct-openapi",
         "columns": _COMMON_COLUMNS,
     },
+    "JournalEntryLines": {
+        "description": "A debit or credit line on a general ledger journal entry, with its account and dimensions.",
+        "docs_url": "https://developer.sage.com/intacct/apis/intacct/1/intacct-openapi",
+        "columns": _COMMON_COLUMNS,
+    },
+    "InvoiceLines": {
+        "description": "A line item on an accounts receivable invoice.",
+        "docs_url": "https://developer.sage.com/intacct/apis/intacct/1/intacct-openapi",
+        "columns": _COMMON_COLUMNS,
+    },
+    "BillLines": {
+        "description": "A line item on an accounts payable bill.",
+        "docs_url": "https://developer.sage.com/intacct/apis/intacct/1/intacct-openapi",
+        "columns": _COMMON_COLUMNS,
+    },
+    "ARPayments": {
+        "description": "A payment received from a customer and applied to accounts receivable invoices.",
+        "docs_url": "https://developer.sage.com/intacct/apis/intacct/1/intacct-openapi",
+        "columns": _COMMON_COLUMNS,
+    },
 }

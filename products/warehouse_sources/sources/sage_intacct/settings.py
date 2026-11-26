@@ -9,4 +9,8 @@ ENDPOINTS = {
     "Bills": "accounts-payable/bill",
     "GLAccounts": "general-ledger/account",
     "JournalEntries": "general-ledger/journal-entry",
+    "JournalEntryLines": "general-ledger/journal-entry-line",
+    "InvoiceLines": "accounts-receivable/invoice-line",
+    "BillLines": "accounts-payable/bill-line",
+    "ARPayments": "accounts-receivable/payment",
 }

@@ -12850,14 +12850,14 @@ Note: SafetyCulture's warehouse-oriented surface is the /feed/\* family, and rou
 
 ## Sage Intacct — **thin**
 
-Today (6): `Bills`, `Customers`, `GLAccounts`, `Invoices`, `JournalEntries`, `Vendors`
+Today (10): `ARPayments`, `BillLines`, `Bills`, `Customers`, `GLAccounts`, `InvoiceLines`, `Invoices`, `JournalEntries`, `JournalEntryLines`, `Vendors`
 
 Diffed against: <https://developer.sage.com/intacct/llms.txt>
 
-- [ ] `Journal entry lines (GET /objects/general-ledger/journal-entry-line)` — Debit and credit lines per account, location and department, the grain for GL analysis (high)
-- [ ] `Invoice lines (GET /objects/accounts-receivable/invoice-line)` — Line-level revenue per invoice we already sync (high)
-- [ ] `Bill lines (GET /objects/accounts-payable/bill-line)` — Line-level spend per bill we already sync (high)
-- [ ] `AR payments (GET /objects/accounts-receivable/payment)` — Customer payments, to track cash collected against invoices (high)
+- [x] `Journal entry lines (GET /objects/general-ledger/journal-entry-line)` — Debit and credit lines per account, location and department, the grain for GL analysis (high)
+- [x] `Invoice lines (GET /objects/accounts-receivable/invoice-line)` — Line-level revenue per invoice we already sync (high)
+- [x] `Bill lines (GET /objects/accounts-payable/bill-line)` — Line-level spend per bill we already sync (high)
+- [x] `AR payments (GET /objects/accounts-receivable/payment)` — Customer payments, to track cash collected against invoices (high)
 - [ ] `AP payments (GET /objects/accounts-payable/payment)` — Vendor payments, to track cash paid against bills (high)
 - [ ] `Locations (GET /objects/company-config/location)` — Lookup for location dimension IDs on invoices, bills and journal lines (high)
 - [ ] `Departments (GET /objects/company-config/department)` — Lookup for department dimension IDs on transactions (high)

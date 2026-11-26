@@ -37,6 +37,10 @@ def record(key: str) -> ScriptedResponse:
         ("Bills", "accounts-payable/bill"),
         ("GLAccounts", "general-ledger/account"),
         ("JournalEntries", "general-ledger/journal-entry"),
+        ("JournalEntryLines", "general-ledger/journal-entry-line"),
+        ("InvoiceLines", "accounts-receivable/invoice-line"),
+        ("BillLines", "accounts-payable/bill-line"),
+        ("ARPayments", "accounts-receivable/payment"),
     ],
 )
 def test_query_pages_hydrate_records_and_commit_checkpoint(schema: str, object_name: str) -> None:
