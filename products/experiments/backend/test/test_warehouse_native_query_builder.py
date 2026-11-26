@@ -213,14 +213,16 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
 
         assert {row[0]: int(row[-1]) for row in rows} == expected
 
-    def test_an_empty_string_id_is_left_out_like_a_null_one(self) -> None:
-        # A LEFT JOIN with a COALESCE in the customer's query gives '' instead of NULL, and '' IS NOT NULL.
+    def test_a_blank_id_is_left_out_like_a_null_one(self) -> None:
+        # A LEFT JOIN with a COALESCE in the customer's query gives '' instead of NULL, and '' IS NOT NULL. A padded
+        # column gives spaces. BigQuery's TRIM strips every kind of whitespace, DuckDB's only spaces, so the test
+        # uses spaces.
         self.warehouse.execute("CREATE TABLE exposure_text (entity_id VARCHAR, variant VARCHAR, timestamp TIMESTAMP)")
         self.warehouse.executemany(
             "INSERT INTO exposure_text VALUES (?, ?, ?)",
             [
                 ("", "control", "2026-01-02 00:00:00"),
-                ("", "test", "2026-01-03 00:00:00"),
+                ("  ", "test", "2026-01-03 00:00:00"),
                 ("9", "test", "2026-01-04 00:00:00"),
             ],
         )
