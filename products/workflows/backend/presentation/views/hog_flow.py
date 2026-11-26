@@ -4458,9 +4458,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         stored = instance or self.context.get("instance")
         actions = data.get("actions", instance.actions if instance else [])
         origin_product = stored.origin_product if stored else data.get("origin_product")
-        if ("actions" in data or "edges" in data) and getattr(
-            self.context.get("view"), "action", None
-        ) in STEP_AUTHORING_ACTIONS:
+        authors_steps = (
+            getattr(self.context.get("view"), "action", None) in STEP_AUTHORING_ACTIONS
+            or self.context.get("authors_new_workflow") is True
+        )
+        if ("actions" in data or "edges" in data) and authors_steps:
             self._validate_transactional_steps(data, origin_product, stored)
         if origin_product and any(
             isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
@@ -8631,7 +8633,7 @@ class HogFlowViewSet(
             team_id=hog_flow.team_id, hog_flow_id=hog_flow.id, actor=self._activity_actor()
         ):
             raise exceptions.ValidationError(
-                {"detail": "Only a workflow that sends one email to a batch audience can become a broadcast."}
+                {"detail": "Only a workflow that sends one marketing email to a batch audience can become a broadcast."}
             )
         return Response(
             HogFlowConvertedToBroadcastSerializer(

@@ -1023,11 +1023,16 @@ class TestHogFlowAPI(APIBaseTest):
             ("support_entry_without_type", {"trigger_event": "$conversation_message_sent", "type": None}, 400),
             ("event_named_like_support", {"trigger_event": "$conversation_spring_sale"}, 400),
             ("reserved_step_id", {"category_type": "marketing", "step_id": "transactional_email"}, 400),
+            ("transactional_broadcast", {"origin_product": "broadcasts"}, 400),
+            ("marketing_broadcast", {"category_type": "marketing", "origin_product": "broadcasts"}, 201),
         ]
     )
     def test_a_new_workflow_cannot_send_transactional_email(self, _name, flow_kwargs, expected_status):
+        origin = {"origin_product": flow_kwargs.pop("origin_product")} if "origin_product" in flow_kwargs else {}
         response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows", self._email_flow_with_category(**flow_kwargs), format="json"
+            f"/api/projects/{self.team.id}/hog_flows",
+            {**self._email_flow_with_category(**flow_kwargs), **origin},
+            format="json",
         )
 
         assert response.status_code == expected_status, response.json()

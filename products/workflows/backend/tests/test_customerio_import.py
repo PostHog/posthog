@@ -157,6 +157,13 @@ class TestCustomerioCampaignTranslation(BaseTest):
         super().setUp()
         _sync_templates()
 
+    def test_an_imported_draft_cannot_add_a_transactional_email(self) -> None:
+        workflow = translate_campaign(_onboarding_campaign(), _OPTIONS).workflow
+        email = next(action for action in workflow["actions"] if action["type"] == "function_email")
+        email["config"]["message_category_type"] = "transactional"
+
+        assert validated_draft(self.team, workflow, EventSource.API) is None
+
     def test_translated_campaign_saves_as_a_draft_with_the_same_paths(self) -> None:
         translated = translate_campaign(_onboarding_campaign(), _OPTIONS)
         workflow = translated.workflow

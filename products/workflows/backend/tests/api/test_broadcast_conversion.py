@@ -67,6 +67,17 @@ class TestBroadcastConversionAPI(APIBaseTest):
                 False,
             ),
             ("extra step", {"actions": [TRIGGER, EMAIL, DELAY, EXIT]}, False),
+            (
+                "transactional email",
+                {
+                    "actions": [
+                        TRIGGER,
+                        {**EMAIL, "config": {"inputs": {}, "message_category_type": "transactional"}},
+                        EXIT,
+                    ]
+                },
+                False,
+            ),
             ("edge that skips the email", {"edges": [*EDGES, {"from": "trigger_node", "to": "exit_node"}]}, False),
         ]
     )

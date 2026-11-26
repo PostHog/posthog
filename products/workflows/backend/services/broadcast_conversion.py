@@ -34,6 +34,9 @@ def is_convertible_to_broadcast(flow: HogFlow) -> bool:
     if len(actions) != 3 or any(len(found) != 1 for found in steps.values()):
         return False
     trigger, email, exit_step = steps["trigger"][0], steps["function_email"][0], steps["exit"][0]
+    # Broadcasts are marketing email. A workflow that kept a transactional email from before that rule stays one.
+    if (email.get("config") or {}).get("message_category_type") == "transactional":
+        return False
     config = trigger.get("config") or {}
     if config.get("type") != BROADCAST_TRIGGER_TYPE or (config.get("filters") or {}).get("audience_type") == "accounts":
         return False
@@ -98,6 +101,12 @@ def list_broadcast_conversion_candidates(
                 function="jsonb_path_exists",
                 output_field=models.BooleanField(),
             ),
+            _transactional_email=models.Func(
+                models.F("actions"),
+                _json_path('$[*] ? (@.type == "function_email" && @.config.message_category_type == "transactional")'),
+                function="jsonb_path_exists",
+                output_field=models.BooleanField(),
+            ),
         )
         .filter(
             _has_batch_trigger=True,
@@ -107,6 +116,7 @@ def list_broadcast_conversion_candidates(
             _trigger_count=1,
             _exit_count=1,
             _account_audience=False,
+            _transactional_email=False,
         )
         .only("id", "team_id", "name", "status", "edges", "created_by")
         .order_by("-updated_at", "id")
