@@ -178,16 +178,24 @@ class TestRKICovid:
             {key_field: second_key, "name": "second", value_field: 2, "date": "2026-07-19T00:00:00.000Z"},
         ]
 
-    @parameterized.expand([("all_null", None), ("with_value", 3.0)])
-    def test_states_hospitalization_types_adjusted_columns_as_double(self, _name: str, adjusted: float | None) -> None:
-        # A short window returns only null nowcasts; an untyped null column would be stored as text.
+    @parameterized.expand([("all_null", None, None), ("with_values", 283, 9.74)])
+    def test_states_hospitalization_types_nowcast_columns_independent_of_window(
+        self, _name: str, adjusted_cases: int | None, adjusted_incidence: float | None
+    ) -> None:
+        # A short window returns only null nowcasts; an untyped null column would be stored as text,
+        # and the column type must not depend on whether the first sync saw values.
         body = {
             "data": {
                 "SH": {
                     "name": "Schleswig-Holstein",
                     "history": [
-                        {"cases7Days": 4, "adjustedCases7Days": adjusted, "date": "2026-07-19"},
-                        {"cases7Days": 5, "adjustedIncidence7Days": None, "date": "2026-07-20"},
+                        {
+                            "cases7Days": 4,
+                            "adjustedCases7Days": adjusted_cases,
+                            "adjustedIncidence7Days": adjusted_incidence,
+                            "date": "2026-07-19",
+                        },
+                        {"cases7Days": 5, "adjustedCases7Days": None, "date": "2026-07-20"},
                     ],
                 },
             },
@@ -196,11 +204,17 @@ class TestRKICovid:
         result = _run("states_history_hospitalization", [_ok(body)], history_days=3)
         assert result.response is not None
         assert result.response.column_hints is not None
-        assert result.response.column_hints["adjustedCases7Days"] == "double"
+        assert result.response.column_hints["adjustedCases7Days"] == "bigint"
         assert result.response.column_hints["adjustedIncidence7Days"] == "double"
-        first_row = {"abbreviation": "SH", "name": "Schleswig-Holstein", "cases7Days": 4, "date": "2026-07-19"}
-        if adjusted is not None:
-            first_row["adjustedCases7Days"] = adjusted
+        first_row: dict[str, Any] = {
+            "abbreviation": "SH",
+            "name": "Schleswig-Holstein",
+            "cases7Days": 4,
+            "date": "2026-07-19",
+        }
+        if adjusted_cases is not None:
+            first_row["adjustedCases7Days"] = adjusted_cases
+            first_row["adjustedIncidence7Days"] = adjusted_incidence
         assert result.rows == [
             first_row,
             {"abbreviation": "SH", "name": "Schleswig-Holstein", "cases7Days": 5, "date": "2026-07-20"},

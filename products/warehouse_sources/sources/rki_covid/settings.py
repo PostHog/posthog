@@ -33,6 +33,9 @@ ParseKind = Literal[
 ]
 
 
+NullColumnType = Literal["bigint", "double"]
+
+
 @frozen
 class RKICovidEndpointConfig:
     name: str
@@ -51,8 +54,8 @@ class RKICovidEndpointConfig:
     # window server-side.
     supports_days: bool = False
     # Columns that are null in every row of a short history window. Null values are dropped from the
-    # rows and the columns are typed as double, so they are not stored as text before values arrive.
-    double_columns: tuple[str, ...] = ()
+    # rows and the columns get these types, so they are not stored as text before values arrive.
+    null_column_types: tuple[tuple[str, NullColumnType], ...] = ()
     description: Optional[str] = None
 
 
@@ -180,13 +183,13 @@ RKI_COVID_ENDPOINTS: dict[str, RKICovidEndpointConfig] = {
         key_field="abbreviation",
         partition_key="date",
         supports_days=True,
-        double_columns=(
-            "adjustedCases7Days",
-            "adjustedLowerCases7Days",
-            "adjustedUpperCases7Days",
-            "adjustedIncidence7Days",
-            "adjustedLowerIncidence7Days",
-            "adjustedUpperIncidence7Days",
+        null_column_types=(
+            ("adjustedCases7Days", "bigint"),
+            ("adjustedLowerCases7Days", "bigint"),
+            ("adjustedUpperCases7Days", "bigint"),
+            ("adjustedIncidence7Days", "double"),
+            ("adjustedLowerIncidence7Days", "double"),
+            ("adjustedUpperIncidence7Days", "double"),
         ),
         description="Daily 7-day hospitalization cases and incidence per German federal state, including reporting-delay adjusted values. One row per state and day. Full refresh.",
     ),

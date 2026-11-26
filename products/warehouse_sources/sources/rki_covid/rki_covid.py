@@ -138,7 +138,7 @@ _PARSERS = {
 }
 
 
-def _drop_null_double_columns(rows: Iterator[dict[str, Any]], columns: tuple[str, ...]) -> Iterator[dict[str, Any]]:
+def _drop_null_typed_columns(rows: Iterator[dict[str, Any]], columns: frozenset[str]) -> Iterator[dict[str, Any]]:
     for row in rows:
         yield {k: v for k, v in row.items() if not (v is None and k in columns)}
 
@@ -154,8 +154,8 @@ def get_rows(
 
     body = _fetch(session, build_url(config, history_days))
     rows = parser(body, config)
-    if config.double_columns:
-        rows = _drop_null_double_columns(rows, config.double_columns)
+    if config.null_column_types:
+        rows = _drop_null_typed_columns(rows, frozenset(name for name, _ in config.null_column_types))
     row_count = 0
     for batch in batched(rows, ROW_BATCH_SIZE, strict=False):
         row_count += len(batch)
@@ -174,7 +174,7 @@ def rki_covid_source(
         name=endpoint,
         items=lambda: get_rows(endpoint=endpoint, history_days=history_days, logger=logger),
         primary_keys=config.primary_keys,
-        column_hints=dict.fromkeys(config.double_columns, "double") or None,
+        column_hints=dict(config.null_column_types) or None,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
