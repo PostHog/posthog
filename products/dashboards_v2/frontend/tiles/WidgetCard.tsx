@@ -65,6 +65,7 @@ export function WidgetCard({
     widgets,
     actions = [],
     editable = false,
+    setConfig,
 }: {
     widget: ContentWidget
     /** The widget types the page can show. The card renders the one that `widget.type` names. */
@@ -73,6 +74,8 @@ export function WidgetCard({
     actions?: MenuAction[]
     /** Marks where the card is dragged by. */
     editable?: boolean
+    /** Lets a widget that edits in place, such as text, save its config. Left out, the widget is read-only. */
+    setConfig?: (config: unknown) => void
 }): JSX.Element {
     const definition = findWidget(widgets, widget.type)
     const slots = widgetSlots(definition)
@@ -124,7 +127,7 @@ export function WidgetCard({
                     <TileMenuButton className="TileHoverReveal dash-WidgetCard__float-toolbar" />
                 )}
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                    <WidgetView widget={widget} definition={definition} />
+                    <WidgetView widget={widget} definition={definition} setConfig={setConfig} />
                 </CardContent>
                 {showFooter && (
                     // The grid's drag cancel selector lists this class, so a tile dragged by its body never starts a drag here.
