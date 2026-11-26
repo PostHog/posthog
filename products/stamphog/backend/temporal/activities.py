@@ -2771,6 +2771,9 @@ def _only_a_human_can_approve(parsed: ReviewerVerdict) -> bool:
 
     A deny on migrations alone is excluded: a rerun of the `Migration risk` check at the same head can lift it.
     """
+    if parsed.verdict not in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE):
+        # A WAIT on a pending check that can lift the deny re-reviews once the check reports.
+        return False
     gates = [g for g in parsed.gate_result.get("gates") or [] if isinstance(g, dict)]
     failed = {g.get("gate") for g in gates if not g.get("passed", True)}
     return bool(failed) and failed <= _PATH_DENY_GATES and _deny_categories(parsed) != ["migrations"]

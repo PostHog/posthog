@@ -3901,9 +3901,9 @@ def test_post_verdict_stamps_digest_audience_only_at_approved_head(
         assert pull_request.summary_line == run.change_summary
 
 
-def _path_denied_engine_output(deny_categories: list[str]) -> str:
+def _path_denied_engine_output(deny_categories: list[str], verdict: str = "REFUSED") -> str:
     payload = {
-        "final_verdict": "REFUSED",
+        "final_verdict": verdict,
         "gates": [
             {"gate": "size", "passed": True, "message": "within ceiling"},
             {"gate": "deny-list", "passed": False, "message": "matches: infra_cicd"},
@@ -3913,6 +3913,9 @@ def _path_denied_engine_output(deny_categories: list[str]) -> str:
         "review_body": "Refused by stamphog.",
     }
     return json.dumps(payload)
+
+
+_REFUSED_HEADLINE = "**Not approved — this change needs a human reviewer.**"
 
 
 def _size_refused_engine_output() -> str:
@@ -3925,29 +3928,51 @@ def _size_refused_engine_output() -> str:
 
 
 @pytest.mark.parametrize(
-    "engine_output, trigger, expect_hint",
+    "engine_output, trigger, expect_hint, expect_headline",
     [
-        pytest.param(_refused_engine_output(), "label", "Add the `stamphog` label", id="reviewer-refusal"),
+        pytest.param(
+            _refused_engine_output(), "label", "Add the `stamphog` label", _REFUSED_HEADLINE, id="reviewer-refusal"
+        ),
         # A re-review of the same files refuses again, so the review must not invite one.
         pytest.param(
-            _path_denied_engine_output(["infra_cicd", "migrations"]), "label", "gives the same result", id="path-deny"
+            _path_denied_engine_output(["infra_cicd", "migrations"]),
+            "label",
+            "gives the same result",
+            _REFUSED_HEADLINE,
+            id="path-deny",
         ),
         # A rerun of the Migration risk check at the same head can lift this deny.
         pytest.param(
             _path_denied_engine_output(["migrations"]),
             "label",
             "once the `Migration risk` check passes",
+            _REFUSED_HEADLINE,
             id="migrations-only",
         ),
         # A gate refusal is stored as a WAIT, so only the verdict tells it apart from a real wait.
-        pytest.param(_size_refused_engine_output(), "label", "Add the `stamphog` label", id="size-refusal"),
+        pytest.param(
+            _size_refused_engine_output(), "label", "Add the `stamphog` label", _REFUSED_HEADLINE, id="size-refusal"
+        ),
+        # A deny that a pending check can lift waits for that check and re-reviews when it reports.
+        pytest.param(
+            _path_denied_engine_output(["deps_toolchain"], verdict="WAIT"),
+            "label",
+            None,
+            "**Not approved yet — waiting on the conditions below.**",
+            id="pending-check-wait",
+        ),
         # A label on an admitted bot's PR starts no review, so the review must not ask for one.
-        pytest.param(_refused_engine_output(), "bot_admission", None, id="admitted-bot"),
+        pytest.param(_refused_engine_output(), "bot_admission", None, _REFUSED_HEADLINE, id="admitted-bot"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_each_non_approval_posts_its_own_review(
-    team, stamphog_chain: StamphogChain, engine_output: str, trigger: str, expect_hint: str | None
+    team,
+    stamphog_chain: StamphogChain,
+    engine_output: str,
+    trigger: str,
+    expect_hint: str | None,
+    expect_headline: str,
 ) -> None:
     # Every verdict has to land in the Reviews section, the same list the approvals land in. A refusal
     # written into an edited issue comment notified nobody and sat in a different list from the
@@ -3988,7 +4013,7 @@ def test_each_non_approval_posts_its_own_review(
         # COMMENT, never REQUEST_CHANGES: declining to auto-approve must not block a human merging.
         assert review["body"]["event"] == "COMMENT"
         assert review["body"]["commit_id"] == head_sha
-        assert review["body"]["body"].startswith("**Not approved — this change needs a human reviewer.**")
+        assert review["body"]["body"].startswith(expect_headline)
         # LABEL mode strips the trigger label, so the review has to say how to ask again.
         assert (expect_hint or "") in review["body"]["body"]
         assert ("label" in review["body"]["body"]) is (expect_hint is not None)
