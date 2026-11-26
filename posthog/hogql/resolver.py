@@ -20,6 +20,7 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
 )
+from posthog.hogql.database.schema.document_embeddings import DocumentEmbeddingsTable, ModelSpecificEmbeddingTable
 from posthog.hogql.database.schema.duckdb_table_functions import (
     build_opaque_function_call_table,
     is_dangerous_table_function,
@@ -146,11 +147,17 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
 # re-executed per shard of a distributed outer scan: sharded tables, and tables on another
 # cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
 # of the outer query issue its own remote read against aux).
-_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, FlagEvaluationsTable, LogEntriesTable)
+_GLOBAL_IN_TABLES: tuple[type, ...] = (
+    EventsTable,
+    FlagEvaluationsTable,
+    LogEntriesTable,
+    ModelSpecificEmbeddingTable,
+)
 _GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
     EventsWithFlagCallsTable,
+    DocumentEmbeddingsTable,
 )
 
 
