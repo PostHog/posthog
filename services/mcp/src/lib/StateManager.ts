@@ -50,6 +50,8 @@ const AVAILABILITY_RETRY_AFTER_FAILURE_MS = 60 * 1000 // 1 minute
 const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
 const BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS = 3 * 1000
 const METRIC_CATALOG_TIMEOUT_MS = 1000
+const INBOX_FOR_YOU_COUNT_TIMEOUT_MS = 1000
+const INBOX_FOR_YOU_COUNT_CACHE_TTL_MS = 30 * 60 * 1000
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -816,6 +818,32 @@ export class StateManager {
             expectTimeouts: true,
             // A stale "no metrics" would keep agents skipping a metric saved since, so fall back to lookup.
             discardOnError: (cached) => cached?.hasMetrics === false,
+            retryAfterFailureMs: AVAILABILITY_RETRY_AFTER_FAILURE_MS,
+        })
+    }
+
+    // This cache is scoped to the credential, so the project in the key keeps one person's count from another's.
+    async getOrFetchInboxForYouCount(projectId: string): Promise<number | undefined> {
+        return this.getOrFetchCached({
+            name: 'inbox_for_you_count',
+            cacheKey: `inboxForYouCount:${projectId}` as const,
+            fetchedAtKey: `inboxForYouCountFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const { count } = await this._api.request<{ count?: unknown }>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/signals/reports/for_you_count/`,
+                    timeoutMs: INBOX_FOR_YOU_COUNT_TIMEOUT_MS,
+                    signal: AbortSignal.timeout(INBOX_FOR_YOU_COUNT_TIMEOUT_MS),
+                })
+                if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
+                    throw new Error('The inbox count response holds no count')
+                }
+                return count
+            },
+            ttlMs: INBOX_FOR_YOU_COUNT_CACHE_TTL_MS,
+            expectTimeouts: true,
+            // The exec text states the count as a fact, so no count is better than one from before a failed refresh.
+            discardOnError: () => true,
             retryAfterFailureMs: AVAILABILITY_RETRY_AFTER_FAILURE_MS,
         })
     }

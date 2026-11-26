@@ -90,7 +90,9 @@ export type State = {
     Record<PrefixedString<'businessKnowledgeContent'>, BusinessKnowledgeContent | undefined> &
     Record<PrefixedString<'businessKnowledgeContentFetchedAt'>, number | undefined> &
     Record<PrefixedString<'metricCatalog'>, MetricCatalogContent | undefined> &
-    Record<PrefixedString<'metricCatalogFetchedAt'>, number | undefined>
+    Record<PrefixedString<'metricCatalogFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'inboxForYouCount'>, number | undefined> &
+    Record<PrefixedString<'inboxForYouCountFetchedAt'>, number | undefined>
 
 export type Env = {
     /**

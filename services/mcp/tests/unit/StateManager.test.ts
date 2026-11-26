@@ -1590,6 +1590,48 @@ describe('StateManager', () => {
         })
     })
 
+    describe('getOrFetchInboxForYouCount', () => {
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('keeps a count for 30 minutes, then reads it again', async () => {
+            vi.useFakeTimers()
+            const request = vi.fn().mockResolvedValueOnce({ count: 3 }).mockResolvedValueOnce({ count: 0 })
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchInboxForYouCount('42')).toBe(3)
+            vi.advanceTimersByTime(29 * 60 * 1000)
+            expect(await stateManager.getOrFetchInboxForYouCount('42')).toBe(3)
+            vi.advanceTimersByTime(61 * 1000)
+
+            expect(await stateManager.getOrFetchInboxForYouCount('42')).toBe(0)
+            expect(request).toHaveBeenCalledWith(
+                expect.objectContaining({ path: '/api/projects/42/signals/reports/for_you_count/' })
+            )
+        })
+
+        it.each<[string, unknown]>([
+            ['a failed refresh', new Error('Synthetic inbox count failure')],
+            ['a count that is not a whole number', { count: '3' }],
+        ])('drops the cached count after %s', async (_name, refreshed) => {
+            vi.useFakeTimers()
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce({ count: 3 })
+                .mockImplementationOnce(() =>
+                    refreshed instanceof Error ? Promise.reject(refreshed) : Promise.resolve(refreshed)
+                )
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchInboxForYouCount('42')).toBe(3)
+            vi.advanceTimersByTime(30 * 60 * 1000 + 1000)
+
+            expect(await stateManager.getOrFetchInboxForYouCount('42')).toBeUndefined()
+        })
+    })
+
     describe('getOrFetchIntegrationKinds', () => {
         const projectId = '42'
 

@@ -211,6 +211,13 @@ describe('InstructionsFormatter prompt snapshots', () => {
             expected: { inboxFirstEnabled: false, inboxNudgeEnabled: true },
         },
         {
+            name: 'the nudge flag in its count variant',
+            first: false,
+            nudge: 'line-with-count',
+            tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
+            expected: { inboxFirstEnabled: false, inboxNudgeEnabled: true },
+        },
+        {
             name: 'the nudge flag in a variant that shows nothing',
             first: false,
             nudge: 'control',
@@ -315,8 +322,10 @@ describe('InstructionsFormatter prompt snapshots', () => {
             toolFeatureFlags: {
                 [MCP_EXEC_SKILLS_FEATURE_FLAG]: true,
                 [MCP_INBOX_FIRST_FLAG]: true,
-                [MCP_SELF_DRIVING_NUDGE_FLAG]: true,
+                [MCP_SELF_DRIVING_NUDGE_FLAG]: 'line-with-count',
             },
+            // More reports than the line shows, which is its longest form.
+            inboxWaitingCount: 100,
             renderUiEnabled: true,
             requestContext: { mcpConsumer: undefined },
             sessionContext: null,
@@ -331,6 +340,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
         expect(properties).toHaveProperty('context')
         expect(entry.description).toContain('### PostHog knowledge sources')
+        expect(JSON.stringify(finalEntry.inputSchema)).toContain('99+ reports waiting there')
         expect(inputSchemaSize).toBeLessThan(16_384)
     })
 
