@@ -1223,6 +1223,190 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksAppDraftQueriesCreateBodyRevisionMin = 0
+
+export const notebooksAppDraftQueriesCreateBodyVariablesItemNameMax = 200
+
+export const notebooksAppDraftQueriesCreateBodyLayoutTitleDefault = ``
+export const notebooksAppDraftQueriesCreateBodyLayoutTitleMax = 256
+
+export const notebooksAppDraftQueriesCreateBodyLayoutDescriptionDefault = ``
+export const notebooksAppDraftQueriesCreateBodyLayoutDescriptionMax = 2000
+
+export const notebooksAppDraftQueriesCreateBodyLayoutFullWidthDefault = false
+export const notebooksAppDraftQueriesCreateBodyLayoutTabsItemIdMax = 80
+
+export const notebooksAppDraftQueriesCreateBodyLayoutTabsItemTitleMax = 80
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemIdMax = 80
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTabIdMax = 80
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTitleDefault = ``
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTitleMax = 256
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemWidthDefault = 12
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemWidthMax = 12
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemNodeIdDefault = ``
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemNodeIdMax = 160
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTextDefault = ``
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTextMax = 20000
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemVariableDefault = ``
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemVariableMax = 80
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemInputKindDefault = `auto`
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemOptionsItemMax = 1000
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemOptionsMax = 100
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemMinDefault = 0
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemMaxDefault = 100
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemStepDefault = 1
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemStepMin = 0.000001
+
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemDisplayDefault = `output`
+
+export const NotebooksAppDraftQueriesCreateBody = /* @__PURE__ */ zod.object({
+    revision: zod.number().min(notebooksAppDraftQueriesCreateBodyRevisionMin),
+    variables: zod.array(
+        zod
+            .object({
+                name: zod
+                    .string()
+                    .max(notebooksAppDraftQueriesCreateBodyVariablesItemNameMax)
+                    .describe('Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'),
+                type: zod
+                    .string()
+                    .describe(
+                        "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
+                    ),
+                value: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
+                    ),
+            })
+            .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
+    ),
+    layout: zod.object({
+        title: zod
+            .string()
+            .max(notebooksAppDraftQueriesCreateBodyLayoutTitleMax)
+            .default(notebooksAppDraftQueriesCreateBodyLayoutTitleDefault)
+            .describe('App title, falling back to the notebook title.'),
+        description: zod
+            .string()
+            .max(notebooksAppDraftQueriesCreateBodyLayoutDescriptionMax)
+            .default(notebooksAppDraftQueriesCreateBodyLayoutDescriptionDefault)
+            .describe('Description displayed below the app title.'),
+        full_width: zod
+            .boolean()
+            .default(notebooksAppDraftQueriesCreateBodyLayoutFullWidthDefault)
+            .describe('Use all available width instead of a centered page.'),
+        tabs: zod
+            .array(
+                zod.object({
+                    id: zod
+                        .string()
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutTabsItemIdMax)
+                        .describe('Stable tab identifier.'),
+                    title: zod
+                        .string()
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutTabsItemTitleMax)
+                        .describe('Tab label.'),
+                })
+            )
+            .describe('Ordered app tabs.'),
+        blocks: zod
+            .array(
+                zod.object({
+                    id: zod
+                        .string()
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemIdMax)
+                        .describe('Stable component identifier within the app.'),
+                    kind: zod
+                        .enum(['cell', 'text', 'input', 'divider'])
+                        .describe(
+                            '\* `cell` - Notebook cell\n\* `text` - Text\n\* `input` - Input\n\* `divider` - Divider'
+                        )
+                        .describe(
+                            'Type of app component.\n\n\* `cell` - Notebook cell\n\* `text` - Text\n\* `input` - Input\n\* `divider` - Divider'
+                        ),
+                    tab_id: zod
+                        .string()
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTabIdMax)
+                        .describe('Tab containing this component.'),
+                    title: zod
+                        .string()
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTitleMax)
+                        .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTitleDefault)
+                        .describe('Optional component title.'),
+                    width: zod
+                        .number()
+                        .min(1)
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemWidthMax)
+                        .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemWidthDefault)
+                        .describe('Width in a twelve-column grid.'),
+                    node_id: zod
+                        .string()
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemNodeIdMax)
+                        .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemNodeIdDefault)
+                        .describe('Source notebook cell ID.'),
+                    text: zod
+                        .string()
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTextMax)
+                        .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTextDefault)
+                        .describe('Markdown for a text component.'),
+                    variable: zod
+                        .string()
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemVariableMax)
+                        .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemVariableDefault)
+                        .describe('Notebook variable controlled by an input.'),
+                    input_kind: zod
+                        .enum(['auto', 'select', 'slider'])
+                        .describe('\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider')
+                        .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemInputKindDefault)
+                        .describe(
+                            'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider'
+                        ),
+                    options: zod
+                        .array(zod.string().max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemOptionsItemMax))
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemOptionsMax)
+                        .optional()
+                        .describe('Allowed values for a dropdown.'),
+                    min: zod
+                        .number()
+                        .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemMinDefault)
+                        .describe('Slider minimum.'),
+                    max: zod
+                        .number()
+                        .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemMaxDefault)
+                        .describe('Slider maximum.'),
+                    step: zod
+                        .number()
+                        .min(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemStepMin)
+                        .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemStepDefault)
+                        .describe('Slider increment.'),
+                    display: zod
+                        .enum(['output', 'source', 'both'])
+                        .describe('\* `output` - Output\n\* `source` - Source\n\* `both` - Source and output')
+                        .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemDisplayDefault)
+                        .describe(
+                            'Whether to display cell source, output, or both.\n\n\* `output` - Output\n\* `source` - Source\n\* `both` - Source and output'
+                        ),
+                })
+            )
+            .describe('Ordered components, arranged in rows within each tab.'),
+    }),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksAppPreviewCreateBodyTitleDefault = ``
 export const notebooksAppPreviewCreateBodyTitleMax = 256
 

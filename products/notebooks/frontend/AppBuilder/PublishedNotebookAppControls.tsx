@@ -50,28 +50,37 @@ export function PublishedNotebookAppControls({
 
     return (
         <div className="flex flex-wrap items-center gap-3 mb-4">
-            <span className="text-secondary">
-                {release.published_at
-                    ? 'Published ' + new Date(release.published_at).toLocaleString()
-                    : 'Published app'}
-            </span>
-            <ResultTimestamp updatedAt={results?.updatedAt} publishedAsOf={release.results_as_of} />
-            <LemonButton size="small" to={urls.notebook(shortId)}>
-                Open notebook
-            </LemonButton>
-            {canEditNotebook && !isTemplate && (
-                <LemonButton size="small" to={urls.notebook(shortId) + '?view=builder'}>
-                    App builder
-                </LemonButton>
+            {viewer.draft ? (
+                <span className="text-secondary">Preview filters apply only to this session.</span>
+            ) : (
+                <>
+                    <span className="text-secondary">
+                        {release.published_at
+                            ? 'Published ' + new Date(release.published_at).toLocaleString()
+                            : 'Published app'}
+                    </span>
+                    <LemonButton size="small" to={urls.notebook(shortId)}>
+                        Open notebook
+                    </LemonButton>
+                    {canEditNotebook && !isTemplate && (
+                        <LemonButton size="small" to={urls.notebook(shortId) + '?view=builder'}>
+                            App builder
+                        </LemonButton>
+                    )}
+                    <LemonButton
+                        size="small"
+                        onClick={() =>
+                            void copyToClipboard(
+                                window.location.origin + urls.notebook(shortId) + '?view=app',
+                                'App link'
+                            )
+                        }
+                    >
+                        Copy app link
+                    </LemonButton>
+                </>
             )}
-            <LemonButton
-                size="small"
-                onClick={() =>
-                    void copyToClipboard(window.location.origin + urls.notebook(shortId) + '?view=app', 'App link')
-                }
-            >
-                Copy app link
-            </LemonButton>
+            <ResultTimestamp updatedAt={results?.updatedAt} publishedAsOf={release.results_as_of} />
             {variables.length > 0 && <LemonCheckbox label="Auto-update results" checked={auto} onChange={setAuto} />}
             {(hasRefreshableOutput || variables.length > 0) && (
                 <LemonButton type="secondary" size="small" loading={busy} onClick={() => refresh(!dirty)}>

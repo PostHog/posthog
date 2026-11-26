@@ -18,6 +18,38 @@ class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):
     @patch(
         "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
     )
+    def test_draft_queries_run_unpublished_layout_without_changing_defaults(self, _flag) -> None:
+        notebook = Notebook.objects.create(
+            team=self.team,
+            created_by=self.user,
+            variables=[{"name": "region", "type": "string", "value": "All"}],
+            content=build_markdown_notebook_content('<SQLV2 nodeId="display" code="SELECT {region} AS region" />'),
+        )
+        url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/app_draft_queries/"
+        layout = {
+            "tabs": [{"id": "main", "title": "Main"}],
+            "blocks": [
+                {"id": "input", "kind": "input", "tab_id": "main", "variable": "region"},
+                {"id": "out", "kind": "cell", "tab_id": "main", "node_id": "display"},
+            ],
+        }
+        payload = {
+            "layout": layout,
+            "revision": notebook.version,
+            "variables": [{"name": "region", "type": "string", "value": "Europe"}],
+        }
+        response = self.client.post(url, payload, format="json")
+        assert response.status_code == 200, response.json()
+        [plan] = response.json()
+        assert plan["node_id"] == "display" and "Europe" in plan["query"]
+        assert self.client.post(url, {**payload, "revision": notebook.version + 1}, format="json").status_code == 409
+        notebook.refresh_from_db()
+        assert notebook.variables[0]["value"] == "All"
+        assert notebook.app_draft is None and notebook.app_published is None
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
     def test_viewer_inputs_bind_published_sources_without_writing_shared_state(self, _app_builder_enabled) -> None:
         defaults: list[dict[str, str | list[str]]] = [
             {"name": "region", "type": "string", "value": "All"},
@@ -68,6 +100,14 @@ class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):
             self.organization.members.add(user)
             self.client.force_login(user)
             assert self.client.get(notebook_url).json()["user_access_level"] == "viewer"
+            assert (
+                self.client.post(
+                    notebook_url + "app_draft_queries/",
+                    {"revision": notebook.version, "variables": [], "layout": layout},
+                    format="json",
+                ).status_code
+                == 403
+            )
             assert self.client.patch(notebook_url, {"title": "Unauthorized"}, format="json").status_code == 403
             payload = {
                 "revision": 1,

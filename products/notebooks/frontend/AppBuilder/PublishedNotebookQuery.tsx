@@ -40,14 +40,14 @@ function publishedVisualization(
     return viz
 }
 
-function rowSummary(rows: SavedRows, count: number): string {
+function rowSummary(rows: SavedRows, count: number, draft: boolean): string {
     switch (rows) {
         case 'partial':
             return `Only the first ${count} saved rows are available.`
         case 'capped':
             return `Showing ${count} saved rows, the limit for a SQL run.`
         case 'complete':
-            return 'Published result'
+            return draft ? 'Saved notebook result' : 'Published result'
     }
 }
 
@@ -67,11 +67,13 @@ export function PublishedNotebookQuery({
     pinned,
     sessionId,
     chartInputFilters,
+    draft = false,
 }: {
     cell: NotebookComponentBlockNode
     current?: ViewerOutput
     pinned?: PublishedRunResult
     sessionId: string
+    draft?: boolean
     chartInputFilters: QueryContext['chartInputFilters']
 }): JSX.Element {
     const attributes = { ...cell.props, ...getSqlV2PropsFromQueryProp(cell.props) }
@@ -85,7 +87,11 @@ export function PublishedNotebookQuery({
         return <LemonBanner type="info">The saved result is unavailable.</LemonBanner>
     }
     if (!output) {
-        return <LemonBanner type="info">No published result for this cell.</LemonBanner>
+        return (
+            <LemonBanner type="info">
+                {draft ? 'No saved notebook result for this cell.' : 'No published result for this cell.'}
+            </LemonBanner>
+        )
     }
     const { result, rows } = output
     const viz = publishedVisualization(
@@ -108,7 +114,7 @@ export function PublishedNotebookQuery({
                     embedded
                 />
             </div>
-            {!current && <small className="text-secondary">{rowSummary(rows, result.results.length)}</small>}
+            {!current && <small className="text-secondary">{rowSummary(rows, result.results.length, draft)}</small>}
         </div>
     )
 }

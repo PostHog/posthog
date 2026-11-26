@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     NotebookApi,
+    NotebookAppDraftQueryRequestApi,
     NotebookAppLayoutApi,
     NotebookAppReleaseApi,
     NotebookAppReleaseReviewApi,
@@ -468,6 +469,27 @@ export const notebooksActivityRetrieve = async (
     return apiMutator<void>(getNotebooksActivityRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksAppDraftQueriesCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_draft_queries/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppDraftQueriesCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookAppDraftQueryRequestApi: NotebookAppDraftQueryRequestApi,
+    options?: RequestInit
+): Promise<NotebookAppViewerQueryApi[]> => {
+    return apiMutator<NotebookAppViewerQueryApi[]>(getNotebooksAppDraftQueriesCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookAppDraftQueryRequestApi),
     })
 }
 

@@ -75,6 +75,7 @@ from products.notebooks.backend.analytics import (
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
 from products.notebooks.backend.facade.app_releases import (
+    plan_draft_queries,
     plan_viewer_queries,
     read_published_run_rows,
     read_release,
@@ -309,7 +310,14 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
         extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
 
+class NotebookAppCellDependenciesSerializer(serializers.Serializer):
+    node_id = serializers.CharField()
+    dataframe = serializers.CharField()
+    upstream = serializers.ListField(child=serializers.CharField())
+
+
 class NotebookAppReleaseReviewSerializer(serializers.Serializer):
+    dependencies = NotebookAppCellDependenciesSerializer(many=True, required=False)
     has_previous = serializers.BooleanField()
     problems = serializers.ListField(child=serializers.CharField())
     results_as_of = serializers.DateTimeField(allow_null=True)
@@ -326,6 +334,10 @@ class NotebookAppWidgetSlotSerializer(serializers.Serializer):
     node_id = serializers.CharField()
     version_id = serializers.UUIDField()
     slot = serializers.CharField()
+
+
+class NotebookAppDraftQueryRequestSerializer(NotebookAppViewerRequestSerializer):
+    layout = NotebookAppLayoutSerializer()
 
 
 class NotebookAppViewerQuerySerializer(serializers.Serializer):
@@ -904,7 +916,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         throttles = super().get_throttles()
         if self.action == "create":
             return [*throttles, NotebookCreateBurstThrottle(), NotebookCreateSustainedThrottle()]
-        if self.action == "app_queries":
+        if self.action in ("app_queries", "app_draft_queries"):
             return [*throttles, NotebookAppQueryBurstThrottle(), NotebookAppQuerySustainedThrottle()]
         if self.action in ("kernel_start", "kernel_restart"):
             return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
@@ -952,6 +964,29 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         params.is_valid(raise_exception=True)
         inputs = {v["name"]: v.get("value") for v in params.validated_data["variables"]}
         plans = plan_viewer_queries(notebook.team_id, notebook.pk, params.validated_data["revision"], inputs)
+        return Response(NotebookAppViewerQuerySerializer(plans, many=True).data)
+
+    @extend_schema(
+        request=NotebookAppDraftQueryRequestSerializer, responses=NotebookAppViewerQuerySerializer(many=True)
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_draft_queries",
+        pagination_class=None,
+        filter_backends=[],
+        required_scopes=["notebook:write", "query:read"],
+    )
+    def app_draft_queries(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        self._require_query_access()
+        params = NotebookAppDraftQueryRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        data = params.validated_data
+        inputs = {v["name"]: v.get("value") for v in data["variables"]}
+        plans = plan_draft_queries(notebook.team_id, notebook.pk, data["revision"], data["layout"], inputs)
         return Response(NotebookAppViewerQuerySerializer(plans, many=True).data)
 
     def _get_notebook_for_kernel(self) -> Notebook:

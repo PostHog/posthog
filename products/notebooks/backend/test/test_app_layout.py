@@ -251,6 +251,7 @@ class TestNotebookAppLayout(APIBaseTest):
         notebook.save(update_fields=["content"])
         preview = self.client.post(url + "app_preview/", layout, format="json").json()
         assert preview["problems"] == [] and preview["results_as_of"]
+        assert preview["dependencies"][0]["node_id"] == "proof"
         assert self.client.patch(url, {"app_revision": 0, "app_published": layout}, format="json").status_code == 200
         release = self.client.get(url + "app_release/").json()
         assert release["results_as_of"] == preview["results_as_of"]

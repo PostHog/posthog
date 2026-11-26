@@ -23,6 +23,8 @@ import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { NotebookAppInspector } from './NotebookAppInspector'
 import { notebookAppLogic } from './notebookAppLogic'
 import { NotebookAppPalette } from './NotebookAppPalette'
+import { NotebookAppPublicationChecks } from './NotebookAppPublicationChecks'
+import PublishedNotebookApp from './PublishedNotebookApp'
 
 export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
@@ -37,6 +39,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
     const {
         layout,
         savedNotebook,
+        markdownEditorValue,
         savedNotebookLoading,
         error,
         preview,
@@ -78,7 +81,6 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
         loadApp,
         unpublishApp,
         checkRelease,
-        restoreRelease,
     } = useActions(logic)
     useEffect(() => {
         if (preview && !isRunning && !sourceSavingReason) {
@@ -136,6 +138,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             <LemonButton
                                 type="secondary"
                                 size="small"
+                                disabledReason={preview ? undefined : sourceSavingReason}
                                 onClick={() => setPreview(!preview)}
                                 data-attr="notebook-app-preview"
                             >
@@ -231,65 +234,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                     {error}
                 </LemonBanner>
             )}
-            {preview && (
-                <section className="border rounded p-3 mb-4" aria-label="Publication checks">
-                    <div className="flex flex-wrap gap-2 items-center justify-between">
-                        <strong>
-                            {releaseReviewLoading
-                                ? 'Checking sources…'
-                                : releaseReview?.problems.length
-                                  ? 'Resolve these issues before publishing'
-                                  : releaseReview
-                                    ? 'Ready to publish'
-                                    : 'Publication checks'}
-                        </strong>
-                        <div className="flex flex-wrap gap-2">
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                disabledReason={
-                                    sourceSavingReason ||
-                                    (releaseReviewLoading || isRunning ? 'A check or run is in progress.' : undefined)
-                                }
-                                onClick={() => checkRelease(layout)}
-                            >
-                                Check again
-                            </LemonButton>
-                            {releaseReview?.has_previous && (
-                                <LemonButton
-                                    size="small"
-                                    disabledReason={
-                                        savedNotebookLoading ? 'Wait for the app to finish saving.' : undefined
-                                    }
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: 'Restore the previous release?',
-                                            description:
-                                                'Viewers will see the preceding release. You can keep editing your current draft.',
-                                            primaryButton: { children: 'Restore release', onClick: restoreRelease },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }
-                                >
-                                    Restore previous release
-                                </LemonButton>
-                            )}
-                        </div>
-                    </div>
-                    {releaseReview?.problems.length ? (
-                        <ul className="my-2">
-                            {releaseReview.problems.map((problem, index) => (
-                                <li key={index}>{problem}</li>
-                            ))}
-                        </ul>
-                    ) : null}
-                    {releaseReview?.results_as_of && (
-                        <p className="text-secondary mb-0">
-                            Oldest displayed result ran {new Date(releaseReview.results_as_of).toLocaleString()}.
-                        </p>
-                    )}
-                </section>
-            )}
+            {preview && <NotebookAppPublicationChecks shortId={shortId} sourceSavingReason={sourceSavingReason} />}
             {isRunning && (
                 <LemonBanner type="info" className="mb-4">
                     {progressLabel || 'Updating notebook results…'}
@@ -313,105 +258,123 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                     AI updated this app. Your local changes have been kept.
                 </LemonBanner>
             )}
-            <fieldset disabled={savedNotebookLoading} className="border-0 p-0 m-0 min-w-0">
-                <div className={editing ? 'NotebookAppBuilder__workspace' : ''}>
-                    {editing && (
-                        <NotebookAppPalette
-                            cells={cells}
-                            variables={variables}
-                            onAdd={addBlock}
-                            onAddCell={addCell}
-                            onUseNotebook={useNotebookLayout}
-                        />
-                    )}
-                    <main className={cn('min-w-0', !layout.full_width && 'NotebookAppBuilder__page')}>
-                        <div className="mb-4">
-                            <h1 className="mb-2">{layout.title || notebook?.title || 'Untitled app'}</h1>
-                            {layout.description && <p className="text-secondary">{layout.description}</p>}
-                            {!editing && canEditNotebook && !isTemplate && (
-                                <NotebookRunAllButton type="secondary" size="small" />
-                            )}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 mb-4">
-                            <LemonTabs
-                                activeKey={selectedTab}
-                                onChange={selectTab}
-                                tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
-                            />
-                            {editing && (
-                                <LemonMenu
-                                    items={[
-                                        {
-                                            label: 'Add tab',
-                                            icon: <IconPlus />,
-                                            disabledReason: layout.tabs.length >= 20 ? 'Maximum 20 tabs' : undefined,
-                                            onClick: addTab,
-                                        },
-                                        {
-                                            label: 'Remove tab',
-                                            status: 'danger',
-                                            disabledReason:
-                                                layout.tabs.length <= 1 ? 'Keep at least one tab' : undefined,
-                                            onClick: () => removeTab(selectedTab),
-                                        },
-                                    ]}
-                                >
-                                    <LemonButton size="xsmall" aria-label="Tab actions">
-                                        •••
-                                    </LemonButton>
-                                </LemonMenu>
-                            )}
-                        </div>
+            {preview ? (
+                <PublishedNotebookApp
+                    key={notebook?.version ?? savedNotebook.version}
+                    shortId={shortId}
+                    draft={{
+                        revision: notebook?.version ?? savedNotebook.version ?? 0,
+                        title: savedNotebook.title || '',
+                        markdown: markdownEditorValue,
+                        variables,
+                        layout,
+                        published_at: null,
+                        results_as_of: null,
+                        has_previous: false,
+                    }}
+                />
+            ) : (
+                <fieldset disabled={savedNotebookLoading} className="border-0 p-0 m-0 min-w-0">
+                    <div className={editing ? 'NotebookAppBuilder__workspace' : ''}>
                         {editing && (
-                            <LemonInput
-                                className="mb-4"
-                                size="small"
-                                aria-label="Tab name"
-                                value={layout.tabs.find((tab) => tab.id === selectedTab)?.title ?? ''}
-                                maxLength={80}
-                                onChange={(title) =>
-                                    changeLayout({
-                                        ...layout,
-                                        tabs: layout.tabs.map((tab) =>
-                                            tab.id === selectedTab ? { ...tab, title } : tab
-                                        ),
-                                    })
-                                }
+                            <NotebookAppPalette
+                                cells={cells}
+                                variables={variables}
+                                onAdd={addBlock}
+                                onAddCell={addCell}
+                                onUseNotebook={useNotebookLayout}
                             />
                         )}
-                        <NotebookAppCanvas
-                            layout={layout}
-                            activeTab={selectedTab}
-                            cells={cells}
-                            staleNodeIds={staleNodeIds}
-                            variables={variables}
-                            editing={editing}
-                            selectedId={selectedBlockId}
-                            canInteract={canEditNotebook && !isTemplate}
-                            onSelect={selectBlock}
-                            onMove={moveBlock}
-                            onMoveBy={moveBlockBy}
-                            onDuplicate={duplicateBlock}
-                            onRemove={removeBlock}
-                            onSource={openSource}
-                            onInput={setInputValue}
-                            onCellOutput={updateCellOutput}
-                        />
-                    </main>
-                    {editing && (
-                        <NotebookAppInspector
-                            layout={layout}
-                            block={selectedBlock}
-                            cells={cells}
-                            variables={variables}
-                            onLayout={changeLayout}
-                            onBlock={updateBlock}
-                            onClose={() => selectBlock(null)}
-                            onSource={openSource}
-                        />
-                    )}
-                </div>
-            </fieldset>
+                        <main className={cn('min-w-0', !layout.full_width && 'NotebookAppBuilder__page')}>
+                            <div className="mb-4">
+                                <h1 className="mb-2">{layout.title || notebook?.title || 'Untitled app'}</h1>
+                                {layout.description && <p className="text-secondary">{layout.description}</p>}
+                                {!editing && canEditNotebook && !isTemplate && (
+                                    <NotebookRunAllButton type="secondary" size="small" />
+                                )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 mb-4">
+                                <LemonTabs
+                                    activeKey={selectedTab}
+                                    onChange={selectTab}
+                                    tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
+                                />
+                                {editing && (
+                                    <LemonMenu
+                                        items={[
+                                            {
+                                                label: 'Add tab',
+                                                icon: <IconPlus />,
+                                                disabledReason:
+                                                    layout.tabs.length >= 20 ? 'Maximum 20 tabs' : undefined,
+                                                onClick: addTab,
+                                            },
+                                            {
+                                                label: 'Remove tab',
+                                                status: 'danger',
+                                                disabledReason:
+                                                    layout.tabs.length <= 1 ? 'Keep at least one tab' : undefined,
+                                                onClick: () => removeTab(selectedTab),
+                                            },
+                                        ]}
+                                    >
+                                        <LemonButton size="xsmall" aria-label="Tab actions">
+                                            •••
+                                        </LemonButton>
+                                    </LemonMenu>
+                                )}
+                            </div>
+                            {editing && (
+                                <LemonInput
+                                    className="mb-4"
+                                    size="small"
+                                    aria-label="Tab name"
+                                    value={layout.tabs.find((tab) => tab.id === selectedTab)?.title ?? ''}
+                                    maxLength={80}
+                                    onChange={(title) =>
+                                        changeLayout({
+                                            ...layout,
+                                            tabs: layout.tabs.map((tab) =>
+                                                tab.id === selectedTab ? { ...tab, title } : tab
+                                            ),
+                                        })
+                                    }
+                                />
+                            )}
+                            <NotebookAppCanvas
+                                layout={layout}
+                                activeTab={selectedTab}
+                                cells={cells}
+                                staleNodeIds={staleNodeIds}
+                                variables={variables}
+                                editing={editing}
+                                selectedId={selectedBlockId}
+                                canInteract={canEditNotebook && !isTemplate}
+                                onSelect={selectBlock}
+                                onMove={moveBlock}
+                                onMoveBy={moveBlockBy}
+                                onDuplicate={duplicateBlock}
+                                onRemove={removeBlock}
+                                onSource={openSource}
+                                onInput={setInputValue}
+                                onCellOutput={updateCellOutput}
+                            />
+                        </main>
+                        {editing && (
+                            <NotebookAppInspector
+                                layout={layout}
+                                block={selectedBlock}
+                                cells={cells}
+                                variables={variables}
+                                onLayout={changeLayout}
+                                onBlock={updateBlock}
+                                onClose={() => selectBlock(null)}
+                                onSource={openSource}
+                            />
+                        )}
+                    </div>
+                </fieldset>
+            )}
         </div>
     )
 }

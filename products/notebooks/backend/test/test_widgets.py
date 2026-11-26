@@ -961,6 +961,43 @@ class TestWidgetData(APIBaseTest):
         self.notebook.save(update_fields=["app_published"])
         assert plan_viewer_queries(self.team.id, self.notebook.pk, 0, {"region": "Europe"}) == []
 
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_draft_widget_resolves_only_its_declared_dataframe_without_a_release(self, _flag) -> None:
+        instance = self._mapping()
+        self.notebook.variables = [{"name": "region", "type": "string", "value": "All"}]
+        self.notebook.content = markdown_content(
+            f'<SQLV2 nodeId="points" code="SELECT {{region}} AS region" returnVariable="{self.INPUT_NAME}" />\n\n'
+            '<SQLV2 nodeId="hidden" code="SELECT 1" returnVariable="hidden_rows" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.save(update_fields=["variables", "content"])
+        layout = {
+            "tabs": [{"id": "main", "title": "Main"}],
+            "blocks": [
+                {"id": "filter", "tab_id": "main", "kind": "input", "variable": "region"},
+                {"id": "map", "tab_id": "main", "kind": "cell", "node_id": self.NODE_ID},
+            ],
+        }
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/app_draft_queries/"
+        payload = {
+            "layout": layout,
+            "revision": self.notebook.version,
+            "variables": [{"name": "region", "type": "string", "value": "Europe"}],
+        }
+        response = self.client.post(url, payload, format="json")
+        assert response.status_code == 200, response.json()
+        [plan] = response.json()
+        assert plan["node_id"] == "points" and "Europe" in plan["query"]
+        assert plan["widget_slots"] == [
+            {"node_id": self.NODE_ID, "slot": self.INPUT_NAME, "version_id": str(self._pinned_version(instance).id)}
+        ]
+        layout["blocks"].pop()
+        assert self.client.post(url, payload, format="json").json() == []
+        self.notebook.refresh_from_db()
+        assert self.notebook.app_published is None and self.notebook.variables[0]["value"] == "All"
+
     def test_frame_is_whitelisted_and_bounded(self) -> None:
         self._run()
         self._mapping()

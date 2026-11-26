@@ -78164,6 +78164,19 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookAppCellDependencies {
+      node_id: string;
+      dataframe: string;
+      upstream: string[];
+    }
+
+    export interface NotebookAppDraftQueryRequest {
+      /** @minimum 0 */
+      revision: number;
+      variables: NotebookVariable[];
+      layout: NotebookAppLayout;
+    }
+
     export interface NotebookAppRelease {
       revision: number;
       /** @nullable */
@@ -78178,6 +78191,7 @@ export namespace Schemas {
     }
 
     export interface NotebookAppReleaseReview {
+      dependencies?: NotebookAppCellDependencies[];
       has_previous: boolean;
       problems: string[];
       /** @nullable */
