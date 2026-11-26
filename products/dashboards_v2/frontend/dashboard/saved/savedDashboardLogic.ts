@@ -193,7 +193,7 @@ export interface savedDashboardLogicMeta {
         conflictChanges: (
             conflict: BoardConflict | null,
             dashboard: Dashboard | null,
-            sizeOf: any
+            sizeOf: SizeOf
         ) => {
             theirs: string[]
             yours: string[]
