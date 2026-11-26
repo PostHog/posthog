@@ -1004,6 +1004,8 @@ describe('RequestStateResolver MCP client contexts', () => {
 
         expect(result.useSingleExec).toBe(true)
         expect(result.gatewayToolsEnabled).toBe(enabled)
+        // The inbox instructions line reads the origin from the state to leave out runs that PostHog started.
+        expect(result.taskOriginProduct).toBe(overrides.taskOriginProduct)
     })
 
     it('keeps Store connections on individual tools without nested connectors', async () => {
