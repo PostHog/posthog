@@ -2,7 +2,7 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
-from products.warehouse_sources.sources.sdk import IncrementalField, incremental_field
+from products.warehouse_sources.sources.sdk import IncrementalField, ParamLocation, incremental_field
 
 HIGHLEVEL_BASE_URL = "https://services.leadconnectorhq.com"
 
@@ -78,12 +78,16 @@ class HighLevelEndpointConfig:
     page_size: int = 100
     location_param: LocationParam = LocationParam.QUERY
     offset_param: str = "offset"
+    # Where the offset paginator sends its offset and limit. "json" puts them in a POST body.
+    page_param_location: ParamLocation = "query"
     total_path: str | None = None
     extra_params: dict[str, str] = dataclasses.field(default_factory=dict)
     partition_key: str | None = None
     incremental_fields: list[IncrementalField] = dataclasses.field(default_factory=list)
     incremental_filter: IncrementalFilter | None = None
     fan_out: FanOut | None = None
+    # A field copied into the first primary key column when a row lacks it.
+    primary_key_fallback: str | None = None
 
 
 def _messages_endpoint(name: str, extra_params: dict[str, str]) -> HighLevelEndpointConfig:
@@ -152,6 +156,17 @@ CALENDARS = HighLevelEndpointConfig(
     data_selector="calendars",
     pagination=Pagination.SINGLE,
     scope="calendars.readonly",
+)
+
+PRODUCTS = HighLevelEndpointConfig(
+    name="products",
+    path="/products/",
+    data_selector="products",
+    pagination=Pagination.OFFSET,
+    scope="products.readonly",
+    primary_keys=("_id",),
+    total_path="total[0].total",
+    partition_key="createdAt",
 )
 
 # The sub-account itself. It is not a table: the users route needs the agency (company) ID, and
@@ -257,16 +272,7 @@ HIGHLEVEL_ENDPOINTS: dict[str, HighLevelEndpointConfig] = {
         _payments_endpoint("transactions", "/payments/transactions", "payments/transactions.readonly"),
         _payments_endpoint("orders", "/payments/orders", "payments/orders.readonly"),
         _payments_endpoint("subscriptions", "/payments/subscriptions", "payments/subscriptions.readonly"),
-        HighLevelEndpointConfig(
-            name="products",
-            path="/products/",
-            data_selector="products",
-            pagination=Pagination.OFFSET,
-            scope="products.readonly",
-            primary_keys=("_id",),
-            total_path="total[0].total",
-            partition_key="createdAt",
-        ),
+        PRODUCTS,
         HighLevelEndpointConfig(
             name="workflows",
             path="/workflows/",
@@ -325,6 +331,43 @@ HIGHLEVEL_ENDPOINTS: dict[str, HighLevelEndpointConfig] = {
             location_param=LocationParam.NONE,
             partition_key="dateAdded",
             fan_out=FanOut(parent=CONTACTS, child_field="contactId"),
+        ),
+        HighLevelEndpointConfig(
+            name="tasks",
+            path="/locations/{location_id}/tasks/search",
+            method="post",
+            data_selector="tasks",
+            pagination=Pagination.OFFSET,
+            scope="locations/tasks.readonly",
+            location_param=LocationParam.PATH,
+            offset_param="skip",
+            page_param_location="json",
+            # The task search spec documents no row shape. The contact task routes name the key `id`,
+            # and other location routes return `_id`, so either one fills the key.
+            primary_key_fallback="_id",
+        ),
+        HighLevelEndpointConfig(
+            name="estimates",
+            path="/invoices/estimate/list",
+            data_selector="estimates",
+            pagination=Pagination.OFFSET,
+            scope="invoices/estimate.readonly",
+            primary_keys=("_id",),
+            location_param=LocationParam.ALT_ID,
+            total_path="total",
+            partition_key="createdAt",
+        ),
+        _payments_endpoint("coupons", "/payments/coupon/list", "payments/coupons.readonly"),
+        HighLevelEndpointConfig(
+            name="product_prices",
+            path="/products/{parent_id}/price",
+            data_selector="prices",
+            pagination=Pagination.OFFSET,
+            scope="products/prices.readonly",
+            primary_keys=("product", "_id"),
+            total_path="total",
+            partition_key="createdAt",
+            fan_out=FanOut(parent=PRODUCTS, parent_field="_id", child_field="product"),
         ),
     )
 }
