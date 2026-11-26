@@ -73,12 +73,6 @@ class DeliveryError(Exception):
             self.reason = reason
 
 
-def failure_reason(error: BaseException) -> FailureReason:
-    if isinstance(error, DeliveryError):
-        return error.reason
-    return "unexpected"
-
-
 class DeliveryAmbiguous(DeliveryError):
     """The whole request was sent and no answer came back, so the provider may have posted it.
 

@@ -28,11 +28,11 @@ from products.alerts_platform.backend.delivery.transport import (
     DeliveryTransport,
     DestinationMisconfigured,
     DestinationRefused,
+    FailureReason,
     MessageHandle,
     RefusedEverywhere,
     RootEditor,
     RootImageEditor,
-    failure_reason,
 )
 from products.alerts_platform.backend.facade.contracts import (
     NO_LATE_IMAGE,
@@ -270,7 +270,7 @@ def count_failed_send(source: str, provider: str, error: Exception, count: int =
         outcome = "misconfigured"
     else:
         outcome = "failed"
-    reason = failure_reason(error)
+    reason: FailureReason = error.reason if isinstance(error, DeliveryError) else "unexpected"
     final = outcome != "failed" or _no_activity_retry_follows()
     safe_record(
         increment_deliveries,
