@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { Context } from '@/core/context'
 
 import { AGENTS_FILE, blockStage } from './agents-md'
+import type { ProductId } from './products'
 import type { DoneStep, EventsContext, SetupInput, SetupResult } from './result'
 import { completed, SetupRun, type Step } from './setup-run'
 import { readState, setupScope, STEP_IDS, type StepId } from './state'
@@ -13,7 +14,7 @@ import { agentsMd } from './steps/04-agents-md'
 import { install } from './steps/05-install'
 import { review } from './steps/06-review'
 import { countEvents, eventsContext, verify } from './steps/07-verify'
-import { ADD_SKILLS, products } from './steps/08-products'
+import { products } from './steps/08-products'
 import { mcp } from './steps/09-mcp'
 import { connected } from './steps/10-connected'
 
@@ -67,30 +68,69 @@ const READ_PROXY = 'hog skills read instrument-reverse-proxy'
 const CONNECTED =
     'PostHog is set up in this folder. The PostHog section in `AGENTS.md` lists the commands for later PostHog work.'
 const NO_EVENTS = "PostHog hasn't received any events yet. Run the app and use it, then run `hog setup` to check again."
-const TELL_USER = `At the end of your turn, tell the user what else PostHog can do, from \`context.products\`, and which skills named in \`context.skills\` they can add with \`${ADD_SKILLS}\`. \`hog skills search <words>\` describes the skills that match.`
 const SUGGEST_PROXY = `If the app uses posthog-js and its \`api_host\` is still a PostHog host, also tell the user that a reverse proxy sends PostHog's browser requests through the app's own domain, so events, feature flags, and surveys keep loading where requests to PostHog's domains are blocked, and that \`${READ_PROXY}\` sets one up. Don't set one up unless they ask: it can need a DNS change and an organization admin.`
 
-// Only the call that finishes setup has the lists, and a person at a terminal sees them printed.
-function doneInstructions(run: SetupRun, events: EventsContext | undefined): string {
-    const finishedForAgent = run.ctx.prompts === undefined && run.done.some(({ step }) => step === 'connected')
+const SKILL_WORDS: Partial<Record<ProductId, string>> = {
+    'session-replay': 'replay',
+    'feature-flags': 'flag',
+    experiments: 'experiment',
+    surveys: 'survey',
+    'error-tracking': 'error',
+    'llm-analytics': 'llm',
+    logs: 'log',
+    'web-analytics': 'web-analytics',
+    'data-warehouse': 'warehouse',
+}
+const MAX_SKILLS = 4
+const MAX_OTHER_PRODUCTS = 5
 
-    const { mcp } = run.context
-    const tellMcp =
-        !finishedForAgent || !mcp || mcp.configured
-            ? ''
-            : mcp.foreign
-              ? `Also tell the user that the \`posthog\` MCP server in \`${mcp.foreign.path}\` points at another server, and that \`${mcp.command}\` replaces it with PostHog's.`
-              : `Also tell the user they can connect PostHog's MCP server with \`${mcp.command}\`.`
+// The wrap-up the agent sends as it is, so the person gets every part of it whatever the agent's style.
+function doneMessage(run: SetupRun, events: EventsContext | undefined): string {
+    const { context, state } = run
+    const chosen = state?.products ?? []
+    const products = context.products ?? []
+    const skills = context.skills ?? []
+    const region = context.host === undefined ? '' : ` on ${context.host}`
+
+    const suggested = chosen
+        .flatMap((id) => {
+            const word = SKILL_WORDS[id]
+            return word ? skills.filter((skill) => skill.id.includes(word)).slice(0, 2) : []
+        })
+        .slice(0, MAX_SKILLS)
+    const others = products.filter((product) => !product.chosen).slice(0, MAX_OTHER_PRODUCTS)
+    const { mcp } = context
 
     return [
-        CONNECTED,
-        events?.count === 0 ? NO_EVENTS : '',
-        finishedForAgent ? TELL_USER : '',
-        finishedForAgent ? SUGGEST_PROXY : '',
-        tellMcp,
+        `PostHog is set up in this app, in project ${context.projectId ?? 'unknown'}${region}.`,
+        events?.count === 0
+            ? "PostHog hasn't received any events from the app yet. Start the app and click around a few pages, then run `hog setup` to check again."
+            : events?.count
+              ? `PostHog has received ${events.count} events since setup started.`
+              : '',
+        others.length > 0
+            ? `What else PostHog can do: ${others.map((product) => `${product.label} (\`${product.command}\`)`).join(', ')}.`
+            : '',
+        suggested.length > 0
+            ? `Skills you can add for later work, with \`hog skills add <name>\`: ${suggested.map((skill) => skill.id).join(', ')}. \`hog skills search <words>\` finds more.`
+            : 'Find skills for later work with `hog skills search <words>`, and add them with `hog skills add <name>`.',
+        mcp?.foreign
+            ? `The \`posthog\` MCP server in \`${mcp.foreign.path}\` points at another server. \`${mcp.command}\` replaces it with PostHog's.`
+            : mcp && !mcp.configured
+              ? `Connect PostHog's MCP server to your coding agent with \`${mcp.command}\`.`
+              : '',
     ]
         .filter(Boolean)
-        .join(' ')
+        .join('\n')
+}
+
+// Only the call that finishes setup has the lists, and a person at a terminal sees them printed.
+function finishedForAgent(run: SetupRun): boolean {
+    return run.ctx.prompts === undefined && run.done.some(({ step }) => step === 'connected')
+}
+
+function doneInstructions(events: EventsContext | undefined): string {
+    return [CONNECTED, events?.count === 0 ? NO_EVENTS : ''].filter(Boolean).join(' ')
 }
 
 // Once connected, `hog setup` reports the folder instead of a step.
@@ -109,10 +149,13 @@ async function connectedResult(run: SetupRun): Promise<SetupResult> {
         done,
         context,
         next: context.loggedIn
-            ? {
-                  kind: 'done',
-                  instructions: doneInstructions(run, events),
-              }
+            ? finishedForAgent(run)
+                ? {
+                      kind: 'done',
+                      instructions: `PostHog is set up. End your turn with a short summary of what you changed in the app, then send the user \`next.message\` as it is. ${SUGGEST_PROXY}`,
+                      message: doneMessage(run, events),
+                  }
+                : { kind: 'done', instructions: doneInstructions(events) }
             : {
                   kind: 'run',
                   command: 'hog auth login',

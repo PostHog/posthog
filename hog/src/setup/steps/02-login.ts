@@ -4,13 +4,12 @@ import {
     resumeApproval,
     reusablePending,
     runApproval,
-    SIGN_UP_INSTRUCTIONS,
     type ApprovalFlow,
     type ApprovalResult,
     type PendingResult,
 } from '@/core/approval'
 import type { Context } from '@/core/context'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, EXIT_USAGE, HogError } from '@/core/errors'
 import type { AccessKey } from '@/posthog/access-key'
 import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import { LOGIN_SCOPES, type PendingLogin } from '@/posthog/device-auth'
@@ -31,16 +30,29 @@ function regionNote(host: Host, picked: SetupState['hostPicked'], named: boolean
         return ''
     }
 
-    const using =
-        picked === 'default'
-            ? `hog defaults to ${current.label} (${current.hint})`
-            : `hog uses ${current.label} (${current.hint}), where they last logged in`
-    return ` Tell the user ${using}. If they want their data hosted in ${other.label}, or their account is on ${other.hint}, they shouldn't open the link and should tell you instead. Then run \`${SETUP_COMMAND} --region ${other.value}\`. End your turn after telling them, and run \`${SETUP_COMMAND}\` once they reply that they approved.`
+    const where = picked === 'default' ? '' : ', where you last logged in'
+    return `This uses PostHog ${current.label} (${current.hint})${where}. If your account is on ${other.hint}, or your data has to stay in ${other.value === 'eu' ? 'the EU' : 'the US'}, don't open the link. Tell me instead, and I'll switch to ${other.label}.`
+}
+
+function userMessage(url: string, code: string | null, project: string, region: string): string {
+    return [
+        `To connect this app to PostHog, open this link${code ? ` and approve the code ${code}` : ''}:`,
+        url,
+        "If you don't have a PostHog account yet, you can sign up on that page first.",
+        project,
+        region,
+        "Tell me once you've approved it.",
+    ]
+        .filter(Boolean)
+        .join('\n')
 }
 
 function waitingStop(pending: PendingResult, projectId: ProjectId | undefined, region: string): Stop {
-    const { url, code, expiresAt, next, instructions } = pending
-    const project = projectId === undefined ? '' : ` Tell them to pick project ${projectId} on that page.`
+    const { url, code, expiresAt, next } = pending
+    const project = projectId === undefined ? '' : `Pick project ${projectId} on that page.`
+    const switchTo = region
+        ? ` If they ask for the other region, run \`${SETUP_COMMAND} --region <us|eu>\` and send the new message.`
+        : ''
 
     return {
         code: 'setup_login_pending',
@@ -50,7 +62,8 @@ function waitingStop(pending: PendingResult, projectId: ProjectId | undefined, r
             url,
             code,
             expiresAt,
-            instructions: `${instructions}${project}${region}`,
+            message: userMessage(url, code, project, region),
+            instructions: `Send the user \`next.message\` as it is, with the full link, then end your turn. When they say they approved, run \`${SETUP_COMMAND}\`.${switchTo}`,
         },
     }
 }
@@ -69,19 +82,40 @@ async function switchRegion(run: SetupRun, named: boolean): Promise<void> {
     )
 }
 
+// An agent's tool call times out after a few minutes, so an agent waits for this long at most and then
+// gets the same link back to ask about again.
+const AGENT_WAIT_MS = 90_000
+
+const REJECTED_HINT = `Don't install PostHog without the login, and don't write a placeholder token. Tell the user the login was rejected in the browser, so PostHog isn't set up, and that \`${SETUP_COMMAND}\` gives them a new link when they want to try again. Then end your turn.`
+
 // An agent's first call gets the link, and its next call waits for that link. A person at the
 // terminal waits in `runApproval`.
 async function approve(
     ctx: Context,
     flow: ApprovalFlow<PendingLogin, OAuthLogin>
 ): Promise<ApprovalResult<OAuthLogin>> {
-    const waiting = !ctx.prompts && (await reusablePending(ctx.runtime, flow, 0)) !== undefined
-    if (!waiting) {
+    const pending = ctx.prompts ? undefined : await reusablePending(ctx.runtime, flow, 0)
+    if (!pending) {
         return runApproval(ctx, flow)
     }
 
-    const { value } = await resumeApproval(ctx, flow)
-    return { status: 'approved', value }
+    try {
+        const { value } = await resumeApproval(ctx, { ...flow, maxWaitMs: AGENT_WAIT_MS })
+        return { status: 'approved', value }
+    } catch (error) {
+        if (error instanceof HogError && error.code === 'login_still_pending') {
+            return pendingResult(flow, pending)
+        }
+        if (error instanceof HogError && error.code === 'login_rejected') {
+            throw new HogError(
+                'setup_login_rejected',
+                'The login was rejected in the browser.',
+                REJECTED_HINT,
+                EXIT_NEEDS_PERSON
+            )
+        }
+        throw error
+    }
 }
 
 // posthog.json comes with the repository, so a login to another project must not rename its project.
@@ -123,7 +157,7 @@ export const login: Step = {
                 ? waitingStop(pendingResult(flow, pending), projectId, region)
                 : runNext(
                       'setup_login_needed',
-                      `Run \`${SETUP_COMMAND}\` to get a login link for ${host}, and ask the user to open it. ${SIGN_UP_INSTRUCTIONS}${region}`
+                      `Run \`${SETUP_COMMAND}\` to get a login link for ${host}, then send the user the message it returns.`
                   )
         }
 
