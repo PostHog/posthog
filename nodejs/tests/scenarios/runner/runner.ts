@@ -742,9 +742,9 @@ export function createRunner(
                 enter('judge')
                 probed = await probes.stop()
                 sampled = await sampler.stop()
+                await live.stop()
                 dependencies = await health.stop()
                 alerted = await alerting?.finish(driveWindow, valves.timeline())
-                await live.stop()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
                 const checked = await judge.check(
                     card.invariants,
@@ -860,14 +860,14 @@ export function createRunner(
                 judging.abort()
                 await pendingJudgments()
                 await valves.releaseAll()
-                if (alerting && alerted === undefined) {
-                    alerted = await alerting.finish(driveFrom ?? { startedAt: Date.now() }, valves.timeline())
-                    outcome = { ...outcome, alerts: alerted.coverage }
-                }
                 dependencies = (await health?.stop()) ?? dependencies
                 probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled
                 await live.stop()
+                if (alerting) {
+                    alerted ??= await alerting.finish(driveFrom ?? { startedAt: Date.now() }, valves.timeline())
+                    outcome = { ...outcome, alerts: alerted.coverage }
+                }
                 try {
                     await opened.close()
                 } catch (error) {

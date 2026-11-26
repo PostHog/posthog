@@ -13,6 +13,7 @@ const SCRAPE_INTERVAL_MS = 5000
 const NEVER_EVALUATED = 'vmalert did not evaluate it during the run'
 const COMPARISON = /(>=|<=|==|!=|>|<)\s*(?:bool\s+)?(-?[0-9.]+(?:e[+-]?[0-9]+)?)/gi
 const POLLS_PER_INTERVAL = 4
+const QUOTED = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`[^`]*`/g
 
 export type AlertState = 'pending' | 'firing' | 'resolved'
 
@@ -72,6 +73,7 @@ const VmAlert = z.object({
     annotations: Labels.optional(),
 })
 const VmRule = z.object({
+    id: z.string(),
     name: z.string(),
     query: z.string(),
     duration: z.number(),
@@ -101,9 +103,10 @@ function withoutExcluded(file: string, exclude: string[]): { rules: string; excl
 }
 
 function thresholdOf(query: string): AlertTransition['threshold'] {
-    const comparisons = [...query.matchAll(COMPARISON)]
+    const unquoted = query.replace(QUOTED, '""')
+    const comparisons = [...unquoted.matchAll(COMPARISON)]
     const [only] = comparisons
-    return comparisons.length === 1 && query.slice(only.index + only[0].length).trim() === ''
+    return comparisons.length === 1 && unquoted.slice(only.index + only[0].length).trim() === ''
         ? { op: only[1], value: Number(only[2]) }
         : undefined
 }
@@ -164,7 +167,7 @@ function sinceOf(at: number, drive: { startedAt: number }, timeline: readonly Va
     }
 }
 
-function recordAlerts(engine: Engine, since: number, excluded: string[], options: AlertsOptions): Alerts {
+export function recordAlerts(engine: Engine, since: number, excluded: string[], options: AlertsOptions): Alerts {
     const transitions: AlertTransition[] = []
     const errors = new Map<string, string>()
     const open = new Map<string, { rule: VmRule; alert: VmAlert }>()
@@ -187,7 +190,7 @@ function recordAlerts(engine: Engine, since: number, excluded: string[], options
                 errors.delete(rule.name)
             }
             for (const alert of rule.alerts ?? []) {
-                const key = JSON.stringify([rule.name, alert.id])
+                const key = JSON.stringify([rule.id, alert.id])
                 const was = open.get(key)?.alert.state
                 seen.add(key)
                 if (was === undefined && (alert.state === 'pending' || rule.duration > 0)) {
@@ -202,7 +205,7 @@ function recordAlerts(engine: Engine, since: number, excluded: string[], options
         for (const [key, { rule, alert }] of open) {
             if (!seen.has(key)) {
                 open.delete(key)
-                const { lastEvaluation } = rules.find(({ name }) => name === rule.name) ?? rule
+                const { lastEvaluation } = rules.find(({ id }) => id === rule.id) ?? rule
                 record(transitionOf(rule, alert, 'resolved', Date.parse(lastEvaluation)))
             }
         }

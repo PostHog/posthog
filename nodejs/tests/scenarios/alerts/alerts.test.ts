@@ -7,7 +7,8 @@ import { setTimeout as sleep } from 'timers/promises'
 import { parse, stringify } from 'yaml'
 
 import { PROFILES_DIR } from '../cards'
-import { AlertLine, AlertTransition, startAlerts } from './alerts'
+import { AlertLine, AlertTransition, recordAlerts, startAlerts } from './alerts'
+import { Engine } from './engine'
 import { selectorsOf } from './selectors'
 
 const ENGINE_MS = 120_000
@@ -99,7 +100,7 @@ describe('alerts on a scenario run', () => {
                     rules: [
                         {
                             alert: 'SyntheticQueueDeepWarning',
-                            expr: 'max by (pod, environment) (synthetic_queue_depth{namespace="synthetic-ns"}) > 10',
+                            expr: 'max by (pod, environment) (synthetic_queue_depth{namespace="synthetic-ns", queue!="a>1"}) > 10',
                             for: '2s',
                             labels: { severity: 'warning' },
                             annotations: { runbook_url: 'https://example.com/runbook' },
@@ -232,6 +233,51 @@ describe('alerts on a scenario run', () => {
         },
         ENGINE_MS
     )
+
+    it('keeps the transitions it recorded when the final read fails', async () => {
+        const at = new Date().toISOString()
+        const firing = {
+            data: {
+                groups: [
+                    {
+                        interval: 1,
+                        rules: [
+                            {
+                                id: '1',
+                                name: 'SyntheticQueueDeep',
+                                query: 'synthetic_queue_depth > 10',
+                                duration: 0,
+                                lastError: '',
+                                lastEvaluation: at,
+                                alerts: [{ id: '2', state: 'firing', activeAt: at, value: '50', labels: {} }],
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+        let reads = 0
+        const engine: Engine = {
+            alerting: () => (reads++ === 0 ? Promise.resolve(firing) : Promise.reject(new Error('vmalert went away'))),
+            metrics: () => Promise.reject(new Error('vmalert went away')),
+            stop: () => Promise.resolve(),
+        }
+        const transitions = transitionsSeen()
+        const alerts = recordAlerts(engine, Math.floor(Date.now() / 1000), [], {
+            alerts: { rules: 'rules.yaml', labels: 'labels.yaml', exclude: [] },
+            targets: [],
+            onTransition: transitions.record,
+            pollMs: 10,
+        })
+        await transitions.reach('firing')
+
+        const { lines, coverage } = await alerts.finish({ startedAt: Date.parse(at) }, [])
+
+        expect(lines).toEqual([
+            expect.objectContaining({ type: 'transition', rule: 'SyntheticQueueDeep', state: 'firing', value: 50 }),
+        ])
+        expect(coverage).toEqual({ unread: 'the alert read failed: vmalert went away' })
+    })
 })
 
 describe('selectorsOf', () => {

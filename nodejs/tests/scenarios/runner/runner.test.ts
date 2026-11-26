@@ -21,7 +21,7 @@ import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
 import { Client } from 'pg'
-import { Registry, collectDefaultMetrics } from 'prom-client'
+import { Counter, Registry, collectDefaultMetrics, register } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import { ProxyAgent } from 'undici'
 import { stringify } from 'yaml'
@@ -95,6 +95,8 @@ const withSettings = (settings: Record<string, string>): LoadedCard => ({
 // The loader refuses an email claim target of 500 a second at a 2x step on the default SES limiter.
 const SES_ROOM = { CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '2200', CDP_SES_RATE_LIMIT_CAPACITY: '500' }
 
+const SES_SENDS = 'cdp_ses_send_results_total'
+
 let processMetrics: { url: string; server: http.Server }
 let janitor: { scrapes: number; resetsAfterFirstScrape: number }
 
@@ -105,7 +107,10 @@ beforeAll(async () => {
         const resets = req.url?.includes('role=cdp-cyclotron-v2-janitor')
             ? [`cdp_cyclotron_v2_janitor_stalled ${janitor.scrapes++ === 0 ? 0 : janitor.resetsAfterFirstScrape}`]
             : []
-        res.end([await registry.metrics(), ...resets].join('\n'))
+        const sends = req.url?.includes('role=cdp-cyclotron-worker-email')
+            ? [await register.getSingleMetricAsString(SES_SENDS)]
+            : []
+        res.end([await registry.metrics(), ...sends, ...resets].join('\n'))
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     processMetrics = { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/_metrics`, server }
@@ -1764,7 +1769,7 @@ describe('runner through seed, drive and judge', () => {
                         rules: [
                             {
                                 alert: 'SyntheticEmailSent',
-                                expr: 'sum by (environment) (cdp_ses_send_results_total{environment="synthetic-env"}) > 0',
+                                expr: `sum by (environment) (${SES_SENDS}{environment="synthetic-env"}) > 0`,
                             },
                             { alert: 'SyntheticNeedsMissingSeries', expr: 'sum(synthetic_lost_total) > 0' },
                         ],
@@ -1782,6 +1787,7 @@ describe('runner through seed, drive and judge', () => {
         const cardPath = path.join(cacheHome, 'card.yaml')
         writeFileSync(cardPath, stringify(card))
         const loaded = load(cardPath, { profilePath })
+        ;(register.getSingleMetric(SES_SENDS) as Counter).reset()
 
         const result = await createRunner(environmentOf('all'), env, {
             topologyWithinMs: 1000,
