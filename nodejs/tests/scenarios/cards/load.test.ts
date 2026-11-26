@@ -1006,7 +1006,21 @@ describe('load', () => {
         expect(admission.load?.targets).toEqual(fullTraffic.load.targets)
     })
 
-    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept'])(
+    it('loads chaos-under-load with the three traffic paths, a paired verdict and counter drift as a measurement', () => {
+        const loaded = load(path.join(__dirname, 'chaos-under-load.yaml'))
+
+        expect(loaded.card.drive.traffic.map(({ name }) => name)).toEqual([
+            'event_email',
+            'event_webhook',
+            'transactional_email',
+        ])
+        expect(loaded.card.pair).toBe(true)
+        expect(pairProblemsOf(loaded, true)).toEqual([])
+        expect(loaded.card.measure.map(({ name }) => name)).toContain('counter_drift')
+        expect(loaded.card.bars).toEqual([])
+    })
+
+    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'chaos-under-load'])(
         'loads the chaos card %s on a profile with load and host admission',
         (id) => {
             const admitted = {
