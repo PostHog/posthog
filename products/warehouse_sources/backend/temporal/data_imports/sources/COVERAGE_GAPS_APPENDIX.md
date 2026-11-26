@@ -4891,10 +4891,10 @@ Note: Parsed all GET operations in the official eSignature v2.1 Swagger specific
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/docusign/OpenAPI-Specifications/master/esignature.rest.swagger-v2.1.json>
 
-- [ ] `Groups (GET /v2.1/accounts/{accountId}/groups; GET /v2.1/accounts/{accountId}/groups/{groupId}/users)` — group roster and membership, to roll envelope activity up by team for the users we sync (medium)
-- [ ] `Billing payments (GET /v2.1/accounts/{accountId}/billing_payments)` — payments made against billing invoices, to reconcile with the billing_invoices table (medium)
-- [ ] `Signing groups (GET /v2.1/accounts/{accountId}/signing_groups; GET /v2.1/accounts/{accountId}/signing_groups/{signingGroupId}/users)` — resolves signing group recipients carried on envelope_recipients to named members (medium)
-- [ ] `Account custom fields (GET /v2.1/accounts/{accountId}/custom_fields)` — definitions of the account-level envelope custom fields behind envelope_custom_fields values (low)
+- [x] `Groups (GET /v2.1/accounts/{accountId}/groups; GET /v2.1/accounts/{accountId}/groups/{groupId}/users)` — group roster and membership, to roll envelope activity up by team for the users we sync (medium)
+- [x] `Billing payments (GET /v2.1/accounts/{accountId}/billing_payments)` — payments made against billing invoices, to reconcile with the billing_invoices table (medium)
+- [x] `Signing groups (GET /v2.1/accounts/{accountId}/signing_groups; GET /v2.1/accounts/{accountId}/signing_groups/{signingGroupId}/users)` — resolves signing group recipients carried on envelope_recipients to named members (medium)
+- [x] `Account custom fields (GET /v2.1/accounts/{accountId}/custom_fields)` — definitions of the account-level envelope custom fields behind envelope_custom_fields values (low)
 - [ ] `Permission profiles (GET /v2.1/accounts/{accountId}/permission_profiles)` — resolves the permission profile on each user row (low)
 - [ ] `Brands (GET /v2.1/accounts/{accountId}/brands)` — brand lookup for brand ids stamped on envelopes and templates (low)
 - [ ] `Bulk send lists (GET /v2.1/accounts/{accountId}/bulk_send_lists)` — saved recipient lists behind bulk send batches (low)
