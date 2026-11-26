@@ -5,10 +5,11 @@ from typing import Any
 import numpy as np
 
 from posthog.dataclasses import frozen
+from posthog.tasks.alerts.detectors.normalizers import MINMAX, FitError, Normalizer, get_normalizer
 from posthog.tasks.alerts.detectors.preprocessing import preprocess_data
 
 # A change to what `fit` stores or what `score` reads needs a new version, so an older artifact is never read.
-ARTIFACT_SCHEMA_VERSION = 1
+ARTIFACT_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=False)
@@ -39,10 +40,6 @@ class DetectorArtifact:
     children: tuple["DetectorArtifact", ...] = ()
 
 
-class FitError(ValueError):
-    """The history cannot fit this detector, for example because it is too short."""
-
-
 class BaseDetector(ABC):
     """Abstract base class for all anomaly detectors.
 
@@ -62,6 +59,9 @@ class BaseDetector(ABC):
     # Higher values make the model slower to adapt to recent distribution shifts.
     DEFAULT_TRAINING_OFFSET = 1
 
+    # How raw scores map to 0 to 1 when the config sets no `normalizer`. See `normalizers.py`.
+    DEFAULT_NORMALIZER = MINMAX
+
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.preprocessing_config = config.get("preprocessing") or {}
@@ -71,6 +71,7 @@ class BaseDetector(ABC):
         self.threshold: float = self.DEFAULT_THRESHOLD if threshold is None else threshold
         window = config.get("window")
         self.window: int = self.DEFAULT_WINDOW if window is None else window
+        self.normalizer: Normalizer = get_normalizer(config.get("normalizer") or self.DEFAULT_NORMALIZER)
 
     @abstractmethod
     def detect(self, data: np.ndarray) -> DetectionResult:
@@ -162,6 +163,17 @@ class BaseDetector(ABC):
         if len(rows) < min_rows:
             raise FitError(f"{len(rows)} buckets cannot fit, {min_rows} needed")
         return rows
+
+    def _fit_normalizer(self, raw_scores: np.ndarray) -> dict[str, Any]:
+        """The normalizer fit on the raw scores of the training points. Raises ``FitError`` when they are too few.
+
+        It keeps the method name, so a stored artifact always scores with the method it was fit with.
+        """
+        return {"method": self.normalizer.name, "params": self.normalizer.fit(raw_scores, self.threshold)}
+
+    @staticmethod
+    def _normalize(fitted: dict[str, Any], raw_score: float) -> float:
+        return get_normalizer(fitted["method"]).score(fitted["params"], raw_score)
 
     def _scored_result(self, scores: list[float | None], metadata: list[dict[str, Any]]) -> DetectionResult:
         triggered = [i for i, score in enumerate(scores) if score is not None and score > self.threshold]

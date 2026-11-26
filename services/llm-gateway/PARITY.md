@@ -47,8 +47,8 @@ The desktop access gate and the Code-only per-user spend caps stay in the code, 
 The retirement also closes the gap where the `posthog_code_credits` quota check failed open: Django's quota endpoint requires `project:read`, a Code OAuth token carries only `llm_gateway:read`, so every check answered 403 and the gateway let the request through.
 
 Open-weight models added to the Python gateway under the freeze stay there for the same reason.
-`zai-org/glm-5.3-flash` is Baseten-exclusive and reachable only by the `review_hog` product.
-Its caller is ReviewHog, which uses a shared gateway key and the product model pin.
+`zai-org/glm-5.3-flash` is Baseten-exclusive and reachable only by the `posthog_code`, `review_hog` and `slack_app` products.
+Its callers are ReviewHog, which uses a shared gateway key and the product model pin, and Slack app agent runs.
 No open-weight model is behind a per-model access flag now; the mechanism stays for the next rollout.
 The Go catalog serves GLM 5.2 only, and Baseten on Go still depends on the provider deployment check below.
 `gpt-6-astra` is also Python-only because the Go catalog does not serve it, while cloud agents require the Python product policy above.

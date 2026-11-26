@@ -4,6 +4,7 @@ from typing import Any
 
 from django.db import models, transaction
 
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
@@ -20,6 +21,10 @@ class StaleScoreDefinitionVersion(Exception):
 
 
 class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+    class Scope(models.TextChoices):
+        ITEM = "item", "Item"
+        EXPERIMENT = "experiment", "Experiment"
+
     class Calculation(models.TextChoices):
         REPORTED = "reported", "Reported"
         COMPOSITE = "composite", "Composite"
@@ -34,6 +39,7 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
     short_name = models.CharField(max_length=40, blank=True, default="", db_default="")
     description = models.TextField(blank=True, default="")
     kind = models.CharField(max_length=32, choices=Kind)
+    scope = models.CharField(max_length=16, choices=Scope, default=Scope.ITEM, db_default="item")
     calculation = models.CharField(
         max_length=16, choices=Calculation, default=Calculation.REPORTED, db_default="reported"
     )
@@ -115,6 +121,10 @@ class ScoreDefinitionVersion(UUIDModel, CreatedMetaFields):
     config = models.JSONField(default=dict)
     composition = models.JSONField(null=True, blank=True)
 
+    @property
+    def formula_inputs(self) -> list[dict[str, Any]]:
+        return self.composition["inputs"] if self.composition is not None else []
+
     class Meta:
         db_table = "llm_analytics_scoredefinitionversion"
         ordering = ["-version"]
@@ -140,4 +150,17 @@ class ScoreDefinitionInput(TeamScopedRootMixin, UUIDModel):
         db_table = "llm_analytics_scoredefinitioninput"
         constraints = [
             models.UniqueConstraint(fields=["composite_version", "alias"], name="aio_composite_input_alias_uniq"),
+        ]
+
+
+class ExperimentScoreSuiteDefault(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    suite_key = models.CharField(max_length=255)
+    scorer_version = models.ForeignKey(ScoreDefinitionVersion, on_delete=models.RESTRICT, related_name="suite_defaults")
+
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "suite_key"], name="aio_experiment_score_suite_uniq"),
         ]

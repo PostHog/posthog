@@ -49,6 +49,8 @@ class TestDreamPathGuard(SimpleTestCase):
         assert store._dream_may_edit("projects/1/overview.md")
         assert store._dream_may_edit("projects/1/spaces/general.md")
         assert not store._dream_may_edit("projects/1/spaces/general.md", status="A")
+        assert store._dream_may_edit("projects/1/slack-channels/C0456EFGH.md")
+        assert not store._dream_may_edit("projects/1/slack-channels/C0456EFGH.md", status="A")
         assert not store._dream_may_edit("projects/1/spaces/general.md", status="D")
         assert not store._dream_may_edit("AGENTS.md")
         assert not store._dream_may_edit("index.md")

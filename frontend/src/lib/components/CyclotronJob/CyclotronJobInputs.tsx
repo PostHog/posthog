@@ -33,7 +33,15 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
+import {
+    Combobox,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxList,
+    ComboboxTrigger,
+} from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
@@ -666,29 +674,24 @@ function SearchableChoiceCombobox({
     // ComboboxInput rendered inside ComboboxContent so the search field stays visible on
     // open. Combobox primitive auto-scrolls the active item into view but the input lives
     // outside the scrolling list, so it doesn't get pushed offscreen.
-    const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
     const selectedLabel = choices.find((choice) => choice.value === value)?.label ?? null
 
     return (
         <Combobox
             items={choices}
+            disabled={disabled}
             itemToStringValue={(choice: SearchableChoice) => choice.label}
-            open={open}
-            onOpenChange={setOpen}
             value={choices.find((choice) => choice.value === value) ?? null}
             onValueChange={(choice: SearchableChoice | null) => onChange(choice ? choice.value : null)}
         >
-            <LemonButton
+            <ComboboxTrigger
                 ref={triggerRef}
-                type="secondary"
-                fullWidth
-                disabled={disabled}
-                onClick={() => setOpen((prev) => !prev)}
-                className="ph-no-capture"
+                showChevron={false}
+                render={<LemonButton type="secondary" fullWidth disabled={disabled} className="ph-no-capture" />}
             >
                 {selectedLabel ?? <span className="text-secondary">Select a value</span>}
-            </LemonButton>
+            </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef}>
                 <ComboboxInput placeholder="Search" showTrigger={false} />
                 <ComboboxEmpty>No items found</ComboboxEmpty>

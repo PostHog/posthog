@@ -23,7 +23,7 @@ import { StateOpener, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import type { InvocationResultsService } from '../invocation-results.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { AttachmentUploads, MessageBodySizing, SendRefusal } from '../messaging/attachment-uploads'
-import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass } from '../messaging/email-priority'
+import { EMAIL_QUEUE_PRIORITY } from '../messaging/email-priority'
 import {
     EmailSkipReason,
     EmailStatusService,
@@ -54,7 +54,6 @@ const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 const SCHEDULED_AT_FINGERPRINT_MARKER = 'scheduled_at'
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
-const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
 const RUN_SCOPE = 'transactional-email'
 export const FINGERPRINT_PURPOSE = 'transactional_email_idempotency_fingerprint'
 const ASYNC_REFUSAL_BUDGET_MS = 1_000
@@ -107,7 +106,7 @@ const transactionalEmailFingerprint = (
         ? [
               ...request,
               ACCEPTED_SEND_FINGERPRINT_MARKER,
-              { ...send, from: senderTheCallerChose(send.from) },
+              { ...send, from: senderTheCallerChose(send.from), category: send.category?.id },
               ...schedule,
           ]
         : [...request, ...schedule]
@@ -634,7 +633,7 @@ export class TransactionalSends {
         // Straight to the email queue: the flow's only step is the email, so a hop through the
         // workflow queue would only add latency to a password reset or a verification code.
         invocation.queue = 'email'
-        invocation.queuePriority = EMAIL_QUEUE_PRIORITY[PRIORITY_CLASS]
+        invocation.queuePriority = EMAIL_QUEUE_PRIORITY[send?.category?.type === 'marketing' ? 'bulk' : 'fast']
         return invocation
     }
 

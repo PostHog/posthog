@@ -85,7 +85,7 @@ def _buckets(start: datetime, interval: IntervalType, count: int) -> list[dateti
 class TestScoreSeries(SimpleTestCase):
     @parameterized.expand(
         [
-            ("default_profile", DAY_SCORING, {"mean", "std", "value", "raw_zscore"}),
+            ("default_profile", DAY_SCORING, {"mean", "std", "value", "raw_zscore", "normalizer"}),
             ("ensemble", ZSCORE_OR_KNN, {"sub_scores"}),
         ]
     )

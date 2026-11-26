@@ -401,7 +401,7 @@ export function emailDocumentFromValue(value: { html?: string | null; design?: D
         return { document: null, stale: false }
     }
     const savedHtml = typeof candidate.html === 'string' ? candidate.html : wrappedHtmlOf(value?.design)
-    // Writing in the plain text tab clears the html. The document stays, as the old editor's design does.
+    // Writing in the old editor's plain text tab clears the html. The document stays, as that editor's design does.
     if (value?.html && savedHtml !== value.html) {
         return { document: null, stale: true }
     }

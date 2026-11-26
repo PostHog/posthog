@@ -26,7 +26,8 @@ With `on_error: continue`, the next step sees the dispatch IDs, the terminal `st
 
 An AI task step can hand fields the agent produced to later steps.
 The author adds an output variable mapping with the result path `output.<name>`, for example `output.verdict` into the variable `verdict`.
-The engine sends these fields with the create request as `output_fields`, a name to type map typed after the workflow variable (`string`, `number`, or `boolean`), with at most 20 fields.
+The engine sends these fields with the create request as `output_fields`, a name to type map typed after the workflow variable (`string`, `number`, `boolean`, or `json` for an object or a list), with at most 20 fields.
+The description of the variable that sets a field's type goes with it as `output_field_descriptions`, and the agent prompt shows it next to the field.
 The tasks API builds the schema from that map. Field names are identifiers, and the names the task result uses for itself (`final_message`, `pr_urls` and the other bookkeeping keys) are refused.
 The agent runtime enforces the schema at the end of the run, and the resume result carries the fields under `output`, ahead of the final message.
 The agent prompt names the fields and their budget: each text field is capped at 1500 characters, and the fields share the 4096 byte step result with the final message, fields first.

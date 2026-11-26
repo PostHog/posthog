@@ -29,6 +29,8 @@ rules:
       owners: team-warehouse-sources
     - match: '/data-management/schema/'
       owners: team-analytics
+    - match: '/data-management/tags/'
+      owners: team-platform-features
     - match: '/data-pipelines/'
       owners: team-workflows
     # Narrower than the rule above, which would otherwise route the batch exports
