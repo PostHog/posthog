@@ -47,6 +47,10 @@ static IMAGES: LazyLock<BTreeMap<&str, Arc<Image>>> = LazyLock::new(|| {
         .collect()
 });
 
+pub(super) fn art(slug: &str) -> Arc<Image> {
+    IMAGES.get(slug).unwrap_or(&IMAGES["wizard-1"]).clone()
+}
+
 static SIDEBAR_SPRITES: LazyLock<BTreeMap<&str, Arc<Image>>> = LazyLock::new(|| {
     [
         (

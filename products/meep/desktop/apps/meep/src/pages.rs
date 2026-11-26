@@ -193,37 +193,106 @@ pub(super) fn failure_reason(raw: &str) -> String {
     }
 }
 
-/// The "you're done here" state: a check, "Nothing needs you", and a line
-/// on why. Needs you and a skipped-only inbox both use it.
-fn all_clear(why: impl Into<SharedString>) -> Div {
+/// The "you're done here" state: a hedgehog bobbing on a pool float, and two
+/// lines on what would land here. Needs you and a skipped-only inbox both use it.
+fn all_clear(lines: [&'static str; 2], reduced: bool) -> Div {
+    const W: f32 = 240.;
+    const HOG: f32 = 112.;
+    const WATER: f32 = 104.;
+    const H: f32 = WATER + 24.;
+    const BEAT: std::time::Duration = std::time::Duration::from_millis(3600);
+    let wave = |x: f32, y: f32, w: f32, phase: f32| {
+        let at = move |el: Div, t: f32| {
+            let swell = (t * std::f32::consts::TAU).sin();
+            el.left(px(x + swell * 4.))
+                .opacity(0.55 + 0.45 * swell.abs())
+        };
+        let el = div()
+            .absolute()
+            .top(px(y))
+            .w(px(w))
+            .h(px(2.))
+            .rounded_full()
+            .bg(ui::ink(0x30));
+        if reduced {
+            at(el, phase).into_any_element()
+        } else {
+            el.with_animation(
+                SharedString::from(format!("all-clear-wave-{x}")),
+                Animation::new(BEAT).repeat(),
+                move |el, t| at(el, (t + phase) % 1.),
+            )
+            .into_any_element()
+        }
+    };
+    let hog = div()
+        .absolute()
+        .left(px((W - HOG) / 2.))
+        .top(px(WATER - HOG * 0.8))
+        .size(px(HOG))
+        .child(
+            img(super::topic_icon::art("float"))
+                .size_full()
+                .object_fit(ObjectFit::Contain),
+        );
+    let hog = if reduced {
+        hog.into_any_element()
+    } else {
+        hog.with_animation("all-clear-float", Animation::new(BEAT).repeat(), |el, t| {
+            el.mt(px((t * std::f32::consts::TAU).sin() * 3.))
+        })
+        .into_any_element()
+    };
     ui::column()
         .w_full()
         .items_center()
-        .gap(px(6.))
-        .pt(px(56.))
+        .pt(px(64.))
         .pb(px(40.))
         .child(
             div()
-                .size(px(44.))
-                .mb(px(8.))
-                .rounded_full()
-                .bg(ui::ink(0x08))
-                .flex()
-                .items_center()
-                .justify_center()
+                .relative()
+                .flex_none()
+                .w(px(W))
+                .h(px(H))
                 .child(
-                    Icon::new(Glyph::CheckCheck)
-                        .size(px(20.))
-                        .text_color(rgb(ui::theme::color(ui::SECONDARY))),
-                ),
+                    div()
+                        .absolute()
+                        .left(px((W - 120.) / 2.))
+                        .top(px(WATER - 6.))
+                        .w(px(120.))
+                        .h(px(12.))
+                        .rounded_full()
+                        .shadow(vec![BoxShadow {
+                            color: rgba(0x00000022).into(),
+                            offset: point(px(0.), px(0.)),
+                            blur_radius: px(14.),
+                            spread_radius: px(2.),
+                            inset: false,
+                        }]),
+                )
+                .child(wave(28., WATER - 10., 26., 0.))
+                .child(wave(48., WATER + 6., 16., 0.35))
+                .child(wave(W - 56., WATER - 4., 28., 0.6))
+                .child(wave(W - 74., WATER + 12., 14., 0.15))
+                .child(hog),
         )
         .child(
             div()
+                .pt(px(12.))
                 .text_size(px(15.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Nothing needs you"),
         )
-        .child(ui::caption(why.into()).max_w(px(440.)).text_center())
+        .child(
+            div()
+                .pt(px(6.))
+                .text_center()
+                .text_size(px(12.))
+                .line_height(px(17.))
+                .text_color(rgb(ui::theme::color(ui::SECONDARY)))
+                .child(div().child(lines[0]))
+                .child(div().child(lines[1])),
+        )
 }
 /// What kind of thing waits on you, as an icon on a tinted tile: a choice, a
 /// question, an approval, a run that failed, a broken connection.
@@ -958,8 +1027,11 @@ impl Desktop {
             items.push((
                 None,
                 all_clear(
-                    "Decisions, approvals and broken connections from your topics land here. \
-                     Everything else they get done on their own.",
+                    [
+                        "Your topics are getting on with things.",
+                        "When one needs a decision, an approval or a fix, it lands here.",
+                    ],
+                    cx.reduce_motion(),
                 )
                 .into_any_element(),
             ))
@@ -1404,8 +1476,11 @@ impl Desktop {
         let groups = attention_groups(&self.needs, state);
         if groups.is_empty() {
             return all_clear(
-                "Failed runs, questions and approvals from this topic show up here. \
-                 Everything else it does on its own.",
+                [
+                    "This topic is getting on with things.",
+                    "When it needs a decision, an approval or a fix, it lands here.",
+                ],
+                cx.reduce_motion(),
             );
         }
         let mut page = ui::column().w_full().gap(px(20.)).pt(px(4.)).pb(px(40.));
