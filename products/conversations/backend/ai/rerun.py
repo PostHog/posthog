@@ -21,10 +21,9 @@ from posthog.temporal.common.client import sync_connect
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.temporal.ai_reply.constants import TRIGGER_MANUAL
 
-# A run that started longer ago than this is treated as dead, so a stuck status cannot block the button forever.
+# A run older than this is treated as dead, so a stuck status cannot block new runs forever.
 STALE_RUN_AFTER = timedelta(minutes=30)
-# The key on `ai_triage` that holds a request's claim, and how long the claim blocks other requests.
-# The workflow records `in_progress` within seconds, so the claim only has to cover that gap.
+# A request's claim on the ticket. It only covers the seconds before the workflow records `in_progress`.
 CLAIM_KEY = "manual_run_claimed_at"
 CLAIM_HOLDS_FOR = timedelta(minutes=2)
 
@@ -36,13 +35,11 @@ class ManualRerunRefused(Exception):
         super().__init__(detail)
         self.error_type = error_type
         self.detail = detail
-        # True when the request was valid and the ticket's state is the reason.
         self.conflict = conflict
 
 
 def manual_rerun_workflow_id(ticket_id: str, latest_activity: datetime) -> str:
-    # The id names the ticket's state. A second request with no new message since the last run
-    # gets the same id, and Temporal refuses it, so one state costs one run.
+    # The id names the ticket's state, so Temporal refuses a second run when no new message arrived.
     return f"support-reply-{ticket_id}-m{int(latest_activity.timestamp())}"
 
 
@@ -57,8 +54,6 @@ def _is_recent(value: object, *, now: datetime, within: timedelta) -> bool:
 
 
 def _run_in_progress(triage: dict, *, now: datetime) -> bool:
-    # A request claims the ticket before its workflow records `in_progress`, so a second request
-    # in that gap sees the claim.
     if _is_recent(triage.get(CLAIM_KEY), now=now, within=CLAIM_HOLDS_FOR):
         return True
     if triage.get("status") != "in_progress":
@@ -113,8 +108,7 @@ def start_manual_rerun(ticket: Ticket, team: Team) -> str:
             "ai_rerun_unavailable", "Support AI is not turned on for this project.", conflict=False
         )
 
-    # Only a message that a customer or a teammate sent changes the ticket's state. A note that
-    # a run wrote must not, or each run would allow the next one with nothing new to read.
+    # A note that a run wrote must not count as new input, or each run would allow the next one.
     latest_message_at = (
         Comment.objects.filter(team_id=team.id, scope="conversations_ticket", item_id=str(ticket.id), deleted=False)
         .exclude(item_context__author_type="AI")

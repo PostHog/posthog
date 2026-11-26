@@ -55,9 +55,8 @@ SETTLE_EXEMPT_CHANNELS: tuple[str, ...] = (Channel.EMAIL,)
 # Scan window. Keyed on last_message_at (the same axis the settle gate uses), so a ticket stays
 # eligible until SETTLE after its *last* customer message, regardless of how long ago it was created
 # — a late follow-up can't push the settle deadline past the scan window and silently drop the
-# ticket. It must exceed SETTLE + interval + a little slack for a slow tick. It must also outlast
-# a run, because a customer message that arrives during a run starts the next run only after that
-# run finishes, and the scan must still see the ticket then.
+# ticket. It must exceed SETTLE + interval + slack for a slow tick, and outlast a run, because a
+# customer message that arrives during a run starts the next run only after that run finishes.
 TICKET_LOOKBACK_MINUTES = 10
 
 # Fanout caps so public ticket volume can't directly turn into unbounded sandbox/LLM work.
@@ -95,15 +94,13 @@ class EligibleTicket:
     team_id: int
     ticket_id: str
     clarification_round: int = 0
-    # Set when a later customer message starts another run. It names the message, so one message
-    # starts one run.
+    # Names the later customer message that starts this run, so one message starts one run.
     rerun_key: str = ""
 
 
 def _child_workflow_id(ticket_id: str, clarification_round: int = 0, rerun_key: str = "") -> str:
-    # A completed run blocks its id forever under ALLOW_DUPLICATE_FAILED_ONLY, so a run for a
-    # later customer message needs an id of its own. So does the follow-up to a question that
-    # such a run asked, because an earlier question on the ticket already used the plain round id.
+    # A completed run blocks its id under ALLOW_DUPLICATE_FAILED_ONLY, so a run for a later customer
+    # message needs its own id, and so does the follow-up to a question that such a run asked.
     if rerun_key and clarification_round >= 1:
         return f"support-reply-{ticket_id}-c{rerun_key}-r{clarification_round}"
     if rerun_key:
@@ -218,9 +215,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     candidates: list[tuple[int, str, datetime, bool, int, bool]] = []
     untriaged_ticket_ids: set[str] = set()
     forwarded_ticket_ids: set[str] = set()
-    # Triage of tickets that already had a run, for teams that run again on later customer messages.
     rerun_triage_by_ticket: dict[str, dict] = {}
-    # The message key of the run that asked the open clarifying question, when a later-message run asked it.
     asking_rerun_key_by_ticket: dict[str, str] = {}
     skipped_ticket_ids_by_result: dict[str, list[str]] = {SKIPPED_TEAM_REPLIED: [], SKIPPED_CHANNEL_EXCLUDED: []}
     # The flag is org-keyed, so evaluate it once per org per scan instead of once per ticket.
@@ -246,8 +241,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
 
         is_untriaged = not ticket.ai_triage
         triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else {}
-        # Only a finished run takes the ticket off the first-draft path. A run that failed keeps
-        # `in_progress`, and the first-draft path is what retries it under its original id.
+        # A failed run keeps `in_progress`, and only the first-draft path retries it under its id.
         if (
             settings_dict.get("ai_rerun_mode") == RERUN_MODE_UNTIL_TEAM_REPLY
             and triage.get("status") == "done"
@@ -368,7 +362,6 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
                 continue
             rerun_key = asking_rerun_key_by_ticket.get(ticket_id_str, "")
         elif rerun_triage is not None:
-            # The ticket already had a run, so the first-draft gates below do not apply to it.
             due_key = customer_reply_rerun_key(
                 triage=rerun_triage,
                 last_customer=latest_customer_msg.get(ticket_id_str),

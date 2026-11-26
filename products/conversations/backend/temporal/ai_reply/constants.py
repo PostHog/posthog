@@ -27,7 +27,6 @@ TRIGGER_FIRST_MESSAGE: RunTrigger = "first_message"
 TRIGGER_CUSTOMER_REPLY: RunTrigger = "customer_reply"
 TRIGGER_MANUAL: RunTrigger = "manual"
 
-# Values of the `ai_rerun_mode` team setting.
 RERUN_MODE_FIRST_MESSAGE = "first_message"
 RERUN_MODE_UNTIL_TEAM_REPLY = "until_team_reply"
 MAX_CLARIFYING_QUESTION_CHARS = 500

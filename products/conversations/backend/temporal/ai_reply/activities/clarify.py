@@ -37,8 +37,7 @@ def _existing_clarification(*, team_id: int, ticket_id: str, run_id: str) -> Com
         item_context__author_type="AI",
         item_context__persist_as="clarification",
     )
-    # A ticket can have several runs, and each run may ask its own question. Only a note from
-    # this run is a retry of this activity.
+    # Each run may ask its own question, so only a note from this run is a retry of this activity.
     if run_id:
         clarifications = clarifications.filter(item_context__run_id=run_id)
     return clarifications.order_by("-id").first()

@@ -65,6 +65,8 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ComposeTicketBurstThrottle,
     ComposeTicketSustainedThrottle,
+    TicketAiRerunBurstThrottle,
+    TicketAiRerunSustainedThrottle,
     TicketNoteBurstThrottle,
     TicketNoteSustainedThrottle,
 )
@@ -2229,7 +2231,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             409: OpenApiResponse(response=TicketErrorSerializer),
         },
     )
-    @action(detail=True, methods=["post"])
+    @action(
+        detail=True,
+        methods=["post"],
+        # Each accepted request starts LLM and sandbox work, and one person can reach many tickets.
+        throttle_classes=[TicketAiRerunBurstThrottle, TicketAiRerunSustainedThrottle],
+    )
     def ai_rerun(self, request, *args, **kwargs):
         """Start a new Support AI run on this ticket. Its output is a private note and is never sent to the customer."""
         ticket = self.get_object()

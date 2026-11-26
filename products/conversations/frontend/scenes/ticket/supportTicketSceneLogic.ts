@@ -1793,8 +1793,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return
             }
             lemonToast.success('Support AI is running. Its note will appear on this ticket.')
-            // The server writes the new run's state a few seconds after it starts. Until the finish time
-            // changes, a fetched "done" belongs to the earlier run.
+            // Until the finish time changes, a fetched "done" belongs to the earlier run.
             cache.aiRerunPreviousFinishedAt = ticket.ai_triage?.finished_at ?? null
             cache.aiRerunPollsLeft = AI_RERUN_MAX_POLLS
             actions.setAiTriage({ ...ticket.ai_triage, status: 'in_progress' })
@@ -1820,7 +1819,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             cache.aiTriageRefreshInFlight = true
             try {
                 const fetched = await conversationsTicketsRetrieve(String(getCurrentTeamId()), ticketId)
-                // The serializer types `ai_triage` as unknown JSON. `AITriage` is its documented shape.
                 triage = (fetched.ai_triage ?? undefined) as AITriage | undefined
             } catch {
                 return
