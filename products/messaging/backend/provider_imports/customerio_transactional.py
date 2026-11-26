@@ -18,6 +18,7 @@ from posthog.integrations import IntegrationManager
 
 from products.messaging.backend.facade.contracts import TransactionalEmailError
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.models.transactional_email_key import lock_team_keys
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
     ImportItem,
@@ -120,6 +121,8 @@ def _save_messages(
         )
     )
     existing = {key: (template_id, flow_id is not None) for key, template_id, deleted, flow_id in rows if not deleted}
+    # Held until the page commits, so a send can't add a code email key between this check and the creates below.
+    lock_team_keys(context.team_id)
     # A deleted template counts too: importing again must not bring back one someone deleted.
     taken = {row[0] for row in rows} | code_email_keys(context.team_id, keys)
 
