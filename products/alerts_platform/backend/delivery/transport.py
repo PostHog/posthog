@@ -5,7 +5,7 @@ handed. What to say is decided before this, and where to send is resolved before
 transport that gains a provider needs no change anywhere else.
 """
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Final, Literal, Protocol, runtime_checkable
 
 from posthog.dataclasses import frozen
 
@@ -28,8 +28,55 @@ class MessageHandle:
     root_content: dict[str, Any] | None = None
 
 
+FailureReason = Literal[
+    "unreachable",
+    "answer_lost",
+    "rate_limited",
+    "provider_error",
+    "refused",
+    "destination_config",
+    "blocked_address",
+    "rejected_body",
+    "provider_refused",
+    "platform_read",
+    "platform_config",
+    "platform_bug",
+    "unexpected",
+]
+FailureOwner = Literal["transient", "destination", "posthog"]
+
+FAILURE_OWNERS: Final[dict[FailureReason, FailureOwner]] = {
+    "unreachable": "transient",
+    "answer_lost": "transient",
+    "rate_limited": "transient",
+    "provider_error": "transient",
+    "refused": "destination",
+    "destination_config": "destination",
+    "blocked_address": "destination",
+    "rejected_body": "posthog",
+    "provider_refused": "posthog",
+    "platform_read": "posthog",
+    "platform_config": "posthog",
+    "platform_bug": "posthog",
+    "unexpected": "posthog",
+}
+
+
 class DeliveryError(Exception):
-    """A send the provider refused. The caller decides whether to retry."""
+    """The caller decides whether to retry."""
+
+    reason: FailureReason = "unexpected"
+
+    def __init__(self, message: str, *, reason: FailureReason | None = None) -> None:
+        super().__init__(message)
+        if reason is not None:
+            self.reason = reason
+
+
+def failure_reason(error: BaseException) -> FailureReason:
+    if isinstance(error, DeliveryError):
+        return error.reason
+    return "unexpected"
 
 
 class DeliveryAmbiguous(DeliveryError):
@@ -40,12 +87,16 @@ class DeliveryAmbiguous(DeliveryError):
     dispatch records this send as delivered rather than repeating it.
     """
 
+    reason: FailureReason = "answer_lost"
+
 
 class DestinationMisconfigured(DeliveryError):
     """A refusal that only the destination's owner can fix, such as a channel the bot is not in.
 
     The platform did its part, so its own reliability metrics count this apart from a failure.
     """
+
+    reason: FailureReason = "destination_config"
 
     def __init__(self, problem: str, *, remedy: str) -> None:
         super().__init__(problem)
@@ -63,6 +114,8 @@ class DestinationRefused(DestinationMisconfigured):
     later attempt can get past. A 4xx that rejects the body PostHog built is PostHog's fix, not the
     owner's. Slack names its own refusals, such as a channel the app is not in.
     """
+
+    reason: FailureReason = "refused"
 
     def __init__(self, refusal: str, *, remedy: str = CHECK_THE_URL) -> None:
         super().__init__(refusal, remedy=remedy)

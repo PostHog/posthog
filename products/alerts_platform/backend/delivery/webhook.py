@@ -122,9 +122,11 @@ class WebhookTransport(WebhookUrlTransport):
         try:
             scheme = urlsplit(url).scheme
         except ValueError:
-            raise DeliveryError("This webhook destination's URL is not a valid URL.") from None
+            raise DeliveryError(
+                "This webhook destination's URL is not a valid URL.", reason="destination_config"
+            ) from None
         if scheme != "https":
-            raise DeliveryError("This webhook destination's URL must use https.")
+            raise DeliveryError("This webhook destination's URL must use https.", reason="destination_config")
 
     def body_for(self, message: AlertMessage) -> dict[str, Any]:
         if self._legacy_body is not None:

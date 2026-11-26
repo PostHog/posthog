@@ -34,6 +34,7 @@ from products.alerts_platform.backend.delivery.transport import (
     DeliveryAmbiguous,
     DeliveryError,
     DestinationRefused,
+    FailureReason,
     MessageHandle,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -216,13 +217,31 @@ _MISCONFIGURED_ERRORS: Final = {
     ),
 }
 
+_TRANSIENT_ERRORS: Final[dict[str, FailureReason]] = {
+    "ratelimited": "rate_limited",
+    "internal_error": "provider_error",
+    "fatal_error": "provider_error",
+    "service_unavailable": "provider_error",
+    "request_timeout": "provider_error",
+}
+
+
+def _unrefused_reason(error: SlackApiError, code: Any) -> FailureReason:
+    # A response that is not JSON carries no Slack code, only text the SDK makes from the body.
+    status = getattr(error.response, "status_code", None)
+    if status == 429:
+        return "rate_limited"
+    if status is not None and status >= 500:
+        return "provider_error"
+    return _TRANSIENT_ERRORS.get(code, "provider_refused")
+
 
 def _slack_refusal(error: SlackApiError, refused: str) -> DeliveryError:
     """The code stays in the text, so a refusal can be searched for in the worker's logs."""
     code = error.response.get("error")
     misconfigured = _MISCONFIGURED_ERRORS.get(code)
     if misconfigured is None:
-        return DeliveryError(f"Slack refused the {refused}: {code}")
+        return DeliveryError(f"Slack refused the {refused}: {code}", reason=_unrefused_reason(error, code))
     explanation, remedy = misconfigured
     return DestinationRefused(f"Slack refused the {refused}: {code}. {explanation}", remedy=remedy)
 
@@ -306,7 +325,9 @@ class SlackTransport:
         workspace_id = target.get("slack_workspace_id")
         channel = target.get("slack_channel_id")
         if workspace_id is None or channel is None:
-            raise DeliveryError("This Slack destination is missing its workspace or channel.")
+            raise DeliveryError(
+                "This Slack destination is missing its workspace or channel.", reason="destination_config"
+            )
 
         slack = SlackIntegration(
             self._integration(team_id=team_id, workspace_id=workspace_id),
@@ -342,13 +363,17 @@ class SlackTransport:
             raise _slack_refusal(error, "message") from error
         except (OSError, HTTPException) as error:
             if not _maybe_posted(error):
-                raise
+                raise DeliveryError(
+                    f"Slack could not be reached: {type(error).__name__}", reason="unreachable"
+                ) from error
             raise DeliveryAmbiguous(
                 f"Slack's answer was lost, so the message may have posted: {type(error).__name__}"
             ) from error
         timestamp = response.get("ts")
         if not timestamp:
-            raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")
+            raise DeliveryError(
+                "Slack accepted the message but returned no timestamp to reply to.", reason="provider_error"
+            )
         root_content = None
         if in_reply_to is None:
             root_content = {"blocks": content.blocks, "text": content.text}
@@ -466,4 +491,6 @@ class SlackTransport:
         try:
             return IntegrationManager.slack.oauth.get(team_id, workspace_id)
         except IntegrationNotFound as error:
-            raise DeliveryError("The Slack workspace for this alert is not connected.") from error
+            raise DeliveryError(
+                "The Slack workspace for this alert is not connected.", reason="destination_config"
+            ) from error

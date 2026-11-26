@@ -78,7 +78,9 @@ class DiscordTransport(WebhookUrlTransport):
 
     def check_url(self, url: str) -> None:
         # The URL shape the HogFunction template accepts, so no destination that works today is refused.
-        refused = DeliveryError("This Discord destination's URL is not a Discord webhook URL.")
+        refused = DeliveryError(
+            "This Discord destination's URL is not a Discord webhook URL.", reason="destination_config"
+        )
         if has_authority_bypass_chars(url):
             raise refused
         try:
