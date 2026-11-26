@@ -10,6 +10,7 @@ import { defaultConfig } from '../src/common/config/config'
 import { StallingValkeyProxy } from '../src/common/redis/_tests/stalling-valkey-proxy'
 import { PluginServer } from '../src/server'
 import { PluginServerMode } from '../src/types'
+import { assertTestDatabaseName } from './helpers/database-guard'
 import { waitForExpect } from './helpers/expectations'
 import { ServiceProcess, getFreePort } from './helpers/service-process'
 import { resetTestDatabase } from './helpers/sql'
@@ -71,6 +72,8 @@ describe('server', () => {
         const pool = new Pool({ connectionString: dbUrl })
         let id: string | undefined
         try {
+            const { rows: databases } = await pool.query('SELECT current_database() AS name')
+            assertTestDatabaseName(databases[0].name, 'Cyclotron node Postgres')
             await manager.connect()
             ;[id] = await manager.bulkCreateJobs([
                 { teamId: 1, queueName: queue, functionId: uuidv7(), scheduled: new Date(), state: null },
