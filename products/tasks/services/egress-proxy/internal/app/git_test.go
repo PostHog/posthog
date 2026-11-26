@@ -280,6 +280,49 @@ func TestProxyGitFailuresStayClosed(t *testing.T) {
 	}
 }
 
+func TestGitCapabilityChallenge(t *testing.T) {
+	f := newGitFixture(t)
+	token := f.capability(t, f.signer, "initial")
+	client := f.client(t, &f.relayCert)
+	for _, tc := range []struct {
+		name, user, password, path string
+		duplicate                  bool
+		status                     int
+	}{
+		{"challenge", "", "", "/v1/git/example/repo.git/info/refs?service=git-upload-pack", false, 401},
+		{"capability", "egress", token, "/v1/git/example/repo.git/info/refs?service=git-upload-pack", false, 200},
+		{"upstream credential", "egress", "synthetic-github-token", "/v1/git/example/repo.git/info/refs?service=git-upload-pack", false, 401},
+		{"wrong username", "x-access-token", token, "/v1/git/example/repo.git/info/refs?service=git-upload-pack", false, 401},
+		{"duplicate auth", "egress", token, "/v1/git/example/repo.git/info/refs?service=git-upload-pack", true, 401},
+		{"other operation", "egress", token, "/v1/probe", false, 401},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, f.endpoint+tc.path, nil)
+			if tc.user != "" {
+				request.SetBasicAuth(tc.user, tc.password)
+			}
+			if tc.duplicate {
+				request.Header.Add("Authorization", "Bearer "+token)
+			}
+			response, err := client.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			_, _ = io.Copy(io.Discard, response.Body)
+			if response.StatusCode != tc.status {
+				t.Fatalf("status=%d, want=%d", response.StatusCode, tc.status)
+			}
+			if tc.status == 401 && strings.HasPrefix(tc.path, "/v1/git/") && response.Header.Get("WWW-Authenticate") != `Basic realm="agent-egress"` {
+				t.Fatal("Git cannot request a capability without a challenge")
+			}
+		})
+	}
+	if f.upstreams.Load() != 1 {
+		t.Fatalf("unexpected upstream request count: %d", f.upstreams.Load())
+	}
+}
+
 func TestProxyGitTruncatedResponseAndAuditFailure(t *testing.T) {
 	f := newGitFixture(t)
 	f.truncate.Store(true)
