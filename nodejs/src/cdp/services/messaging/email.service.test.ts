@@ -78,6 +78,7 @@ import {
     EmailService,
     EmailServiceConfig,
     formatMailbox,
+    jobLeaseMsFor,
     parseAddressList,
     parseTierCaps,
     sanitizeEmailSubject,
@@ -204,6 +205,25 @@ describe('sendDeadlineMsFor', () => {
         ['empty files, under a small-send deadline past the largest', 0, 45_000, 50_000],
     ])('gives a send with %s its deadline', (_case, fileBytes, deadlineMs, smallestMs) => {
         expect(sendDeadlineMsFor(fileBytes, smallestMs)).toBe(deadlineMs)
+    })
+})
+
+describe('jobLeaseMsFor', () => {
+    it('ends every job lease before the janitor may release the job, and after half the stall timeout', () => {
+        const stallTimeoutsMs = [500, 1_200, 2_000, 5_000, 20_000, 25_000, 30_000, 60_000]
+        const heartbeatIntervalsMs = [0, 500, 1_000, 5_000, 10_000, 15_000, 30_000]
+        const leasesOutsideTheStallTimeout = stallTimeoutsMs.flatMap((stallTimeoutMs) =>
+            heartbeatIntervalsMs
+                .map((heartbeatIntervalMs) => ({
+                    stallTimeoutMs,
+                    heartbeatIntervalMs,
+                    leaseMs: jobLeaseMsFor(stallTimeoutMs, heartbeatIntervalMs),
+                }))
+                .filter(({ stallTimeoutMs, leaseMs }) => leaseMs >= stallTimeoutMs || leaseMs < stallTimeoutMs / 2)
+        )
+
+        expect(leasesOutsideTheStallTimeout).toEqual([])
+        expect(jobLeaseMsFor(30_000, 10_000)).toBe(25_000)
     })
 })
 

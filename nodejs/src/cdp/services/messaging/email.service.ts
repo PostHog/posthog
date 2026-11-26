@@ -217,6 +217,17 @@ export type JobLease = (invocation: CyclotronJobInvocation) => number | null
 
 const JOB_LEASE_MARGIN_MS = 5_000
 
+export function jobLeaseMsFor(stallTimeoutMs: number, heartbeatIntervalMs: number): number {
+    const longestHeartbeatGapMs = 2 * Math.max(0, heartbeatIntervalMs)
+    const roomPastTheLongestHeartbeatGapMs = stallTimeoutMs - longestHeartbeatGapMs
+    const marginMs = Math.min(
+        JOB_LEASE_MARGIN_MS,
+        stallTimeoutMs / 2,
+        Math.max(stallTimeoutMs / 10, roomPastTheLongestHeartbeatGapMs / 2)
+    )
+    return stallTimeoutMs - marginMs
+}
+
 function abortWhenTheLeaseLapses(
     leaseConfirmedAt: () => number | null,
     leaseMs: number
@@ -744,14 +755,10 @@ export class EmailService {
         stallTimeoutMs: number,
         heartbeatIntervalMs: number
     ): void {
-        const longestHeartbeatGapMs = 2 * Math.max(0, heartbeatIntervalMs)
-        const roomPastTheLongestHeartbeatGapMs = stallTimeoutMs - longestHeartbeatGapMs
-        const marginMs = Math.min(
-            JOB_LEASE_MARGIN_MS,
-            stallTimeoutMs / 2,
-            Math.max(0, roomPastTheLongestHeartbeatGapMs / 2)
-        )
-        this.jobLease = stallTimeoutMs > 0 ? { leaseConfirmedAt, leaseMs: stallTimeoutMs - marginMs } : null
+        this.jobLease =
+            stallTimeoutMs > 0
+                ? { leaseConfirmedAt, leaseMs: jobLeaseMsFor(stallTimeoutMs, heartbeatIntervalMs) }
+                : null
     }
 
     private async jobOwnershipBeforeSend(
