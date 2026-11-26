@@ -51,6 +51,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.dashboard_v2_batch_scope import DASHBOARD_V2_BATCH_ONLY_KINDS, dashboard_v2_batch_scope
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -228,9 +229,15 @@ REFRESH_WORKERS = 2
 MAX_QUEUED_REFRESHES = 64
 MAX_REFRESHES_PER_BATCH = 20
 MAX_REFRESHES_PER_SHARE = 16
+MAX_QUEUED_SPAN_REFRESHES = 4
 _org_refreshes: dict[Any, int] = {}
 _refresh_pool = ThreadPoolExecutor(max_workers=REFRESH_WORKERS, thread_name_prefix="dashboard-query-batch-refresh")
+# Batch-only kinds calculate in the refresh thread itself, so they get their own worker, their own few slots and one
+# refresh in flight per organization and user, and can't hold the shared pool or slots that only enqueue.
+_span_refresh_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dashboard-query-batch-span-refresh")
+_span_refresh_shares: set[Any] = set()
 _refresh_slots = BoundedSemaphore(MAX_QUEUED_REFRESHES)
+_span_refresh_slots = BoundedSemaphore(MAX_QUEUED_SPAN_REFRESHES)
 
 _FAILED = "The query failed."
 _THROTTLED = "Too many queries are running for this organization. Try again shortly."
@@ -612,8 +619,10 @@ def _refresh_all(
     queries: list[tuple[str, ResolvedQuery]],
     shares: tuple[Any, ...],
     traceparent: Optional[str],
+    span_refresh: bool = False,
 ) -> None:
-    # The stale results are already in the response. The async path recomputes them for the next read.
+    # The stale results are already in the response. The async path recomputes them for the next read, except for the
+    # batch-only kinds: a Celery worker is outside the batch scope and would refuse them, so this thread recomputes those.
     try:
         for query_id, query in queries:
             try:
@@ -627,7 +636,11 @@ def _refresh_all(
                         dashboard_filters_json=query.filters,
                         variables_override_json=query.variables,
                         limit_context=_limit_context(query.query),
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                        execution_mode=(
+                            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+                            if query.query.get("kind") in DASHBOARD_V2_BATCH_ONLY_KINDS
+                            else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                        ),
                         user=user,
                         query_id=query_id,
                         dashboard_id=dashboard_id,
@@ -636,14 +649,17 @@ def _refresh_all(
                 logger.warning("dashboard_v2_query_batch_refresh_failed", team_id=team.pk, exc_info=True)
     finally:
         connections.close_all()
-        _release_refreshes(shares, len(queries))
+        _release_refreshes(shares, len(queries), span_refresh=span_refresh)
 
 
-def _release_refreshes(shares: tuple[Any, ...], count: int) -> None:
+def _release_refreshes(shares: tuple[Any, ...], count: int, *, span_refresh: bool = False) -> None:
     with _org_lock:
         _add_shares(_org_refreshes, shares, -count)
+        if span_refresh:
+            _span_refresh_shares.difference_update(shares)
+    slots = _span_refresh_slots if span_refresh else _refresh_slots
     for _ in range(count):
-        _refresh_slots.release()
+        slots.release()
 
 
 class _Watchdog:
@@ -729,8 +745,10 @@ class QueryBatch:
         self.ready: list[tuple[int, bytes]] = []
         self._ready_bytes = 0
         self._read_bytes = 0
-        # Taken while the request is live: the middleware resets the query tags and team scope before streaming.
-        self._context = copy_context()
+        # Taken while the request is live: the middleware resets the query tags and team scope before streaming. Taken
+        # inside the batch scope, so every pool thread that runs in a copy of it runs the batch-only kinds too.
+        with dashboard_v2_batch_scope():
+            self._context = copy_context()
         # Plain data, not bound methods, so a batch with misses is not in a reference cycle and is freed on release.
         self._jobs: list[tuple[int, str, ResolvedQuery | QueryBatchInput]] = []
         self._logql_budget: Optional[BudgetSpec] = None
@@ -760,7 +778,8 @@ class QueryBatch:
             raise QueryBatchBusy()
         weakref.finalize(self, _deferred_releases.append, self._open)
         try:
-            self._read_cache(inputs)
+            with dashboard_v2_batch_scope():
+                self._read_cache(inputs)
         except BaseException:
             self._open.release()
             raise
@@ -1072,29 +1091,43 @@ class QueryBatch:
         # Shared per organization and user too, so one account cannot keep other organizations' panels from refreshing.
         with _org_lock:
             room = MAX_REFRESHES_PER_SHARE - max(_org_refreshes.get(key, 0) for key in self._shares)
+            span_busy = any(key in _span_refresh_shares for key in self._shares)
             queries: list[tuple[str, ResolvedQuery]] = []
-            for query in candidates[: max(0, room)]:
-                if not _refresh_slots.acquire(blocking=False):
+            span_queries: list[tuple[str, ResolvedQuery]] = []
+            for query in candidates:
+                if len(queries) + len(span_queries) >= room:
                     break
-                queries.append(query)
-            _add_shares(_org_refreshes, self._shares, len(queries))
-        if not queries:
-            return
+                is_span = query[1].query.get("kind") in DASHBOARD_V2_BATCH_ONLY_KINDS
+                if is_span:
+                    if span_busy or not _span_refresh_slots.acquire(blocking=False):
+                        continue
+                    # One span refresh per dispatch, so one board can't take every span slot.
+                    span_busy = True
+                if not is_span and not _refresh_slots.acquire(blocking=False):
+                    break
+                (span_queries if is_span else queries).append(query)
+            if span_queries:
+                _span_refresh_shares.update(self._shares)
+            _add_shares(_org_refreshes, self._shares, len(queries) + len(span_queries))
 
-        # Only what a refresh needs, so a queued refresh does not keep this batch's buffered results alive.
-        refresh_all = partial(
-            _refresh_all,
-            team=self._team,
-            user=self._user,
-            dashboard_id=self._dashboard_id,
-            queries=queries,
-            shares=self._shares,
-            traceparent=self._traceparent,
-        )
-        try:
-            _refresh_pool.submit(self._context.copy().run, refresh_all)
-        except RuntimeError:
-            _release_refreshes(self._shares, len(queries))
+        for pool, group, span_refresh in ((_refresh_pool, queries, False), (_span_refresh_pool, span_queries, True)):
+            if not group:
+                continue
+            # Only what a refresh needs, so a queued refresh does not keep this batch's buffered results alive.
+            refresh_all = partial(
+                _refresh_all,
+                team=self._team,
+                user=self._user,
+                dashboard_id=self._dashboard_id,
+                queries=group,
+                shares=self._shares,
+                traceparent=self._traceparent,
+                span_refresh=span_refresh,
+            )
+            try:
+                pool.submit(self._context.copy().run, refresh_all)
+            except RuntimeError:
+                _release_refreshes(self._shares, len(group), span_refresh=span_refresh)
 
     def _run(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
         shape = self._shapes.pop(index, None)

@@ -11,11 +11,11 @@ import type { DropTarget } from '../grid/dropTargets'
 import { GridDragContext, type GridDragState } from '../grid/gridDrag'
 import { stackTiles } from '../grid/gridTiles'
 import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
+import { sizeOfPanels } from '../panels/panelSpec'
+import { RefreshContext } from '../panels/refreshContext'
+import { DEFAULT_TIME_RANGE, TimeRangeContext } from '../panels/timeRangeContext'
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
 import { PresentedTile } from '../tiles/PresentedTile'
-import { RefreshContext } from '../widgets/refreshContext'
-import { DEFAULT_TIME_RANGE, TimeRangeContext } from '../widgets/timeRangeContext'
-import { sizeOfWidgets } from '../widgets/widgetSpec'
 import { withFolds } from './dashboardEdits'
 import { type ImageFormat, downloadDashboardImage } from './dashboardImage'
 import { type Dashboard, GRID, activeGridTab, gridTabs } from './dashboardTypes'
@@ -47,8 +47,8 @@ function imageWords(
     tileId: string | undefined
 ): { file: string; pending: string; success: string } {
     const tile = tileId ? findTile(dashboard, tileId) : null
-    if (tile?.widget.title) {
-        const title = tile.widget.title
+    if (tile?.panel.title) {
+        const title = tile.panel.title
         return {
             file: `${dashboard.title} ${title}`,
             pending: `Drawing "${title}"`,
@@ -78,7 +78,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
     const { width, containerRef, mounted } = useContainerWidth()
     const stacked = width > 0 && width < GRID.stackBelowPx
     const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
-    const sizeOf = useMemo(() => sizeOfWidgets(controller.widgets), [controller.widgets])
+    const sizeOf = useMemo(() => sizeOfPanels(controller.panels), [controller.panels])
     // Which sections this person opened or closed. Only the screen needs it, so the host never sees it.
     const [folds, setFolds] = useState<Record<string, boolean>>({})
     const onSectionFoldedChange = useCallback(

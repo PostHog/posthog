@@ -1,23 +1,23 @@
-import type { ContentWidget, ContentWidgetParts } from '../dashboard/dashboardTypes'
-import type { WidgetSlots } from '../widgets/widgetDefinition'
+import type { ContentPanel, ContentPanelParts } from '../dashboard/dashboardTypes'
+import type { PanelSlots } from '../panels/panelDefinition'
 
 /**
- * Whether a content tile has anything to put in a part. The header has the title and the widget type's header actions.
- * The footer needs something from the widget type.
+ * Whether a content tile has anything to put in a part. The header has the title and the panel type's header actions.
+ * The footer needs something from the panel type.
  */
-export function hasPart(widget: ContentWidget, part: keyof ContentWidgetParts, slots: WidgetSlots): boolean {
+export function hasPart(panel: ContentPanel, part: keyof ContentPanelParts, slots: PanelSlots): boolean {
     switch (part) {
         case 'header':
-            return !!widget.title || slots.header
+            return !!panel.title || slots.header
         case 'footer':
             return slots.footer
     }
 }
 
-export function showsPart(widget: ContentWidget, part: keyof ContentWidgetParts): boolean {
-    return widget.parts?.[part] !== false
+export function showsPart(panel: ContentPanel, part: keyof ContentPanelParts): boolean {
+    return panel.parts?.[part] !== false
 }
 
-export function isPartShown(widget: ContentWidget, part: keyof ContentWidgetParts, slots: WidgetSlots): boolean {
-    return hasPart(widget, part, slots) && showsPart(widget, part)
+export function isPartShown(panel: ContentPanel, part: keyof ContentPanelParts, slots: PanelSlots): boolean {
+    return hasPart(panel, part, slots) && showsPart(panel, part)
 }

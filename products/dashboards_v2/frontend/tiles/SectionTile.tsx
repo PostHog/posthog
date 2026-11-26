@@ -7,7 +7,7 @@ import { type ReactNode, useCallback, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
 
-import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/dashboardTypes'
+import { GRID, type SectionPanel, type Tile, spanPx } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { OnSectionRows } from '../grid/TileGrid'
 import { showsBorder } from '../presentation/tileAppearance'
@@ -26,7 +26,7 @@ export interface SectionGridProps {
 
 export function SectionTile({
     id,
-    widget,
+    panel,
     columns,
     columnPx,
     editable,
@@ -34,7 +34,7 @@ export function SectionTile({
     renderGrid,
 }: {
     id: string
-    widget: SectionWidget
+    panel: SectionPanel
     columns: number
     columnPx: number
     editable: boolean
@@ -43,9 +43,9 @@ export function SectionTile({
     renderGrid: (grid: SectionGridProps) => ReactNode
 }): JSX.Element {
     const { onEdit, onSectionFoldedChange, can } = useDashboardV2()
-    const collapsed = !!widget.collapsed
+    const collapsed = !!panel.collapsed
     const [draft, setDraft] = useState<string | null>(null)
-    const actions = useSectionActions(id, widget, () => setDraft(widget.title))
+    const actions = useSectionActions(id, panel, () => setDraft(panel.title))
     const hasMenu = hasTileMenu(actions)
     const showAdd = can('addTile')
 
@@ -55,16 +55,16 @@ export function SectionTile({
                 id,
                 rows === null
                     ? null
-                    : Math.max(widget.minRows ?? 0, GRID.sectionChromeRows + Math.max(GRID.emptySectionRows, rows))
+                    : Math.max(panel.minRows ?? 0, GRID.sectionChromeRows + Math.max(GRID.emptySectionRows, rows))
             ),
-        [id, onSectionRows, widget.minRows]
+        [id, onSectionRows, panel.minRows]
     )
 
     const emptyLabel = editable ? 'Drag tiles here' : 'No tiles'
 
     return (
         <TileContextMenu actions={actions}>
-            <Section border={showsBorder(widget)}>
+            <Section border={showsBorder(panel)}>
                 <SectionHeader
                     actions={
                         (showAdd || hasMenu) && (
@@ -76,7 +76,7 @@ export function SectionTile({
                     }
                 >
                     <SectionTitle
-                        title={widget.title}
+                        title={panel.title}
                         collapsed={collapsed}
                         canEdit={can('updateSection')}
                         onToggle={() => onSectionFoldedChange(id, !collapsed)}
@@ -84,13 +84,13 @@ export function SectionTile({
                         draft={draft}
                         onDraftChange={setDraft}
                     />
-                    <SectionCount count={widget.tiles.length} />
+                    <SectionCount count={panel.tiles.length} />
                 </SectionHeader>
                 {!collapsed && (
-                    <SectionBody emptyLabel={widget.tiles.length === 0 ? emptyLabel : null}>
+                    <SectionBody emptyLabel={panel.tiles.length === 0 ? emptyLabel : null}>
                         {renderGrid({
                             gridId: id,
-                            tiles: widget.tiles,
+                            tiles: panel.tiles,
                             cols: columns,
                             width: spanPx(columns, columnPx) - 2 * GRID.sectionInsetPx,
                             editable,

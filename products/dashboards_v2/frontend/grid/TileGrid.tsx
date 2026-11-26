@@ -3,7 +3,16 @@ import 'react-grid-layout/css/styles.css'
 import './TileGrid.css'
 
 import clsx from 'clsx'
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+    type MouseEvent as ReactMouseEvent,
+    type ReactNode,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
 import { GridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 
@@ -17,7 +26,7 @@ import {
     columnWidthPx,
     isSection,
     spanPx,
-    widgetSize,
+    panelSize,
 } from '../dashboard/dashboardTypes'
 import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './dropTargets'
 import { createGridCompactor } from './gridCompactor'
@@ -34,7 +43,37 @@ const NO_PADDING: [number, number] = [0, 0]
 // A press inside a section's own grid belongs to the tile there, so the section must not start moving too. Text marked
 // `TileGrid__text` selects instead, and the space around it still drags.
 const DRAG_CANCEL =
-    '.SectionTile__body, .dash-WidgetCard__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
+    '.SectionTile__body, .dash-PanelCard__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
+
+/**
+ * A resize handle sits over the tile's edge, so a right-click there would miss the tile's menu. Sends the event on to
+ * whatever is under the handle instead.
+ */
+function passContextMenuThroughHandle(event: ReactMouseEvent): void {
+    if (!(event.target instanceof Element) || !event.target.closest('.react-resizable-handle')) {
+        return
+    }
+    const under = document
+        .elementsFromPoint(event.clientX, event.clientY)
+        .find((element) => !element.closest('.react-resizable-handle'))
+    if (!under) {
+        return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    under.dispatchEvent(
+        new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            screenX: event.screenX,
+            screenY: event.screenY,
+            button: 2,
+            buttons: 2,
+        })
+    )
+}
 
 /** Reports the rows a section inside the grid takes while its own grid grows, or null when it stops. */
 export type OnSectionRows = (id: string, rows: number | null) => void
@@ -62,12 +101,12 @@ function toLayout(tiles: Tile[], sizeOf: SizeOf): Layout {
         // A closed section is one row, so it is resized in width only. An open one can be made taller than its tiles
         // need, but never shorter.
         if (isSection(tile)) {
-            if (tile.widget.collapsed) {
+            if (tile.panel.collapsed) {
                 return { ...item, minH: item.h, maxH: item.h, resizeHandles: ['w', 'e'] }
             }
-            return { ...item, minH: contentRows(tile.widget), maxH: undefined, resizeHandles: ALL_HANDLES }
+            return { ...item, minH: contentRows(tile.panel), maxH: undefined, resizeHandles: ALL_HANDLES }
         }
-        return { ...item, minH: widgetSize(tile.widget, sizeOf).minH, maxH: undefined, resizeHandles: ALL_HANDLES }
+        return { ...item, minH: panelSize(tile.panel, sizeOf).minH, maxH: undefined, resizeHandles: ALL_HANDLES }
     })
 }
 
@@ -269,6 +308,7 @@ export function TileGrid({
             // The width is worked out in pixels from the grid around this one, so no class can carry it.
             // oxlint-disable-next-line react/forbid-dom-props
             style={{ width }}
+            onContextMenu={passContextMenuThroughHandle}
         >
             <GridLayout
                 width={width}

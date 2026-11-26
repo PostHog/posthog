@@ -1,9 +1,9 @@
 import clsx from 'clsx'
 import { useContext, useMemo } from 'react'
 
-import type { ContentWidget } from '../../dashboard/dashboardTypes'
+import type { ContentPanel } from '../../dashboard/dashboardTypes'
+import { PanelLoading } from '../PanelLoading'
 import { TimeRangeContext } from '../timeRangeContext'
-import { WidgetLoading } from '../WidgetLoading'
 import { type ChartConfig, chartTargets } from './chartSpec'
 import { type TargetFailure, combineTargetResults } from './targetResults'
 import { useQueryFrames } from './useQueryFrames'
@@ -41,34 +41,34 @@ function hasNoValues(frames: DataFrame[]): boolean {
 }
 
 function ChartData({
-    widget,
+    panel,
     viz,
     runQuery,
     states,
 }: {
-    widget: ContentWidget<ChartConfig>
+    panel: ContentPanel<ChartConfig>
     viz: VizDefinition
     runQuery: RunQuery
     states?: ChartStates
 }): JSX.Element {
     const surroundingTime = useContext(TimeRangeContext)
-    const time = widget.config.time ?? surroundingTime
-    const targets = chartTargets(widget.config)
+    const time = panel.config.time ?? surroundingTime
+    const targets = chartTargets(panel.config)
     const results = useQueryFrames(
         targets.map(({ query, legend }) => (legend ? { query, time, legend } : { query, time })),
         runQuery
     )
     // Rebuilt only when a result arrives, so the chart keeps its frames, and skips a redraw, on every other render.
     const result = useMemo(
-        () => combineTargetResults(chartTargets(widget.config), results, !!widget.config.targets),
-        [results, widget.config]
+        () => combineTargetResults(chartTargets(panel.config), results, !!panel.config.targets),
+        [results, panel.config]
     )
     const parsed = useMemo(
-        () => viz.optionsSchema.safeParse(widget.config.viz.options ?? {}),
-        [viz.optionsSchema, widget.config.viz.options]
+        () => viz.optionsSchema.safeParse(panel.config.viz.options ?? {}),
+        [viz.optionsSchema, panel.config.viz.options]
     )
     // The kind of chart wins over the host's defaults, which win over the built-in states.
-    const Loading = viz.Loading ?? states?.Loading ?? WidgetLoading
+    const Loading = viz.Loading ?? states?.Loading ?? PanelLoading
     const Empty = viz.Empty ?? states?.Empty ?? DefaultEmpty
     const ErrorState = viz.Error ?? states?.Error ?? DefaultError
     const isEmpty = viz.isEmpty ?? states?.isEmpty ?? hasNoValues
@@ -102,18 +102,18 @@ function ChartData({
     )
 }
 
-export function ChartWidget({
-    widget,
+export function ChartPanel({
+    panel,
     vizTypes,
     runQuery,
     states,
 }: {
-    widget: ContentWidget<ChartConfig>
+    panel: ContentPanel<ChartConfig>
     vizTypes: VizDefinition[]
     runQuery?: RunQuery
     states?: ChartStates
 }): JSX.Element {
-    const viz = vizTypes.find((candidate) => candidate.type === widget.config.viz.type)
+    const viz = vizTypes.find((candidate) => candidate.type === panel.config.viz.type)
     if (!viz) {
         return <Message>This dashboard can't show this chart type.</Message>
     }
@@ -121,5 +121,5 @@ export function ChartWidget({
     if (!runQuery) {
         return <Message>{viz.label}</Message>
     }
-    return <ChartData widget={widget} viz={viz} runQuery={runQuery} states={states} />
+    return <ChartData panel={panel} viz={viz} runQuery={runQuery} states={states} />
 }

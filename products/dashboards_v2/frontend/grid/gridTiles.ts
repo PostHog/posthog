@@ -1,21 +1,21 @@
 import {
     type SectionTile,
-    type SectionWidget,
+    type SectionPanel,
     type SizeOf,
     type Tile,
     GRID,
     isSection,
-    widgetSize,
+    panelSize,
 } from '../dashboard/dashboardTypes'
 import { type PlacedItem, bottomOf, placeTiles } from './placeTiles'
 
 function minWidthOf(tile: Tile, sizeOf: SizeOf): number {
-    const { minW } = widgetSize(tile.widget, sizeOf)
+    const { minW } = panelSize(tile.panel, sizeOf)
     if (!isSection(tile)) {
         return minW
     }
     // Narrowing a section scales its tiles down, so it is only as narrow as its narrowest-allowed tile.
-    return Math.max(minW, ...tile.widget.tiles.map((inner) => minWidthOf(inner, sizeOf)))
+    return Math.max(minW, ...tile.panel.tiles.map((inner) => minWidthOf(inner, sizeOf)))
 }
 
 /** Scales rather than reflows, during a resize and after it, so the tiles land where they were drawn. */
@@ -23,8 +23,8 @@ export function resizeSection(tile: Tile, w: number, sizeOf: SizeOf): Tile {
     if (!isSection(tile) || tile.place.w === w) {
         return tile
     }
-    const tiles = settleGrid(scaleTiles(tile.widget.tiles, tile.place.w, w, sizeOf), w, sizeOf)
-    return { ...tile, place: { ...tile.place, w }, widget: { ...tile.widget, tiles } }
+    const tiles = settleGrid(scaleTiles(tile.panel.tiles, tile.place.w, w, sizeOf), w, sizeOf)
+    return { ...tile, place: { ...tile.place, w }, panel: { ...tile.panel, tiles } }
 }
 
 function scaleTiles(tiles: Tile[], from: number, to: number, sizeOf: SizeOf): Tile[] {
@@ -39,7 +39,7 @@ function scaleTiles(tiles: Tile[], from: number, to: number, sizeOf: SizeOf): Ti
         if (!isSection(tile)) {
             return scaled
         }
-        return { ...scaled, widget: { ...tile.widget, tiles: scaleTiles(tile.widget.tiles, tile.place.w, w, sizeOf) } }
+        return { ...scaled, panel: { ...tile.panel, tiles: scaleTiles(tile.panel.tiles, tile.place.w, w, sizeOf) } }
     })
 }
 
@@ -67,7 +67,7 @@ export function withSectionRows(tiles: Tile[], cols: number, rows: Record<string
     return withPlaces(sized, placeTiles(toPlacedItems(sized, sizeOf), cols))
 }
 
-function sectionRows(section: SectionWidget): number {
+function sectionRows(section: SectionPanel): number {
     if (section.collapsed) {
         return GRID.collapsedSectionRows
     }
@@ -75,7 +75,7 @@ function sectionRows(section: SectionWidget): number {
 }
 
 /** The rows an open section needs for its header, its padding and its tiles. It is never shorter than this. */
-export function contentRows(section: SectionWidget): number {
+export function contentRows(section: SectionPanel): number {
     return GRID.sectionChromeRows + Math.max(GRID.emptySectionRows, bottomOf(section.tiles.map((tile) => tile.place)))
 }
 
@@ -86,8 +86,8 @@ export function settleGrid(tiles: Tile[], cols: number, sizeOf: SizeOf): Tile[] 
         if (!isSection(tile)) {
             return { ...tile, place: { ...tile.place, w } }
         }
-        const widget = { ...tile.widget, tiles: settleGrid(tile.widget.tiles, w, sizeOf) }
-        return { ...tile, widget, place: { ...tile.place, w, h: sectionRows(widget) } }
+        const panel = { ...tile.panel, tiles: settleGrid(tile.panel.tiles, w, sizeOf) }
+        return { ...tile, panel, place: { ...tile.place, w, h: sectionRows(panel) } }
     })
     return withPlaces(sized, placeTiles(toPlacedItems(sized, sizeOf), cols))
 }
@@ -132,7 +132,7 @@ export function stackTiles(tiles: Tile[], cols: number, sizeOf: SizeOf): Tile[] 
 }
 
 function stackedRows(tile: Tile, sizeOf: SizeOf): number {
-    const range = widgetSize(tile.widget, sizeOf).stackedRows
+    const range = panelSize(tile.panel, sizeOf).stackedRows
     if (!range) {
         return tile.place.h
     }
@@ -140,8 +140,8 @@ function stackedRows(tile: Tile, sizeOf: SizeOf): number {
 }
 
 function stackSection(tile: SectionTile, cols: number, y: number, sizeOf: SizeOf): Tile {
-    const widget = { ...tile.widget, tiles: stackTiles(tile.widget.tiles, cols, sizeOf) }
-    return { ...tile, widget, place: { x: 0, y, w: cols, h: sectionRows(widget) } }
+    const panel = { ...tile.panel, tiles: stackTiles(tile.panel.tiles, cols, sizeOf) }
+    return { ...tile, panel, place: { x: 0, y, w: cols, h: sectionRows(panel) } }
 }
 
 /**
