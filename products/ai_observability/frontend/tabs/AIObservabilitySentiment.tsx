@@ -9,7 +9,7 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { urls } from 'scenes/urls'
 
 import { MessageSentimentBar, SENTIMENT_BAR_COLOR } from '../components/SentimentTag'
-import { getMessageAtIndex, getTextContent } from '../sentimentMessageText'
+import { getMessageAtIndex, getMessageText } from '../sentimentMessageText'
 import { formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import { getTraceTimestamp } from '../utils'
@@ -34,7 +34,7 @@ function ContextMessage({ aiInput, index }: { aiInput: unknown; index: number })
         return null
     }
     const role = message.role === 'user' ? 'User' : message.role === 'assistant' ? 'Assistant' : message.role
-    const fullText = getTextContent(message)
+    const fullText = getMessageText(aiInput, index)
     const displayText = truncateMiddle(fullText, 150)
     return (
         <div className="flex gap-2 text-xs text-muted py-1.5">
@@ -59,8 +59,7 @@ function SentimentCardRow({
     const { uuid, traceId, aiInput, timestamp, createdAt } = generation
     const { toggleCardExpanded, trackTraceClicked } = useActions(aiObservabilitySentimentLogic)
 
-    const targetMessage = getMessageAtIndex(aiInput, messageIndex)
-    const fullText = targetMessage ? getTextContent(targetMessage) : ''
+    const fullText = getMessageText(aiInput, messageIndex)
     // The classifier only sees the last CLASSIFIER_WINDOW chars — show that slice
     const classifierText = fullText.slice(-CLASSIFIER_WINDOW)
     const collapsedText = truncateMiddle(classifierText)

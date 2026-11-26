@@ -13,7 +13,7 @@ import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { AIObservabilityTabId } from '../aiObservabilitySharedLogic'
 import type { EvaluationApi } from '../generated/api.schemas'
 import { sentimentEvaluationAvailabilityLogic } from '../sentimentEvaluationAvailabilityLogic'
-import { getMessageAtIndex, getTextContent } from '../sentimentMessageText'
+import { getMessageText } from '../sentimentMessageText'
 import { fetchSentimentGenerationsPage, type SentimentCategory, type SentimentGeneration } from '../sentimentQueries'
 import type { MessageSentiment } from '../sentimentResults'
 
@@ -41,11 +41,6 @@ export type AIObservabilitySentimentLogicProps = Record<string, never>
 export const CLASSIFIER_WINDOW = 2000
 /** Number of other visible cards to sample as negative (impressed) examples per engagement */
 const IMPRESSION_SAMPLE_SIZE = 5
-
-function getMessageText(aiInput: unknown, messageIndex: number): string {
-    const message = getMessageAtIndex(aiInput, messageIndex)
-    return message ? getTextContent(message) : ''
-}
 
 function getCardMessageText(card: SentimentCard): string {
     const text = getMessageText(card.generation.aiInput, card.messageIndex).trim()

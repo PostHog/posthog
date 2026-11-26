@@ -1,41 +1,55 @@
 import { normalizeMessages } from './messageNormalization'
 import { extractContentText } from './sentimentUtils'
 import type { CompatMessage } from './types'
+import { isOTelPartsMessage } from './utils'
 
-/**
- * Retrieves the message at the given index from the raw $ai_input array.
- * The index corresponds to the position in the original messages array
- * (as used by the backend sentiment classifier).
- */
-export function getMessageAtIndex(aiInput: unknown, index: number): CompatMessage | null {
+// `index` is a position in the raw $ai_input array, which is the key the backend sentiment classifier stores each result under.
+function getRawMessage(aiInput: unknown, index: number): unknown {
     try {
         const parsed = typeof aiInput === 'string' ? JSON.parse(aiInput) : aiInput
-        if (!Array.isArray(parsed) || index < 0 || index >= parsed.length) {
-            return null
-        }
-        const normalized = normalizeMessages([parsed[index]], 'user').messages
-        return normalized[0] ?? null
+        return Array.isArray(parsed) && index >= 0 && index < parsed.length ? parsed[index] : undefined
+    } catch {
+        return undefined
+    }
+}
+
+function toCompatMessage(message: unknown): CompatMessage | null {
+    try {
+        return normalizeMessages([message], 'user').messages[0] ?? null
     } catch {
         return null
     }
 }
 
-export function getTextContent(message: CompatMessage): string {
-    if (typeof message.content === 'string') {
-        // Detect JSON-encoded structured content (e.g. '{"content":[{"text":"..."}]}')
-        const trimmed = message.content.trim()
-        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-            try {
-                const parsed = JSON.parse(trimmed)
-                const extracted = extractContentText(parsed)
-                if (extracted) {
-                    return extracted
-                }
-            } catch {
-                // Not valid JSON, return as-is
-            }
-        }
-        return message.content
+function parseJSON(text: string): unknown {
+    try {
+        return JSON.parse(text)
+    } catch {
+        return null
     }
-    return extractContentText(message.content)
+}
+
+function getContentText(content: unknown): string {
+    if (typeof content !== 'string') {
+        return extractContentText(content)
+    }
+    // Detect JSON-encoded structured content (e.g. '{"content":[{"text":"..."}]}')
+    const trimmed = content.trim()
+    const decoded = trimmed.startsWith('{') || trimmed.startsWith('[') ? extractContentText(parseJSON(trimmed)) : ''
+    return decoded || content
+}
+
+export function getMessageAtIndex(aiInput: unknown, index: number): CompatMessage | null {
+    const message = getRawMessage(aiInput, index)
+    return message === undefined ? null : toCompatMessage(message)
+}
+
+export function getMessageText(aiInput: unknown, index: number): string {
+    const message = getRawMessage(aiInput, index)
+    if (isOTelPartsMessage(message)) {
+        return getContentText(toCompatMessage(message)?.content)
+    }
+    return getContentText(
+        typeof message === 'object' && message !== null && 'content' in message ? message.content : undefined
+    )
 }
