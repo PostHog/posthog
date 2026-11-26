@@ -26,7 +26,7 @@ import {
     sqlVariableEditSceneLogic,
     variableToFormValues,
 } from './sqlVariableEditSceneLogic'
-import { toFormVariable } from './utils'
+import { toFormVariable } from './toFormVariable'
 
 export const scene: SceneExport<SqlVariableEditSceneLogicProps> = {
     component: SqlVariableEditScene,

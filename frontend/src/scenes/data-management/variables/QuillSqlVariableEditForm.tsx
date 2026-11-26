@@ -28,7 +28,7 @@ import { VARIABLE_TYPE_OPTIONS, formatVariableReference } from './constants'
 import { QuillVariableInsightsTable } from './QuillVariableInsightsTable'
 import { QuillVariableSpecificFields } from './QuillVariableSpecificFields'
 import { sqlVariableEditSceneLogic } from './sqlVariableEditSceneLogic'
-import { toFormVariable } from './utils'
+import { toFormVariable } from './toFormVariable'
 
 export interface QuillSqlVariableEditFormProps {
     referenceCodeName: string
