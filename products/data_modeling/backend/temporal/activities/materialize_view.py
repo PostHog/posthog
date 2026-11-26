@@ -27,7 +27,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, read_posthog_table_scopes
 from posthog.hogql.errors import ExposedHogQLError, ParsingError, ServerConfigurationQueryError, TransientQueryError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -1425,7 +1425,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
             try:
                 person_property_complete_table_read = False
-                with _rust_panics_as_errors():
+                with _rust_panics_as_errors(), read_posthog_table_scopes() as build_read_scopes:
                     if plan.incremental:
                         row_count, file_uris = await _materialize_incrementally(
                             objects,
@@ -1460,6 +1460,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 await cdp_sink.discard()
                 raise
 
+            # Reads of the copy are gated on these, since its rows outlive any later edit to the definition.
+            objects.job.read_scopes = sorted(build_read_scopes)
+            await database_sync_to_async_pool(objects.job.save)(update_fields=["read_scopes"])
             activity_span.set_attribute("rows_materialized", row_count)
             await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
         progress.enter("checking the data-quality audit mode")

@@ -21,6 +21,8 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 
+from posthog.hogql.database.database import record_read_scopes
+
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import get_incremental_state, set_incremental_state
@@ -83,6 +85,7 @@ def _mock_hogql_table(
     value_column: str = "c",
     windows: list[Any] | None = None,
     column_types: list[tuple[str, str]] | None = None,
+    reads: Collection[str] = (),
 ):
     """Stand in for one run: yields the given batches, ignoring the window.
 
@@ -100,6 +103,8 @@ def _mock_hogql_table(
         del args, kwargs
 
         async def generator():
+            # Where the real query's resolver records the gated tables it reads.
+            record_read_scopes(reads)
             for batch in batches:
                 yield batch, types
 
@@ -127,11 +132,14 @@ async def _run(
     value_column: str = "c",
     windows: list[Any] | None = None,
     column_types: list[tuple[str, str]] | None = None,
+    reads: Collection[str] = (),
 ):
     with (
         unittest.mock.patch(
             "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table",
-            _mock_hogql_table(*batches, value_column=value_column, windows=windows, column_types=column_types),
+            _mock_hogql_table(
+                *batches, value_column=value_column, windows=windows, column_types=column_types, reads=reads
+            ),
         ),
     ):
         return await activity_environment.run(
@@ -155,7 +163,9 @@ class TestIncrementalMaterialization:
         await _configure(asaved_query)
 
         with _settings(bucket_name):
-            result = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1, DAY2], [10, 20]))
+            result = await _run(
+                activity_environment, ateam, anode, ajob, adag, _batch([DAY1, DAY2], [10, 20]), reads=["tracing"]
+            )
 
         assert result.row_count == 2
         assert _rows(result.table_uri) == [(DAY1, 10), (DAY2, 20)]
@@ -170,6 +180,7 @@ class TestIncrementalMaterialization:
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.run_mode == "full_refresh"
         assert ajob.full_refresh_reason == "first run"
+        assert ajob.read_scopes == ["tracing"]
 
     async def test_second_run_updates_touched_rows_and_leaves_the_rest(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

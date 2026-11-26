@@ -857,9 +857,59 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
     ):
         return gated
     # A view reached only through a join or foreign key can be edited or recreated after the build too.
-    if _definition_changed_since_materialized(table.saved_query_id, {*catalog.looked_up_names, *reached_views}, team):
+    read_views = {*catalog.looked_up_names, *reached_views}
+    if _definition_changed_since_materialized(table.saved_query_id, read_views, team):
         return gated
-    return frozenset(scopes & gated)
+    built_from = _build_read_scopes(table.saved_query_id, read_views, team)
+    return frozenset((scopes | built_from) & gated)
+
+
+def _build_read_scopes(saved_query_id: str, view_names: Collection[str], team: Team) -> frozenset[str]:
+    """What the builds behind the copy read, and the builds of the materialized views it read from.
+
+    The walk only sees today's definitions, while the copy still holds rows an earlier build read: through
+    an upstream copy built from an older definition, or through a view renamed or removed since. An
+    incremental run appends to the rows before it, so every run since the last full refresh counts.
+    Runs from before scopes were recorded add nothing, which leaves those copies to the walk alone.
+    """
+    from django.db.models import Max, Q  # noqa: PLC0415
+
+    from products.data_modeling.backend.facade.models import (  # noqa: PLC0415
+        DataModelingJob,
+        DataModelingJobEngine,
+        DataModelingJobRunMode,
+        DataModelingJobStatus,
+        DataWarehouseSavedQuery,
+    )
+
+    names = {name.removeprefix("models.") for name in view_names} | set(view_names)
+    # Deleted views count too: the copy may hold what a build read from them before they went.
+    saved_query_ids = {
+        str(view_id)
+        for view_id in DataWarehouseSavedQuery.objects.filter(team_id=team.pk, name__in=names).values_list(
+            "id", flat=True
+        )
+    } | {str(saved_query_id)}
+    completed = DataModelingJob.objects.filter(
+        team_id=team.pk,
+        saved_query_id__in=saved_query_ids,
+        status=DataModelingJobStatus.COMPLETED,
+        engine=DataModelingJobEngine.CLICKHOUSE,
+    )
+    # A run with no recorded mode predates incremental runs, so it rebuilt the whole copy.
+    last_full_refresh = {
+        str(view_id): latest
+        for view_id, latest in completed.exclude(run_mode=DataModelingJobRunMode.INCREMENTAL)
+        .values("saved_query_id")
+        .annotate(latest=Max("created_at"))
+        .values_list("saved_query_id", "latest")
+    }
+    since_full_refresh = Q()
+    for view_id in saved_query_ids:
+        latest = last_full_refresh.get(view_id)
+        since_full_refresh |= Q(saved_query_id=view_id, **({"created_at__gte": latest} if latest else {}))
+    recorded = completed.filter(since_full_refresh, read_scopes__isnull=False).values_list("read_scopes", flat=True)
+    return frozenset(scope for scopes in recorded.distinct() for scope in scopes)
 
 
 def _saved_query_definition(saved_query_id: str, team_id: int) -> str | None:
