@@ -36,6 +36,7 @@ import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compac
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
 import INBOX_FIRST from '@/templates/sections/inbox-first.md'
+import INBOX_NUDGE_COMPACT from '@/templates/sections/inbox-nudge-compact.md'
 import INBOX_NUDGE from '@/templates/sections/inbox-nudge.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY_EMPTY_LEARN from '@/templates/sections/metric-discovery-empty-learn.md'
@@ -320,11 +321,15 @@ export class InstructionsFormatter {
         ]
     }
 
-    private inboxNudgeSections(ctx: InstructionsContext, execSyntax: boolean): string[] {
+    private inboxNudgeSections(ctx: InstructionsContext, execSyntax: boolean, compact = false): string[] {
         if (!ctx.inboxNudgeEnabled) {
             return []
         }
-        return [formatPrompt(INBOX_NUDGE, { inbox_list: inboxToolRef('inbox-reports-list', execSyntax) })]
+        return [
+            formatPrompt(compact ? INBOX_NUDGE_COMPACT : INBOX_NUDGE, {
+                inbox_list: inboxToolRef('inbox-reports-list', execSyntax),
+            }),
+        ]
     }
 
     buildLearnToolDescription(): string {
@@ -597,7 +602,8 @@ export class InstructionsFormatter {
                 ...(learnSection ? [learnSection] : []),
                 // claude.ai drops `exec` when its inputSchema passes the registry cap, and this section pushes the reference over it.
                 ...(claudeChat ? [] : this.inboxFirstSections(ctx, true)),
-                ...this.inboxNudgeSections(ctx, true),
+                // The full nudge passes the same cap, so claude.ai gets its short form.
+                ...this.inboxNudgeSections(ctx, true, claudeChat),
                 ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY_COMPACT, { learnAnalytics: !!learnSection }),
                 ...(ctx.cliLearnLayout ? [QUERY_TOOL_ROUTING] : []),
                 CLI_SCHEMA_DRILLDOWN,
