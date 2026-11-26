@@ -553,6 +553,16 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_update_reaction_failed", error=str(e))
 
+    def clear_working_reaction(self) -> None:
+        """Remove the :eyes: from the message this turn answers, once the answer is in the thread."""
+        target_ts = self.turn_person_message_ts
+        if not target_ts:
+            return
+        try:
+            self._get_client().reactions_remove(channel=self.context.channel, timestamp=target_ts, name="eyes")
+        except Exception:
+            pass
+
     def start_status_stream(
         self,
         task_updates: list[dict[str, Any]] | None = None,
