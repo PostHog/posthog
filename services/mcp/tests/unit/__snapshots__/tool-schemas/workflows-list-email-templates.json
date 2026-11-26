@@ -7,15 +7,8 @@
             "type": "boolean"
         },
         "created_by": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "List only templates created by the user with this ID."
+            "description": "List only templates created by the user with this ID.",
+            "type": "number"
         },
         "limit": {
             "description": "Number of results to return per page.",
@@ -28,7 +21,7 @@
         "search": {
             "default": "",
             "description": "List only templates whose name, description or a tag contains this text, ignoring case.",
-            "maxLength": 200,
+            "maxLength": 400,
             "type": "string"
         },
         "transactional": {

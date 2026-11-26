@@ -410,7 +410,6 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         },
         templatesAdded: () => {
             actions.loadTemplateCount()
-            // A new template may not match the filters, and only the server knows.
             if (values.hasActiveFilters) {
                 actions.loadTemplates()
             }
@@ -421,7 +420,6 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         loadMoreTemplates: async () => {
             const request = (cache.loadMoreRequest = (cache.loadMoreRequest ?? 0) + 1)
             const { listParams, templates, loadedListParams, templatesLoading } = values
-            // The shown list belongs to other filters until their first page lands.
             if (templatesLoading || loadedListParams !== listParams) {
                 actions.loadMoreTemplatesFailure()
                 return

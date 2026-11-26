@@ -18,7 +18,6 @@ const template = (id: string, name: string, tags: string[]): MessageTemplate =>
 describe('messageTemplatesLogic', () => {
     let logic: ReturnType<typeof messageTemplatesLogic.build>
     let stored: MessageTemplate[]
-    // What the server holds without filters, when a test sets it apart from the filtered rows.
     let everything: MessageTemplate[] | null
     let requests: URLSearchParams[]
     let holdNextPages: boolean
