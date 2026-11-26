@@ -22,13 +22,13 @@ from products.tasks.backend.logic.services.network_policy import (
 @parameterized.expand(
     [
         ("production", False, "https://gateway.example.com", "gateway.example.com", 443),
-        ("local", True, "http://localhost:3308", "host.docker.internal", 3308),
+        ("local", True, "http://localhost:8080", "host.docker.internal", 8080),
     ]
 )
 def test_configured_gateway_reaches_sandbox_policy(
     _name: str, debug: bool, gateway_url: str, host: str, port: int
 ) -> None:
-    with override_settings(DEBUG=debug, SANDBOX_LLM_GATEWAY_URL=gateway_url):
+    with override_settings(DEBUG=debug, SANDBOX_AI_GATEWAY_URL=gateway_url):
         policy = compile_network_policy(
             [],
             infrastructure_domains=enforced_egress_domains(),
@@ -84,7 +84,7 @@ def test_requested_domains_are_canonicalized_without_changing_host_coverage(
 def test_effective_policy_matches_external_host_coverage_across_layers() -> None:
     policy = compile_network_policy(
         ["*.example.com", "api.service.test"],
-        infrastructure_domains=["*.posthog.com", "api.anthropic.com", "gateway.us.posthog.com"],
+        infrastructure_domains=["*.posthog.com", "api.anthropic.com", "ai-gateway.us.posthog.com"],
     )
 
     assert policy.modal_domains == ("*.example.com", "api.service.test", "*.posthog.com", "api.anthropic.com")
@@ -97,7 +97,7 @@ def test_effective_policy_matches_external_host_coverage_across_layers() -> None
         "deep.api.example.com",
         "api.service.test",
         "posthog.com",
-        "gateway.us.posthog.com",
+        "ai-gateway.us.posthog.com",
         "api.anthropic.com",
         "notexample.com",
         "example.org",
