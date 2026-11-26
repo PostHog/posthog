@@ -49,6 +49,9 @@ const workflowsCreatePushTemplate = (): ToolBase<
         if (params.sensitive !== undefined) {
             body['sensitive'] = params.sensitive
         }
+        if (params.click_tracking_enabled !== undefined) {
+            body['click_tracking_enabled'] = params.click_tracking_enabled
+        }
         body['type'] = 'push'
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
