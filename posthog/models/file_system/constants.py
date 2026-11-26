@@ -4,10 +4,13 @@ from django.db.models import Q
 # stored as NULL; they are read as the default ("web"). New rows always store an explicit value.
 DEFAULT_SURFACE = "web"
 
-# Types the tree no longer files, such as retired products, workflows and email templates. Their rows
-# can stay in the database, but the type has no file system registration. The tree hides them, and a
-# delete removes only the row.
-RETIRED_FILE_SYSTEM_TYPES: frozenset[str] = frozenset({"hog_flow", "link", "message_template"})
+# Types of retired products. Their rows can stay in the database, but the type has no file system
+# registration and no page to open. The tree hides them, and a delete removes only the row.
+RETIRED_FILE_SYSTEM_TYPES: frozenset[str] = frozenset({"link"})
+
+# Types the tree no longer files. Their objects live in their own product lists, and with no file system
+# registration a row of one of these types could never be deleted again, so the tree refuses to store one.
+UNFILED_FILE_SYSTEM_TYPES: frozenset[str] = frozenset({"hog_flow", "message_template"})
 
 
 def surface_q(surface: str) -> Q:

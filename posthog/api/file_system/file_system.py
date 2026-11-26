@@ -62,7 +62,7 @@ from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
 from posthog.exceptions import Conflict
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
-from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES
+from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES, UNFILED_FILE_SYSTEM_TYPES
 from posthog.models.file_system.file_system import DEFAULT_SURFACE, FileSystem, join_path, split_path, surface_q
 from posthog.models.file_system.file_system_home_folder import FileSystemHomeFolder
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -292,6 +292,8 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
+        if attrs.get("type") in UNFILED_FILE_SYSTEM_TYPES:
+            raise serializers.ValidationError({"type": "The project tree no longer stores items of this type."})
         entry_type = attrs.get("type") or (self.instance.type if self.instance else None)
         ref = attrs.get("ref")
         if "ref" not in attrs and "type" in attrs and self.instance:
