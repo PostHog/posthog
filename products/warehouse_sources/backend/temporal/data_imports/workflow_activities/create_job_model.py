@@ -120,12 +120,13 @@ def _statistics_stale(
     wrote_rows: bool = True,
 ) -> bool:
     """Whether column statistics need recomputing: no stats yet, or the freshest column row is older
-    than the recompute interval. Mirrors compute_table_statistics' own skip check so we don't spawn a
-    child that would immediately no-op on every sync.
+    than the minimum recompute interval. Mirrors compute_table_statistics' own skip check so we don't
+    spawn a child that would immediately no-op on every sync.
 
-    The post-import gate passes the schema and whether its sync wrote rows. A sync that wrote nothing
-    then waits for a day after the last unchanged-version check as well, because the version is still
-    the same: a sync that writes after that check passes `wrote_rows` itself.
+    The post-import gate also passes the schema and whether its sync wrote rows. For a sync that wrote
+    nothing, the child then starts only when the activity could recompute: a column has no row, the
+    oldest row is past the maximum interval, or no unchanged-version check ran in the last minimum
+    interval. A sync that writes after such a check passes `wrote_rows` itself.
     """
     if table is None:
         # First-ever sync — the table is created during it, so let the (post-sync) profiling run once.
@@ -135,6 +136,8 @@ def _statistics_stale(
         MAX_RECOMPUTE_INTERVAL,
         MIN_RECOMPUTE_INTERVAL,
         STATISTICS_CHECKED_AT_KEY,
+        _all_columns_have_stats,
+        _most_recent_computed_at,
     )
 
     latest = (
@@ -147,7 +150,16 @@ def _statistics_stale(
     now = timezone.now()
     if now - latest < MIN_RECOMPUTE_INTERVAL:
         return False
-    if schema is None or wrote_rows or now - latest >= MAX_RECOMPUTE_INTERVAL:
+    if schema is None or wrote_rows:
+        return True
+    # The activity skips an unchanged version only when every current column has a row, and it times
+    # the maximum interval from the oldest of them, so a partly written run still has work.
+    existing = {
+        stat.column_name: stat for stat in WarehouseColumnStatistics.objects.for_team(team_id).filter(table_id=table.id)
+    }
+    columns = table.columns or {}
+    oldest = _most_recent_computed_at(existing, columns)
+    if oldest is None or not _all_columns_have_stats(existing, columns) or now - oldest >= MAX_RECOMPUTE_INTERVAL:
         return True
     checked_at = _parse_datetime((schema.sync_type_config or {}).get(STATISTICS_CHECKED_AT_KEY))
     return checked_at is None or now - checked_at >= MIN_RECOMPUTE_INTERVAL

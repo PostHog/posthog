@@ -126,32 +126,49 @@ class TestStatisticsStale:
     @parameterized.expand(
         [
             # Guards against re-profiling a freshly-computed table on every sync (the bug we're fixing).
-            ("recent_not_stale", dt.timedelta(hours=1), True, None, False),
+            ("recent_not_stale", {"amount": dt.timedelta(hours=1)}, True, None, False),
             # Guards against never recomputing once a row exists.
-            ("older_than_interval_stale", dt.timedelta(hours=25), True, None, True),
-            ("no_rows_never_checked", dt.timedelta(days=2), False, None, True),
-            ("no_rows_checked_within_interval", dt.timedelta(days=2), False, dt.timedelta(hours=1), False),
-            ("no_rows_checked_past_interval", dt.timedelta(days=2), False, dt.timedelta(hours=25), True),
-            ("rows_written_after_the_check", dt.timedelta(days=2), True, dt.timedelta(hours=1), True),
-            ("no_rows_past_weekly_cap", dt.timedelta(days=8), False, dt.timedelta(hours=1), True),
+            ("older_than_interval_stale", {"amount": dt.timedelta(hours=25)}, True, None, True),
+            ("no_rows_never_checked", {"amount": dt.timedelta(days=2)}, False, None, True),
+            ("no_rows_checked_within_interval", {"amount": dt.timedelta(days=2)}, False, dt.timedelta(hours=1), False),
+            ("no_rows_checked_past_interval", {"amount": dt.timedelta(days=2)}, False, dt.timedelta(hours=25), True),
+            ("rows_written_after_the_check", {"amount": dt.timedelta(days=2)}, True, dt.timedelta(hours=1), True),
+            ("no_rows_past_weekly_cap", {"amount": dt.timedelta(days=8)}, False, dt.timedelta(hours=1), True),
+            # The activity recomputes these whatever the version, so a recent check must not hold them back.
+            (
+                "a_column_without_a_row",
+                {"amount": dt.timedelta(days=2), "fee": None},
+                False,
+                dt.timedelta(hours=1),
+                True,
+            ),
+            (
+                "oldest_column_past_weekly_cap",
+                {"amount": dt.timedelta(days=2), "fee": dt.timedelta(days=8)},
+                False,
+                dt.timedelta(hours=1),
+                True,
+            ),
         ]
     )
     def test_staleness_by_recency(
         self,
         _name: str,
-        age: dt.timedelta,
+        column_ages: dict[str, dt.timedelta | None],
         wrote_rows: bool,
         checked_ago: dt.timedelta | None,
         expected: bool,
     ) -> None:
         team = _team()
-        table = _table(team)
+        table = _table(team, columns={name: {"clickhouse": "Nullable(Int64)"} for name in column_ages})
         schema = _schema(team, table)
         if checked_ago is not None:
             schema.sync_type_config = {"statistics_checked_at": (timezone.now() - checked_ago).isoformat()}
-        WarehouseColumnStatistics.objects.for_team(team.id).create(
-            team=team, table=table, column_name="amount", computed_at=timezone.now() - age
-        )
+        for column_name, age in column_ages.items():
+            if age is not None:
+                WarehouseColumnStatistics.objects.for_team(team.id).create(
+                    team=team, table=table, column_name=column_name, computed_at=timezone.now() - age
+                )
         assert _statistics_stale(team.id, table, schema=schema, wrote_rows=wrote_rows) is expected
 
 
