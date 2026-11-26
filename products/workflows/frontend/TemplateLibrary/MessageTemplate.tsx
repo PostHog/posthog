@@ -173,15 +173,17 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const showMenuBar = sceneMenuBarEnabled && isLibraryTemplate
     const saveDisabledReason =
         editDisabledReason ??
-        (draftsEnabled && isSavingDraft
-            ? 'Saving your draft'
-            : draftsEnabled && !hasDraft && !hasUnsavedChanges
-              ? 'No changes to publish'
-              : !draftsEnabled && !templateChanged && props.id !== 'new'
-                ? 'No changes to save'
-                : !template.name
-                  ? 'Name is required'
-                  : undefined)
+        (isDiscardingDraft
+            ? 'Discarding your draft'
+            : draftsEnabled && isSavingDraft
+              ? 'Saving your draft'
+              : draftsEnabled && !hasDraft && !hasUnsavedChanges
+                ? 'No changes to publish'
+                : !draftsEnabled && !templateChanged && props.id !== 'new'
+                  ? 'No changes to save'
+                  : !template.name
+                    ? 'Name is required'
+                    : undefined)
     const sendOnEventDisabledReason =
         editDisabledReason ??
         templateWorkflowDisabledReason({

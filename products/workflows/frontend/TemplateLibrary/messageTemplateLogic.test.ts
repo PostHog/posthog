@@ -882,6 +882,369 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
             expect(logic.values.template.content).toEqual(publishedByOtherTab)
         })
+
+        it('reconciles concurrent remote tags on a setting save and keeps pending local tag writes', async () => {
+            logic.unmount()
+            let releaseLocalTag!: () => void
+            const localTagGate = new Promise<void>((resolve) => {
+                releaseLocalTag = resolve
+            })
+            let serverTags = ['old']
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                if ('tags' in body) {
+                    await localTagGate
+                    serverTags = body.tags as string[]
+                    return [
+                        200,
+                        {
+                            ...serverTemplate,
+                            sensitive: true,
+                            click_tracking_enabled: true,
+                            tags: serverTags,
+                            updated_at: '2026-01-01T00:03:00Z',
+                        },
+                    ]
+                }
+                return [
+                    200,
+                    {
+                        ...serverTemplate,
+                        ...body,
+                        sensitive: true,
+                        tags: ['old', 'remote'],
+                        updated_at: '2026-01-01T00:02:00Z',
+                    },
+                ]
+            }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [
+                        200,
+                        {
+                            ...serverTemplate,
+                            sensitive: true,
+                            click_tracking_enabled: null,
+                            tags: serverTags,
+                            updated_at: '2026-01-01T00:00:00Z',
+                        },
+                    ],
+                },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setClickTrackingEnabled(true)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.template.tags).toEqual(['old', 'remote'])
+            expect(logic.values.originalTemplate.tags).toEqual(['old', 'remote'])
+
+            logic.actions.saveTags(['old', 'remote', 'local'])
+            logic.actions.setClickTrackingEnabled(false)
+            await waitFor(() => expect(logic.values.isSavingClickTracking).toBe(false))
+            expect(logic.values.template.tags).toEqual(['old', 'remote', 'local'])
+
+            releaseLocalTag()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.template.tags).toEqual(['old', 'remote', 'local'])
+        })
+
+        it('flushes pending canvas edits before adopting an external draft from a setting save', async () => {
+            logic.unmount()
+            const externalDraft = {
+                templating: 'liquid' as const,
+                email: { subject: 'From other tab', html: '<p>Other</p>' },
+            }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': {
+                        ...serverTemplate,
+                        sensitive: true,
+                        click_tracking_enabled: null,
+                        updated_at: '2026-01-01T00:00:00Z',
+                    },
+                },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        return [
+                            200,
+                            {
+                                ...serverTemplate,
+                                ...body,
+                                sensitive: true,
+                                draft_content: externalDraft,
+                                updated_at: '2026-01-01T00:02:00Z',
+                            },
+                        ]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const templater = emailTemplaterLogic({
+                value: logic.values.template.content.email,
+                onChange: (value) => logic.actions.setTemplateValue('content.email', value),
+                type: 'native_email_transactional_template',
+                layout: 'inline',
+            })
+            const unmountTemplater = templater.mount()
+            templater.actions.setEmailEditorRef({
+                editor: {
+                    registerProvider: jest.fn(),
+                    registerCallback: jest.fn(),
+                    loadDesign: jest.fn(),
+                    addEventListener: jest.fn(),
+                    exportHtml: (callback: (data: any) => void) =>
+                        callback({ design: { body: { id: 'mine' } }, html: '<p>Canvas edit</p>' }),
+                    exportPlainText: (callback: (data: any) => void) => callback({ text: 'Canvas edit' }),
+                },
+            } as any)
+            templater.actions.onEmailEditorReady()
+            templater.actions.designUpdated()
+
+            logic.actions.setClickTrackingEnabled(true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.externallyEdited).toBe(true)
+            expect(logic.values.template.content.email.html).toBe('<p>Canvas edit</p>')
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+            unmountTemplater()
+        })
+
+        it('flushes pending canvas edits before syncing an older publish response', async () => {
+            logic.unmount()
+            let releasePublish!: () => void
+            const publishGate = new Promise<void>((resolve) => {
+                releasePublish = resolve
+            })
+            let publishStarted!: () => void
+            const publishArrived = new Promise<void>((resolve) => {
+                publishStarted = resolve
+            })
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                if ('click_tracking_enabled' in body) {
+                    return [
+                        200,
+                        {
+                            ...serverTemplate,
+                            ...body,
+                            name: 'Renamed elsewhere',
+                            sensitive: true,
+                            updated_at: '2026-01-01T00:02:00Z',
+                        },
+                    ]
+                }
+                publishStarted()
+                await publishGate
+                return [
+                    200,
+                    {
+                        ...serverTemplate,
+                        ...body,
+                        sensitive: true,
+                        draft_content: null,
+                        updated_at: '2026-01-01T00:01:00Z',
+                    },
+                ]
+            }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': {
+                        ...serverTemplate,
+                        sensitive: true,
+                        click_tracking_enabled: null,
+                        updated_at: '2026-01-01T00:00:00Z',
+                    },
+                },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const templater = emailTemplaterLogic({
+                value: logic.values.template.content.email,
+                onChange: (value) => logic.actions.setTemplateValue('content.email', value),
+                type: 'native_email_transactional_template',
+                layout: 'inline',
+            })
+            const unmountTemplater = templater.mount()
+            templater.actions.setEmailEditorRef({
+                editor: {
+                    registerProvider: jest.fn(),
+                    registerCallback: jest.fn(),
+                    loadDesign: jest.fn(),
+                    addEventListener: jest.fn(),
+                    exportHtml: (callback: (data: any) => void) =>
+                        callback({ design: { body: { id: 'mine' } }, html: '<p>Canvas edit</p>' }),
+                    exportPlainText: (callback: (data: any) => void) => callback({ text: 'Canvas edit' }),
+                },
+            } as any)
+            templater.actions.onEmailEditorReady()
+
+            logic.actions.setClickTrackingEnabled(true)
+            logic.actions.submitTemplate()
+            await publishArrived
+            await waitFor(() => expect(logic.values.isSavingClickTracking).toBe(false))
+            templater.actions.designUpdated()
+
+            releasePublish()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.externallyEdited).toBe(true)
+            expect(logic.values.template.content.email.html).toBe('<p>Canvas edit</p>')
+            unmountTemplater()
+        })
+
+        it('does not flag a false conflict when typing during publish after a newer own click tracking save', async () => {
+            logic.unmount()
+            let releasePublish!: () => void
+            const publishGate = new Promise<void>((resolve) => {
+                releasePublish = resolve
+            })
+            let publishStarted!: () => void
+            const publishArrived = new Promise<void>((resolve) => {
+                publishStarted = resolve
+            })
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                bodies.push(body)
+                if ('click_tracking_enabled' in body) {
+                    return [
+                        200,
+                        {
+                            ...serverTemplate,
+                            ...body,
+                            sensitive: true,
+                            updated_at: '2026-01-01T00:02:00Z',
+                        },
+                    ]
+                }
+                if ('draft_content' in body) {
+                    return [200, { ...serverTemplate, ...body, updated_at: '2026-01-01T00:03:00Z' }]
+                }
+                publishStarted()
+                await publishGate
+                return [
+                    200,
+                    {
+                        ...serverTemplate,
+                        ...body,
+                        sensitive: true,
+                        draft_content: null,
+                        click_tracking_enabled: null,
+                        updated_at: '2026-01-01T00:01:00Z',
+                    },
+                ]
+            }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': {
+                        ...serverTemplate,
+                        sensitive: true,
+                        click_tracking_enabled: null,
+                        updated_at: '2026-01-01T00:00:00Z',
+                    },
+                },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+
+            logic.actions.setClickTrackingEnabled(true)
+            logic.actions.submitTemplate()
+            await publishArrived
+            await jest.advanceTimersByTimeAsync(10)
+            logic.actions.setTemplateValue('name', 'Typed during publish')
+
+            releasePublish()
+            await jest.advanceTimersByTimeAsync(2000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.externallyEdited).toBe(false)
+            expect(logic.values.template.name).toBe('Typed during publish')
+            expect(logic.values.originalTemplate.click_tracking_enabled).toBe(true)
+        })
+
+        it('preserves an unsaved rename when an older discard response lands after a newer publish', async () => {
+            logic.unmount()
+            let releaseDiscard!: () => void
+            const discardGate = new Promise<void>((resolve) => {
+                releaseDiscard = resolve
+            })
+            let discardStarted!: () => void
+            const discardArrived = new Promise<void>((resolve) => {
+                discardStarted = resolve
+            })
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                if ('draft_content' in body && body.draft_content === null) {
+                    discardStarted()
+                    await discardGate
+                    return [
+                        200,
+                        {
+                            ...serverTemplate,
+                            draft_content: null,
+                            updated_at: '2026-01-01T00:01:00Z',
+                        },
+                    ]
+                }
+                return [
+                    200,
+                    {
+                        ...serverTemplate,
+                        ...body,
+                        draft_content: null,
+                        updated_at: '2026-01-01T00:02:00Z',
+                    },
+                ]
+            }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': {
+                        ...serverTemplate,
+                        updated_at: '2026-01-01T00:00:00Z',
+                    },
+                },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.confirmDiscardDraft()
+            await discardArrived
+            logic.actions.submitTemplate()
+            await waitFor(() => expect(logic.values.originalTemplate.updated_at).toBe('2026-01-01T00:02:00Z'))
+            logic.actions.setTemplateValue('name', 'Unsaved rename')
+
+            releaseDiscard()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.template.name).toBe('Unsaved rename')
+            expect(logic.values.externallyEdited).toBe(true)
+        })
     })
 
     describe('typing while a save runs', () => {

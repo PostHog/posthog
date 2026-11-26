@@ -98,6 +98,21 @@ function preserveNewerSettings(incoming: MessageTemplate, loaded: MessageTemplat
     return incoming
 }
 
+async function flushCanvasAndCheckDirty(props: MessageTemplateLogicProps): Promise<{
+    stillMounted: boolean
+    canvasUnsaved: boolean
+}> {
+    const templater = emailTemplaterLogic.findMounted()
+    if (templater) {
+        await templater.asyncActions.flushPendingDesignEdit()
+        if (!messageTemplateLogic.isMounted(props)) {
+            return { stillMounted: false, canvasUnsaved: false }
+        }
+        return { stillMounted: true, canvasUnsaved: templater.isMounted() && templater.values.latestEditUnsaved }
+    }
+    return { stillMounted: messageTemplateLogic.isMounted(props), canvasUnsaved: false }
+}
+
 function applySettingUpdate(
     updated: Awaited<ReturnType<typeof messagingTemplatesPartialUpdate>>,
     values: {
@@ -119,13 +134,42 @@ function applySettingUpdate(
         resetTemplate: (values?: MessageTemplate) => void
         setExternallyEdited: (externallyEdited: boolean) => void
         setTemplateValues: (
-            values: Partial<Pick<MessageTemplate, 'sensitive' | 'click_tracking_enabled' | 'updated_at'>>
+            values: Partial<Pick<MessageTemplate, 'sensitive' | 'click_tracking_enabled' | 'updated_at' | 'tags'>>
         ) => void
+    },
+    options: {
+        canvasUnsaved: boolean
+        hasPendingTagWrite: boolean
+        cache: Record<string, any>
     }
 ): boolean {
     const loadedUpdatedAt = values.originalTemplate.updated_at
     if (loadedUpdatedAt && updated.updated_at && dayjs(updated.updated_at).isBefore(dayjs(loadedUpdatedAt))) {
         return false
+    }
+
+    const {
+        form: serverForm,
+        draft: serverDraft,
+        published: serverPublished,
+    } = splitDraft(updated as unknown as MessageTemplate)
+    const serverTagsChanged =
+        !options.hasPendingTagWrite && !objectsEqual(serverForm.tags ?? [], values.originalTemplate.tags ?? [])
+    const hasExternalChanges =
+        serverForm.name !== values.originalTemplate.name ||
+        (serverForm.description ?? '') !== (values.originalTemplate.description ?? '') ||
+        (serverForm.transactional_hog_flow_id ?? null) !==
+            (values.originalTemplate.transactional_hog_flow_id ?? null) ||
+        !objectsEqual(serverPublished ?? null, values.publishedContent) ||
+        !objectsEqual(serverDraft, values.serverDraft)
+
+    const settingChanges: Partial<
+        Pick<MessageTemplate, 'sensitive' | 'click_tracking_enabled' | 'updated_at' | 'tags'>
+    > = {
+        sensitive: updated.sensitive,
+        click_tracking_enabled: updated.click_tracking_enabled,
+        updated_at: updated.updated_at,
+        ...(serverTagsChanged ? { tags: serverForm.tags } : {}),
     }
 
     if (
@@ -134,11 +178,7 @@ function applySettingUpdate(
         values.savedTemplateLoading ||
         values.isTemplateSubmitting
     ) {
-        const settingChanges = {
-            sensitive: updated.sensitive,
-            click_tracking_enabled: updated.click_tracking_enabled,
-            updated_at: updated.updated_at,
-        }
+        options.cache.lastOwnSettingUpdatedAt = hasExternalChanges ? null : updated.updated_at
         actions.setOriginalTemplate({ ...values.originalTemplate, ...settingChanges })
         if (values.templateChanged) {
             actions.setTemplateValues(settingChanges)
@@ -148,40 +188,30 @@ function applySettingUpdate(
         return true
     }
 
-    const {
-        form: serverForm,
-        draft: serverDraft,
-        published: serverPublished,
-    } = splitDraft(updated as unknown as MessageTemplate)
-    const hasExternalChanges =
-        serverForm.name !== values.originalTemplate.name ||
-        (serverForm.description ?? '') !== (values.originalTemplate.description ?? '') ||
-        (serverForm.transactional_hog_flow_id ?? null) !==
-            (values.originalTemplate.transactional_hog_flow_id ?? null) ||
-        !objectsEqual(serverPublished ?? null, values.publishedContent) ||
-        !objectsEqual(serverDraft, values.serverDraft)
-
-    if (hasExternalChanges && !values.hasUnsavedChanges && !values.externallyEdited) {
+    const hasLocalUnsaved = values.hasUnsavedChanges || options.canvasUnsaved
+    if (hasExternalChanges && !hasLocalUnsaved && !values.externallyEdited) {
+        const reconciledServerForm = options.hasPendingTagWrite
+            ? { ...serverForm, tags: values.template.tags }
+            : serverForm
+        options.cache.lastOwnSettingUpdatedAt = null
         actions.setDraftState(serverDraft, serverPublished)
-        actions.setOriginalTemplate(serverForm)
-        actions.resetTemplate(serverForm)
+        actions.setOriginalTemplate(reconciledServerForm)
+        actions.resetTemplate(reconciledServerForm)
         return true
     }
 
     if (hasExternalChanges) {
+        options.cache.lastOwnSettingUpdatedAt = null
         actions.setExternallyEdited(true)
+    } else {
+        options.cache.lastOwnSettingUpdatedAt = updated.updated_at
     }
 
-    const changes = {
-        sensitive: updated.sensitive,
-        click_tracking_enabled: updated.click_tracking_enabled,
-        updated_at: updated.updated_at,
-    }
-    actions.setOriginalTemplate({ ...values.originalTemplate, ...changes })
+    actions.setOriginalTemplate({ ...values.originalTemplate, ...settingChanges })
     if (values.templateChanged) {
-        actions.setTemplateValues(changes)
+        actions.setTemplateValues(settingChanges)
     } else {
-        actions.resetTemplate({ ...values.template, ...changes })
+        actions.resetTemplate({ ...values.template, ...settingChanges })
     }
     return true
 }
@@ -1117,6 +1147,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         saveDraftDone: ({ updatedAt }) => {
+            cache.lastOwnSettingUpdatedAt = null
             // The echo of this save then matches the loaded stamp and is not read as an edit from elsewhere.
             actions.setOriginalTemplate({ ...values.originalTemplate, updated_at: updatedAt })
             actions.replayDeferredExternalEdit()
@@ -1151,29 +1182,44 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     draft_content: null,
                 })
+                const { stillMounted, canvasUnsaved } = await flushCanvasAndCheckDirty(props)
+                if (!stillMounted) {
+                    return
+                }
                 const published = updated.content as TemplateContent
                 const discardIsOlder = isOlderThanLoaded(updated.updated_at, values.originalTemplate.updated_at)
-                const nextOriginal = preserveNewerSettings(
-                    {
-                        ...values.originalTemplate,
+                const newerIsOnlyOwnSetting =
+                    discardIsOlder &&
+                    !!cache.lastOwnSettingUpdatedAt &&
+                    values.originalTemplate.updated_at === cache.lastOwnSettingUpdatedAt &&
+                    !values.externallyEdited
+                if (discardIsOlder && !newerIsOnlyOwnSetting) {
+                    if (values.hasUnsavedChanges || canvasUnsaved) {
+                        actions.setExternallyEdited(true)
+                    } else {
+                        actions.syncExternalEdit()
+                    }
+                } else {
+                    const nextOriginal = preserveNewerSettings(
+                        {
+                            ...values.originalTemplate,
+                            content: published,
+                            sensitive: updated.sensitive,
+                            click_tracking_enabled: updated.click_tracking_enabled,
+                            updated_at: updated.updated_at,
+                        },
+                        values.originalTemplate
+                    )
+                    const discardChanges = {
                         content: published,
-                        sensitive: updated.sensitive,
-                        click_tracking_enabled: updated.click_tracking_enabled,
-                        updated_at: updated.updated_at,
-                    },
-                    values.originalTemplate
-                )
-                const discardChanges = {
-                    content: published,
-                    sensitive: nextOriginal.sensitive,
-                    click_tracking_enabled: nextOriginal.click_tracking_enabled,
-                    updated_at: nextOriginal.updated_at,
-                }
-                actions.setDraftState(null, published)
-                actions.setOriginalTemplate(nextOriginal)
-                actions.resetTemplate({ ...values.template, ...discardChanges })
-                if (discardIsOlder) {
-                    actions.syncExternalEdit()
+                        sensitive: nextOriginal.sensitive,
+                        click_tracking_enabled: nextOriginal.click_tracking_enabled,
+                        updated_at: nextOriginal.updated_at,
+                    }
+                    cache.lastOwnSettingUpdatedAt = null
+                    actions.setDraftState(null, published)
+                    actions.setOriginalTemplate(nextOriginal)
+                    actions.resetTemplate({ ...values.template, ...discardChanges })
                 }
             } catch {
                 lemonToast.error("Couldn't discard your draft. Try again.")
@@ -1232,7 +1278,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     sensitive,
                 })
-                applySettingUpdate(updated, values, actions)
+                const { stillMounted, canvasUnsaved } = await flushCanvasAndCheckDirty(props)
+                if (!stillMounted) {
+                    return
+                }
+                applySettingUpdate(updated, values, actions, {
+                    canvasUnsaved,
+                    hasPendingTagWrite: pendingTagWrites.has(props.id),
+                    cache,
+                })
                 posthog.capture('email template sensitive changed', { template_id: props.id, sensitive })
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? "Couldn't change the setting. Try again.")
@@ -1249,7 +1303,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const updated = await messagingTemplatesPartialUpdate(String(values.currentTeamIdStrict), props.id, {
                     click_tracking_enabled: clickTrackingEnabled ? true : null,
                 })
-                if (applySettingUpdate(updated, values, actions)) {
+                const { stillMounted, canvasUnsaved } = await flushCanvasAndCheckDirty(props)
+                if (!stillMounted) {
+                    return
+                }
+                if (
+                    applySettingUpdate(updated, values, actions, {
+                        canvasUnsaved,
+                        hasPendingTagWrite: pendingTagWrites.has(props.id),
+                        cache,
+                    })
+                ) {
                     if (updated.sensitive) {
                         posthog.capture('email template click tracking changed', {
                             template_id: props.id,
@@ -1276,6 +1340,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         loadTemplateSuccess: ({ template }) => {
+            cache.lastOwnSettingUpdatedAt = null
             if (values.isSyncingExternalEdit) {
                 // The server copy replaces the form. A Reload from the banner discards the local edits on purpose.
                 actions.resetTemplate(template)
@@ -1333,15 +1398,19 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             const saved = props.id !== 'new' && tagsChanged ? { ...template, tags: current.tags } : template
             // Clear the unsaved-changes state before navigating so the beforeUnload guard
             // does not intercept the post-save redirect.
-            const hasTypedMeanwhile = Object.keys(typedMeanwhile).length > 0
             const publishIsOlder = isOlderThanLoaded(saved.updated_at, values.originalTemplate.updated_at)
+            const newerIsOnlyOwnSetting =
+                publishIsOlder &&
+                !!cache.lastOwnSettingUpdatedAt &&
+                values.originalTemplate.updated_at === cache.lastOwnSettingUpdatedAt &&
+                !values.externallyEdited
             const reconciled = preserveNewerSettings(saved, values.originalTemplate)
-            actions.setExternallyEdited(publishIsOlder && hasTypedMeanwhile)
+            if (!publishIsOlder) {
+                cache.lastOwnSettingUpdatedAt = null
+            }
+            actions.setExternallyEdited(false)
             actions.resetTemplate(reconciled)
             actions.setOriginalTemplate(reconciled)
-            if (publishIsOlder && !hasTypedMeanwhile) {
-                actions.syncExternalEdit()
-            }
             if (values.transactionalHogFlowId) {
                 // The save wrote a new workflow version, and nothing else tells the bound workflow tabs.
                 workflowLogic.findMounted({ id: values.transactionalHogFlowId })?.actions.loadWorkflow()
@@ -1354,6 +1423,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             // After the navigation, which would otherwise ask to discard them.
             if (Object.keys(typedMeanwhile).length > 0) {
                 actions.setTemplateValues(typedMeanwhile)
+            }
+            if (publishIsOlder && !newerIsOnlyOwnSetting) {
+                const { stillMounted, canvasUnsaved } = await flushCanvasAndCheckDirty(props)
+                if (!stillMounted) {
+                    return
+                }
+                if (values.hasUnsavedChanges || canvasUnsaved) {
+                    actions.setExternallyEdited(true)
+                } else {
+                    actions.syncExternalEdit()
+                }
             }
             actions.replayDeferredExternalEdit()
         },
