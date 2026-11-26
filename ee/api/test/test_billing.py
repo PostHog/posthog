@@ -1388,6 +1388,24 @@ class TestActivateBillingAPI(APILicensedTest):
                 "get_usage_data",
                 "/api/organizations/{organization_id}/billing/usage/timeseries/",
             ),
+            (
+                "overview_naming_its_organization",
+                "/api/billing/?organization_id={organization_id}",
+                "get_billing",
+                "/api/organizations/{organization_id}/billing/?organization_id={organization_id}",
+            ),
+            (
+                "paged_usage",
+                "/api/billing/usage/?page_size=10&after=abc",
+                "get_usage_data",
+                "/api/organizations/{organization_id}/billing/usage/timeseries/?limit=10&cursor=abc",
+            ),
+            (
+                "format_suffix",
+                "/api/billing/usage.json",
+                "get_usage_data",
+                "/api/organizations/{organization_id}/billing/usage/timeseries.json",
+            ),
             ("organization_route", "/api/organizations/{organization_id}/billing/", "get_billing", None),
         ]
     )

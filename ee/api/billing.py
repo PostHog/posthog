@@ -851,6 +851,7 @@ _FLAT_BILLING_SUCCESSOR_PATHS = {
     "spend": "spend/timeseries",
     "usage/team_options": "projects",
 }
+_TIMESERIES_SUCCESSOR_PATHS = frozenset({"usage/timeseries", "spend/timeseries"})
 
 
 def _billing_period_response(organization: Organization) -> dict[str, Any]:
@@ -886,6 +887,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if actions and actions.get("get") == "list":
             actions = {**actions, "patch": "update_limits"}
         return super().as_view(actions, **initkwargs)
+
+    serves_flat_route = True
 
     @property
     def _organization_in_path(self) -> bool:
@@ -937,7 +940,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
         response = super().finalize_response(request, response, *args, **kwargs)
-        if not self._organization_in_path:
+        # initial() adds the organization to self.kwargs for actions that send organization_id, so the class says
+        # which route served the request, not the kwargs.
+        if self.serves_flat_route:
             self._mark_flat_route_deprecated(request, response)
         return response
 
@@ -949,13 +954,28 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         links = [f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"']
         organization = self._get_org() if 200 <= response.status_code < 300 else None
         if organization is not None:
-            rest = request.path.removeprefix("/api/billing").strip("/")
-            rest = _FLAT_BILLING_SUCCESSOR_PATHS.get(rest, rest)
-            path = f"/api/organizations/{organization.id}/billing/{rest}"
-            if rest and request.path.endswith("/"):
-                path += "/"
-            links.insert(0, f'<{successor_url(path, request.GET)}>; rel="successor-version"')
+            links.insert(0, f'<{self._flat_route_successor(request, organization)}>; rel="successor-version"')
         response["Link"] = ", ".join(links)
+
+    def _flat_route_successor(self, request: Request, organization: Organization) -> str:
+        format_suffix = f".{self.kwargs['format']}" if self.kwargs.get("format") else ""
+        action_path = request.path.removeprefix("/api/billing").removesuffix(format_suffix).strip("/")
+        successor_action_path = _FLAT_BILLING_SUCCESSOR_PATHS.get(action_path, action_path)
+        path = f"/api/organizations/{organization.id}/billing"
+        if successor_action_path:
+            path += f"/{successor_action_path}"
+        if format_suffix:
+            path += format_suffix
+        elif request.path.endswith("/") or not successor_action_path:
+            path += "/"
+
+        query = request.GET.copy()
+        if successor_action_path in _TIMESERIES_SUCCESSOR_PATHS:
+            # The time-series reads page with limit and cursor, which carry the same values as page_size and after.
+            for legacy_name, name in (("page_size", "limit"), ("after", "cursor")):
+                if legacy_name in query:
+                    query.setlist(name, query.pop(legacy_name))
+        return successor_url(path, query)
 
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
@@ -1851,6 +1871,7 @@ class OrganizationPathBillingViewset(BillingViewset):
     paths in its own shapes, so this viewset leaves those reads to it.
     """
 
+    serves_flat_route = False
     schema = _OrganizationPathBillingSchema()
     # The project route serves the billing period too, for callers that know only the project.
     schema_org_paths_are_not_duplicates = True
