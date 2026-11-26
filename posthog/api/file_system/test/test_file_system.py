@@ -526,7 +526,7 @@ class TestFileSystemAPI(APIBaseTest):
         [
             (f"{action}_{file_type}", action, file_type)
             for action in ("create", "retype")
-            for file_type in ("message_template",)
+            for file_type in ("hog_flow", "message_template")
         ]
     )
     def test_the_tree_refuses_a_row_of_a_type_it_no_longer_files(self, _name: str, action: str, file_type: str) -> None:
@@ -1827,7 +1827,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
     @parameterized.expand(
         [
             (f"{file_type}_{caller}_{target}", file_type, caller, target, query)
-            for file_type in ("message_template",)
+            for file_type in ("hog_flow", "message_template")
             for caller in ("workflow_viewer", "token_without_workflow_scopes")
             for target, query in (("file", ""), ("folder", ""), ("folder", "?recursive=false"))
         ]
