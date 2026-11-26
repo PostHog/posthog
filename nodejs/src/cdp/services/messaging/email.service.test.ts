@@ -2812,20 +2812,23 @@ describe('EmailService', () => {
                         (): void => {
                             bucket.answer = 'refuse'
                         },
+                        1,
                     ],
                     [
                         'SES refusing the first connection',
                         (emailService: EmailService): void => sesRefusesTheFirstConnection(emailService),
+                        1,
                     ],
                     [
-                        'SES throttling the first request',
+                        'SES throttling the first request, which charges the team budget again',
                         (): void => {
                             ses.failOnce(sesThrottles)
                         },
+                        0,
                     ],
                 ])(
                     'sends the retry after %s without claiming the workflow limit again',
-                    async (_cause, failTheFirstTry) => {
+                    async (_cause, failTheFirstTry, sendsLeftInTheBudget) => {
                         const emailService = sender({ teamDailyCap: 2 })
                         invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
                         failTheFirstTry(emailService)
@@ -2843,7 +2846,7 @@ describe('EmailService', () => {
                         ])
                         expect(result.error).toBeUndefined()
                         expect(result.finished).toBe(true)
-                        expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
+                        expect(await sendsLeftInTheTeamBudget(emailService)).toBe(sendsLeftInTheBudget)
                     }
                 )
             })
