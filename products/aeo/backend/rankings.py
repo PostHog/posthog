@@ -264,7 +264,9 @@ class _Citations:
     """Cited registrable domains and pages across the answered checks in a window, counted in Postgres
     once per answer from the stored cited URL rows."""
 
-    def __init__(self, team_id: int, *, since: dt.datetime, until: dt.datetime, scope_params: list[str | None]) -> None:
+    def __init__(
+        self, team_id: int, *, since: dt.datetime, until: dt.datetime, scope_params: list[str | bool | None]
+    ) -> None:
         self._params: list[Any] = [team_id, since, until, team_id, since, until, *scope_params]
 
     def ranked_domains(self) -> list[tuple[str, int]]:
