@@ -3,10 +3,15 @@ import uuid
 import pytest
 from unittest.mock import patch
 
+import httpx
+from anthropic import APIStatusError
+
 from posthog.exceptions import QuotaLimitExceeded
+from posthog.models import Organization
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.spend import finalized_signal_ids
+from products.signals.backend.system_one_decision import SignalsDecisionError
 from products.signals.backend.temporal.safety_filter import (
     BLOCKED_SIGNAL_SPAN_NAME,
     SafetyFilterInput,
@@ -16,6 +21,14 @@ from products.signals.backend.temporal.safety_filter import (
 from products.signals.backend.trial.policy import TrialRefused
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.safety_filter"
+
+
+def _payment_required(headers: dict[str, str]) -> APIStatusError:
+    return APIStatusError(
+        "Your organization has been deactivated",
+        response=httpx.Response(402, headers=headers, request=httpx.Request("POST", "https://gateway.example.com")),
+        body={"type": "error", "error": {"type": "billing_error"}},
+    )
 
 
 @pytest.mark.asyncio
@@ -106,7 +119,14 @@ async def test_blocked_signal_without_team_id_skips_capture():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("refusal", [QuotaLimitExceeded(), TrialRefused("billing_limit")])
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        QuotaLimitExceeded(),
+        TrialRefused("billing_limit"),
+        _payment_required({"X-PostHog-Denial": "organization_inactive"}),
+    ],
+)
 async def test_admission_refusal_drops_signal_instead_of_failing(ateam, refusal):
     signal_id = str(uuid.uuid4())
 
@@ -123,3 +143,42 @@ async def test_admission_refusal_drops_signal_instead_of_failing(ateam, refusal)
     assert await database_sync_to_async(finalized_signal_ids)(team_id=ateam.id, signal_ids=[signal_id]) == {signal_id}
     capture.assert_not_called()
     capture_ai.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("deactivated_during_call", [False, True])
+async def test_deactivated_organization_drops_signal(ateam, deactivated_during_call):
+    signal_id = str(uuid.uuid4())
+
+    async def deactivate() -> None:
+        await Organization.objects.filter(id=ateam.organization_id).aupdate(is_active=False)
+
+    async def judge(*_args, **_kwargs) -> SafetyFilterJudgeResponse:
+        if deactivated_during_call:
+            await deactivate()
+            # The System One path carries no response headers, only this wrapped message.
+            raise SignalsDecisionError("Signals decision failed: DecisionGatewayError (status 402)")
+        return SafetyFilterJudgeResponse(safe=True)
+
+    if not deactivated_during_call:
+        await deactivate()
+
+    with patch(f"{PIPELINE_MODULE_PATH}.safety_filter", side_effect=judge):
+        result = await safety_filter_activity(
+            SafetyFilterInput(team_id=ateam.id, signal_id=signal_id, description="a finding"),
+        )
+
+    assert result.safe is False
+    assert await database_sync_to_async(finalized_signal_ids)(team_id=ateam.id, signal_ids=[signal_id]) == {signal_id}
+
+
+@pytest.mark.asyncio
+async def test_provider_payment_refusal_without_gateway_denial_still_fails():
+    error = _payment_required({})
+
+    with patch(f"{PIPELINE_MODULE_PATH}.safety_filter", side_effect=error):
+        with pytest.raises(APIStatusError) as raised:
+            await safety_filter_activity(SafetyFilterInput(team_id=None, description="a finding"))
+
+    assert raised.value is error

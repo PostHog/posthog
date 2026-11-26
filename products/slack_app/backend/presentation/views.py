@@ -309,6 +309,10 @@ class SlackAppPersonalSettingsSerializer(serializers.Serializer):
     feature_tips_enabled = serializers.BooleanField(
         help_text="Whether PostHog sends this person short tips about Slack app features."
     )
+    chatgpt_apps_enabled = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Null when this person has no ChatGPT plan that Slack tasks can use.",
+    )
 
 
 class SlackAppSettingsSerializer(serializers.Serializer):
@@ -363,6 +367,10 @@ class SlackAppPersonalSettingsUpdateSerializer(serializers.Serializer):
     )
     feature_tips_enabled = serializers.BooleanField(
         required=False, help_text="Whether PostHog sends this person short tips about Slack app features."
+    )
+    chatgpt_apps_enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Applies to tasks started after the change.",
     )
 
 
@@ -439,6 +447,7 @@ PERSONAL_SETTING_FIELDS = (
     "thread_join_mode",
     "auto_model_choice",
     "feature_tips_enabled",
+    "chatgpt_apps_enabled",
 )
 
 

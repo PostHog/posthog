@@ -1480,6 +1480,60 @@ describe('StateManager', () => {
             expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(expected)
             expect(request).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }))
         })
+
+        describe('with an empty answer cached', () => {
+            const empty = { hasSources: false, hasRepositories: false }
+            let request: ReturnType<typeof vi.fn>
+
+            beforeEach(async () => {
+                vi.useFakeTimers()
+                request = vi
+                    .fn()
+                    .mockResolvedValueOnce({ has_sources: false, has_repositories: false })
+                    .mockResolvedValueOnce({ has_sources: true, has_repositories: false })
+                ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(empty)
+            })
+
+            afterEach(() => {
+                vi.useRealTimers()
+            })
+
+            it('keeps it for 59 minutes', async () => {
+                vi.advanceTimersByTime(59 * 60 * 1000)
+
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(empty)
+            })
+
+            it('reads as unknown after a failed refresh, and retries a minute later', async () => {
+                vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+                request.mockReset()
+                request
+                    .mockRejectedValueOnce(new Error('Synthetic availability failure'))
+                    .mockResolvedValueOnce({ has_sources: true, has_repositories: false })
+                vi.advanceTimersByTime(61 * 60 * 1000)
+
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toBeUndefined()
+                vi.advanceTimersByTime(59 * 1000)
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toBeUndefined()
+                vi.advanceTimersByTime(2 * 1000)
+
+                expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual({
+                    hasSources: true,
+                    hasRepositories: false,
+                })
+            })
+
+            it('reads it again once it is cleared', async () => {
+                await stateManager.clearBusinessKnowledgeContent('42')
+                const nextRequest = new StateManager(cache, (stateManager as any)._api)
+
+                expect(await nextRequest.getOrFetchBusinessKnowledgeContent('42')).toEqual({
+                    hasSources: true,
+                    hasRepositories: false,
+                })
+            })
+        })
     })
 
     describe('getOrFetchMetricCatalog', () => {
@@ -1506,20 +1560,25 @@ describe('StateManager', () => {
             )
         })
 
-        it('drops a cached empty catalog when its refresh fails', async () => {
+        it('drops a cached empty catalog when its refresh fails, and retries a minute later', async () => {
             vi.useFakeTimers()
             vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
             const request = vi
                 .fn()
                 .mockResolvedValueOnce({ has_metrics: false })
-                .mockRejectedValue(new Error('Synthetic metric availability failure'))
+                .mockRejectedValueOnce(new Error('Synthetic metric availability failure'))
+                .mockResolvedValueOnce({ has_metrics: true })
             ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
             expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
             vi.advanceTimersByTime(60 * 60 * 1000 + 1000)
 
             expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+            vi.advanceTimersByTime(59 * 1000)
             expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+            vi.advanceTimersByTime(2 * 1000)
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: true })
         })
 
         it('reads a failed lookup as unknown', async () => {

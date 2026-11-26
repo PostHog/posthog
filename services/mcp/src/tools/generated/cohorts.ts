@@ -244,6 +244,43 @@ const cohortsRmPersonFromStaticCohortPartialUpdate = (): ToolBase<
     },
 })
 
+const CohortsSetRealtimeSchema = () => {
+    const CohortsRealtimeCreateBody = orvalSchemas.CohortsRealtimeCreateBody()
+    const CohortsRealtimeCreateParams = orvalSchemas.CohortsRealtimeCreateParams()
+    return CohortsRealtimeCreateParams.omit({ project_id: true })
+        .extend(CohortsRealtimeCreateBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, CohortsRealtimeCreateParams.shape['id']) })
+}
+
+const cohortsSetRealtime = (): ToolBase<
+    ReturnType<typeof CohortsSetRealtimeSchema>,
+    WithPostHogUrl<Schemas.Cohort>
+> => ({
+    name: 'cohorts-set-realtime',
+    schema: CohortsSetRealtimeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CohortsSetRealtimeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.Cohort>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/realtime/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'filters.properties.values.*.values.*.bytecode',
+            'filters.properties.values.*.values.*.bytecode_error',
+            'filters.properties.values.*.values.*.conditionHash',
+            'filters.properties.values.*.bytecode',
+            'filters.properties.values.*.bytecode_error',
+            'filters.properties.values.*.conditionHash',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/cohorts/${filtered.id}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cohorts-add-persons-to-static-cohort-partial-update': cohortsAddPersonsToStaticCohortPartialUpdate,
     'cohorts-create': cohortsCreate,
@@ -251,4 +288,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cohorts-partial-update': cohortsPartialUpdate,
     'cohorts-retrieve': cohortsRetrieve,
     'cohorts-rm-person-from-static-cohort-partial-update': cohortsRmPersonFromStaticCohortPartialUpdate,
+    'cohorts-set-realtime': cohortsSetRealtime,
 }

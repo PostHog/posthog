@@ -88,6 +88,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         gatewayToolsEnabled: false,
         distinctId: 'distinct-id',
         renderUiEnabled: false,
+        stepSeconds: {},
         ...overrides,
     }
 }

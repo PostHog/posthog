@@ -9,6 +9,8 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 import products.posthog_ai.scripts.hogql_example as hogql_example_module
 from products.posthog_ai.scripts.hogql_example import render_hogql_example
 
@@ -79,16 +81,26 @@ class TestRenderHogQLExample(BaseTest):
                 }
             )
 
+    @parameterized.expand(
+        [
+            (
+                "trends",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "dateRange": {"date_from": "-30d"},
+                },
+            ),
+            ("sessions", {"kind": "SessionsQuery", "select": ["session_id"], "after": "-24h"}),
+            ("recordings", {"kind": "RecordingsQuery", "date_from": "-3d", "limit": 20}),
+        ]
+    )
     @patch("django.conf.settings.DEBUG", True)
-    def test_output_is_deterministic_across_calls(self) -> None:
-        query = {
-            "kind": "TrendsQuery",
-            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-            "dateRange": {"date_from": "-30d"},
-        }
-
-        first = render_hogql_example(query)
-        second = render_hogql_example(query)
+    def test_output_does_not_depend_on_the_wall_clock(self, _name: str, query: dict) -> None:
+        with time_machine.travel("2026-03-01T10:15:00Z", tick=False):
+            first = render_hogql_example(query)
+        with time_machine.travel("2027-07-19T22:40:00Z", tick=False):
+            second = render_hogql_example(query)
 
         assert first == second
 
@@ -108,7 +120,8 @@ class TestRenderHogQLExampleMocked:
         assert runner.context.now == hogql_example_module._FROZEN_DATETIME
 
     @patch("posthog.hogql.printer.utils.to_printed_hogql", return_value="SELECT 1")
-    @patch("posthog.hogql.filters.replace_filters")
+    @patch("posthog.hogql.database.database.Database.create_for")
+    @patch("posthog.hogql.filters.ReplaceFilters")
     @patch("posthog.hogql_queries.query_runner.get_query_runner")
     @patch("posthog.models.team.Team.objects.first")
     @patch("django.conf.settings.DEBUG", True)
@@ -117,6 +130,7 @@ class TestRenderHogQLExampleMocked:
         mock_first: MagicMock,
         mock_get_runner: MagicMock,
         _mock_replace_filters: MagicMock,
+        _mock_create_database: MagicMock,
         _mock_to_hogql: MagicMock,
     ) -> None:
         fake_team = MagicMock()

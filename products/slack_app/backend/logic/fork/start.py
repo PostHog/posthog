@@ -10,6 +10,11 @@ import structlog
 
 from posthog.slack.formatting import escape_slack_mrkdwn
 
+from products.slack_app.backend.logic.shared_channels import (
+    SHARED_CHANNELS_TURNED_OFF_MESSAGE,
+    SharedChannelAccess,
+    shared_channel_access,
+)
 from products.slack_app.backend.services.slack_conversations import channel_is_ext_shared
 
 logger = structlog.get_logger(__name__)
@@ -57,6 +62,24 @@ def _ephemeral(slack: Any, text: str, *, channel: str, thread_ts: str, user: str
         logger.warning("slack_app_fork_ephemeral_failed")
 
 
+def _refuse(integration: Any, reason: str, *, slack_user_id: str, destination: str) -> None:
+    """Record a fork that did not start, for the adoption dashboard.
+
+    Refusals before an integration resolves stay log-only: there is nothing to attribute
+    them to, and a workspace outside the rollout should not show up in analytics either.
+    """
+    from products.slack_app.backend.analytics import capture_slack_event
+
+    logger.info("slack_app_fork_refused", reason=reason, slack_team_id=integration.integration_id)
+    capture_slack_event(
+        integration,
+        "slack app fork refused",
+        slack_user_id=slack_user_id,
+        reason=reason,
+        destination=destination,
+    )
+
+
 def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) -> None:
     """Start a task that continues the forked thread, in the clicker's DM or in ``target_channel``.
 
@@ -68,7 +91,7 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
 
     from products.mcp_store.backend.facade.api import has_slack_mcp_connected
     from products.slack_app.backend.analytics import capture_slack_event
-    from products.slack_app.backend.api import SLACK_INTEGRATION_KIND, _channel_is_approved, _start_mention_workflow
+    from products.slack_app.backend.api import SLACK_INTEGRATION_KIND, _start_mention_workflow
     from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
     from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
     from products.slack_app.backend.logic.feature_tips.features import SlackFeature
@@ -138,12 +161,14 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
         slack_team_id=slack_team_id,
         slack_user_id=slack_user_id,
     )
+    destination = "channel" if target_channel else "dm"
     integration = resolution.integration or (resolution.candidates[0] if len(resolution.candidates) == 1 else None)
     if resolution.user is None or integration is None:
-        logger.info(
-            "slack_app_fork_refused",
-            reason="user_unresolved" if resolution.user is None else "no_single_project",
-            slack_team_id=slack_team_id,
+        _refuse(
+            probe,
+            "user_unresolved" if resolution.user is None else "no_single_project",
+            slack_user_id=slack_user_id,
+            destination=destination,
         )
         _ephemeral(SlackIntegration(probe), _SEED_UNAVAILABLE, **reply_to)
         return
@@ -151,7 +176,7 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
     slack = SlackIntegration(integration)
 
     if not has_slack_mcp_connected(integration.team_id, resolution.user.id):
-        logger.info("slack_app_fork_refused", reason="no_slack_mcp", slack_team_id=slack_team_id)
+        _refuse(integration, "no_slack_mcp", slack_user_id=slack_user_id, destination=destination)
         _ephemeral(
             slack,
             "To fork a thread, connect the Slack MCP server in PostHog first. It lets me read the thread "
@@ -166,11 +191,19 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
     # writes gated. Refuse rather than fork-and-discover-later, and carry the flag
     # onto the run so the destination inherits the source's posture.
     is_ext_shared = channel_is_ext_shared(slack, source_channel)
-    if is_ext_shared and not _channel_is_approved(slack_team_id, source_channel):
-        logger.info("slack_app_fork_refused", reason="ext_shared_unapproved", slack_team_id=slack_team_id)
+    access = shared_channel_access(integration, source_channel) if is_ext_shared else SharedChannelAccess.ALLOWED
+    if access != SharedChannelAccess.ALLOWED:
+        _refuse(
+            integration,
+            "ext_shared_turned_off" if access == SharedChannelAccess.TURNED_OFF else "ext_shared_unapproved",
+            slack_user_id=slack_user_id,
+            destination=destination,
+        )
         _ephemeral(
             slack,
-            "This is a Slack Connect channel that hasn't been approved for PostHog yet. "
+            SHARED_CHANNELS_TURNED_OFF_MESSAGE
+            if access == SharedChannelAccess.TURNED_OFF
+            else "This is a Slack Connect channel that hasn't been approved for PostHog yet. "
             "`@PostHog` in the channel to approve it first, then fork.",
             **reply_to,
         )
@@ -185,7 +218,7 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
             and resolve_conversation_type(slack, {}, source_channel) in PUBLIC_CHANNEL_CONVERSATION_TYPES
         )
         if not source_is_public:
-            logger.info("slack_app_fork_refused", reason="source_not_public", slack_team_id=slack_team_id)
+            _refuse(integration, "source_not_public", slack_user_id=slack_user_id, destination=destination)
             _ephemeral(
                 slack,
                 'Only threads in public channels can be forked to a channel. Use "Fork to DM" to continue '
@@ -198,7 +231,7 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
         # Connect channel would show the source title and links to people outside the
         # workspace, and the run would not know, because `is_ext_shared` describes the source.
         if not _destination_is_plain_public(slack, target_channel):
-            logger.info("slack_app_fork_refused", reason="target_not_public", slack_team_id=slack_team_id)
+            _refuse(integration, "target_not_public", slack_user_id=slack_user_id, destination=destination)
             _ephemeral(
                 slack,
                 f"<#{target_channel}> is private or shared outside the workspace, so I can't fork there. "
@@ -250,7 +283,7 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
 
     seed = _post_seed(slack, target_channel or slack_user_id, seed_blocks, f"{safe_title}: {body}")
     if seed is None:
-        logger.info("slack_app_fork_refused", reason="seed_post_failed", slack_team_id=slack_team_id)
+        _refuse(integration, "seed_post_failed", slack_user_id=slack_user_id, destination=destination)
         failure = (
             f"I couldn't post in <#{target_channel}>. Invite `@PostHog` to that channel, then fork again."
             if target_channel
@@ -317,7 +350,7 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
         "slack app fork created",
         slack_user_id=slack_user_id,
         source_channel=source_channel,
-        destination="channel" if target_channel else "dm",
+        destination=destination,
         is_ext_shared_channel=is_ext_shared,
         has_source_task=bool(source_task_id),
     )

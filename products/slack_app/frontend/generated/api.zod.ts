@@ -142,6 +142,12 @@ export const SlackAppSettingsPersonalPartialUpdateBody = /* @__PURE__ */ zod.obj
         .boolean()
         .optional()
         .describe('Whether PostHog sends this person short tips about Slack app features.'),
+    chatgpt_apps_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Applies to tasks started after the change."
+        ),
 })
 
 /**
