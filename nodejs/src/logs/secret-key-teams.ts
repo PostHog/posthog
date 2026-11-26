@@ -25,37 +25,58 @@ export function isSecretKey(token: string): boolean {
     return token.trimStart().startsWith(SECRET_KEY_PREFIX)
 }
 
+type SecretKey = { teamId: number; canWriteLogs: boolean }
+
 export class SecretKeyTeams {
-    private readonly teamIds: LazyLoader<number>
+    private readonly keys: LazyLoader<SecretKey>
 
     constructor(
         private readonly postgres: PostgresRouter,
         private readonly teamManager: Pick<TeamManager, 'getTeam'>
     ) {
-        this.teamIds = new LazyLoader({
+        this.keys = new LazyLoader({
             name: 'SecretKeyTeams',
             refreshAgeMs: 2 * 60 * 1000,
             refreshJitterMs: 30 * 1000,
-            loader: (hashes) => this.fetchTeamIds(hashes),
+            loader: (hashes) => this.fetchKeys(hashes),
         })
     }
 
     public async getTeam(digest: string): Promise<Team | null> {
-        const teamId = await this.teamIds.get(digest)
-        return teamId === null ? null : this.teamManager.getTeam(teamId)
+        const key = await this.keys.get(digest)
+        return key?.canWriteLogs ? this.teamManager.getTeam(key.teamId) : null
     }
 
-    private async fetchTeamIds(hashes: string[]): Promise<Record<string, number | null>> {
-        const result = await this.postgres.query<{ secure_value: string; team_id: number }>(
-            PostgresUse.COMMON_READ,
-            `SELECT secure_value, team_id FROM posthog_projectsecretapikey WHERE secure_value = ANY($1) AND $2 = ANY(scopes)`,
-            [hashes, SECRET_KEY_SCOPE],
-            'fetch-secret-key-teams'
-        )
-        const teamIds: Record<string, number | null> = Object.fromEntries(hashes.map((hash) => [hash, null]))
-        for (const row of result.rows) {
-            teamIds[row.secure_value] = row.team_id
-        }
-        return teamIds
+    /** True for a key without the logs:write scope too, so capture never turns it away once the scope is granted. */
+    public async exists(digest: string): Promise<boolean> {
+        return (await this.keys.get(digest)) !== null
     }
+
+    private async fetchKeys(hashes: string[]): Promise<Record<string, SecretKey | null>> {
+        const result = await this.postgres.query<{ secure_value: string; team_id: number; can_write_logs: boolean }>(
+            PostgresUse.COMMON_READ,
+            `SELECT secure_value, team_id, $2 = ANY(scopes) AS can_write_logs FROM posthog_projectsecretapikey WHERE secure_value = ANY($1)`,
+            [hashes, SECRET_KEY_SCOPE],
+            'fetch-secret-keys'
+        )
+        const keys: Record<string, SecretKey | null> = Object.fromEntries(hashes.map((hash) => [hash, null]))
+        for (const row of result.rows) {
+            keys[row.secure_value] = { teamId: row.team_id, canWriteLogs: row.can_write_logs }
+        }
+        return keys
+    }
+}
+
+/** A digest is unknown only when no key row has it: a consumer with no secret key lookup records none. */
+export async function isUnknownToken(
+    token: string,
+    secretKeyTeams: Pick<SecretKeyTeams, 'exists'> | undefined
+): Promise<boolean> {
+    if (isSecretKey(token)) {
+        return false
+    }
+    if (!isSecretKeyDigest(token)) {
+        return true
+    }
+    return secretKeyTeams ? !(await secretKeyTeams.exists(token)) : false
 }
