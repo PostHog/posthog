@@ -561,7 +561,6 @@ class TestFrameConverters(SimpleTestCase):
 
         assert [frame["fields"][1]["values"] for frame in (frames or [])] == [[7.5], [2.0]]
 
-
     @parameterized.expand(
         [
             ("records_become_a_table", {"results": [{"source": "1_/a", "value": 3}]}, [(None, {}, [["1_/a"], [3]])]),
