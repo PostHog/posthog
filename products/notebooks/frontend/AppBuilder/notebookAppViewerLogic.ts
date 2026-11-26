@@ -293,7 +293,7 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
             [] as NotebookVariable[],
             {
                 loadReleaseSuccess: (_, { release }) =>
-                    restoreAppInputs(exposedVariables(release), props.initialInputs),
+                    restoreAppInputs(exposedVariables(release), props.initialInputs, release.layout.blocks),
                 changeInput: (variables, { name, value }) =>
                     variables.map((v) =>
                         v.name === name ? { ...v, value: coerceNotebookVariableValue(v.type, value) } : v
