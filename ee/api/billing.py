@@ -688,6 +688,16 @@ class BillingAuthorizationStatusResponseSerializer(serializers.Serializer):
     )
 
 
+def _billing_period_response(organization: Organization) -> dict[str, Any]:
+    billing_period = organization.current_billing_period
+    return BillingPeriodResponseSerializer(
+        {
+            "current_period_start": billing_period.start if billing_period else None,
+            "current_period_end": billing_period.end if billing_period else None,
+        }
+    ).data
+
+
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
@@ -725,10 +735,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request.data.get("organization_id")
         )
         if self._organization_in_path:
-            # /api/billing/:organization_id/ names the organization, so no action follows the user's current project
-            # or an organization_id sent in the body or query.
+            # The organization route names the organization, so no action follows the user's current project or an
+            # organization_id sent in the body or query.
             self.param_derived_from_user_current_team = None
-            self._refuse_another_organization(request)
         elif self.action in self.payment_actions or scoped_startup_application or scoped_billing_read:
             serializer = BillingPaymentOrganizationSerializer(
                 data=request.query_params if scoped_billing_read else request.data
@@ -741,9 +750,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 serializer.validated_data["organization_id"]
             )
         super().initial(request, *args, **kwargs)
+        if self._organization_in_path:
+            self._refuse_another_organization(request)
 
     def _refuse_another_organization(self, request: Request) -> None:
-        path_organization_id = UUID(self.kwargs[f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id"])
+        # The path can hold @current, so compare with the organization the route resolved.
+        path_organization_id = UUID(str(self.organization_id))
         supplied = [request.query_params.get("organization_id")]
         if isinstance(request.data, Mapping):
             supplied.append(request.data.get("organization_id"))
@@ -808,15 +820,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["llm_gateway:read"],
     )
     def period(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        billing_period = self._get_org_required().current_billing_period
-        return Response(
-            BillingPeriodResponseSerializer(
-                {
-                    "current_period_start": billing_period.start if billing_period else None,
-                    "current_period_end": billing_period.end if billing_period else None,
-                }
-            ).data
-        )
+        return Response(_billing_period_response(self._get_org_required()))
 
     @extend_schema(exclude=True)
     @action(
@@ -1622,11 +1626,56 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 class _OrganizationPathBillingSchema(PostHogAutoSchema):
     # /api/billing/ serves the same actions, so the organization route needs operation ids of its own.
     def get_operation_id(self) -> str:
-        return "billing_organization_" + super().get_operation_id().removeprefix("billing_")
+        # The nested route would otherwise derive organizations_billing_list, which loses its organizations_ prefix
+        # in postprocessing and collides with /api/billing/'s billing_list.
+        return "billing_organization_" + super().get_operation_id().removeprefix("organizations_billing_")
 
 
 class OrganizationPathBillingViewset(BillingViewset):
-    """The billing API at /api/billing/:organization_id/, which names the organization instead of following the
-    user's current project."""
+    """The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+    following the user's current project.
+
+    It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+    paths in its own shapes, so this viewset leaves those reads to it.
+    """
 
     schema = _OrganizationPathBillingSchema()
+    # The project route serves the billing period too, for callers that know only the project.
+    schema_org_paths_are_not_duplicates = True
+    _actions_served_by_organization_billing = frozenset(
+        {"usage", "spend", "usage_export", "spend_export", "usage_team_options"}
+    )
+
+    @classmethod
+    def get_extra_actions(cls):
+        return [
+            action
+            for action in super().get_extra_actions()
+            if action.__name__ not in cls._actions_served_by_organization_billing
+        ]
+
+
+@extend_schema(tags=["billing"])
+class ProjectBillingPeriodViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """The billing period at /api/projects/:project_id/billing/period/, for callers that know the project but not
+    its organization."""
+
+    scope_object = "billing"
+    scope_object_read_actions: list[str] = []
+    scope_object_write_actions: list[str] = []
+    pagination_class = None
+
+    @extend_schema(
+        operation_id="billing_project_period_retrieve",
+        summary="Get the current billing period of the project's organization",
+        responses={200: BillingPeriodResponseSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="period",
+        permission_classes=[permissions.IsAuthenticated],
+        required_scopes=["llm_gateway:read"],
+    )
+    def period(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(_billing_period_response(self.team.organization))

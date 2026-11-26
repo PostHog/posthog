@@ -29,10 +29,6 @@ import type {
     BillingLimitsApi,
     BillingListParams,
     BillingOrganizationListParams,
-    BillingOrganizationSpendExportRetrieveParams,
-    BillingOrganizationSpendRetrieveParams,
-    BillingOrganizationUsageExportRetrieveParams,
-    BillingOrganizationUsageRetrieveParams,
     BillingOverviewResponseApi,
     BillingPaymentOrganizationApi,
     BillingPeriodResponseApi,
@@ -110,524 +106,6 @@ export const billingList = async (
         ...options,
         method: 'GET',
     })
-}
-
-export const getBillingOrganizationListUrl = (organizationId: string, params?: BillingOrganizationListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/billing/${organizationId}/?${stringifiedParams}`
-        : `/api/billing/${organizationId}/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationList = async (
-    organizationId: string,
-    params?: BillingOrganizationListParams,
-    options?: RequestInit
-): Promise<BillingOverviewResponseApi> => {
-    return apiMutator<BillingOverviewResponseApi>(getBillingOrganizationListUrl(organizationId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBillingOrganizationActivateCreateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/activate/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationActivateCreate = async (
-    organizationId: string,
-    billingActivationRequestApi: BillingActivationRequestApi,
-    options?: RequestInit
-): Promise<BillingActivationResponseApi> => {
-    return apiMutator<BillingActivationResponseApi>(getBillingOrganizationActivateCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingActivationRequestApi),
-    })
-}
-
-export const getBillingOrganizationActivateAuthorizeCreateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/activate/authorize/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationActivateAuthorizeCreate = async (
-    organizationId: string,
-    billingPaymentOrganizationApi: BillingPaymentOrganizationApi,
-    options?: RequestInit
-): Promise<BillingAuthorizationResponseApi> => {
-    return apiMutator<BillingAuthorizationResponseApi>(
-        getBillingOrganizationActivateAuthorizeCreateUrl(organizationId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(billingPaymentOrganizationApi),
-        }
-    )
-}
-
-export const getBillingOrganizationActivateAuthorizeStatusCreateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/activate/authorize/status/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationActivateAuthorizeStatusCreate = async (
-    organizationId: string,
-    billingAuthorizationStatusRequestApi: BillingAuthorizationStatusRequestApi,
-    options?: RequestInit
-): Promise<BillingAuthorizationStatusResponseApi> => {
-    return apiMutator<BillingAuthorizationStatusResponseApi>(
-        getBillingOrganizationActivateAuthorizeStatusCreateUrl(organizationId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(billingAuthorizationStatusRequestApi),
-        }
-    )
-}
-
-export const getBillingOrganizationCouponsClaimCreateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/coupons/claim/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationCouponsClaimCreate = async (
-    organizationId: string,
-    claimCouponApi?: ClaimCouponApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationCouponsClaimCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(claimCouponApi),
-    })
-}
-
-export const getBillingOrganizationCouponsOverviewRetrieveUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/coupons/overview/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationCouponsOverviewRetrieve = async (
-    organizationId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationCouponsOverviewRetrieveUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBillingOrganizationCreditsOverviewRetrieveUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/credits/overview/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationCreditsOverviewRetrieve = async (
-    organizationId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationCreditsOverviewRetrieveUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBillingOrganizationCreditsPurchaseCreateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/credits/purchase/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationCreditsPurchaseCreate = async (
-    organizationId: string,
-    billingApi: BillingApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationCreditsPurchaseCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
-    })
-}
-
-export const getBillingOrganizationDeactivateCreateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/deactivate/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationDeactivateCreate = async (
-    organizationId: string,
-    billingApi: BillingApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationDeactivateCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
-    })
-}
-
-export const getBillingOrganizationGetInvoicesRetrieveUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/get_invoices/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationGetInvoicesRetrieve = async (
-    organizationId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationGetInvoicesRetrieveUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBillingOrganizationLicensePartialUpdateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/license/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationLicensePartialUpdate = async (
-    organizationId: string,
-    patchedBillingApi?: PatchedBillingApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationLicensePartialUpdateUrl(organizationId), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBillingApi),
-    })
-}
-
-export const getBillingOrganizationPeriodRetrieveUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/period/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- * @summary Get the current organization billing period
- */
-export const billingOrganizationPeriodRetrieve = async (
-    organizationId: string,
-    options?: RequestInit
-): Promise<BillingPeriodResponseApi> => {
-    return apiMutator<BillingPeriodResponseApi>(getBillingOrganizationPeriodRetrieveUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBillingOrganizationPortalRetrieveUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/portal/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationPortalRetrieve = async (
-    organizationId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationPortalRetrieveUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBillingOrganizationSpendRetrieveUrl = (
-    organizationId: string,
-    params?: BillingOrganizationSpendRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/billing/${organizationId}/spend/?${stringifiedParams}`
-        : `/api/billing/${organizationId}/spend/`
-}
-
-/**
- * Endpoint to fetch spend data (proxy to billing service).
- */
-export const billingOrganizationSpendRetrieve = async (
-    organizationId: string,
-    params?: BillingOrganizationSpendRetrieveParams,
-    options?: RequestInit
-): Promise<BillingSpendTimeSeriesResponseApi> => {
-    return apiMutator<BillingSpendTimeSeriesResponseApi>(
-        getBillingOrganizationSpendRetrieveUrl(organizationId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getBillingOrganizationSpendExportRetrieveUrl = (
-    organizationId: string,
-    params?: BillingOrganizationSpendExportRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/billing/${organizationId}/spend/export/?${stringifiedParams}`
-        : `/api/billing/${organizationId}/spend/export/`
-}
-
-/**
- * Download the spend breakdown as CSV, honouring the requested project cap.
- */
-export const billingOrganizationSpendExportRetrieve = async (
-    organizationId: string,
-    params?: BillingOrganizationSpendExportRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationSpendExportRetrieveUrl(organizationId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBillingOrganizationStartupsApplyCreateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/startups/apply/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationStartupsApplyCreate = async (
-    organizationId: string,
-    billingApi: BillingApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationStartupsApplyCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
-    })
-}
-
-export const getBillingOrganizationSubscriptionSwitchPlanCreateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/subscription/switch-plan/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationSubscriptionSwitchPlanCreate = async (
-    organizationId: string,
-    billingApi: BillingApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationSubscriptionSwitchPlanCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
-    })
-}
-
-export const getBillingOrganizationTrialsActivateCreateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/trials/activate/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationTrialsActivateCreate = async (
-    organizationId: string,
-    billingApi: BillingApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationTrialsActivateCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
-    })
-}
-
-export const getBillingOrganizationTrialsCancelCreateUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/trials/cancel/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationTrialsCancelCreate = async (
-    organizationId: string,
-    billingApi: BillingApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationTrialsCancelCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
-    })
-}
-
-export const getBillingOrganizationUsageRetrieveUrl = (
-    organizationId: string,
-    params?: BillingOrganizationUsageRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/billing/${organizationId}/usage/?${stringifiedParams}`
-        : `/api/billing/${organizationId}/usage/`
-}
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const billingOrganizationUsageRetrieve = async (
-    organizationId: string,
-    params?: BillingOrganizationUsageRetrieveParams,
-    options?: RequestInit
-): Promise<BillingTimeSeriesResponseApi> => {
-    return apiMutator<BillingTimeSeriesResponseApi>(getBillingOrganizationUsageRetrieveUrl(organizationId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBillingOrganizationUsageExportRetrieveUrl = (
-    organizationId: string,
-    params?: BillingOrganizationUsageExportRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/billing/${organizationId}/usage/export/?${stringifiedParams}`
-        : `/api/billing/${organizationId}/usage/export/`
-}
-
-/**
- * Download the usage breakdown as CSV, honouring the requested project cap.
- */
-export const billingOrganizationUsageExportRetrieve = async (
-    organizationId: string,
-    params?: BillingOrganizationUsageExportRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingOrganizationUsageExportRetrieveUrl(organizationId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBillingOrganizationUsageTeamOptionsRetrieveUrl = (organizationId: string) => {
-    return `/api/billing/${organizationId}/usage/team_options/`
-}
-
-/**
- * The project ids the project filter offers, loaded apart from the charts.
- *
- * Scoped the way the charts are: a member without billing access sees only the projects
- * they can see.
- */
-export const billingOrganizationUsageTeamOptionsRetrieve = async (
-    organizationId: string,
-    options?: RequestInit
-): Promise<BillingTeamOptionsResponseApi> => {
-    return apiMutator<BillingTeamOptionsResponseApi>(
-        getBillingOrganizationUsageTeamOptionsRetrieveUrl(organizationId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
 }
 
 export const getBillingActivateCreateUrl = () => {
@@ -977,6 +455,118 @@ export const billingUsageTeamOptionsRetrieve = async (
     })
 }
 
+export const getBillingOrganizationListUrl = (organizationId: string, params?: BillingOrganizationListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationList = async (
+    organizationId: string,
+    params?: BillingOrganizationListParams,
+    options?: RequestInit
+): Promise<BillingOverviewResponseApi> => {
+    return apiMutator<BillingOverviewResponseApi>(getBillingOrganizationListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationActivateCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/activate/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationActivateCreate = async (
+    organizationId: string,
+    billingActivationRequestApi: BillingActivationRequestApi,
+    options?: RequestInit
+): Promise<BillingActivationResponseApi> => {
+    return apiMutator<BillingActivationResponseApi>(getBillingOrganizationActivateCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingActivationRequestApi),
+    })
+}
+
+export const getBillingOrganizationActivateAuthorizeCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/activate/authorize/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationActivateAuthorizeCreate = async (
+    organizationId: string,
+    billingPaymentOrganizationApi: BillingPaymentOrganizationApi,
+    options?: RequestInit
+): Promise<BillingAuthorizationResponseApi> => {
+    return apiMutator<BillingAuthorizationResponseApi>(
+        getBillingOrganizationActivateAuthorizeCreateUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(billingPaymentOrganizationApi),
+        }
+    )
+}
+
+export const getBillingOrganizationActivateAuthorizeStatusCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/activate/authorize/status/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationActivateAuthorizeStatusCreate = async (
+    organizationId: string,
+    billingAuthorizationStatusRequestApi: BillingAuthorizationStatusRequestApi,
+    options?: RequestInit
+): Promise<BillingAuthorizationStatusResponseApi> => {
+    return apiMutator<BillingAuthorizationStatusResponseApi>(
+        getBillingOrganizationActivateAuthorizeStatusCreateUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(billingAuthorizationStatusRequestApi),
+        }
+    )
+}
+
 export const getBillingAlertsListUrl = (organizationId: string, params?: BillingAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1182,6 +772,120 @@ export const billingAlertsEventsList = async (
     })
 }
 
+export const getBillingOrganizationCouponsClaimCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/coupons/claim/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationCouponsClaimCreate = async (
+    organizationId: string,
+    claimCouponApi?: ClaimCouponApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationCouponsClaimCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(claimCouponApi),
+    })
+}
+
+export const getBillingOrganizationCouponsOverviewRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/coupons/overview/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationCouponsOverviewRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationCouponsOverviewRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationCreditsOverviewRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/credits/overview/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationCreditsOverviewRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationCreditsOverviewRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationCreditsPurchaseCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/credits/purchase/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationCreditsPurchaseCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationCreditsPurchaseCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
+export const getBillingOrganizationDeactivateCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/deactivate/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationDeactivateCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationDeactivateCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
 export const getBillingFeaturesRetrieveUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/billing/features/`
 }
@@ -1213,6 +917,27 @@ export const billingForecastRetrieve = async (
     options?: RequestInit
 ): Promise<BillingForecastApi> => {
     return apiMutator<BillingForecastApi>(getBillingForecastRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationGetInvoicesRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/get_invoices/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationGetInvoicesRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationGetInvoicesRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
     })
@@ -1268,6 +993,30 @@ export const billingInvoicesContentRetrieve = async (
     })
 }
 
+export const getBillingOrganizationLicensePartialUpdateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/license/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationLicensePartialUpdate = async (
+    organizationId: string,
+    patchedBillingApi?: PatchedBillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationLicensePartialUpdateUrl(organizationId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedBillingApi),
+    })
+}
+
 export const getBillingLimitsRetrieveUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/billing/limits/`
 }
@@ -1281,6 +1030,49 @@ export const billingLimitsRetrieve = async (
     options?: RequestInit
 ): Promise<BillingLimitsApi> => {
     return apiMutator<BillingLimitsApi>(getBillingLimitsRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationPeriodRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/period/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ * @summary Get the current organization billing period
+ */
+export const billingOrganizationPeriodRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingPeriodResponseApi> => {
+    return apiMutator<BillingPeriodResponseApi>(getBillingOrganizationPeriodRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationPortalRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/portal/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationPortalRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationPortalRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
     })
@@ -1475,6 +1267,30 @@ export const billingSpendTimeseriesRetrieve = async (
     )
 }
 
+export const getBillingOrganizationStartupsApplyCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/startups/apply/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationStartupsApplyCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationStartupsApplyCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
 export const getBillingSubscriptionRetrieveUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/billing/subscription/`
 }
@@ -1490,6 +1306,78 @@ export const billingSubscriptionRetrieve = async (
     return apiMutator<BillingSubscriptionApi>(getBillingSubscriptionRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getBillingOrganizationSubscriptionSwitchPlanCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/subscription/switch-plan/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationSubscriptionSwitchPlanCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationSubscriptionSwitchPlanCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
+export const getBillingOrganizationTrialsActivateCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/trials/activate/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationTrialsActivateCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationTrialsActivateCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
+export const getBillingOrganizationTrialsCancelCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/trials/cancel/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationTrialsCancelCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationTrialsCancelCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
     })
 }
 
@@ -1595,6 +1483,25 @@ export const billingUsageTimeseriesRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getBillingProjectPeriodRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/billing/period/`
+}
+
+/**
+ * The billing period at /api/projects/:project_id/billing/period/, for callers that know the project but not
+ * its organization.
+ * @summary Get the current billing period of the project's organization
+ */
+export const billingProjectPeriodRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BillingPeriodResponseApi> => {
+    return apiMutator<BillingPeriodResponseApi>(getBillingProjectPeriodRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getBillingProjectSpendExportDownloadUrl = (

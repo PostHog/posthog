@@ -12,7 +12,6 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from posthog.admin import register_all_admin
 from posthog.admin.oauth2 import admin_oauth2_callback
 from posthog.admin.oauth_views import admin_auth_check, admin_oauth_success
-from posthog.api.routing import PARENT_LOOKUP_KWARG_PREFIX
 from posthog.api.sso import saml_metadata_view
 from posthog.ingress.vercel.provider import build_vercel_provider
 from posthog.ingress.views import build_webhook_view
@@ -26,8 +25,6 @@ from ee.api.vercel import vercel_connect, vercel_sso
 
 from .api import billing, conversation, core_memory, organization_billing, project_billing
 
-ORGANIZATION_ID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-
 
 def extend_api_router() -> None:
     from posthog.api import (
@@ -39,15 +36,14 @@ def extend_api_router() -> None:
     from ee.api import max_tools
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
-    root_router.register_flat(
-        rf"billing/(?P<{PARENT_LOOKUP_KWARG_PREFIX}organization_id>{ORGANIZATION_ID_PATTERN})",
-        billing.OrganizationPathBillingViewset,
-        "billing_organization",
-    )
     organizations_router.register(
         r"billing", organization_billing.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
     )
+    organizations_router.register(
+        r"billing", billing.OrganizationPathBillingViewset, "billing_organization", ["organization_id"]
+    )
     projects_router.register(r"billing", project_billing.ProjectBillingViewSet, "project_billing", ["team_id"])
+    projects_router.register(r"billing", billing.ProjectBillingPeriodViewSet, "project_billing_period", ["team_id"])
     root_router.register(r"integrations", integration.PublicIntegrationViewSet, "integration")
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
 

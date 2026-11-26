@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
+from django.urls import resolve
 from django.utils.timezone import now
 
 import jwt
@@ -57,6 +58,7 @@ from ee.api.billing import (
     _rewrite_csv_labels,
     _stream_chunks,
 )
+from ee.api.organization_billing import OrganizationBillingViewSet
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_manager import BillingManager, BillingServiceResponseError
 from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, CustomerInfo, CustomerProduct, UsageType
@@ -1320,7 +1322,7 @@ class TestActivateBillingAPI(APILicensedTest):
         self.user.save()
 
         with patch.object(BillingManager, manager_method, return_value=billing_response) as manager:
-            response = self.client.get(f"/api/billing/{self.organization.id}/{path}")
+            response = self.client.get(f"/api/organizations/{self.organization.id}/billing/{path}")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert manager.call_args.args[0] == self.organization
@@ -1339,7 +1341,7 @@ class TestActivateBillingAPI(APILicensedTest):
         OrganizationMembership.objects.create(
             organization=organization, user=self.user, level=OrganizationMembership.Level.OWNER
         )
-        url = f"/api/billing/{self.organization.id}/{path}"
+        url = f"/api/organizations/{self.organization.id}/billing/{path}"
         other = {"organization_id": str(organization.id)}
 
         with patch("ee.api.billing.BillingManager") as manager:
@@ -1352,11 +1354,17 @@ class TestActivateBillingAPI(APILicensedTest):
         assert response.json()["attr"] == "organization_id"
         manager.assert_not_called()
 
+    @parameterized.expand(["usage/", "spend/", "usage/export/", "spend/export/"])
+    def test_organization_route_leaves_usage_and_spend_to_organization_billing(self, path: str) -> None:
+        match = resolve(f"/api/organizations/{self.organization.id}/billing/{path}")
+
+        assert match.func.cls is OrganizationBillingViewSet
+
     def test_organization_in_the_path_requires_membership(self) -> None:
         organization = Organization.objects.create(name="Organization the user is not in")
 
         with patch.object(BillingManager, "coupons_overview", return_value={}) as manager:
-            response = self.client.get(f"/api/billing/{organization.id}/coupons/overview")
+            response = self.client.get(f"/api/organizations/{organization.id}/billing/coupons/overview")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         manager.assert_not_called()
@@ -2598,7 +2606,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
             ("limits_route", "/api/billing//", status.HTTP_403_FORBIDDEN),
             ("list_route", "/api/billing/", status.HTTP_403_FORBIDDEN),
             ("read_only_route", "/api/billing/period/", status.HTTP_405_METHOD_NOT_ALLOWED),
-            ("organization_list_route", "/api/billing/{organization_id}/", status.HTTP_403_FORBIDDEN),
+            ("organization_list_route", "/api/organizations/{organization_id}/billing/", status.HTTP_403_FORBIDDEN),
         ]
     )
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
@@ -3117,7 +3125,14 @@ class TestBillingRateLimitedAPI(APILicensedTest):
 
 
 class TestBillingPeriodAPI(APILicensedTest):
-    def test_member_can_read_synced_organization_period(self):
+    @parameterized.expand(
+        [
+            ("current_project", "/api/billing/period/"),
+            ("project_in_path", "/api/projects/{team_id}/billing/period/"),
+            ("organization_in_path", "/api/organizations/{organization_id}/billing/period/"),
+        ]
+    )
+    def test_member_can_read_synced_organization_period(self, _name: str, url: str) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.organization.usage = {
@@ -3125,7 +3140,7 @@ class TestBillingPeriodAPI(APILicensedTest):
         }
         self.organization.save()
 
-        response = self.client.get("/api/billing/period/")
+        response = self.client.get(url.format(team_id=self.team.pk, organization_id=self.organization.id))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -3136,7 +3151,13 @@ class TestBillingPeriodAPI(APILicensedTest):
             },
         )
 
-    def test_gateway_scoped_personal_api_key_can_read_team_period(self):
+    @parameterized.expand(
+        [
+            ("team_in_query", "/api/billing/period/?team_id={team_id}"),
+            ("project_in_path", "/api/projects/{team_id}/billing/period/"),
+        ]
+    )
+    def test_gateway_scoped_personal_api_key_can_read_team_period(self, _name: str, url: str) -> None:
         self.organization.usage = {
             "period": ["2026-07-09T00:00:00Z", "2026-08-09T00:00:00Z"],
         }
@@ -3151,10 +3172,7 @@ class TestBillingPeriodAPI(APILicensedTest):
             scoped_teams=[self.team.pk],
         )
 
-        response = self.client.get(
-            f"/api/billing/period/?team_id={self.team.pk}",
-            headers={"authorization": f"Bearer {raw_key}"},
-        )
+        response = self.client.get(url.format(team_id=self.team.pk), headers={"authorization": f"Bearer {raw_key}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["current_period_end"], "2026-08-09T00:00:00Z")
