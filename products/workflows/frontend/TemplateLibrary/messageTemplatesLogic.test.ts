@@ -331,6 +331,25 @@ describe('messageTemplatesLogic', () => {
         expect(logic.values.canLoadMoreTemplates).toBe(true)
     })
 
+    it('offers no retry when a first page for outdated filters fails after the current one loaded', async () => {
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        stored = many(TEMPLATES_PAGE_SIZE + 1, 'Match')
+        holdFirstPages = true
+        logic.actions.setCreatedByFilter(7)
+        await waitFor(() => expect(heldFirstPages).toHaveLength(1))
+        logic.actions.setCreatedByFilter(8)
+        await waitFor(() => expect(heldFirstPages).toHaveLength(2))
+
+        heldFirstPages[1](200)
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        heldFirstPages[0](500)
+        logic.actions.loadMoreTemplates()
+        await expectLogic(logic).toDispatchActions(['loadMoreTemplatesSuccess'])
+
+        expect(logic.values.canRetryTemplates).toBe(false)
+        expect(names()).toEqual(stored.map((t) => t.name))
+    })
+
     it('cuts a long search to what the server accepts, without splitting an emoji', async () => {
         await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
         const accepted = 'x'.repeat(TEMPLATE_SEARCH_MAX_LENGTH - 1) + '😀'

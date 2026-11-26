@@ -297,7 +297,14 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             {
                 loadTemplates: async (_: void, breakpoint) => {
                     const { listParams } = values
-                    const page = await api.messaging.getTemplates(listParams)
+                    let page
+                    try {
+                        page = await api.messaging.getTemplates(listParams)
+                    } catch (error) {
+                        // A failure for outdated filters must not offer a retry over the current list.
+                        breakpoint()
+                        throw error
+                    }
                     breakpoint()
                     actions.templatesPageLoaded(listParams, !!page.next)
                     // A page read before a delete landed still holds the deleted template.
