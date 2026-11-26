@@ -104,11 +104,23 @@ _CITED_FROM_SQL = f"""
         AND check_row.check_failed = false AND check_row.mode = 'web_search'
         AND {SCOPE_SQL}
 """
+# Each answer has one row flagged as its first citation of a domain or a URL, so counting flagged rows
+# counts answers without sorting the rows. A row written before the flags existed has none until the
+# facts backfill sets them, so those rows are counted by distinct check in a second branch, which is
+# empty once the backfill ran.
 _DOMAIN_ANSWERS_SQL = f"""
-    SELECT citation.domain, count(DISTINCT citation.citation_check_id)
-    {_CITED_FROM_SQL}
-        AND citation.domain <> ''
-    GROUP BY citation.domain
+    SELECT domain, sum(answers)::bigint FROM (
+        SELECT citation.domain, count(*) AS answers
+        {_CITED_FROM_SQL}
+            AND citation.first_of_domain
+        GROUP BY citation.domain
+        UNION ALL
+        SELECT citation.domain, count(DISTINCT citation.citation_check_id)
+        {_CITED_FROM_SQL}
+            AND citation.first_of_domain IS NULL AND citation.domain <> ''
+        GROUP BY citation.domain
+    ) AS cited
+    GROUP BY domain
 """
 _DOMAIN_URLS_SQL = f"""
     SELECT citation.domain, count(DISTINCT citation.url)
@@ -118,11 +130,19 @@ _DOMAIN_URLS_SQL = f"""
 """
 # A URL without a host has no domain to rank under, and a host cited after the stored URLs has no URL.
 _PAGES_SQL = f"""
-    SELECT citation.url, citation.domain, count(DISTINCT citation.citation_check_id)
-    {_CITED_FROM_SQL}
-        AND citation.domain <> '' AND citation.url <> ''
-    GROUP BY citation.url, citation.domain
-    ORDER BY count(DISTINCT citation.citation_check_id) DESC, citation.url
+    SELECT url, domain, sum(answers)::bigint AS answers FROM (
+        SELECT citation.url, citation.domain, count(*) AS answers
+        {_CITED_FROM_SQL}
+            AND citation.first_of_url AND citation.domain <> ''
+        GROUP BY citation.url, citation.domain
+        UNION ALL
+        SELECT citation.url, citation.domain, count(DISTINCT citation.citation_check_id)
+        {_CITED_FROM_SQL}
+            AND citation.first_of_url IS NULL AND citation.domain <> '' AND citation.url <> ''
+        GROUP BY citation.url, citation.domain
+    ) AS cited
+    GROUP BY url, domain
+    ORDER BY answers DESC, url
     LIMIT %s
 """
 
@@ -252,7 +272,7 @@ class _BrandDays:
 
 class _Citations:
     """Cited registrable domains and pages across the answered checks in a window, counted in Postgres
-    once per answer from the stored cited URL rows."""
+    once per answer from the stored cited URL rows and their first-citation flags."""
 
     def __init__(self, team_id: int, *, since: dt.datetime, until: dt.datetime, scope_params: list[str | None]) -> None:
         self._params: list[Any] = [team_id, since, until, team_id, since, until, *scope_params]
@@ -260,7 +280,7 @@ class _Citations:
     def ranked_domains(self) -> list[tuple[str, int]]:
         """Every cited registrable domain with the answers that cited it, most cited first."""
         with connection.cursor() as cursor:
-            cursor.execute(_DOMAIN_ANSWERS_SQL, self._params)
+            cursor.execute(_DOMAIN_ANSWERS_SQL, [*self._params, *self._params])
             counts = dict(cursor.fetchall())
         return _ranked(counts, len(counts))
 
@@ -273,7 +293,7 @@ class _Citations:
 
     def top_pages(self) -> list[_CitedPage]:
         with connection.cursor() as cursor:
-            cursor.execute(_PAGES_SQL, [*self._params, MAX_RANKED_PAGES])
+            cursor.execute(_PAGES_SQL, [*self._params, *self._params, MAX_RANKED_PAGES])
             return [_CitedPage(url=url, domain=domain, answers=count) for url, domain, count in cursor.fetchall()]
 
 

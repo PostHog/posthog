@@ -71,6 +71,36 @@ class TestCheckFacts(BaseTest):
             ("", "late.example.org", "example.org"),
         ]
 
+    def test_an_answer_flags_its_first_citation_of_each_domain_and_url(self) -> None:
+        check = self._check(
+            cited_urls=["https://a.example.com/1", "https://b.example.com/2", "https://a.example.com/1", "not a url"],
+            top_cited_domains=["a.example.com", "b.example.com", "late.example.org"],
+        )
+
+        write_facts([check])
+
+        assert list(
+            AEOCheckCitation.objects.for_team(self.team.id)
+            .order_by("position")
+            .values_list("position", "first_of_domain", "first_of_url")
+        ) == [(1, True, True), (2, False, True), (3, False, False), (4, False, True), (5, True, False)]
+
+    def test_the_backfill_flags_rows_written_before_the_flags_existed(self) -> None:
+        for urls in (
+            ["https://example.com/a", "https://www.example.com/b", "https://example.com/a"],
+            ["https://x.org/"],
+        ):
+            write_facts([self._check(cited_urls=urls)])
+        rows = AEOCheckCitation.objects.for_team(self.team.id).order_by("citation_check_id", "position")
+        flags = list(rows.values_list("first_of_domain", "first_of_url"))
+        rows.update(first_of_domain=None, first_of_url=None)
+
+        before = has_checks_without_facts(self.team.id)
+        backfill_facts(self.team.id)
+
+        assert (before, has_checks_without_facts(self.team.id)) == (True, False)
+        assert list(rows.values_list("first_of_domain", "first_of_url")) == flags
+
     def test_a_team_has_checks_without_facts_until_the_backfill_ran(self) -> None:
         self._check(cited_urls=["https://example.com/old"])
         written_by_a_run = self._check(cited_urls=["https://example.com/new"])

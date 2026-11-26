@@ -472,6 +472,16 @@ class AEOCheckCitation(TeamScopedRootMixin, UUIDModel):
     domain = models.CharField(
         max_length=255, help_text="Registrable domain of the host, for example 'example.co.uk'. Empty without a host."
     )
+    first_of_domain = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Whether this is the answer's first citation of its domain, so a count of answers citing a domain counts these rows. False without a domain. Null on a row written before the flag existed, until the facts backfill sets it.",
+    )
+    first_of_url = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Whether this is the answer's first citation of its URL. False without a URL. Null on a row written before the flag existed, until the facts backfill sets it.",
+    )
 
     class Meta:
         db_table = "posthog_aeo_check_citation"
@@ -483,6 +493,13 @@ class AEOCheckCitation(TeamScopedRootMixin, UUIDModel):
                 fields=["team_id", "created_at"],
                 include=["citation_check_id", "host", "domain"],
                 name="aeo_check_citation_window_idx",
+            ),
+            # The rows without first-citation flags, which the reads count apart. It holds only rows written
+            # before the flags existed, so it is empty once the facts backfill ran.
+            models.Index(
+                fields=["team_id", "created_at"],
+                condition=models.Q(first_of_domain__isnull=True) | models.Q(first_of_url__isnull=True),
+                name="aeo_citation_unflagged_idx",
             ),
         ]
 
