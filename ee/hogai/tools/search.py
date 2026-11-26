@@ -14,6 +14,8 @@ from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
+from products.business_knowledge.backend.facade.api import search_docs_library
+from products.business_knowledge.backend.facade.contracts import DocsPage
 from products.business_knowledge.backend.logic import RetrievalTrace, async_search_knowledge_for_team, has_ready_sources
 
 from ee.hogai.context.entity_search.context import EntityKind
@@ -148,6 +150,9 @@ class SearchTool(MaxTool):
 
     async def _arun_impl(self, kind: str, query: str) -> tuple[str, ToolMessagesArtifact | None]:
         if kind == "docs":
+            library_response = await docs_library_response(self._team, query)
+            if library_response is not None:
+                return library_response, None
             if not settings.INKEEP_API_KEY:
                 raise MaxToolFatalError(
                     "Documentation search is not available: INKEEP_API_KEY environment variable is not configured. "
@@ -297,24 +302,45 @@ async def perform_inkeep_docs_search(
     return format_inkeep_docs_response(payload, include_system_reminder=include_system_reminder)
 
 
+async def docs_library_response(team: Team, query: str, *, include_system_reminder: bool = True) -> str | None:
+    """The formatted docs library results, or None when the caller must search Inkeep."""
+    pages = [
+        page
+        for page in await search_docs_library(query=query, organization_id=str(team.organization_id))
+        if not is_community_question_url(page.url)
+    ]
+    if not pages:
+        return None
+    return format_docs_pages(pages, include_system_reminder=include_system_reminder)
+
+
 def format_inkeep_docs_response(rag_context_raw: dict | None, *, include_system_reminder: bool = True) -> str:
     """Format an Inkeep RAG payload (already JSON-parsed) into the agent-facing markdown.
 
     Shared between the LangChain `InkeepDocsSearchTool` (which uses ChatOpenAI) and the
     typed `MCPToolsViewSet.docs_search` endpoint (which uses the plain openai client).
-
-    Community Questions are dropped here so the results match what the tool prompts promise.
     """
-    docs: list[str] = []
+    pages: list[DocsPage] = []
     if rag_context_raw and rag_context_raw.get("content"):
         rag_context = InkeepResponse.model_validate(rag_context_raw)
         for doc in rag_context.content:
             if doc.type != "document":
                 continue
-            if is_community_question_url(doc.url):
-                continue
             text = doc.source.content[0].text if doc.source.content else ""
-            docs.append(DOC_ITEM_TEMPLATE.format(title=doc.title, url=doc.url, text=text))
+            pages.append(DocsPage(title=doc.title, url=doc.url, text=text))
+    return format_docs_pages(pages, include_system_reminder=include_system_reminder)
+
+
+def format_docs_pages(pages: list[DocsPage], *, include_system_reminder: bool = True) -> str:
+    """Format documentation pages into the agent-facing markdown, whichever search found them.
+
+    Community Questions are dropped here so the results match what the tool prompts promise.
+    """
+    docs = [
+        DOC_ITEM_TEMPLATE.format(title=page.title, url=page.url, text=page.text)
+        for page in pages
+        if not is_community_question_url(page.url)
+    ]
 
     if not docs:
         return DOCS_SEARCH_NO_RESULTS_TEMPLATE if include_system_reminder else "No documentation found."

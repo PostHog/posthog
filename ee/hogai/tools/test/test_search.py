@@ -14,6 +14,8 @@ from langchain_core import messages
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from products.business_knowledge.backend.facade.contracts import DocsPage
+
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.docs_search_shadow import compare_docs_results, fetch_inkeep_with_shadow, inkeep_result_urls
@@ -23,6 +25,8 @@ from ee.hogai.tools.search import (
     DOCS_SEARCH_RESULTS_TEMPLATE,
     InkeepDocsSearchTool,
     SearchTool,
+    docs_library_response,
+    format_docs_pages,
     format_inkeep_docs_response,
 )
 from ee.hogai.utils.tests import FakeChatOpenAI
@@ -69,6 +73,19 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_docs_tool.execute.assert_called_once_with("How to use feature flags?", self.tool_call_id)
             self.assertEqual(result, "")
             self.assertIsNotNone(artifact)
+
+    async def test_run_docs_search_answers_from_the_docs_library_without_inkeep(self):
+        page = DocsPage(title="Feature flags", url="https://posthog.com/docs/feature-flags", text="Create a flag.")
+
+        with (
+            patch("ee.hogai.tools.search.settings") as mock_settings,
+            patch("ee.hogai.tools.search.search_docs_library", AsyncMock(return_value=[page])),
+        ):
+            mock_settings.INKEEP_API_KEY = None
+            result, artifact = await self.tool._arun_impl(kind="docs", query="How to use feature flags?")
+
+        self.assertEqual(result, format_docs_pages([page]))
+        self.assertIsNone(artifact)
 
     async def test_run_unknown_kind(self):
         with self.assertRaises(MaxToolRetryableError) as context:
@@ -181,6 +198,26 @@ class TestFormatInkeepDocsResponse(SimpleTestCase):
         result = format_inkeep_docs_response(self._payload("https://posthog.com/questions/why-no-recordings"))
 
         self.assertEqual(result, DOCS_SEARCH_NO_RESULTS_TEMPLATE)
+
+
+class TestDocsLibraryResponse(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("docs_page", ["https://posthog.com/docs/feature-flags"], True),
+            ("only_community_questions", ["https://posthog.com/questions/why-no-recordings"], False),
+            ("no_pages", [], False),
+        ]
+    )
+    async def test_inkeep_is_needed_unless_the_library_has_a_docs_page(
+        self, _name: str, urls: list[str], expect_response: bool
+    ) -> None:
+        pages = [DocsPage(title="Page", url=url, text="Text.") for url in urls]
+        team = MagicMock(organization_id=uuid4())
+
+        with patch("ee.hogai.tools.search.search_docs_library", AsyncMock(return_value=pages)):
+            response = await docs_library_response(team, "why no recordings")
+
+        self.assertEqual(response, format_docs_pages(pages) if expect_response else None)
 
 
 def _docs_payload(*docs: tuple[str, str]) -> dict:
