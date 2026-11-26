@@ -86,6 +86,7 @@ async function onMasterInGit(repo: string, remote: string, commit: string): Prom
             'fetch',
             '--quiet',
             '--no-tags',
+            '--filter=tree:0',
             `--shallow-since=@${committedS - SHALLOW_MARGIN_S}`,
             remote,
             `+refs/heads/master:${MASTER_REF}`
