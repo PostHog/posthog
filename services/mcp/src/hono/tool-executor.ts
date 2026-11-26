@@ -10,6 +10,7 @@ import {
     toolResultAnalyticsProperties,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
+import { clearBusinessKnowledgeContentAfterSourceCreate } from '@/lib/business-knowledge-content'
 import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
     ExecCommandError,
@@ -588,6 +589,7 @@ export class ToolExecutor {
                 markNoncanonicalMetricRun(tool.name, await tool.handler(state.context, validation.data)),
                 ignoredKeys
             )
+            await clearBusinessKnowledgeContentAfterSourceCreate(tool.name, state.context)
 
             if (isContextSwitch) {
                 void state.reqCtx.trackContextSwitchEvent(tool.name, state.context, previousContext)
