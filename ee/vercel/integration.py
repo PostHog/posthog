@@ -45,7 +45,7 @@ from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSA
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
 from ee.billing.billing_types import BillingProvider
-from ee.vercel.client import SSOTokenResponse, VercelAPIClient
+from ee.vercel.client import InstallationTokenError, SSOTokenResponse, VercelAPIClient, get_installation_access_token
 
 logger = structlog.get_logger(__name__)
 
@@ -737,17 +737,22 @@ class VercelIntegration:
 
     @staticmethod
     def _get_access_token(installation: OrganizationIntegration) -> str | None:
-        access_token = installation.sensitive_config.get("credentials", {}).get("access_token")
-        if not access_token:
-            # Fallback for installations not yet migrated
-            access_token = installation.config.get("credentials", {}).get("access_token")
-        if not access_token:
+        if not installation.integration_id:
+            logger.error(
+                "Vercel installation has no installation ID", installation_pk=installation.pk, integration="vercel"
+            )
+            return None
+        try:
+            return get_installation_access_token(installation.integration_id)
+        except InstallationTokenError as e:
             logger.exception(
-                "Missing access token for Vercel installation",
+                "Failed to get access token for Vercel installation",
                 installation_id=installation.integration_id,
+                status_code=e.status_code,
+                error_code=e.code,
                 integration="vercel",
             )
-        return access_token
+            return None
 
     @staticmethod
     def _create_vercel_client(access_token: str) -> VercelAPIClient | None:
@@ -1552,9 +1557,13 @@ def _safe_vercel_sync(
         if is_delete:
             return
         installation = VercelIntegration._get_installation_for_organization(team.organization)
-        if not installation:
+        if not installation or not installation.integration_id:
             return
         try:
+            # A resource created without an import is never imported later, so get the token first.
+            access_token = VercelIntegration._get_access_token(installation)
+            if not access_token:
+                return
             resource, created = get_or_create_connectable_resource(team)
             if created:
                 logger.info(
@@ -1562,16 +1571,14 @@ def _safe_vercel_sync(
                     team_id=team.pk,
                     integration="vercel",
                 )
-                access_token = VercelIntegration._get_access_token(installation)
-                if access_token and installation.integration_id:
-                    client = VercelAPIClient(bearer_token=access_token)
-                    client.import_resource(
-                        integration_config_id=installation.integration_id,
-                        resource_id=str(resource.id),
-                        product_id="posthog",
-                        name=team.name,
-                        secrets=VercelIntegration._build_secrets(team),
-                    )
+                client = VercelAPIClient(bearer_token=access_token)
+                client.import_resource(
+                    integration_config_id=installation.integration_id,
+                    resource_id=str(resource.id),
+                    product_id="posthog",
+                    name=team.name,
+                    secrets=VercelIntegration._build_secrets(team),
+                )
         except Exception as e:
             logger.exception("Failed to auto-create Vercel resource", team_id=team.pk, integration="vercel")
             capture_exception(e)

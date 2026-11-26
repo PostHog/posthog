@@ -1,4 +1,4 @@
-import type { Profile } from '../cards/schema'
+import type { AdmissionTargets } from '../cards/load-targets'
 import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
@@ -19,6 +19,19 @@ export function exitCodeOf({ status, scorecardError }: { status: Status; scoreca
     return scorecardError === undefined ? EXIT_CODE[status] : EXIT_CODE.writeFailed
 }
 
+export function withEvidenceError<Run extends { status: Status; statusReason: string }>(
+    run: Run,
+    error: string | undefined
+): Run {
+    return error === undefined
+        ? run
+        : {
+              ...run,
+              status: 'invalid',
+              statusReason: `${run.statusReason}; the evidence could not be written: ${error}`,
+          }
+}
+
 export type Admission = { name: 'load' | 'host'; passed: boolean; reason: string }
 
 type RateCheck = { what: string; measured: number | undefined; target: number }
@@ -27,11 +40,7 @@ const percent = (share: number): string => `${Number((share * 100).toFixed(1))}%
 const rate = (perSecond: number): string => `${Number(perSecond.toFixed(2))}/s`
 
 // A profile measures its load targets at 1x, and a ramp that opens higher drives that many times the load.
-export function admissionsOf(
-    { load, host }: Pick<Profile, 'load' | 'host'>,
-    baseline: Baseline,
-    openingScale = 1
-): Admission[] {
+export function admissionsOf({ load, host }: AdmissionTargets, baseline: Baseline, openingScale = 1): Admission[] {
     const admissions: Admission[] = []
     const unmeasurable =
         baseline.seconds <= 0

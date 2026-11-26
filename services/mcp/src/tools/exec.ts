@@ -7,6 +7,7 @@ import { toolResponsesShortenedTotal } from '@/hono/metrics'
 import { dedupeRepeatedDescriptions } from '@/hono/tool-catalog'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
+import { clearBusinessKnowledgeContentAfterSourceCreate } from '@/lib/business-knowledge-content'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
@@ -2421,6 +2422,7 @@ export function createExecTool(
                             markNoncanonicalMetricRun(tool.name, await tool.handler(context, input)),
                             ignoredKeys
                         )
+                        await clearBusinessKnowledgeContentAfterSourceCreate(tool.name, context)
                     } catch (err) {
                         // PostHogValidationError is the API's 400 validation_error body.
                         const apiError = findRecoverableApiError(err)
