@@ -8,9 +8,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
-from django.db import models, transaction
+from django.db import OperationalError, models, transaction
 from django.db.models import Q, TextChoices
 
+import psycopg
 import temporalio
 from anthropic import APIConnectionError
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
@@ -2400,22 +2401,29 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         )
         return prefix_exists
 
-    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance: ExternalDataSource = self.get_object()
-
-        schemas = list(
-            ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(team_id=self.team_id, source_id=instance.id)
-            .select_related("table")
-            .all()
-        )
-
-        # Deleting the source deletes every table it synced, so it needs editor on each of them.
-        self._assert_can_write_schemas(schemas)
-
-        # Soft-delete source, schemas, tables, and companion _cdc tables atomically
-        # first so DB state is consistent even if the external cleanup below fails
+    def _soft_delete_source_rows(self, instance: ExternalDataSource, schemas: list[ExternalDataSchema]) -> None:
         with transaction.atomic():
+            # A sync locks a table row before it writes the schema row. Lock in the same order, each
+            # set by id, so that an overlapping sync makes this block wait instead of deadlock. The
+            # source's tables include a table that a first sync created but has not linked to its
+            # schema yet, so the in-memory `schema.table` is None for it.
+            list(
+                DataWarehouseTable.raw_objects.select_for_update()
+                .filter(
+                    Q(external_data_source_id=instance.id, deleted=False)
+                    | Q(id__in=[s.table_id for s in schemas if s.table_id is not None]),
+                    team_id=self.team_id,
+                )
+                .order_by("id")
+                .values_list("id", flat=True)
+            )
+            list(
+                ExternalDataSchema.objects.select_for_update()
+                .filter(team_id=self.team_id, id__in=[schema.id for schema in schemas])
+                .order_by("id")
+                .values_list("id", flat=True)
+            )
+
             for schema in schemas:
                 if schema.table:
                     schema.table.soft_delete()
@@ -2444,6 +2452,31 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             ).exclude(id__in=[s.table_id for s in schemas if s.table_id is not None]).update(deleted=True)
 
             instance.soft_delete()
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+
+        schemas = list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=instance.id)
+            .select_related("table")
+            .all()
+        )
+
+        # Deleting the source deletes every table it synced, so it needs editor on each of them.
+        self._assert_can_write_schemas(schemas)
+
+        # Soft-delete source, schemas, tables, and companion _cdc tables atomically
+        # first so DB state is consistent even if the external cleanup below fails
+        try:
+            self._soft_delete_source_rows(instance, schemas)
+        except OperationalError as e:
+            if not isinstance(e.__cause__, psycopg.errors.DeadlockDetected):
+                raise
+            # A CDC sync locks its schema row before it writes the companion table, which is the
+            # reverse of the lock order in `_soft_delete_source_rows`. Postgres rolled the whole
+            # block back, so it is safe to run it again once the sync commits.
+            self._soft_delete_source_rows(instance, schemas)
 
         # Best-effort webhook cleanup — soft-deletes are already committed
         try:
