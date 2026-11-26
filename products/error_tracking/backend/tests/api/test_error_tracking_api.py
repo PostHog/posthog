@@ -326,6 +326,7 @@ class TestErrorTracking(APIBaseTest):
                     "key": BLOCKS_CHECKOUT.key,
                     "label": BLOCKS_CHECKOUT.label,
                     "description": BLOCKS_CHECKOUT.description,
+                    "color": None,
                     "source": "jev",
                 }
             ]
@@ -347,7 +348,7 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "results": [
-                {"key": definition.key, "label": definition.label, "description": definition.description}
+                {"key": definition.key, "label": definition.label, "description": definition.description, "color": None}
                 for definition in expected
             ]
         }
@@ -370,6 +371,7 @@ class TestErrorTracking(APIBaseTest):
             "key": BLOCKS_CHECKOUT.key,
             "label": BLOCKS_CHECKOUT.label,
             "description": BLOCKS_CHECKOUT.description,
+            "color": None,
             "source": "manual",
             "applied": False,
         }

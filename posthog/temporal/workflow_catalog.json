@@ -505,6 +505,11 @@
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "delete-task-storage-after-uploads-expire",
+    "product": "temporal/delete_teams",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "delete-teams-data",
     "product": "temporal/delete_teams",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
