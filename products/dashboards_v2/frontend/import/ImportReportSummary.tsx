@@ -27,8 +27,12 @@ export function ImportReportSummary({ report }: { report: ImportReport }): JSX.E
             <p className="m-0">
                 {SOURCE_NAMES[report.source]} dashboard: {plural(counts.mapped, 'tile', 'tiles')} mapped,{' '}
                 {counts.partial} partly mapped, {counts.unsupported} not supported.{' '}
-                {report.queries.total > 0 &&
-                    `${report.queries.translated} of ${plural(report.queries.total, 'query', 'queries')} can run as they are.`}
+                {report.queries.total > 0 && (
+                    <span>
+                        {report.queries.translated} of {plural(report.queries.total, 'query', 'queries')} can run as
+                        they are.
+                    </span>
+                )}
             </p>
             {requirements.length > 0 && (
                 <section className="flex flex-col gap-1">

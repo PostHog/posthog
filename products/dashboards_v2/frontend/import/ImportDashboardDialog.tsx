@@ -26,10 +26,35 @@ export function ImportDashboardDialog({
     onOpenBoard: (dashboard: Dashboard) => void
 }): JSX.Element {
     const [text, setText] = useState('')
+    const [readError, setReadError] = useState<string | null>(null)
     const fileInput = useRef<HTMLInputElement>(null)
+    // Bumped by every edit and close, so a file read that finishes later can't overwrite newer input.
+    const inputVersion = useRef(0)
+    const replaceText = (next: string): void => {
+        inputVersion.current += 1
+        setReadError(null)
+        setText(next)
+    }
+    const readFile = (file: File): void => {
+        const version = ++inputVersion.current
+        file.text().then(
+            (contents) => {
+                if (version === inputVersion.current) {
+                    setReadError(null)
+                    setText(contents)
+                }
+            },
+            () => {
+                if (version === inputVersion.current) {
+                    setText('')
+                    setReadError(`Couldn't read ${file.name}. Try uploading it again.`)
+                }
+            }
+        )
+    }
     const result = useMemo(() => (text.trim() ? importDashboard(text) : null), [text])
     const close = (): void => {
-        setText('')
+        replaceText('')
         onClose()
     }
 
@@ -49,7 +74,7 @@ export function ImportDashboardDialog({
                         placeholder='{"title": "...", "panels": [...]}'
                         className="font-mono text-xs min-h-40 max-h-60"
                         value={text}
-                        onChange={(event) => setText(event.target.value)}
+                        onChange={(event) => replaceText(event.target.value)}
                         data-attr="dashboard-v2-import-json"
                     />
                     <div>
@@ -69,10 +94,13 @@ export function ImportDashboardDialog({
                             onChange={(event) => {
                                 const file = event.target.files?.[0]
                                 event.target.value = ''
-                                void file?.text().then(setText)
+                                if (file) {
+                                    readFile(file)
+                                }
                             }}
                         />
                     </div>
+                    {readError && <p className="m-0 text-sm text-danger">{readError}</p>}
                     {result && 'error' in result && <p className="m-0 text-sm text-danger">{result.error}</p>}
                     {result && 'report' in result && (
                         <div className="max-h-80 overflow-y-auto">

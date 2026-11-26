@@ -61,13 +61,16 @@ function DashboardV2(): JSX.Element {
                 key: 'import',
                 label: 'Import from Grafana or New Relic',
                 dataAttr: 'dashboard-v2-import-open-dialog',
-                disabledReason: disabledReasonFor('addTab'),
+                // Without real queries, charts show sample numbers, which would pass as the imported board's own.
+                disabledReason: runsRealQueries
+                    ? disabledReasonFor('addTab')
+                    : 'Importing needs live queries, which are not on for you yet',
                 onSelect: () => setImporting(true),
                 group: 'dashboard',
             },
             ...actions,
         ],
-        [disabledReasonFor]
+        [disabledReasonFor, runsRealQueries]
     )
     const controller = useMemo<DashboardV2Controller>(
         () => ({

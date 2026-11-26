@@ -47,12 +47,6 @@ export interface dashboardV2LogicActions {
                       id: string
                       tiles: {
                           id: string
-                          place: {
-                              h: number
-                              w: number
-                              x: number
-                              y: number
-                          }
                           panel:
                               | {
                                     appearance?:
@@ -89,6 +83,12 @@ export interface dashboardV2LogicActions {
                                     title?: string | undefined
                                     type: string
                                 }
+                          place: {
+                              h: number
+                              w: number
+                              x: number
+                              y: number
+                          }
                       }[]
                       title: string
                   }
@@ -105,7 +105,74 @@ export interface dashboardV2LogicActions {
         }
     }
     openDashboard: (dashboard: Dashboard) => {
-        dashboard: Dashboard
+        dashboard: {
+            description?: string | undefined
+            tabs: (
+                | {
+                      href: string
+                      id: string
+                      title: string
+                  }
+                | {
+                      id: string
+                      tiles: {
+                          id: string
+                          panel:
+                              | {
+                                    appearance?:
+                                        | {
+                                              background?: boolean | undefined
+                                              backgroundColor?: string | undefined
+                                              border?: boolean | undefined
+                                          }
+                                        | undefined
+                                    collapsed?: boolean | undefined
+                                    minRows?: number | undefined
+                                    tiles: any
+                                    title: string
+                                    type: 'section'
+                                }
+                              | {
+                                    appearance?:
+                                        | {
+                                              background?: boolean | undefined
+                                              backgroundColor?: string | undefined
+                                              border?: boolean | undefined
+                                          }
+                                        | undefined
+                                    config: unknown
+                                    description?: string | undefined
+                                    parts?:
+                                        | {
+                                              footer?: boolean | undefined
+                                              header?: boolean | undefined
+                                          }
+                                        | undefined
+                                    ref?: string | undefined
+                                    refreshedAt?: string | undefined
+                                    title?: string | undefined
+                                    type: string
+                                }
+                          place: {
+                              h: number
+                              w: number
+                              x: number
+                              y: number
+                          }
+                      }[]
+                      title: string
+                  }
+            )[]
+            time?:
+                | {
+                      from: string
+                      to: string
+                  }
+                | undefined
+            title: string
+            user_access_level?: AccessControlLevel | undefined
+            version: 2
+        }
     }
     redo: () => {
         value: true
@@ -139,12 +206,6 @@ export interface dashboardV2LogicMeta {
                       id: string
                       tiles: {
                           id: string
-                          place: {
-                              h: number
-                              w: number
-                              x: number
-                              y: number
-                          }
                           panel:
                               | {
                                     appearance?:
@@ -181,6 +242,12 @@ export interface dashboardV2LogicMeta {
                                     title?: string | undefined
                                     type: string
                                 }
+                          place: {
+                              h: number
+                              w: number
+                              x: number
+                              y: number
+                          }
                       }[]
                       title: string
                   }
@@ -208,12 +275,6 @@ export interface dashboardV2LogicMeta {
                           id: string
                           tiles: {
                               id: string
-                              place: {
-                                  h: number
-                                  w: number
-                                  x: number
-                                  y: number
-                              }
                               panel:
                                   | {
                                         appearance?:
@@ -250,6 +311,12 @@ export interface dashboardV2LogicMeta {
                                         title?: string | undefined
                                         type: string
                                     }
+                              place: {
+                                  h: number
+                                  w: number
+                                  x: number
+                                  y: number
+                              }
                           }[]
                           title: string
                       }
@@ -275,6 +342,10 @@ export type dashboardV2LogicType = MakeLogicType<
     Record<string, any>,
     dashboardV2LogicMeta
 >
+
+// History holds only boards, so stepping onto a board whose tabs don't include the selected one (an import and its
+// undo) reselects the tab that was showing when that board was last left.
+const tabWhenLeft = new WeakMap<Dashboard, string>()
 
 export const dashboardV2Logic = kea<dashboardV2LogicType>([
     path(['products', 'dashboardsV2', 'dashboardV2Logic']),
@@ -336,17 +407,29 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
         },
         undo: () => {
             if (!values.disabledReasonFor('undo')) {
+                tabWhenLeft.set(values.dashboard, values.activeTab.id)
                 actions.stepHistory('back')
             }
         },
         openDashboard: ({ dashboard }) => {
+            if (values.disabledReasonFor('addTab')) {
+                return
+            }
+            tabWhenLeft.set(values.dashboard, values.activeTab.id)
             const settled = settleDashboard(dashboard, sizeOf)
             actions.commitDashboard(settled)
             actions.setActiveTab(activeGridTab(settled, null).id)
         },
         redo: () => {
             if (!values.disabledReasonFor('redo')) {
+                tabWhenLeft.set(values.dashboard, values.activeTab.id)
                 actions.stepHistory('forward')
+            }
+        },
+        stepHistory: () => {
+            const { activeTabId, dashboard } = values
+            if (activeTabId !== null && !dashboard.tabs.some((tab) => tab.id === activeTabId)) {
+                actions.setActiveTab(tabWhenLeft.get(dashboard) ?? activeGridTab(dashboard, null).id)
             }
         },
     })),
