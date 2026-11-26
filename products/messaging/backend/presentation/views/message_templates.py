@@ -66,6 +66,7 @@ from products.messaging.backend.facade.api import (
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateBasicRow,
+    MessageTemplateListFilter,
     MessageTemplateMissing,
     MessageTemplateRow,
     create_template,
@@ -535,6 +536,25 @@ class MessageTemplateListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="With true, leave out `content` and `draft_content` from each template, for lists that show "
         "names and metadata only. `has_draft` still says whether a draft exists.",
+    )
+    search = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=400,
+        help_text="List only templates whose name, description or a tag contains this text, ignoring case.",
+    )
+    created_by = serializers.IntegerField(
+        required=False,
+        default=None,
+        help_text="List only templates created by the user with this ID.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        default=list,
+        max_length=500,
+        help_text="List only templates that carry at least one of these tags. Repeat the parameter for each tag.",
     )
 
 
@@ -1515,11 +1535,15 @@ class MessageTemplatesViewSet(
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = cast(ValidatedRequest, request).validated_query_data
-        basic, transactional = query["basic"], query["transactional"]
+        basic = query["basic"]
+        filters = MessageTemplateListFilter(
+            transactional=query["transactional"],
+            search=query["search"],
+            created_by_id=query["created_by"],
+            tags=tuple(query["tags"]),
+        )
         templates: Sequence[MessageTemplateRow] | Sequence[MessageTemplateBasicRow] = (
-            list_basic_templates(self.team_id, transactional=transactional)
-            if basic
-            else list_templates(self.team_id, transactional=transactional)
+            list_basic_templates(self.team_id, filters) if basic else list_templates(self.team_id, filters)
         )
         serializer_class = MessageTemplateBasicSerializer if basic else MessageTemplateSerializer
         context = self.get_serializer_context()
