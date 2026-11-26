@@ -407,16 +407,13 @@ def _customerio_answer(method: str, url: str, **_: Any) -> MagicMock:
 class TestCustomerIOTransactionalMessages(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        for target, options in (
-            ("products.messaging.backend.provider_imports.runs.start_provider_import_workflow", {}),
-            (
+        self.enterContext(patch("products.messaging.backend.provider_imports.runs.start_provider_import_workflow"))
+        self.enterContext(
+            patch(
                 "products.messaging.backend.services.customerio_client.requests.Session.request",
-                {"side_effect": _customerio_answer},
-            ),
-        ):
-            patcher = patch(target, **options)
-            patcher.start()
-            self.addCleanup(patcher.stop)
+                side_effect=_customerio_answer,
+            )
+        )
 
     def _import(self, api_key: str | None = "app-key") -> dict[str, Any]:
         run = runs.start_run(self.team.id, "customerio", ["transactional"], api_key, self.user.id)
