@@ -138,7 +138,7 @@ const mailboxAddresses = (entries: string[]): Set<string> =>
 const toHeaderAddresses = (rec: SesEventRecord): Set<string> => mailboxAddresses(rec.mail.commonHeaders?.to ?? [])
 
 const reachesToRecipient = (to: Set<string>, addresses: string[]): boolean =>
-    addresses.some((address) => to.has(normalizeAddress(address)))
+    [...mailboxAddresses(addresses)].some((address) => to.has(address))
 
 const sesDeliveriesNotToRecipientCounter = new Counter({
     name: 'email_tracking_deliveries_not_to_recipient_total',
@@ -164,10 +164,15 @@ const sesRecipientsNotSentToCounter = new Counter({
 })
 
 // SES reports a bounce or complaint recipient from the receiving server's report, which can name any address.
-// Only an address this send went to may change suppression state.
+// Only an address this send went to may change suppression state. SES can report the recipient with the display
+// name it was sent with, so only its address is kept. An entry with more than one address names no single recipient.
 export const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEventRecord, recipients: T[]): T[] => {
     const sentTo = mailboxAddresses(rec.mail.destination)
-    const kept = recipients.filter((r) => sentTo.has(normalizeAddress(r.emailAddress)))
+    const kept = recipients.flatMap((r) => {
+        const parsed = addressparser(r.emailAddress, { flatten: true })
+        const address = parsed.length === 1 ? unquoteMailbox(parsed[0].address).trim() : ''
+        return address !== '' && sentTo.has(address.toLowerCase()) ? [{ ...r, emailAddress: address }] : []
+    })
     if (kept.length < recipients.length) {
         sesRecipientsNotSentToCounter.inc({ event_type: rec.eventType }, recipients.length - kept.length)
     }
@@ -816,7 +821,7 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
             // last-recorded bounce (checked at the SQL layer), so an out-of-order delivery from an
             // older send can't erase a fresh bounce.
             if (suppressionAllowed && rec.eventType === 'Delivery') {
-                const emails = rec.delivery.recipients ?? rec.mail.destination ?? []
+                const emails = [...mailboxAddresses(rec.delivery.recipients ?? rec.mail.destination ?? [])]
                 if (emails.length > 0) {
                     deliveredRecipients.push({
                         teamId,

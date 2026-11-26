@@ -698,7 +698,7 @@ describe('SesWebhookHandler', () => {
                 mail: baseMail,
                 delivery: {
                     timestamp: '2025-10-03T12:04:00Z',
-                    recipients: ['to@example.com'],
+                    recipients: ['"Recipient Name" <to@example.com>'],
                 },
             },
         ]
@@ -807,7 +807,8 @@ describe('SesWebhookHandler', () => {
         // The send passes a display name with the address, so the destination entry can carry it too.
         const mail = { ...baseMail, destination: ['"Recipient Name" <to@example.com>'] }
         const body = [
-            { mail, ...buildEvent(['TO@example.com', 'not-sent-to@example.org']) },
+            // SES can report the recipient with its display name too. Only the address is stored.
+            { mail, ...buildEvent(['"Recipient Name" <TO@example.com>', 'not-sent-to@example.org']) },
             { mail, ...buildEvent(['not-sent-to@example.org']) },
         ]
         // Other tests in the process add to the counter, so read it as a delta.
