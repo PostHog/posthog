@@ -249,6 +249,15 @@ export const manifest: ProductManifest = {
     ],
     treeItemsMetadata: [
         {
+            path: 'Tags',
+            category: 'Schema',
+            iconType: 'tag',
+            href: urls.tagDefinitions(),
+            flag: FEATURE_FLAGS.TAG_MANAGEMENT,
+            requiresOrganizationAdmin: true,
+            searchKeywords: ['labels', 'merge', 'rename'],
+        },
+        {
             path: 'Event definitions',
             category: 'Schema',
             iconType: 'event_definition',

@@ -6969,13 +6969,14 @@ const api = {
         return await getJSONFromSuccessResponse(response, 'POST', url)
     },
 
-    async delete(url: string): Promise<any> {
+    async delete(url: string, options?: ApiMethodOptions): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',
                 headers: {
+                    ...objectClean(options?.headers ?? {}),
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
@@ -6983,6 +6984,7 @@ const api = {
                     ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
+                signal: options?.signal,
             })
         )
     },
