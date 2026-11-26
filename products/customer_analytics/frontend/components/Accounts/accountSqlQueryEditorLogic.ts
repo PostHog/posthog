@@ -137,9 +137,9 @@ export const accountSqlQueryEditorLogic: LogicWrapper<accountSqlQueryEditorLogic
             setConfig: (config: AccountViewTileConfig) => ({ config }),
             restoreEditor: true,
         }),
-        reducers({
+        reducers(({ props }) => ({
             config: [
-                (props: AccountSqlQueryEditorLogicProps): AccountViewTileConfig => props.config,
+                props.config,
                 {
                     setConfig: (_, { config }) => config,
                     setQueryInput: (config, { queryInput }) => {
@@ -171,7 +171,7 @@ export const accountSqlQueryEditorLogic: LogicWrapper<accountSqlQueryEditorLogic
                 },
             ],
             previewRevision: [0, { runPreview: (revision) => revision + 1 }],
-        }),
+        })),
         listeners(({ actions, props, values, cache }) => ({
             setQueryInput: ({ queryInput }) => {
                 if (queryInput !== null && !objectsEqual(values.config, props.config)) {

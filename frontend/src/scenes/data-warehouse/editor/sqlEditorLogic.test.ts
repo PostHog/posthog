@@ -3591,7 +3591,7 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.selectedConnectionSupportsHogQL).toEqual(false)
             expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(allowRawSql ? true : undefined)
             expect(logic.values.sendRawQueryEnabled).toEqual(allowRawSql)
-            expect(router.values.hashParams.raw).toEqual(allowRawSql ? '1' : undefined)
+            expect(router.values.hashParams.raw).toEqual(allowRawSql ? 1 : undefined)
         })
 
         it('keeps raw SQL disabled across bindings and source changes for the same tab', async () => {

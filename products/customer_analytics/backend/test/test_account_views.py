@@ -46,6 +46,19 @@ def account_view_content(*components: str) -> dict:
     }
 
 
+INVALID_SQL_CONNECTION_IDS: list[object] = [
+    None,
+    "",
+    " ",
+    "not-a-uuid",
+    "11111111111141118111111111111111",
+    123,
+    True,
+    {},
+    [],
+]
+
+
 class TestAccountViewContentValidation(SimpleTestCase):
     @parameterized.expand([(50, True), (51, False)])
     def test_component_count_limit(self, count: int, valid: bool) -> None:
@@ -233,9 +246,7 @@ class TestAccountViewContentValidation(SimpleTestCase):
                     },
                     "SQL connectionId must be a UUID string. Choose a connection again.",
                 )
-                for index, connection_id in enumerate(
-                    [None, "", " ", "not-a-uuid", "11111111111141118111111111111111", 123, True, {}, []]
-                )
+                for index, connection_id in enumerate(INVALID_SQL_CONNECTION_IDS)
             ],
             (
                 "extra_field",

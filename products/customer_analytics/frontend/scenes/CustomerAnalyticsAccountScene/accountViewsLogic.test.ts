@@ -373,7 +373,10 @@ describe('accountViewsLogic tracking', () => {
         expect(logic.values.config?.pinned_properties).toEqual([])
     })
 
-    it('saves an SQL query tile config and reports only its length', async () => {
+    it.each([
+        { sourceKind: 'posthog', connectionId: undefined },
+        { sourceKind: 'clickhouse', connectionId: '11111111-1111-4111-8111-111111111111' },
+    ])('saves an SQL widget using $sourceKind and reports only safe metadata', async ({ sourceKind, connectionId }) => {
         let sqlView: AccountViewApi = {
             ...view,
             content: createAccountViewContent([{ nodeId: 'sql', kind: 'sql_query', span: 12 }, ...components]),
@@ -385,21 +388,26 @@ describe('accountViewsLogic tracking', () => {
         })
         await expectLogic(logic, () => logic.actions.loadViews()).toFinishAllListeners()
         const query = 'select * from invented_table where org_id = {account_external_id}'
+        const config = { query, ...(connectionId ? { connectionId } : {}) }
         await expectLogic(logic, () => {
             logic.actions.openTileEditor(view.id, 'sql', 'Engagements', {
                 kind: 'sql_query',
                 config: {},
                 accountId: 'account-one',
             })
-            logic.actions.setTileEditorConfig({ query })
+            logic.actions.setTileEditorConfig(config)
         }).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.saveTileEditor()).toFinishAllListeners()
         expect(parseAccountViewContent(logic.values.views[0].content).map(({ config }) => config)).toEqual([
-            { query },
+            config,
             ...components.map(({ config }) => config),
         ])
-        expect(capture).toHaveBeenCalledWith(AccountsEvents.SqlQueryTileConfigured, { query_length: query.length })
+        expect(capture).toHaveBeenCalledWith(AccountsEvents.SqlQueryTileConfigured, {
+            query_length: query.length,
+            source_kind: sourceKind,
+        })
         expect(JSON.stringify(capture.mock.calls)).not.toContain('invented_table')
+        expect(JSON.stringify(capture.mock.calls)).not.toContain('11111111-1111-4111-8111-111111111111')
     })
 
     it('clears the SQL error once the query becomes valid', async () => {
