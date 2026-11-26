@@ -6,7 +6,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { StoredAutomateRecent, TodayAutomateRecent } from './todayAutomateRecents'
+import { StoredAutomateRecent } from './todayAutomateRecents'
 import { TodayDataRecent } from './todayDataRecents'
 import { TodayMonitorRecent } from './todayMonitor'
 import { newestByName } from './todayNewestByName'
@@ -60,7 +60,7 @@ export interface todayRecentsLogicMeta {
         peopleRecentRows: (peopleRecents: TodayPeopleRecent[]) => TodayPeopleRecent[]
         productPaneRecents: (
             monitorRecents: TodayMonitorRecent[],
-            automateRecents: TodayAutomateRecent[],
+            automateRecents: StoredAutomateRecent[],
             dataRecents: TodayDataRecent[]
         ) => Record<TodayProductPaneKey, TodayRecent[]>
     }
@@ -180,7 +180,7 @@ export const todayRecentsLogic = kea<todayRecentsLogicType>([
             (s) => [s.monitorRecents, s.automateRecents, s.dataRecents],
             (
                 monitorRecents: TodayMonitorRecent[],
-                automateRecents: TodayAutomateRecent[],
+                automateRecents: StoredAutomateRecent[],
                 dataRecents: TodayDataRecent[]
             ): Record<TodayProductPaneKey, TodayRecent[]> => ({
                 monitor: monitorRecents,
