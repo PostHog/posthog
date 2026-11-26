@@ -512,13 +512,16 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
             schedule = engine_schedule(self.team.id)
         assert {e.name for e in [*schedule.daily, *schedule.weekly]} <= {"exa-answer"}
 
-    def test_a_stop_waits_for_the_run_and_a_new_setup_clears_it(self) -> None:
+    @parameterized.expand([("no run in flight", False, False), ("a run still in flight", True, True)])
+    def test_a_new_setup_clears_a_stop_only_when_no_run_owns_it(self, _name: str, in_flight: bool, kept: bool) -> None:
         assert self.client.post(f"{self.url}stop_checks/").status_code == status.HTTP_204_NO_CONTENT
         assert run_stop.stop_requested(self.team.id)
+        if in_flight:
+            run_stop.mark_run_queued(self.team.id)
 
         self._run([*_prompt_answers(), _answer(KEYWORDS_ANSWER)], run_first_check=False)
 
-        assert not run_stop.stop_requested(self.team.id)
+        assert run_stop.stop_requested(self.team.id) is kept
 
     def test_a_reset_lets_setup_run_again_for_another_site(self) -> None:
         first, _, _ = self._run(
@@ -535,6 +538,8 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         assert AEOBrand.objects.for_team(self.team.id).filter(domain="rival.org").exists()
         assert first["status"] == "completed"
         create_citation_check(self.team, "earlier")
+        # The first run's task is mocked, so nothing clears the queued marker the way the finished run would.
+        run_stop.clear_run_queued(self.team.id)
 
         assert self.client.post(f"{self.url}reset/").status_code == status.HTTP_204_NO_CONTENT
 
@@ -559,6 +564,21 @@ class TestAEOSetupAPI(ClickhouseTestMixin, APIBaseTest):
         ]
         assert catalog.own_domains(self.team.id) == ["example.org"]
         second_run.assert_called_once()
+
+    def test_a_reset_during_a_check_run_stops_it_and_archives_the_prompts_it_writes_against(self) -> None:
+        self._run([*_prompt_answers(), _answer(KEYWORDS_ANSWER)])
+        written = set(AEOPrompt.objects.for_team(self.team.id).values_list("id", flat=True))
+        assert written
+        run_stop.mark_run_queued(self.team.id)
+
+        assert self.client.post(f"{self.url}reset/").status_code == status.HTTP_204_NO_CONTENT
+
+        prompts = AEOPrompt.objects.for_team(self.team.id)
+        assert set(prompts.values_list("id", flat=True)) == written
+        assert not prompts.filter(archived_at__isnull=True).exists()
+        assert run_stop.stop_requested(self.team.id)
+        # The reset held the setup slot only while it ran.
+        assert auto_setup.running_job_id(self.team.id) is None
 
     def test_a_job_cancelled_while_writing_prompts_saves_nothing_more(self) -> None:
         def cancel() -> None:

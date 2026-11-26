@@ -625,29 +625,41 @@ def _run_steps_with(team: Team, progress: _Progress, request: SetupRequest, pool
 
 
 def reset(team_id: int) -> None:
+    """Removes what setup saved, so the project can be set up again. Raises SetupAlreadyRunningError while a
+    setup job is pending."""
     from products.aeo.backend.facade.api import update_brand  # noqa: PLC0415 -- import cycle
 
-    running = running_job_id(team_id)
-    if running:
-        raise SetupAlreadyRunningError(running)
-    now = timezone.now()
-    with transaction.atomic():
-        current = AEOPrompt.objects.for_team(team_id).filter(archived_at__isnull=True)
-        checked = Exists(AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=OuterRef("id")))
-        # A prompt with answers is archived so they stay in history. One without any is deleted, because an
-        # archived prompt blocks its text from coming back, and setting up the same site again would suggest it.
-        current.filter(checked).update(archived_at=now, active=False, updated_at=now)
-        current.filter(~checked).delete()
-        AEOKeyword.objects.for_team(team_id).delete()
-        referenced = AEOCheckBrand.objects.for_team(team_id).filter(brand_id=OuterRef("id"))
-        AEOBrand.objects.for_team(team_id).filter(status=BrandStatus.SUGGESTED).exclude(kind=BrandKind.OWN).exclude(
-            Exists(referenced)
-        ).delete()
-        setup_brands = list(
-            AEOBrand.objects.for_team(team_id)
-            .filter(Q(kind=BrandKind.OWN) | Q(kind=BrandKind.COMPETITOR, status=BrandStatus.SUGGESTED))
-            .values_list("id", flat=True)
-        )
-    for brand_id in setup_brands:
-        update_brand(team_id, str(brand_id), BrandUpdate(kind=BrandKind.UNKNOWN, status=BrandStatus.SUGGESTED))
-    bump_data_version_on_commit(team_id)
+    # Holding a job for the reset keeps a setup from starting, and saving prompts, while the rows are removed.
+    job = create_job(team_id)
+    try:
+        # A check run in flight still writes checks against the current prompts, so it is asked to stop and its
+        # prompts are archived rather than deleted.
+        checks_running = run_stop.checks_running(team_id)
+        if checks_running:
+            run_stop.request_stop(team_id)
+        now = timezone.now()
+        with transaction.atomic():
+            current = AEOPrompt.objects.for_team(team_id).filter(archived_at__isnull=True)
+            checked = Exists(AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=OuterRef("id")))
+            # A prompt with answers is archived so they stay in history. One without any is deleted, because an
+            # archived prompt blocks its text from coming back, and setting up the same site again would suggest it.
+            to_archive = current if checks_running else current.filter(checked)
+            to_archive.update(archived_at=now, active=False, updated_at=now)
+            if not checks_running:
+                current.filter(~checked).delete()
+            AEOKeyword.objects.for_team(team_id).delete()
+            referenced = AEOCheckBrand.objects.for_team(team_id).filter(brand_id=OuterRef("id"))
+            AEOBrand.objects.for_team(team_id).filter(status=BrandStatus.SUGGESTED).exclude(kind=BrandKind.OWN).exclude(
+                Exists(referenced)
+            ).delete()
+            setup_brands = (
+                AEOBrand.objects.for_team(team_id)
+                .filter(Q(kind=BrandKind.OWN) | Q(kind=BrandKind.COMPETITOR, status=BrandStatus.SUGGESTED))
+                .values_list("id", flat=True)
+            )
+            # Inside the transaction, so a brand removed meanwhile rolls the whole reset back.
+            for brand_id in list(setup_brands):
+                update_brand(team_id, str(brand_id), BrandUpdate(kind=BrandKind.UNKNOWN, status=BrandStatus.SUGGESTED))
+        bump_data_version_on_commit(team_id)
+    finally:
+        _save_job(team_id, SetupJob(id=job.id, status=SuggestionJobStatus.COMPLETED, steps=job.steps))
