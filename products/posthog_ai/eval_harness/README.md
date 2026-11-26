@@ -108,6 +108,7 @@ python -m products.posthog_ai.eval_harness.harness --list
 | --------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `--eval <substr>`                 | Only run cases whose name contains the substring.                                                        |
 | `--provider {docker,modal}`       | Where sandboxes run. Default `docker`.                                                                   |
+| `--prewarm-teams [COUNT]`         | Fill the single-use Hedgebox reserve and exit. Defaults to 12 teams.                                     |
 | `--team-setup-concurrency N`      | Limit concurrent team clones and case seeders for this run.                                              |
 | `--max-sandboxes N`               | Cap concurrently live sandboxes across all suites.                                                       |
 | `--agent-model <model>`           | Model the sandboxed agent runs against, pinned for stable cross-run comparison.                          |
@@ -369,6 +370,8 @@ Selecting more suites therefore increases throughput without increasing peak loa
 
 A separate semaphore covers the full per-case team setup, including the demo-data clone and optional setup hook.
 It defaults to one setup on ordinary local machines, two on Coder, and four on other CI machines. Set `--team-setup-concurrency N` for a different devbox capacity.
+
+Team setup runs while agents execute. Up to four teams can be preparing or waiting for a sandbox at a time (more when the setup worker count exceeds four). Before a series of runs, use `hogli evals --prewarm-teams` to prepare 12 base teams, or specify a count. Repeating the command tops up the reserve. Each sandboxed case that inherits demo data claims one team from the current master, then runs its own seeder. When the reserve runs out, cloning continues on demand.
 These phases can issue large ClickHouse copies or direct inserts, so the independent limit protects ClickHouse from RAM exhaustion even when Modal sandbox capacity is unbounded while letting managed environments prepare cases faster.
 On a single local ClickHouse shard, the harness copies the stored event properties and session columns along with the events.
 New master fixtures record their simulation time. Case teams use that clock and copy complete daily experiment results when the metric settings match. An older master or a missing or incompatible timeseries uses the usual backfill. Copied chart points omit the source team’s diagnostic SQL.

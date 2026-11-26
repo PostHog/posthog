@@ -95,6 +95,7 @@ class HarnessOptions:
     comparison_models: tuple[ModelTarget, ...] = ()
     comparison_dir: Path | None = None
     results_file: Path | None = None
+    prewarm_teams: int | None = None
     check_only: bool = False
     skill_snapshot_report: Path | None = None
     skill_snapshot_output_dir: Path | None = None
@@ -203,6 +204,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--prewarm-teams",
+        type=int,
+        nargs="?",
+        const=12,
+        metavar="COUNT",
+        help="Prepare a reserve of fresh Hedgebox teams and exit (default: 12).",
+    )
+    parser.add_argument(
         "--team-setup-concurrency",
         type=int,
         default=None,
@@ -307,6 +316,12 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    if args.prewarm_teams is not None:
+        if args.prewarm_teams < 1:
+            parser.error("--prewarm-teams requires a positive count")
+        if args.selectors or args.compare or args.compare_model or args.list_only or args.check_only:
+            parser.error("Run --prewarm-teams separately from suite selection, comparison, --list, or --check")
+
     comparison_models: list[ModelTarget] = []
     for value in args.compare_model:
         target = _parse_model_target(value)
@@ -402,6 +417,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
 
     return HarnessOptions(
         selectors=tuple(args.selectors),
+        prewarm_teams=args.prewarm_teams,
         provider=provider,
         case_filter=args.case_filter,
         agent_model=agent_model,
