@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
+from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
 
 from .audiences import REPO_AUDIENCE_PREFIX
 from .change_summary import ReviewedSummary, split_clauses
@@ -827,7 +827,7 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
     team_id = told.prs[0].team_id
     try:
         # No Python-gateway fallback: it has no stamphog route, so an unset pair posts the plain list.
-        client = build_ai_gateway_anthropic_client(
+        client = build_anthropic_client(
             ai_product="aio_stamphog",
             team_id=team_id,
             properties={"source_product": _SOURCE_PRODUCT},

@@ -39,7 +39,7 @@ export type QueueSample = { at: number } & (QueueCounts | { error: string })
 
 export type Probed = { writer: WriterSample[]; queue: QueueSample[] }
 
-export type DriveWindow = { startedAt: number; endedAt: number }
+export type DriveWindow = { startedAt: number; endedAt: number; warmedAt?: number }
 
 type Value = { value: number; censored?: true } | { value: null; censored: true }
 
@@ -66,8 +66,8 @@ export type MeasurementDefinition = Definition & {
     measure(evidence: MeasureEvidence): Measured[]
 }
 
-const SAMPLE_INTERVAL_MS = 5000
-const SCRAPE_TIMEOUT_MS = 2000
+export const SAMPLE_INTERVAL_MS = 5000
+export const SCRAPE_TIMEOUT_MS = 2000
 const BASELINE_WITHIN_MS = 10_000
 const BASELINE_RETRY_MS = 500
 
@@ -177,13 +177,14 @@ export function phasesOf(drive: DriveWindow, timeline: readonly ValveTimelineEnt
         const released = releaseIntentAt ?? releasedAt
         return { intent: Date.parse(intentAt!), released: released === undefined ? Infinity : Date.parse(released) }
     })
+    const from = Math.min(drive.warmedAt ?? drive.startedAt, drive.endedAt)
     if (applied.length === 0) {
-        return { baseline: { from: drive.startedAt, to: drive.endedAt } }
+        return { baseline: { from, to: drive.endedAt } }
     }
-    const intent = Math.max(Math.min(...applied.map(({ intent }) => intent)), drive.startedAt)
+    const intent = Math.max(Math.min(...applied.map(({ intent }) => intent)), from)
     const released = Math.max(...applied.map(({ released }) => released))
     return {
-        baseline: { from: drive.startedAt, to: intent },
+        baseline: { from, to: intent },
         valve: { from: intent, to: Math.min(released, drive.endedAt) },
         ...(released < drive.endedAt ? { failback: { from: released, to: drive.endedAt } } : {}),
     }

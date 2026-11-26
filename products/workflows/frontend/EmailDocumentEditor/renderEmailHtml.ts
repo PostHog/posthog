@@ -10,6 +10,7 @@ import {
     EmailSides,
     EmailTextAlign,
     EmailVisibility,
+    SECTION_PADDING,
     emailFontUrls,
     isEmailDocEmpty,
     resolvePageStyle,
@@ -762,6 +763,19 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
     return blockCell({ ...style, padding }, outer, NO_SIDES)
 }
 
+/** One box behind several blocks. Outlook draws a cell's color and padding, so the cell carries them. */
+function renderSection(node: JSONContent, ctx: RenderContext): string {
+    const style = styleOf(node)
+    const padding = style.padding ?? SECTION_PADDING
+    const contentWidth = Math.max(
+        1,
+        ctx.contentWidth - px(padding.left) - px(padding.right) - px(style.borderWidth) * 2
+    )
+    const cell = blockCell(style, renderBlockTable(node.content, { ...ctx, contentWidth }), SECTION_PADDING)
+    // A cell only rounds its corners in a table with separate borders, and the old editor's page styles collapse them.
+    return `<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate">${cell}</table></td></tr>`
+}
+
 /** A whole document can't sit inside the email's table, so next to other blocks only its styles and body are used. */
 function htmlBlockFragment(html: string): string {
     if (!FULL_HTML_DOCUMENT.test(html)) {
@@ -848,6 +862,8 @@ function renderBlock(node: JSONContent, parentCtx: RenderContext): string {
             return renderButton(node, ctx)
         case 'emailColumns':
             return renderColumns(node, ctx)
+        case 'emailSection':
+            return renderSection(node, ctx)
         case 'emailHtml':
             // Its own markup may not set a font, so it starts from the page's rather than from the email app's. The old
             // editor left the size to the email app, which is 16px.
@@ -938,8 +954,15 @@ table, td { color: ${safeColor(page.textColor, '#000000')}; }
 @media (max-width: 480px) { .hide-mobile { max-height: 0px; overflow: hidden; display: none !important; } }`
 }
 
+const COLUMN_STACK_CSS = `  .ph-col { max-width: 100% !important; }
+  .ph-col-gap { padding-left: 0 !important; padding-right: 0 !important; }`
+
+function columnBreakpoint(page: EmailPageStyle): number {
+    return page.bodyWidth + 20
+}
+
 function responsiveCss(page: EmailPageStyle, extra: string[] = []): string {
-    const breakpoint = page.bodyWidth + 20
+    const breakpoint = columnBreakpoint(page)
     const custom = page.globalCss.replace(/<\/?style/gi, '')
     return `
 body { margin: 0; padding: 0; }
@@ -950,8 +973,7 @@ a { color: ${safeColor(page.linkColor, '#1d4aff')}; }
 a[x-apple-data-detectors='true'] { color: inherit !important; text-decoration: none !important; }
 @media only screen and (max-width: ${breakpoint}px) {
   .ph-body { width: 100% !important; }
-  .ph-col { max-width: 100% !important; }
-  .ph-col-gap { padding-left: 0 !important; padding-right: 0 !important; }
+${COLUMN_STACK_CSS}
 }
 ${page.oldEditorStyles ? oldEditorCss(page) : ''}
 ${extra.filter(Boolean).join('\n')}
@@ -978,7 +1000,18 @@ export function oldEditorBlockHtml(
         return { kind: 'html', html: textFromNodes(node.content).trim() }
     }
     const text = textBlockElement(node, ctx)
-    return text !== null ? { kind: 'text', html: text } : { kind: 'html', html: renderBlockTable([node], ctx) }
+    if (text !== null) {
+        return { kind: 'text', html: text }
+    }
+    // The old editor's export has no rules for the classes in this markup that hide a block or stack columns.
+    const rules = [
+        node.type === 'emailColumns'
+            ? `@media only screen and (max-width: ${columnBreakpoint(page)}px) {\n${COLUMN_STACK_CSS}\n}`
+            : '',
+        usesScreenSizes(node.content) ? SCREEN_SIZE_CSS : '',
+    ].filter(Boolean)
+    const css = rules.length ? `<style>${rules.join('\n')}</style>` : ''
+    return { kind: 'html', html: css + renderBlockTable([node], ctx) }
 }
 
 /** A button's label as markup, with its variables written out. */
@@ -1172,6 +1205,7 @@ function blockText(node: JSONContent): string {
         case 'emailColumns':
             return (node.content ?? []).map(visibleText).filter(Boolean).join('\n\n')
         case 'emailColumn':
+        case 'emailSection':
             return (node.content ?? []).map(visibleText).filter(Boolean).join('\n\n')
         case 'emailHtml':
             return htmlToEmailText(String(node.attrs?.html ?? ''))

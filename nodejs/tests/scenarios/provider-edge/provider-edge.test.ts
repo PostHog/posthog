@@ -1,4 +1,4 @@
-import { CardFault, ProviderEdge, TruthHead, TruthPage, startProviderEdge } from '.'
+import { CardFault, FaultHold, ProviderEdge, TruthHead, TruthPage, holdOf, startProviderEdge } from '.'
 import { Destination, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { createHash } from 'crypto'
 import http from 'http'
@@ -469,6 +469,129 @@ describe('provider edge', () => {
         } finally {
             clock.mockRestore()
         }
+    })
+
+    it('does not observe a fault the edge first applied after the drive released its hold', async () => {
+        const start = Date.now()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+        try {
+            const faultId = edge.addFault(
+                ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } })
+            )
+            let readArrives = (): void => undefined
+            const answered = new Promise<void>((resolve) => (readArrives = resolve))
+            const held = holdOf({
+                firstAppliedAt: () => answered.then(() => edge.firstAppliedAt(faultId)),
+                remove: () => Promise.resolve(edge.removeFault(faultId)),
+            })
+            const released = new AbortController()
+            const observed = held.observed(released.signal)
+            clock.mockReturnValue(start + 5)
+            released.abort()
+            clock.mockReturnValue(start + 6)
+            const answer = await send(ALICE)
+            readArrives()
+
+            expect({ answer, observed: await observed }).toEqual({ answer: 'MessageRejected', observed: false })
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
+    it.each<[string, (hold: FaultHold) => Promise<boolean>]>([
+        ['observed', (hold) => hold.observed()],
+        ['accepted', (hold) => hold.accepted!(new AbortController().signal)],
+    ])(
+        'keeps a fault %s once it read it applied, when the faults are cleared before another read',
+        async (_, waitOn) => {
+            const faultId = edge.addFault(
+                ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } })
+            )
+            const answer = await send(ALICE)
+            const held = holdOf({
+                firstAppliedAt: () => {
+                    const appliedAt = edge.firstAppliedAt(faultId)
+                    edge.clearFaults()
+                    return Promise.resolve(appliedAt)
+                },
+                remove: () => Promise.resolve(edge.removeFault(faultId)),
+            })
+
+            expect({ answer, held: await waitOn(held) }).toEqual({ answer: 'MessageRejected', held: true })
+        }
+    )
+
+    const observedUntil = (hold: FaultHold, holdEnds: AbortSignal): Promise<boolean> => hold.observed(holdEnds)
+    const acceptedUntil = (hold: FaultHold, holdEnds: AbortSignal): Promise<boolean> => hold.accepted!(holdEnds)
+
+    it.each<[string, string, string, (hold: FaultHold, holdEnds: AbortSignal) => Promise<boolean>, number, boolean]>([
+        ['keeps', 'observed', 'before', observedUntil, 0, true],
+        ['keeps', 'accepted', 'before', acceptedUntil, 0, true],
+        ['does not count', 'observed', 'after', observedUntil, 1_000, false],
+        ['does not count', 'accepted', 'after', acceptedUntil, 1_000, false],
+    ])(
+        '%s a fault %s that applied %s the hold ended, while a read was on its way back',
+        async (_, __, ___, waitOn, appliedFromEndMs, expected) => {
+            let answerFirstRead: (() => void) | undefined
+            const appliedAt = Date.now() + appliedFromEndMs
+            const held = holdOf({
+                firstAppliedAt: () =>
+                    answerFirstRead === undefined
+                        ? new Promise((resolve) => (answerFirstRead = () => resolve(undefined)))
+                        : Promise.resolve(appliedAt),
+                remove: () => Promise.resolve(),
+            })
+            const holdEnds = new AbortController()
+            const waiting = waitOn(held, holdEnds.signal)
+            holdEnds.abort()
+            answerFirstRead!()
+
+            expect(await waiting).toBe(expected)
+        }
+    )
+
+    it.each<[string, (hold: FaultHold, holdEnds: AbortSignal) => Promise<boolean>]>([
+        ['observed', observedUntil],
+        ['accepted', acceptedUntil],
+    ])(
+        'stops reading a fault %s after one more read once the hold ended, even within the same millisecond',
+        async (_, waitOn) => {
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
+            try {
+                let answerFirstRead: (() => void) | undefined
+                let readsAfterTheEnd = 0
+                const held = holdOf({
+                    firstAppliedAt: () => {
+                        if (answerFirstRead === undefined) {
+                            return new Promise((resolve) => (answerFirstRead = () => resolve(undefined)))
+                        }
+                        readsAfterTheEnd += 1
+                        return readsAfterTheEnd > 5
+                            ? Promise.reject(new Error('still reading after the hold ended'))
+                            : Promise.resolve(undefined)
+                    },
+                    remove: () => Promise.resolve(),
+                })
+                const holdEnds = new AbortController()
+                const waiting = waitOn(held, holdEnds.signal)
+                holdEnds.abort()
+                answerFirstRead!()
+
+                expect({ applied: await waiting, readsAfterTheEnd }).toEqual({ applied: false, readsAfterTheEnd: 1 })
+            } finally {
+                clock.mockRestore()
+            }
+        }
+    )
+
+    it('does not observe a fault for a drive that ended before its observation began', async () => {
+        const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))
+        const answer = await send(ALICE)
+
+        expect({ answer, observed: await held.observed(AbortSignal.abort()) }).toEqual({
+            answer: 'MessageRejected',
+            observed: false,
+        })
     })
 
     it.each<[string, string, TruthPage | TruthHead]>([

@@ -4,6 +4,7 @@ import json
 import uuid
 import smtplib
 import datetime
+from contextlib import nullcontext
 from hashlib import sha256
 from types import SimpleNamespace
 from typing import Any, cast
@@ -192,6 +193,7 @@ class TestOIDCAuthentication(APILicensedTest):
         reauth: bool = False,
         invite_id: str | None = None,
         code: str | None = None,
+        callback_delay_seconds: int = 0,
     ) -> HttpResponse:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
@@ -229,7 +231,8 @@ class TestOIDCAuthentication(APILicensedTest):
             response._content = json.dumps(data).encode()
             return response
 
-        with patch.object(MultitenantOIDCAuth, "request", side_effect=oidc_response):
+        callback_clock = time_machine.travel(timezone.now(), tick=False) if callback_delay_seconds else nullcontext()
+        with patch.object(MultitenantOIDCAuth, "request", side_effect=oidc_response), callback_clock as clock:
             response = self.client.get(
                 "/login/oidc/",
                 {
@@ -239,6 +242,8 @@ class TestOIDCAuthentication(APILicensedTest):
                 },
             )
             self.assertEqual(response.status_code, 302)
+            if clock is not None:
+                clock.shift(datetime.timedelta(seconds=callback_delay_seconds))
             params = parse_qs(urlparse(response["Location"]).query)
             claims = {
                 "iss": self.config.oidc_issuer_url,
@@ -291,6 +296,29 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(query["error_code"], ["social_login_failure"])
         self.assertIn("already been used", query["error_detail"][0])
         self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_oidc_login_rejects_a_redirect_older_than_the_timeout(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        response = self._complete_oidc_login("member@example.com", callback_delay_seconds=30 * 60 + 1)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("social_login_failure", response["Location"])
+        self.assertIn("took+too+long", response["Location"])
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
+
+    def test_oidc_login_accepts_a_redirect_inside_the_timeout(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        response = self._complete_oidc_login("member@example.com", callback_delay_seconds=30 * 60 - 1)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
     @parameterized.expand([("first_callback", False), ("restart", True)])
     @pytest.mark.disable_mock_code_based_verifier

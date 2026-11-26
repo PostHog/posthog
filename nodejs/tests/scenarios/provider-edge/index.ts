@@ -39,6 +39,49 @@ export type FaultHold = {
     release(): Promise<void>
 }
 
+type HeldFault = { firstAppliedAt(): Promise<number | undefined>; remove(): Promise<void> }
+
+async function appliedBefore(
+    fault: HeldFault,
+    windowEnds: AbortSignal | undefined,
+    deadline: number
+): Promise<boolean> {
+    let windowEndsAt = deadline
+    const endWindow = (): void => {
+        windowEndsAt = Math.min(windowEndsAt, Date.now())
+    }
+    if (windowEnds?.aborted) {
+        endWindow()
+    }
+    windowEnds?.addEventListener('abort', endWindow, { once: true })
+    const appliedInWindow = async (): Promise<boolean> => {
+        const appliedAt = await fault.firstAppliedAt()
+        return appliedAt !== undefined && appliedAt <= windowEndsAt
+    }
+    try {
+        let readFrom = Date.now()
+        let applied = await appliedInWindow()
+        while (!applied && !windowEnds?.aborted && Date.now() <= deadline) {
+            await sleep(FAULT_POLL_MS, undefined, { signal: windowEnds }).catch(() => undefined)
+            readFrom = Date.now()
+            applied = await appliedInWindow()
+        }
+        // A read that started before the window ended can answer after it, so its negative answer gets one more read.
+        return applied || (readFrom <= windowEndsAt && (await appliedInWindow()))
+    } finally {
+        windowEnds?.removeEventListener('abort', endWindow)
+    }
+}
+
+export function holdOf(fault: HeldFault): FaultHold {
+    return {
+        observed: async (holdEnds) =>
+            !holdEnds?.aborted && (await appliedBefore(fault, holdEnds, Date.now() + FAULT_OBSERVED_WITHIN_MS)),
+        accepted: (until) => appliedBefore(fault, until, Infinity),
+        release: () => fault.remove(),
+    }
+}
+
 export type ProviderEdgeOptions = {
     port: number
     configurationSets?: ConfigurationSets
@@ -54,6 +97,8 @@ export type ProviderEdge = {
     caCertPath?: string
     sent: readonly SesMessage[]
     addFault(rule: FaultRule): string
+    firstAppliedAt(faultId: string): number | undefined
+    removeFault(faultId: string): void
     hold(rule: FaultRule): FaultHold
     clearFaults(): void
     close(): Promise<void>
@@ -351,28 +396,14 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         caCertPath: certificates?.caCertPath,
         sent,
         addFault: (rule) => faults.add(rule),
+        firstAppliedAt: (faultId) => faults.firstAppliedAt(faultId),
+        removeFault: (faultId) => void removeFault(faultId),
         hold: (rule) => {
             const id = faults.add(rule)
-            return {
-                observed: async (holdEnds) => {
-                    const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
-                    const answeredInWindow = (): boolean => (faults.firstAppliedAt(id) ?? Infinity) <= deadline
-                    while (Date.now() <= deadline && !holdEnds?.aborted && !answeredInWindow()) {
-                        await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
-                    }
-                    return answeredInWindow()
-                },
-                accepted: async (until) => {
-                    while (!until.aborted && faults.firstAppliedAt(id) === undefined) {
-                        await sleep(FAULT_POLL_MS, undefined, { signal: until }).catch(() => undefined)
-                    }
-                    return faults.firstAppliedAt(id) !== undefined
-                },
-                release: () => {
-                    removeFault(id)
-                    return Promise.resolve()
-                },
-            }
+            return holdOf({
+                firstAppliedAt: () => Promise.resolve(faults.firstAppliedAt(id)),
+                remove: () => Promise.resolve(void removeFault(id)),
+            })
         },
         clearFaults,
         close: async () => {

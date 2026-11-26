@@ -289,6 +289,40 @@ describe('renderEmailHtml', () => {
         )
     })
 
+    it('draws a section behind its blocks, sizes them for it and keeps their conditions, in the html and the plain text', () => {
+        const section: JSONContent = {
+            type: 'emailSection',
+            attrs: {
+                emailStyle: { backgroundColor: '#eeeeee', borderWidth: 2, borderRadius: 8 },
+                emailVisibility: { condition: { before: '{% if a %}', after: '{% endif %}' } },
+            },
+            content: [
+                {
+                    ...paragraph('Inside'),
+                    attrs: { emailVisibility: { condition: { before: '{% if b %}', after: '{% endif %}' } } },
+                },
+                { type: 'emailImage', attrs: { src: 'https://example.com/a.png', alt: '', naturalWidth: 2000 } },
+                {
+                    type: 'emailColumns',
+                    content: [
+                        { type: 'emailColumn', content: [paragraph('Left')] },
+                        { type: 'emailColumn', content: [paragraph('Right')] },
+                    ],
+                },
+            ],
+        }
+        const html = renderEmailHtml(doc(section))
+
+        expect(html).toContain(
+            '{% if a %}<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate"><tr><td align="left" bgcolor="#eeeeee" style="padding:24px 24px 24px 24px;text-align:left;background-color:#eeeeee;border-radius:8px;border:2px solid #e5e5e5"><table'
+        )
+        expect(html).toMatch(/\{% if b %\}<tr><td[^>]*><p[^>]*>Inside<\/p><\/td><\/tr>\{% endif %\}/)
+        expect(html).toContain('width="500" style')
+        expect(html).toContain('<!--[if mso]><table role="presentation" width="500"')
+        expect(blockStyleToCanvasCss(null, 'emailSection')).toBe('padding:24px 24px 24px 24px')
+        expect(renderEmailText(doc(section))).toBe('{% if a %}{% if b %}Inside{% endif %}\n\nLeft\n\nRight{% endif %}')
+    })
+
     it.each([
         {
             name: 'no body border',

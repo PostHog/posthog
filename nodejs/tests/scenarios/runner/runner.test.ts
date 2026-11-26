@@ -64,13 +64,14 @@ import { Role, RoleSpec, SCENARIO_SESSION_PREFIX, consumerGroupsOf, roleSpecs, s
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { KafkaGroup, WORKFLOWS_ADAPTER, Wiring, wiringOf } from '../environment/topology'
 import { JournalEntry } from '../judge/judge'
+import { DriveWindow } from '../judge/measurements'
 import { main } from '../main'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { LIVE_FILE, LiveRecord } from './live'
-import { RunResult, Runner, TargetRun, createRunner } from './runner'
+import { RunResult, RunWindow, Runner, TargetRun, createRunner } from './runner'
 import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
@@ -1166,6 +1167,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak,
             bars = [],
             driveFor = '2s',
+            warmUp,
             convergeWithin,
             settings = {},
         }: {
@@ -1179,6 +1181,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak?: true
             bars?: Named[]
             driveFor?: string
+            warmUp?: string
             convergeWithin?: string
             settings?: Profile['settings']
         } = {}
@@ -1196,6 +1199,7 @@ describe('runner through seed, drive and judge', () => {
                     traffic: [{ name: traffic }],
                     ramp,
                     stopOnBreak,
+                    warmUp,
                 },
                 invariants,
                 measure: measures,
@@ -1535,6 +1539,31 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
+    it('records the warm-up its drive ran before the first offer, and the baseline it admitted after it', async () => {
+        const result = await createRunner(environmentOf('none'), env).run(
+            shortSmoke([], 'transactional_email', { driveFor: '3s', warmUp: '1s' }),
+            NEVER_ABORTED
+        )
+        results.push(result)
+
+        const journal = evidenceOf(result, 'journal.json') as JournalEntry[]
+        const { drive } = evidenceOf(result, 'probes.json') as { drive: DriveWindow }
+        const saved = evidenceOf(result, 'scorecard.json') as { warmUp: RunWindow; baseline: RunWindow }
+        const [warmUpFrom, warmUpTo] = [Date.parse(saved.warmUp.from), Date.parse(saved.warmUp.to)]
+        const firstOfferedAt = Math.min(...journal.map(({ offeredAt }) => offeredAt))
+        expect({
+            warmUp: [warmUpFrom - drive.startedAt, warmUpTo - drive.startedAt],
+            firstOfferInWarmUp: firstOfferedAt >= warmUpFrom && firstOfferedAt < warmUpTo,
+            offeredAfter: journal.some(({ offeredAt }) => offeredAt >= warmUpTo),
+            baseline: saved.baseline,
+        }).toEqual({
+            warmUp: [0, 1000],
+            firstOfferInWarmUp: true,
+            offeredAfter: true,
+            baseline: { from: saved.warmUp.to, to: new Date(drive.endedAt).toISOString() },
+        })
+    }, 30_000)
+
     it('ends a run invalid when Postgres refuses two checks in a row, and keeps the refusal in its evidence', async () => {
         const refused = { name: 'postgres', reason: 'connect ECONNREFUSED 127.0.0.1:5432', unanswered: false }
         const result = await createRunner(
@@ -1725,31 +1754,11 @@ describe('runner through seed, drive and judge', () => {
     }
 
     it.each<[string, (role: Role) => RoleExit[], object, Parameters<typeof shortSmoke>[2]]>([
-        ['passes a run whose only exit is the kill its card scheduled', exitOfTheKill, { status: 'passed' }, {}],
         [
-            'calls a run invalid whose valve left too short a baseline to admit its load, and measures the kill',
+            'passes a run whose only exit is the kill its card scheduled, and measures the kill',
             exitOfTheKill,
-            {
-                status: 'invalid',
-                statusReason: expect.stringMatching(
-                    /^the load admission failed: the baseline was too short to measure: /
-                ),
-                admissions: [
-                    {
-                        name: 'load',
-                        passed: false,
-                        reason: expect.stringMatching(
-                            /^the baseline was too short to measure: [0-9.]+s, under the 30s minimum$/
-                        ),
-                    },
-                ],
-                measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }],
-            },
-            {
-                measures: [{ name: 'pg_client_errors', params: {} }],
-                load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
-                settings: SES_ROOM,
-            },
+            { status: 'passed', measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }] },
+            { measures: [{ name: 'pg_client_errors', params: {} }] },
         ],
         [
             'fails a run in which a role exits that no valve killed',
@@ -2301,9 +2310,26 @@ describe('runner through seed, drive and judge', () => {
             const [first, ...later] = result.units?.steps ?? []
             const ranMs = first.endedAt - first.startedAt
 
-            expect({ ranUnderPlan: ranMs < 10_000, later, result }).toMatchObject({
+            expect({
+                ranUnderPlan: ranMs < 10_000,
+                later,
+                loadTargets: evidenceOf(result, 'load-targets.json'),
+                result,
+            }).toMatchObject({
                 ranUnderPlan: true,
                 later: [],
+                loadTargets: {
+                    targets: { claimsPerSecond: { email: 500 } },
+                    derived: [
+                        {
+                            rate: 'claimsPerSecond.email',
+                            from: ['transactional_email'],
+                            profileTarget: 500,
+                            share: 1,
+                            target: 500,
+                        },
+                    ],
+                },
                 result: {
                     status: 'invalid',
                     ramp: {
