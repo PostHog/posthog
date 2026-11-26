@@ -5828,6 +5828,12 @@ describe('CDP API', () => {
                     const otherOrg = await flowOf(
                         await createTeam(hub.postgres, await createOrganization(hub.postgres))
                     )
+                    const archivedOfOrg = {
+                        teamId: sameOrg.teamId,
+                        flowId: (
+                            await insertHogFlow({ ...transactionalFlow('api', 'archived'), team_id: sameOrg.teamId })
+                        ).id,
+                    }
                     const { app: four } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 4 })
                     const sendAs = ({ teamId, flowId }: { teamId: number; flowId: string }, to: string) =>
                         supertest(four)
@@ -5861,7 +5867,7 @@ describe('CDP API', () => {
                         await heldAt(secondRead, holders[1])
                         read.pass()
                         thirdOfOrg = await sendAs(sameOrg, 'cy@example.com')
-                        notSendableOfOrg = await sendAs({ ...sameOrg, flowId: otherOrg.flowId }, 'ed@example.com')
+                        notSendableOfOrg = await sendAs(archivedOfOrg, 'ed@example.com')
                         ofOtherOrg = await sendAs(otherOrg, 'di@example.com')
                     } finally {
                         read.release()
