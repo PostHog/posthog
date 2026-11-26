@@ -54,6 +54,8 @@ def _per_parent(parent_name: str, parent_id_column: str) -> DependentEndpointCon
         parent_field_renames={"id": parent_id_column},
         parent_params={"order": "chronological"},
         child_params={"order": "chronological"},
+        # A parent deleted after the parent listing 404s on its child request.
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
     )
 
 

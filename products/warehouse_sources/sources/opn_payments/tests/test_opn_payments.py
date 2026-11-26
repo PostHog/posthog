@@ -137,7 +137,7 @@ class TestOpnPaymentsSourceFanout:
     def test_walks_every_parent_and_tags_rows_with_the_parent_id(
         self, _name: str, schema: str, parent_path: str, parent_prefix: str, child: str, parent_column: str
     ) -> None:
-        first, second = f"{parent_prefix}_a1", f"{parent_prefix}_b2"
+        first, second, gone = f"{parent_prefix}_a1", f"{parent_prefix}_b2", f"{parent_prefix}_c3"
         result = _driver().run(
             schema,
             route(
@@ -149,7 +149,12 @@ class TestOpnPaymentsSourceFanout:
                     f"{parent_path}/{second}/{child}": [
                         ScriptedResponse(json=_envelope([{"id": "row_b"}], offset=0, total=1)),
                     ],
-                    parent_path: [ScriptedResponse(json=_envelope([{"id": first}, {"id": second}], offset=0, total=2))],
+                    f"{parent_path}/{gone}/{child}": [ScriptedResponse(status=404, json={"code": "not_found"})],
+                    parent_path: [
+                        ScriptedResponse(
+                            json=_envelope([{"id": first}, {"id": second}, {"id": gone}], offset=0, total=3)
+                        )
+                    ],
                 }
             ),
         )
@@ -160,8 +165,9 @@ class TestOpnPaymentsSourceFanout:
             f"{parent_path}/{first}/{child}",
             f"{parent_path}/{first}/{child}",
             f"{parent_path}/{second}/{child}",
+            f"{parent_path}/{gone}/{child}",
         ]
-        assert result.params("offset") == ["0", "0", "100", "0"]
+        assert result.params("offset") == ["0", "0", "100", "0", "0"]
         assert [row[parent_column] for row in result.rows] == [first] * 101 + [second]
         assert all(f"_{parent_path[1:].capitalize()}_id" not in row for row in result.rows)
         assert result.requests[1].param("from") is None
