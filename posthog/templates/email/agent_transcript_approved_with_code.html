@@ -1,0 +1,20 @@
+{% extends "email/base.html" %}
+{% block preheader %}Your merch code is {{ merch_code }}.{% endblock %}
+{% block heading %}Thanks for sharing your transcript{% endblock %}
+{% block section %}
+    <p>We reviewed the transcript you uploaded for {{ organization_name }} and accepted it. Thanks for sharing it with us.</p>
+    <p>Here's your merch code. It's worth ${{ merch_value_usd }} in the PostHog merch store.</p>
+    <p class="text-center"><strong>{{ merch_code }}</strong></p>
+    <div class="mb mt text-center">
+        <a class="button primary" href="{{ merch_url }}">Shop merch</a>
+    </div>
+    <p>The button opens the merch store with your code, and the code applies at checkout.</p>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ merch_url }}">{{ merch_url }}</a>
+        </p>
+    </div>
+    <p>We delete the file you uploaded {{ retention_days }} days after upload.</p>
+{% endblock %}
