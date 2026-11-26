@@ -11,7 +11,7 @@ import { SmtpInterestModal } from './comingSoon/SmtpInterestModal'
 import { SMTP_INTEREST_SURVEY } from './comingSoon/smtpInterestSurvey'
 import { useComingSoonInterestSurvey } from './comingSoon/useComingSoonInterestSurvey'
 import { TransactionalLog } from './log/TransactionalLog'
-import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
+import { TransactionalMetrics } from './metrics/TransactionalMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalRoute, TransactionalTab } from './transactionalRoute'
 import { useTransactionalChannel, withTransactionalChannel } from './useTransactionalChannel'
@@ -60,8 +60,8 @@ export function TransactionalTabs({
                     {
                         label: 'Metrics',
                         key: 'metrics',
-                        link: urls.transactionalMetrics(),
-                        content: <TransactionalEmailMetrics />,
+                        link: withTransactionalChannel(urls.transactionalMetrics(), channel),
+                        content: <TransactionalMetrics />,
                     },
                     {
                         label: 'Templates',
