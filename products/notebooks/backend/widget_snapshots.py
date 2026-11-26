@@ -23,10 +23,10 @@ from products.notebooks.backend.widgets import (
     MAX_FRAME_TOTAL_ROWS,
     WidgetConflictError,
     WidgetError,
-    _bounded_rows,
     _dataframe_owners,
     _get_instance_and_version,
     _security_review_state,
+    bounded_widget_rows,
     read_widget_frame,
 )
 
@@ -174,7 +174,7 @@ class WidgetSnapshots:
                         "Saving the results took too long. Reduce the dataframe size and try again.", "snapshot_timeout"
                     )
                 if cached_rows is not None:
-                    page = _bounded_rows(
+                    page = bounded_widget_rows(
                         name=slot,
                         run_id=run.id,
                         columns=cast(list[dict[str, str]], first["columns"]),
@@ -310,7 +310,7 @@ class WidgetSnapshots:
             )
             .get()
         )
-        page = _bounded_rows(
+        page = bounded_widget_rows(
             name=name,
             run_id=UUID(saved["run_id"]),
             columns=saved["columns"],

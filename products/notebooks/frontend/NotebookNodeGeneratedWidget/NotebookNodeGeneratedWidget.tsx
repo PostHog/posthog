@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useContext, useEffect } from 'react'
 
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
@@ -29,7 +29,9 @@ import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
+import { PrivateWidgetDataControls, usePrivateWidgetFrames } from './PrivateWidgetDataControls'
 import { WidgetArtifactFrame } from './WidgetArtifactFrame'
+import { WidgetFrameSessionContext } from './widgetFrameSession'
 import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_OPTIONS, isWidgetModel, type WidgetModel } from './widgetModels'
 
 export type NotebookNodeGeneratedWidgetAttributes = {
@@ -144,6 +146,8 @@ function ExpandedWidget({
         persistNotebook: logicProps.persistNotebook,
     }
     const { open: openDashboardModal } = useActions(notebookWidgetDashboardLogic(dashboardProps))
+    const frameSession = useContext(WidgetFrameSessionContext)(attributes.nodeId, selectedVersionId)
+    const privateFrames = usePrivateWidgetFrames(selectedVersionId, frameSession.privateInputs)
     const selectedArtifactUrl =
         selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const canAddToDashboard =
@@ -308,6 +312,15 @@ function ExpandedWidget({
                             The widget status couldn't be refreshed. The preview below is the last confirmed version.
                         </LemonBanner>
                     ) : null}
+                    <PrivateWidgetDataControls
+                        enabled={!!frameSession.privateInputs}
+                        names={activeFrameNames}
+                        data={privateFrames}
+                        onRun={() => {
+                            setRuntimeError(null)
+                            void privateFrames.run(activeFrameNames)
+                        }}
+                    />
                     {runtimeError ? (
                         <LemonBanner
                             type="warning"
@@ -340,22 +353,26 @@ function ExpandedWidget({
                             </div>
                         ) : null}
                         <WidgetArtifactFrame
-                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}`}
+                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}-${frameSession.revision}-${privateFrames.generation}`}
                             artifactUrl={selectedArtifactUrl}
                             title="Widget"
                             allowedFrames={activeFrameNames}
                             onReadFrame={async (name, offset, limit, runId, signal) => {
-                                const frame = await loadWidgetFrame(
-                                    String(currentTeamId),
-                                    notebookShortId,
-                                    attributes.nodeId,
-                                    selectedVersionId,
-                                    name,
-                                    offset,
-                                    limit,
-                                    runId,
-                                    signal
-                                )
+                                const frame =
+                                    privateFrames.page(name, offset, limit) ??
+                                    (await frameSession.read(name, offset, limit, (pageOffset, pageLimit) =>
+                                        loadWidgetFrame(
+                                            String(currentTeamId),
+                                            notebookShortId,
+                                            attributes.nodeId,
+                                            selectedVersionId,
+                                            name,
+                                            pageOffset,
+                                            pageLimit,
+                                            runId,
+                                            signal
+                                        )
+                                    ))
                                 return applyReusableWidgetBinding(
                                     frame,
                                     name,

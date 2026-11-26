@@ -67,7 +67,13 @@ export async function restorePublishedResults(
     controller: AbortController
 ): Promise<Record<string, PublishedRunResult>> {
     const displayed = new Set(
-        release.layout.blocks.filter((b) => b.kind === 'cell' && b.display !== 'source').map((b) => b.node_id)
+        release.layout.blocks
+            .filter(
+                (b) =>
+                    (b.kind === 'cell' && b.display !== 'source') ||
+                    (b.kind === 'input' && b.input_kind === 'query_select')
+            )
+            .map((b) => b.node_id)
     )
     const results: Record<string, PublishedRunResult> = {}
     const requests = new ConcurrencyController(4)

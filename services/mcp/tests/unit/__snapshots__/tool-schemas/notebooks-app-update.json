@@ -15,6 +15,12 @@
                                         "enum": ["output", "source", "both"],
                                         "type": "string"
                                     },
+                                    "end_variable": {
+                                        "default": "",
+                                        "description": "End date variable for a date range.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
                                     "id": {
                                         "description": "Stable component identifier within the app.",
                                         "maxLength": 80,
@@ -22,8 +28,8 @@
                                     },
                                     "input_kind": {
                                         "default": "auto",
-                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `slider` - Slider",
-                                        "enum": ["auto", "select", "slider"],
+                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `query_select` - Query dropdown\n* `date_range` - Date range\n* `slider` - Slider\n* `table` - Editable table",
+                                        "enum": ["auto", "select", "query_select", "date_range", "slider", "table"],
                                         "type": "string"
                                     },
                                     "kind": {
@@ -47,6 +53,12 @@
                                         "maxLength": 160,
                                         "type": "string"
                                     },
+                                    "option_column": {
+                                        "default": "",
+                                        "description": "Column supplying choices for a query dropdown.",
+                                        "maxLength": 256,
+                                        "type": "string"
+                                    },
                                     "options": {
                                         "description": "Allowed values for a dropdown.",
                                         "items": {
@@ -56,16 +68,71 @@
                                         "maxItems": 100,
                                         "type": "array"
                                     },
+                                    "selection": {
+                                        "anyOf": [
+                                            {
+                                                "properties": {
+                                                    "column": {
+                                                        "description": "Result column whose selected value sets the input.",
+                                                        "maxLength": 256,
+                                                        "type": "string"
+                                                    },
+                                                    "condition": {
+                                                        "default": "",
+                                                        "description": "Optional Hog condition over row, value, and inputs.",
+                                                        "maxLength": 1200,
+                                                        "type": "string"
+                                                    },
+                                                    "condition_bytecode": {
+                                                        "description": "Compiled Hog condition for this selection.",
+                                                        "items": {},
+                                                        "type": "array"
+                                                    },
+                                                    "tab_id": {
+                                                        "default": "",
+                                                        "description": "Tab to open after selection.",
+                                                        "maxLength": 80,
+                                                        "type": "string"
+                                                    },
+                                                    "variable": {
+                                                        "description": "Published input to update.",
+                                                        "maxLength": 80,
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": ["column", "variable"],
+                                                "type": "object"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Action when a viewer selects a result."
+                                    },
                                     "step": {
                                         "default": 1,
                                         "description": "Slider increment.",
                                         "minimum": 0.000001,
                                         "type": "number"
                                     },
+                                    "submit_action": {
+                                        "description": "Action viewers can explicitly submit with rows from a SQL cell.\n\n* `create_cohort` - Create a cohort\n* `run_workflow` - Run a workflow",
+                                        "enum": ["create_cohort", "run_workflow"],
+                                        "type": "string"
+                                    },
                                     "tab_id": {
                                         "description": "Tab containing this component.",
                                         "maxLength": 80,
                                         "type": "string"
+                                    },
+                                    "table_columns": {
+                                        "description": "Additional list variables displayed alongside the first column of a table input.",
+                                        "items": {
+                                            "maxLength": 80,
+                                            "type": "string"
+                                        },
+                                        "maxItems": 9,
+                                        "type": "array"
                                     },
                                     "text": {
                                         "default": "",
@@ -91,6 +158,10 @@
                                         "maximum": 12,
                                         "minimum": 1,
                                         "type": "number"
+                                    },
+                                    "workflow_id": {
+                                        "description": "Workflow to run with the submitted rows.",
+                                        "type": "string"
                                     }
                                 },
                                 "required": ["id", "kind", "tab_id"],
@@ -159,6 +230,12 @@
                                         "enum": ["output", "source", "both"],
                                         "type": "string"
                                     },
+                                    "end_variable": {
+                                        "default": "",
+                                        "description": "End date variable for a date range.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
                                     "id": {
                                         "description": "Stable component identifier within the app.",
                                         "maxLength": 80,
@@ -166,8 +243,8 @@
                                     },
                                     "input_kind": {
                                         "default": "auto",
-                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `slider` - Slider",
-                                        "enum": ["auto", "select", "slider"],
+                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `query_select` - Query dropdown\n* `date_range` - Date range\n* `slider` - Slider\n* `table` - Editable table",
+                                        "enum": ["auto", "select", "query_select", "date_range", "slider", "table"],
                                         "type": "string"
                                     },
                                     "kind": {
@@ -191,6 +268,12 @@
                                         "maxLength": 160,
                                         "type": "string"
                                     },
+                                    "option_column": {
+                                        "default": "",
+                                        "description": "Column supplying choices for a query dropdown.",
+                                        "maxLength": 256,
+                                        "type": "string"
+                                    },
                                     "options": {
                                         "description": "Allowed values for a dropdown.",
                                         "items": {
@@ -200,16 +283,71 @@
                                         "maxItems": 100,
                                         "type": "array"
                                     },
+                                    "selection": {
+                                        "anyOf": [
+                                            {
+                                                "properties": {
+                                                    "column": {
+                                                        "description": "Result column whose selected value sets the input.",
+                                                        "maxLength": 256,
+                                                        "type": "string"
+                                                    },
+                                                    "condition": {
+                                                        "default": "",
+                                                        "description": "Optional Hog condition over row, value, and inputs.",
+                                                        "maxLength": 1200,
+                                                        "type": "string"
+                                                    },
+                                                    "condition_bytecode": {
+                                                        "description": "Compiled Hog condition for this selection.",
+                                                        "items": {},
+                                                        "type": "array"
+                                                    },
+                                                    "tab_id": {
+                                                        "default": "",
+                                                        "description": "Tab to open after selection.",
+                                                        "maxLength": 80,
+                                                        "type": "string"
+                                                    },
+                                                    "variable": {
+                                                        "description": "Published input to update.",
+                                                        "maxLength": 80,
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": ["column", "variable"],
+                                                "type": "object"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Action when a viewer selects a result."
+                                    },
                                     "step": {
                                         "default": 1,
                                         "description": "Slider increment.",
                                         "minimum": 0.000001,
                                         "type": "number"
                                     },
+                                    "submit_action": {
+                                        "description": "Action viewers can explicitly submit with rows from a SQL cell.\n\n* `create_cohort` - Create a cohort\n* `run_workflow` - Run a workflow",
+                                        "enum": ["create_cohort", "run_workflow"],
+                                        "type": "string"
+                                    },
                                     "tab_id": {
                                         "description": "Tab containing this component.",
                                         "maxLength": 80,
                                         "type": "string"
+                                    },
+                                    "table_columns": {
+                                        "description": "Additional list variables displayed alongside the first column of a table input.",
+                                        "items": {
+                                            "maxLength": 80,
+                                            "type": "string"
+                                        },
+                                        "maxItems": 9,
+                                        "type": "array"
                                     },
                                     "text": {
                                         "default": "",
@@ -235,6 +373,10 @@
                                         "maximum": 12,
                                         "minimum": 1,
                                         "type": "number"
+                                    },
+                                    "workflow_id": {
+                                        "description": "Workflow to run with the submitted rows.",
+                                        "type": "string"
                                     }
                                 },
                                 "required": ["id", "kind", "tab_id"],

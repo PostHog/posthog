@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from pydantic import JsonValue
 from pydantic.dataclasses import dataclass
 
 
@@ -26,6 +27,26 @@ class AppBlockSource:
     variable: str = ""
     node_id: str = ""
     display: str = ""
+    submit_action: str = ""
+    input_kind: str = ""
+    option_column: str = ""
+    end_variable: str = ""
+    table_columns: list[str] = field(default_factory=list)
+
+    @property
+    def needs_query_choices(self) -> bool:
+        return self.kind == "input" and self.input_kind == "query_select"
+
+    @property
+    def needs_result(self) -> bool:
+        return (self.kind == "cell" and self.display != "source") or self.needs_query_choices
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppCellDependencies:
+    node_id: str
+    dataframe: str
+    upstream: list[str]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -33,6 +54,7 @@ class AppReleaseReview:
     has_previous: bool
     problems: list[str]
     results_as_of: datetime | None
+    dependencies: list[AppCellDependencies] = field(default_factory=list)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -48,10 +70,45 @@ class AppRelease:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AppWidgetSlot:
+    node_id: str
+    version_id: UUID
+    slot: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppViewGrantResult:
+    url: str | None
+    expires_at: datetime | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppEmbedAudience:
+    origin: str
+    issued_by_id: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppOutputTab:
+    title: str
+    blocks: list[dict[str, JsonValue]]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppOutput:
+    title: str
+    description: str | None
+    revision: int
+    published_at: datetime
+    tabs: list[AppOutputTab]
+
+
+@dataclass(frozen=True, kw_only=True)
 class AppViewerQuery:
     node_id: str
     query: str
     matches_defaults: bool
+    widget_slots: list[AppWidgetSlot] = field(default_factory=list)
 
 
 class NotebookRunBusy(Exception):
@@ -235,3 +292,45 @@ class AccountNotebook:
     created_by: NotebookUserInfo | None = None
     tags: list[str] = field(default_factory=list)
     last_modified_by: NotebookUserInfo | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppRefreshCheckTarget:
+    node_id: str
+    title: str
+    kind: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppRefreshHistory:
+    revision: int
+    due_at: datetime
+    finished_at: datetime | None
+    status: str
+    detail: str
+    output_count: int
+    checked_count: int = 0
+    duration_seconds: float | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppRefreshStatus:
+    published_revision: int
+    enabled: bool
+    history: list[AppRefreshHistory]
+    check_targets: list[AppRefreshCheckTarget] = field(default_factory=list)
+    checked_node_ids: list[str] = field(default_factory=list)
+    revision: int | None = None
+    interval_minutes: int | None = None
+    freshness_minutes: int | None = None
+    next_due_at: datetime | None = None
+    last_success_at: datetime | None = None
+    stale: bool | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppRefreshedOutput:
+    results: list[list[JsonValue]]
+    columns: list[str] | None = None
+    types: list[list[str]] | None = None
+    hasMore: bool | None = None

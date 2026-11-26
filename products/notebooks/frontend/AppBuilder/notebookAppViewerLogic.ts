@@ -14,23 +14,32 @@ import {
 } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import { performQuery } from '~/queries/query'
-import { HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
-import { notebooksAppQueriesCreate, notebooksAppReleaseRetrieve } from '../generated/api'
+import {
+    notebooksAppDraftQueriesCreate,
+    notebooksAppQueriesCreate,
+    notebooksAppReleaseRetrieve,
+} from '../generated/api'
 import type { NotebookAppReleaseApi, NotebookAppViewerQueryApi } from '../generated/api.schemas'
 import { type PublishedRunResult, restorePublishedResults } from './notebookAppPublishedResults'
+import { restoreAppInputs } from './notebookAppViewLink'
 
 export interface ViewerProps {
     shortId: string
     project: string
     sessionId: string
+    draft?: NotebookAppReleaseApi
+    initialInputs?: unknown
 }
 export interface ViewerOutput {
     query: string
     result: HogQLQueryResponse
     generation: number
+    widgetSlots: NonNullable<NotebookAppViewerQueryApi['widget_slots']>
 }
 export interface ViewerResults {
+    nativeOutputIds: string[]
     outputs: Record<string, ViewerOutput>
     variables: NotebookVariable[]
     updatedAt: string
@@ -38,7 +47,13 @@ export interface ViewerResults {
 
 function exposedVariables(release: NotebookAppReleaseApi): NotebookVariable[] {
     return parseNotebookVariables(release.variables).filter((variable) =>
-        release.layout.blocks.some((block) => block.kind === 'input' && block.variable === variable.name)
+        release.layout.blocks.some(
+            (block) =>
+                block.kind === 'input' &&
+                (block.variable === variable.name ||
+                    (block.input_kind === 'date_range' && block.end_variable === variable.name) ||
+                    (block.input_kind === 'table' && block.table_columns?.includes(variable.name)))
+        )
     )
 }
 
@@ -57,7 +72,7 @@ async function executeViewerQuery(
     controller.signal.addEventListener('abort', cancel, { once: true })
     try {
         return await performQuery<HogQLQuery>(
-            { kind: NodeKind.HogQLQuery, query },
+            { kind: NodeKind.HogQLQuery, query, tags: { productKey: ProductKey.NOTEBOOKS } },
             { signal: controller.signal, queryTelemetry: 'metadata' },
             force ? 'force_blocking' : 'blocking',
             queryId
@@ -83,7 +98,7 @@ async function resolveViewerOutputs(
             continue
         }
         if (!force && previous?.query === plan.query) {
-            outputs[plan.node_id] = previous
+            outputs[plan.node_id] = { ...previous, widgetSlots: plan.widget_slots ?? [] }
             continue
         }
         pending.push(
@@ -91,7 +106,12 @@ async function resolveViewerOutputs(
                 abortController: controller,
                 fn: async () => {
                     const result = await executeViewerQuery(plan.query, project, controller, force)
-                    outputs[plan.node_id] = { query: plan.query, result, generation: (previous?.generation ?? 0) + 1 }
+                    outputs[plan.node_id] = {
+                        query: plan.query,
+                        result,
+                        generation: (previous?.generation ?? 0) + 1,
+                        widgetSlots: plan.widget_slots ?? [],
+                    }
                 },
             })
         )
@@ -124,6 +144,7 @@ export interface notebookAppViewerLogicActions {
         name: string
         value: NotebookVariableValue
     }
+    changeInputs: (changes: Record<string, NotebookVariableValue>) => { changes: Record<string, NotebookVariableValue> }
     loadRelease: () => any
     loadReleaseFailure: (
         error: string,
@@ -199,6 +220,7 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
     path((key) => ['products', 'notebooks', 'appBuilder', 'notebookAppViewerLogic', key]),
     actions({
         changeInput: (name: string, value: NotebookVariableValue) => ({ name, value }),
+        changeInputs: (changes: Record<string, NotebookVariableValue>) => ({ changes }),
         setAuto: (auto: boolean) => ({ auto }),
     }),
     loaders(({ props, values, cache }) => ({
@@ -206,6 +228,9 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
             null as NotebookAppReleaseApi | null,
             {
                 loadRelease: async () => {
+                    if (props.draft) {
+                        return props.draft
+                    }
                     const controller = new AbortController()
                     cache.disposables.add(() => () => controller.abort(), 'release', { pauseOnPageHidden: false })
                     return await notebooksAppReleaseRetrieve(props.project, props.shortId, {
@@ -244,12 +269,15 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
                     }
                     const options = { signal: controller.signal }
                     try {
-                        const plans = await notebooksAppQueriesCreate(
-                            props.project,
-                            props.shortId,
-                            { revision: release.revision, variables },
-                            options
-                        )
+                        const request = { revision: release.revision, variables }
+                        const plans = props.draft
+                            ? await notebooksAppDraftQueriesCreate(
+                                  props.project,
+                                  props.shortId,
+                                  { ...request, layout: release.layout },
+                                  options
+                              )
+                            : await notebooksAppQueriesCreate(props.project, props.shortId, request, options)
                         breakpoint()
                         const { outputs, queried } = await resolveViewerOutputs(
                             plans,
@@ -275,6 +303,7 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
                         return {
                             outputs,
                             variables,
+                            nativeOutputIds: plans.map((plan) => plan.node_id),
                             updatedAt: queried ? new Date().toISOString() : results?.updatedAt || '',
                         }
                     } catch (error) {
@@ -286,21 +315,28 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         variables: [
             [] as NotebookVariable[],
             {
-                loadReleaseSuccess: (_, { release }) => exposedVariables(release),
-                changeInput: (variables, { name, value }) =>
+                loadReleaseSuccess: (_, { release }) =>
+                    restoreAppInputs(
+                        exposedVariables(release),
+                        props.draft ? undefined : props.initialInputs,
+                        release.layout.blocks
+                    ),
+                changeInputs: (variables, { changes }) =>
                     variables.map((v) =>
-                        v.name === name ? { ...v, value: coerceNotebookVariableValue(v.type, value) } : v
+                        Object.hasOwn(changes, v.name)
+                            ? { ...v, value: coerceNotebookVariableValue(v.type, changes[v.name]) }
+                            : v
                     ),
             },
         ],
         auto: [true, { setAuto: (_, { auto }) => auto }],
         releaseFailed: [false, { loadRelease: () => false, loadReleaseFailure: () => true }],
         refreshFailed: [false, { refresh: () => false, refreshFailure: () => true }],
-    }),
+    })),
     selectors({
         dirty: [
             (s) => [s.variables, s.results, s.release],
@@ -317,9 +353,16 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
     listeners(({ actions, props, values }) => ({
         loadReleaseSuccess: ({ release }) => {
             actions.restore(release)
-            posthog.capture('notebook app viewed', { short_id: props.shortId, revision: release.revision })
+            if (values.dirty) {
+                actions.refresh()
+            }
+            posthog.capture(props.draft ? 'notebook app draft previewed' : 'notebook app viewed', {
+                short_id: props.shortId,
+                revision: release.revision,
+            })
         },
-        changeInput: () => {
+        changeInput: ({ name, value }) => actions.changeInputs({ [name]: value }),
+        changeInputs: () => {
             if (values.auto) {
                 actions.refresh()
             }

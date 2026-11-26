@@ -133,6 +133,7 @@ rules:
                               |CohortBackfillRefusal
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
+                              |CohortSelectionSubmission
                               |RealtimeCohortRequest
                               |Comment
                               |ContentAutopilotOpportunity
@@ -361,7 +362,11 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookAppEmbed
                               |NotebookAppRelease
+                              |NotebookAppRefreshRun
+                              |NotebookAppSchedule
+                              |NotebookAppViewGrant
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
@@ -698,6 +703,7 @@ rules:
                         |CohortBackfillRefusal
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
+                        |CohortSelectionSubmission
                         |RealtimeCohortRequest
                         |Comment
                         |ContentAutopilotOpportunity
@@ -913,7 +919,11 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookAppEmbed
                         |NotebookAppRelease
+                        |NotebookAppRefreshRun
+                        |NotebookAppSchedule
+                        |NotebookAppViewGrant
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview

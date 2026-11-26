@@ -23,6 +23,7 @@ import { BIVisualizationNode } from './schema/schema-business-intelligence'
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     onLoadingChange?: (loading: boolean) => void
     externalLoadingIndicator?: boolean
+    onSelectResultRow?: (record: Record<string, unknown>) => void
     chartInputFilters?: Record<string, (value: unknown) => void>
     onSelectBIMark?: (record: Record<string, unknown>) => void
     isBIMarkActiveFilter?: (record: Record<string, unknown>) => boolean

@@ -238,6 +238,27 @@ class CSPMiddleware:
             response.headers["Content-Security-Policy"] = "default-src 'none'"
             return response
 
+        if getattr(getattr(request, "resolver_match", None), "url_name", None) == "notebook_app_embed":
+            context = getattr(response, "context_data", None)
+            origin = context.get("audience") if isinstance(context, dict) else None
+            ancestor = (
+                origin
+                if isinstance(origin, str)
+                and re.fullmatch(r"https://(?:[a-z0-9.-]+|\[[a-f0-9:]+\])(?::[0-9]+)?", origin, re.ASCII)
+                else "'none'"
+            )
+            response.headers["Content-Security-Policy"] = "; ".join(
+                [
+                    "default-src 'none'",
+                    "base-uri 'none'",
+                    "form-action 'self'",
+                    f"script-src 'nonce-{nonce}'",
+                    f"style-src 'nonce-{nonce}'",
+                    f"frame-ancestors {ancestor}",
+                ]
+            )
+            return response
+
         if request.path == REPLAY_PLAYER_FRAME_PATH:
             # rrweb's own iframe is on about:blank, and a frame on a local scheme inherits its
             # parent's policy wholesale. Mounting rrweb inside this document rather than the app's

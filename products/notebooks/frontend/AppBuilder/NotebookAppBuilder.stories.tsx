@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -14,6 +14,7 @@ import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariabl
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
 
 import { expect, userEvent } from 'storybook/test'
@@ -56,15 +57,28 @@ const notebook = {
     app_published: layout,
     variables: appBuilderDemoVariables,
 }
+let shortcuts: FileSystemEntry[] = []
 let runNumber = 0
 let results = appBuilderDemoResults(appBuilderDemoVariables)
 let saved = structuredClone(notebook)
 let failNextQuery = false
 
+async function demoQueryPlans({ request }: { request: Request }): Promise<[number, unknown]> {
+    const { variables } = (await request.json()) as { variables: NotebookVariable[] }
+    return [
+        200,
+        appBuilderDemoCells.map((cell) => ({
+            node_id: cell.nodeId,
+            query: JSON.stringify({ nodeId: cell.nodeId, variables }),
+        })),
+    ]
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Notebooks/App builder',
     beforeEach: () => {
+        shortcuts = []
         saved = structuredClone(notebook)
         failNextQuery = false
         runNumber = 0
@@ -84,6 +98,10 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/file_system_shortcut': () => [
+                    200,
+                    { count: shortcuts.length, next: null, results: shortcuts },
+                ],
                 '/api/projects/:team_id/notebooks/kernel/compute_options': {
                     currency: 'USD',
                     presets: [],
@@ -102,7 +120,7 @@ const meta: Meta = {
                         published_at: '2026-10-18T12:00:00Z',
                         results_as_of: '2026-10-18T09:00:00Z',
                         title: notebook.title,
-                        layout,
+                        layout: saved.app_published,
                         markdown: getMarkdownNotebookMarkdown(buildContent(appBuilderDemoVariables, true)),
                         variables: appBuilderDemoVariables,
                         has_previous: false,
@@ -149,21 +167,35 @@ const meta: Meta = {
                     return [200, saved]
                 },
             },
+            delete: {
+                '/api/projects/:team_id/file_system_shortcut/:id': ({ params }) => {
+                    shortcuts = shortcuts.filter((entry) => entry.id !== params.id)
+                    return [204, null]
+                },
+            },
             post: {
+                '/api/projects/:team_id/file_system_shortcut': async ({ request }) => {
+                    const view = {
+                        ...((await request.json()) as Pick<FileSystemEntry, 'path' | 'type' | 'href'>),
+                        id: crypto.randomUUID(),
+                    }
+                    shortcuts.push(view)
+                    return [201, view]
+                },
                 '/api/projects/:team_id/notebooks/app-builder-demo/app_preview': () => [
                     200,
-                    { has_previous: true, problems: [], results_as_of: '2026-10-18T09:00:00Z' },
+                    {
+                        has_previous: true,
+                        problems: [],
+                        results_as_of: '2026-10-18T09:00:00Z',
+                        dependencies: [
+                            { node_id: 'weekly-signups', dataframe: 'weekly_growth', upstream: [] },
+                            { node_id: 'total-signups', dataframe: 'total_signups', upstream: ['weekly_growth'] },
+                        ],
+                    },
                 ],
-                '/api/projects/:team_id/notebooks/app-builder-demo/app_queries': async ({ request }) => {
-                    const body = (await request.json()) as { variables: NotebookVariable[] }
-                    return [
-                        200,
-                        appBuilderDemoCells.map((cell) => ({
-                            node_id: cell.nodeId,
-                            query: JSON.stringify({ nodeId: cell.nodeId, variables: body.variables }),
-                        })),
-                    ]
-                },
+                '/api/projects/:team_id/notebooks/app-builder-demo/app_queries': demoQueryPlans,
+                '/api/projects/:team_id/notebooks/app-builder-demo/app_draft_queries': demoQueryPlans,
                 '/api/projects/:team_id/query/HogQLQuery': async ({ request }) => {
                     const body = (await request.json()) as { query: { query: string } }
                     if (!body.query.query.startsWith('{"nodeId":')) {
@@ -240,6 +272,21 @@ export const PublicationReview: Story = {
     },
 }
 
+export const DraftViewer: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: 'Preview' }, { timeout: 60000 }))
+        await userEvent.click(await canvas.findByText('Data dependencies'))
+        expect(canvas.getByText('reads weekly_growth')).toBeVisible()
+        await userEvent.click(canvas.getByLabelText('Region', { exact: true }))
+        await userEvent.click(await within(document.body).findByText('Europe', { exact: true }))
+        await waitFor(() => expect(canvas.getByText(/Results updated/)).toBeVisible(), { timeout: 15000 })
+        await userEvent.click(canvas.getByRole('button', { name: 'Back to builder' }))
+        expect(canvas.getByLabelText('Region', { exact: true })).toHaveTextContent('All regions')
+        expect(saved.variables).toEqual(appBuilderDemoVariables)
+    },
+}
+
 export const Published: Story = {
     beforeEach: () => {
         saved.user_access_level = AccessControlLevel.Viewer
@@ -299,6 +346,141 @@ export const Published: Story = {
         )
     },
 }
+export const ResultSelection: Story = {
+    beforeEach: () => {
+        const report = structuredClone(layout)
+        const table = report.blocks.find((block) => block.node_id === 'growth-table')!
+        table.tab_id = 'overview'
+        table.selection = {
+            column: 'week',
+            variable: 'week',
+            tab_id: 'details',
+            condition: 'row.signups >= 110 and inputs.include_trials',
+            condition_bytecode: [
+                '_H',
+                1,
+                33,
+                110,
+                32,
+                'signups',
+                32,
+                'row',
+                1,
+                2,
+                14,
+                32,
+                'include_trials',
+                32,
+                'inputs',
+                1,
+                2,
+                3,
+                2,
+            ],
+        }
+        saved = { ...saved, app_draft: report, app_published: report }
+    },
+    parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const row = await canvas.findByText('2026-10-12', {}, { timeout: 60000 })
+        await userEvent.click(row)
+        await waitFor(() =>
+            expect(canvas.getByRole('tab', { name: 'Data and methodology' })).toHaveAttribute('aria-selected', 'true')
+        )
+        await userEvent.click(canvas.getByRole('tab', { name: 'Overview' }))
+        await waitFor(() => expect(canvas.getByLabelText('Starting week')).toHaveTextContent('October 12, 2026'))
+    },
+}
+
+export const CascadingDropdown: Story = {
+    beforeEach: () => {
+        const report = structuredClone(layout)
+        const week = report.blocks.find((block) => block.variable === 'week')!
+        Object.assign(week, {
+            input_kind: 'query_select',
+            node_id: 'growth-table',
+            option_column: 'week',
+            title: 'Week from results',
+        })
+        report.blocks = report.blocks.filter((block) => block.kind !== 'cell' || block.node_id !== 'growth-table')
+        saved = { ...saved, app_draft: report, app_published: report }
+    },
+    parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByLabelText('Week from results', {}, { timeout: 60000 }))
+        await userEvent.click(await within(document.body).findByText('2026-10-05'))
+        await waitFor(() => expect(canvas.getByLabelText('Week from results')).toHaveTextContent('2026-10-05'))
+    },
+}
+
+export const DateRange: Story = {
+    beforeEach: () => {
+        const report = structuredClone(layout)
+        const range = report.blocks.find((block) => block.variable === 'week')!
+        Object.assign(range, {
+            title: 'Reporting period',
+            input_kind: 'date_range',
+            end_variable: 'end_week',
+            width: 6,
+        })
+        saved = { ...saved, app_draft: report, app_published: report }
+    },
+    parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` },
+}
+
+export const SharedView: Story = {
+    beforeEach: () => {
+        saved.user_access_level = AccessControlLevel.Viewer
+    },
+    parameters: {
+        pageUrl: combineUrl(
+            urls.notebook(SHORT_ID),
+            { view: 'app' },
+            {
+                appView: { tab: 'details', inputs: { region: 'Europe', weeks: 2 } },
+            }
+        ).url,
+    },
+    play: async ({ canvasElement }) => {
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).toBeVisible(), {
+            timeout: 60000,
+        })
+        const app = within(canvasElement.querySelector<HTMLElement>('[data-attr="notebook-app-builder"]')!)
+        await waitFor(() =>
+            expect(app.getByRole('tab', { name: 'Data and methodology' })).toHaveAttribute('aria-selected', 'true')
+        )
+        await userEvent.click(app.getByRole('tab', { name: 'Overview' }))
+        await waitFor(() => expect(app.getByText('222', { exact: true })).toBeVisible(), { timeout: 60000 })
+        expect(app.getByRole('button', { name: 'Copy view link' })).toBeEnabled()
+    },
+}
+
+export const SavedViews: Story = {
+    ...SharedView,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('tab', { name: 'Overview' }, { timeout: 60000 }))
+        await canvas.findByText('222', { exact: true }, { timeout: 60000 })
+        await userEvent.click(canvas.getByRole('button', { name: 'Saved views' }))
+        const heading = await within(document.body).findByRole('heading', { name: 'Saved views' })
+        const modal = within(heading.closest<HTMLElement>('.LemonModal__container')!)
+        await userEvent.type(modal.getByLabelText('View name'), 'Europe / biweekly')
+        const save = modal.getByRole('button', { name: 'Save view' })
+        await waitFor(() => expect(save).toHaveAttribute('aria-disabled', 'false'), { timeout: 10000 })
+        await userEvent.click(save)
+        const link = await modal.findByRole('link', { name: 'Europe / biweekly' }, { timeout: 10000 })
+        const url = new URL(link.getAttribute('href')!, window.location.origin)
+        expect(JSON.parse(new URLSearchParams(url.hash.slice(1)).get('appView')!)).toMatchObject({
+            tab: 'overview',
+            inputs: { region: 'Europe', weeks: 2 },
+        })
+        await userEvent.click(modal.getByRole('button', { name: 'Remove Europe / biweekly' }))
+        await modal.findByText('No saved views for this app yet.')
+    },
+}
+
 export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
     play: async ({ canvasElement }) => {

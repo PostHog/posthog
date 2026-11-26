@@ -46,6 +46,8 @@ NOTEBOOK_KERNEL_TTL_SECONDS = 1 * 60 * 60
 # Each sandbox is paid compute until its TTL. A normal user starts a few a day.
 NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR = 10
 NOTEBOOK_KERNEL_MAX_RUNNING_PER_TEAM = 20
+APP_VIEWER_KERNEL_PREFIX = "_"
+APP_VIEWER_MAX_OUTPUT_BYTES = 512 * 1024
 
 
 class KernelSandboxLimitExceeded(RuntimeError):
@@ -227,6 +229,9 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
         sandbox_config.memory_gb = notebook.kernel_memory_gb
     if notebook.kernel_idle_timeout_seconds:
         sandbox_config.ttl_seconds = notebook.kernel_idle_timeout_seconds
+    if notebook._state.adding and notebook.short_id.startswith(APP_VIEWER_KERNEL_PREFIX):
+        sandbox_config.block_network = True
+        sandbox_config.ttl_seconds = 120
     return sandbox_config
 
 
@@ -1216,6 +1221,8 @@ class KernelRuntimeService:
             "        print('ready')\n"
             "    else:\n"
             "        msg_id = client.execute(code, stop_on_error=False, user_expressions=user_expressions)\n"
+            "        max_output_bytes = payload.get('max_output_bytes')\n"
+            "        output_bytes = 0\n"
             "        stdout = []\n"
             "        stderr = []\n"
             "        traceback_lines = []\n"
@@ -1232,6 +1239,12 @@ class KernelRuntimeService:
             "            content = message.get('content', {})\n"
             "            if msg_type == 'status' and content.get('execution_state') == 'idle':\n"
             "                break\n"
+            "            if max_output_bytes and msg_type in ('stream', 'execute_result', 'display_data', 'error'):\n"
+            "                output_bytes += len(json.dumps(content, ensure_ascii=False).encode('utf-8'))\n"
+            "                if output_bytes > max_output_bytes:\n"
+            "                    print(json.dumps({'type': 'result', 'status': 'error', 'error_name': 'OutputLimitExceeded', "
+            "'stderr': 'The result is too large. Aggregate the data or print a summary.'}), flush=True)\n"
+            "                    sys.exit(0)\n"
             "            if msg_type == 'stream':\n"
             "                destination = stdout if content.get('name') == 'stdout' else stderr\n"
             "                text = content.get('text', '')\n"
@@ -1345,6 +1358,8 @@ class KernelRuntimeService:
             "user_expressions": user_expressions,
             "stream": True,
         }
+        if handle.runtime.notebook_id is None and handle.runtime.notebook_short_id.startswith(APP_VIEWER_KERNEL_PREFIX):
+            payload["max_output_bytes"] = APP_VIEWER_MAX_OUTPUT_BYTES
         command = self._build_kernel_command(payload, action="execute")
         sandbox_class = self._get_sandbox_class(handle.backend)
         sandbox = sandbox_class.get_by_id(handle.sandbox_id)

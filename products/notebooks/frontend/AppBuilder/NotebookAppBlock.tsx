@@ -11,12 +11,16 @@ import { NOTEBOOK_MARKDOWN_REGISTRY } from 'scenes/notebooks/Notebook/markdownNo
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
+import type { AppChoices } from './notebookAppChoices'
+import { NotebookAppDateRange } from './NotebookAppDateRange'
 import { NotebookAppInput } from './NotebookAppInput'
 import { appCellMarkdown } from './notebookAppLayout'
+import { NotebookAppTableInput } from './NotebookAppTableInput'
 
 export function NotebookAppBlock({
     block,
     cell,
+    choices,
     stale,
     onSource,
     variables,
@@ -26,14 +30,15 @@ export function NotebookAppBlock({
     renderOutput,
 }: {
     block: NotebookAppBlockApi
+    choices?: AppChoices | null
     cell?: NotebookBlockNode
     stale: boolean
     onSource?: (id: string) => void
     variables: NotebookVariable[]
     canInteract: boolean
-    onInput: (name: string, value: NotebookVariableValue) => void
+    onInput: (changes: Record<string, NotebookVariableValue>) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
-    renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
+    renderOutput?: (cell: NotebookBlockNode, block: NotebookAppBlockApi, saved: JSX.Element) => JSX.Element | undefined
 }): JSX.Element {
     if (block.kind === 'divider') {
         return <hr aria-label={block.title || undefined} />
@@ -46,13 +51,43 @@ export function NotebookAppBlock({
             </div>
         )
     }
+    if (block.kind === 'input' && block.input_kind === 'date_range') {
+        return (
+            <NotebookAppDateRange
+                block={block}
+                variables={variables}
+                disabled={!canInteract}
+                onChange={(name, value) => onInput({ [name]: value })}
+            />
+        )
+    }
+    if (block.kind === 'input' && block.input_kind === 'table') {
+        const names = [block.variable || '', ...(block.table_columns ?? [])]
+        const lists = names.flatMap((name) => {
+            const variable = variables.find((v) => v.name === name && v.type === 'list')
+            return variable ? [{ name, values: Array.isArray(variable.value) ? variable.value : [] }] : []
+        })
+        if (lists.length !== names.length) {
+            return <LemonBanner type="warning">Choose a list variable for every table column.</LemonBanner>
+        }
+        return (
+            <NotebookAppTableInput
+                key={JSON.stringify(lists)}
+                title={block.title || block.variable || 'Table'}
+                columns={lists}
+                disabled={!canInteract}
+                onApply={onInput}
+            />
+        )
+    }
     if (block.kind === 'input') {
         return (
             <NotebookAppInput
                 block={block}
+                choices={choices}
                 variable={variables.find((variable) => variable.name === block.variable)}
                 disabled={!canInteract}
-                onChange={(value) => onInput(block.variable || '', value)}
+                onChange={(value) => onInput({ [block.variable || '']: value })}
             />
         )
     }
@@ -65,6 +100,24 @@ export function NotebookAppBlock({
     }
     const source =
         cell.type === 'component' && typeof cell.props.code === 'string' ? cell.props.code : serializeNode(cell)
+    const savedOutput = (
+        <ComponentPanelContext.Provider
+            value={{
+                componentPanels: { filters: false, results: true },
+                showEditPanel: false,
+                showViewPanel: true,
+                outputOnly: true,
+            }}
+        >
+            <MarkdownNotebook
+                value={appCellMarkdown(cell)}
+                onChange={canInteract && onCellOutput ? (markdown) => onCellOutput(cell.id, markdown) : undefined}
+                registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                mode="view"
+                className="NotebookAppBuilder__cell"
+            />
+        </ComponentPanelContext.Provider>
+    )
     return (
         <div className="min-w-0">
             {(block.title || stale || onSource) && (
@@ -104,27 +157,7 @@ export function NotebookAppBlock({
                     <code>{source}</code>
                 </pre>
             ) : null}
-            {block.display !== 'source' &&
-                (renderOutput?.(cell) ?? (
-                    <ComponentPanelContext.Provider
-                        value={{
-                            componentPanels: { filters: false, results: true },
-                            showEditPanel: false,
-                            showViewPanel: true,
-                            outputOnly: true,
-                        }}
-                    >
-                        <MarkdownNotebook
-                            value={appCellMarkdown(cell)}
-                            onChange={
-                                canInteract && onCellOutput ? (markdown) => onCellOutput(cell.id, markdown) : undefined
-                            }
-                            registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                            mode="view"
-                            className="NotebookAppBuilder__cell"
-                        />
-                    </ComponentPanelContext.Provider>
-                ))}
+            {block.display !== 'source' && (renderOutput?.(cell, block, savedOutput) ?? savedOutput)}
         </div>
     )
 }

@@ -303,6 +303,8 @@ export interface WidgetFrameColumnApi {
 }
 
 export interface WidgetFrameApi {
+    /** Notebook cell authorized for this version and dataframe slot. */
+    sourceNodeId?: string
     /** Logical dataframe name. */
     name: string
     /** Completed notebook run used for every page in this iframe load. */
@@ -731,15 +733,46 @@ export const NotebookAppBlockKindEnumApi = {
 /**
  * * `auto` - Automatic
  * * `select` - Dropdown
+ * * `query_select` - Query dropdown
+ * * `date_range` - Date range
  * * `slider` - Slider
+ * * `table` - Editable table
  */
 export type NotebookAppInputKindEnumApi = (typeof NotebookAppInputKindEnumApi)[keyof typeof NotebookAppInputKindEnumApi]
 
 export const NotebookAppInputKindEnumApi = {
     Auto: 'auto',
     Select: 'select',
+    QuerySelect: 'query_select',
+    DateRange: 'date_range',
     Slider: 'slider',
+    Table: 'table',
 } as const
+
+export interface NotebookAppSelectionApi {
+    /**
+     * Result column whose selected value sets the input.
+     * @maxLength 256
+     */
+    column: string
+    /**
+     * Published input to update.
+     * @maxLength 80
+     */
+    variable: string
+    /**
+     * Tab to open after selection.
+     * @maxLength 80
+     */
+    tab_id?: string
+    /**
+     * Optional Hog condition over row, value, and inputs.
+     * @maxLength 1200
+     */
+    condition?: string
+    /** Compiled Hog condition for this selection. */
+    readonly condition_bytecode: readonly unknown[]
+}
 
 /**
  * * `output` - Output
@@ -753,6 +786,18 @@ export const NotebookAppCellDisplayEnumApi = {
     Output: 'output',
     Source: 'source',
     Both: 'both',
+} as const
+
+/**
+ * * `create_cohort` - Create a cohort
+ * * `run_workflow` - Run a workflow
+ */
+export type NotebookAppSubmitActionEnumApi =
+    (typeof NotebookAppSubmitActionEnumApi)[keyof typeof NotebookAppSubmitActionEnumApi]
+
+export const NotebookAppSubmitActionEnumApi = {
+    CreateCohort: 'create_cohort',
+    RunWorkflow: 'run_workflow',
 } as const
 
 export interface NotebookAppBlockApi {
@@ -799,18 +844,39 @@ export interface NotebookAppBlockApi {
      * @maxLength 80
      */
     variable?: string
+    /**
+     * End date variable for a date range.
+     * @maxLength 80
+     */
+    end_variable?: string
     /** Control used for an input.
      *
      * * `auto` - Automatic
      * * `select` - Dropdown
-     * * `slider` - Slider */
+     * * `query_select` - Query dropdown
+     * * `date_range` - Date range
+     * * `slider` - Slider
+     * * `table` - Editable table */
     input_kind?: NotebookAppInputKindEnumApi
+    /**
+     * Column supplying choices for a query dropdown.
+     * @maxLength 256
+     */
+    option_column?: string
+    /**
+     * Additional list variables displayed alongside the first column of a table input.
+     * @maxItems 9
+     * @items.maxLength 80
+     */
+    table_columns?: string[]
     /**
      * Allowed values for a dropdown.
      * @maxItems 100
      * @items.maxLength 1000
      */
     options?: string[]
+    /** Action when a viewer selects a result. */
+    selection?: NotebookAppSelectionApi | null
     /** Slider minimum. */
     min?: number
     /** Slider maximum. */
@@ -826,6 +892,13 @@ export interface NotebookAppBlockApi {
      * * `source` - Source
      * * `both` - Source and output */
     display?: NotebookAppCellDisplayEnumApi
+    /** Action viewers can explicitly submit with rows from a SQL cell.
+     *
+     * * `create_cohort` - Create a cohort
+     * * `run_workflow` - Run a workflow */
+    submit_action?: NotebookAppSubmitActionEnumApi
+    /** Workflow to run with the submitted rows. */
+    workflow_id?: string
 }
 
 export interface NotebookAppLayoutApi {
@@ -966,7 +1039,99 @@ export interface PatchedNotebookApi {
     _create_in_folder?: string
 }
 
+export interface NotebookAppComputeWidgetInputApi {
+    version_id: string
+    /** @maxLength 128 */
+    slot: string
+}
+
+export interface NotebookAppComputeRequestApi {
+    /** @minimum 0 */
+    revision: number
+    variables: NotebookVariableApi[]
+    widget_input?: NotebookAppComputeWidgetInputApi
+    /** @maxLength 200 */
+    node_id: string
+}
+
+export interface NotebookAppComputeResultApi {
+    widget_frame?: WidgetFrameApi
+    text?: string
+    columns?: string[]
+    rows?: unknown[][]
+}
+
+export interface NotebookAppDraftComputeRequestApi {
+    /** @minimum 0 */
+    revision: number
+    variables: NotebookVariableApi[]
+    widget_input?: NotebookAppComputeWidgetInputApi
+    /** @maxLength 200 */
+    node_id: string
+    layout: NotebookAppLayoutApi
+}
+
+export interface NotebookAppDraftQueryRequestApi {
+    /** @minimum 0 */
+    revision: number
+    variables: NotebookVariableApi[]
+    layout: NotebookAppLayoutApi
+}
+
+export interface NotebookAppWidgetSlotApi {
+    node_id: string
+    version_id: string
+    slot: string
+}
+
+export interface NotebookAppViewerQueryApi {
+    node_id: string
+    query: string
+    matches_defaults: boolean
+    widget_slots?: NotebookAppWidgetSlotApi[]
+}
+
+export interface AppEmbedRequestApi {
+    /**
+     * Exact HTTPS origin that may frame the embed, without a path.
+     * @maxLength 255
+     */
+    origin: string
+    /**
+     * String column present in each displayed SQL result that identifies the tenant.
+     * @maxLength 120
+     */
+    tenant_column: string
+    /**
+     * Exact tenant value bound to the snapshot.
+     * @maxLength 256
+     */
+    tenant_value: string
+    /** Revoke embeds for this origin, tenant column and value across all releases. */
+    revoke?: boolean
+}
+
+export interface AppViewGrantResultApi {
+    /**
+     * Recipient-specific path for the pinned release.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * When this app-only grant expires.
+     * @nullable
+     */
+    expires_at: string | null
+}
+
+export interface NotebookAppCellDependenciesApi {
+    node_id: string
+    dataframe: string
+    upstream: string[]
+}
+
 export interface NotebookAppReleaseReviewApi {
+    dependencies?: NotebookAppCellDependenciesApi[]
     has_previous: boolean
     problems: string[]
     /** @nullable */
@@ -979,10 +1144,83 @@ export interface NotebookAppViewerRequestApi {
     variables: NotebookVariableApi[]
 }
 
-export interface NotebookAppViewerQueryApi {
+export interface NotebookAppRefreshedOutputApi {
+    /** @nullable */
+    columns?: string[] | null
+    results: unknown[][]
+    /** @nullable */
+    types?: string[][] | null
+    /** @nullable */
+    hasMore?: boolean | null
+}
+
+export type NotebookAppRefreshOutputsApiOutputs = { [key: string]: NotebookAppRefreshedOutputApi }
+
+export interface NotebookAppRefreshOutputsApi {
+    revision: number
+    outputs: NotebookAppRefreshOutputsApiOutputs
+}
+
+export interface NotebookAppScheduleSettingsApi {
+    /**
+     * Published Python or connected SQL cells to check privately with the schedule owner's current access.
+     * @maxItems 3
+     * @items.maxLength 128
+     */
+    checked_node_ids?: string[]
+    /**
+     * Published revision to refresh.
+     * @minimum 0
+     */
+    revision: number
+    /** Whether this schedule runs. */
+    enabled: boolean
+    /**
+     * Minutes between scheduled refreshes.
+     * @minimum 60
+     * @maximum 10080
+     */
+    interval_minutes?: number
+    /**
+     * Maximum acceptable result age, in minutes.
+     * @minimum 60
+     * @maximum 43200
+     */
+    freshness_minutes?: number
+}
+
+export interface NotebookAppRefreshCheckTargetApi {
     node_id: string
-    query: string
-    matches_defaults: boolean
+    title: string
+    kind: string
+}
+
+export interface NotebookAppRefreshHistoryApi {
+    revision: number
+    due_at: string
+    /** @nullable */
+    finished_at: string | null
+    status: string
+    detail: string
+    output_count: number
+    checked_count: number
+    /** @nullable */
+    duration_seconds: number | null
+}
+
+export interface NotebookAppRefreshStatusApi {
+    check_targets: NotebookAppRefreshCheckTargetApi[]
+    checked_node_ids: string[]
+    published_revision: number
+    enabled: boolean
+    revision?: number
+    interval_minutes?: number
+    freshness_minutes?: number
+    next_due_at?: string
+    /** @nullable */
+    last_success_at?: string | null
+    stale?: boolean
+    history: NotebookAppRefreshHistoryApi[]
 }
 
 export interface NotebookAppReleaseApi {
@@ -996,6 +1234,13 @@ export interface NotebookAppReleaseApi {
     markdown: string
     variables: NotebookVariableApi[]
     has_previous: boolean
+}
+
+export interface AppViewGrantRequestApi {
+    /** Email address of the project member who can open the published output. */
+    email: string
+    /** Remove this member's access to every revision of this app. */
+    revoke?: boolean
 }
 
 export interface NotebookCollabCursorApi {

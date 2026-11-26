@@ -17025,6 +17025,26 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    export interface AppEmbedRequest {
+      /**
+         * Exact HTTPS origin that may frame the embed, without a path.
+         * @maxLength 255
+         */
+      origin: string;
+      /**
+         * String column present in each displayed SQL result that identifies the tenant.
+         * @maxLength 120
+         */
+      tenant_column: string;
+      /**
+         * Exact tenant value bound to the snapshot.
+         * @maxLength 256
+         */
+      tenant_value: string;
+      /** Revoke embeds for this origin, tenant column and value across all releases. */
+      revoke?: boolean;
+    }
+
     export interface AppMetricSeries {
       name: string;
       values: number[];
@@ -17085,6 +17105,26 @@ export namespace Schemas {
       version_number: number;
       /** Every file in the version, sorted by path. The manifest always lists all files. */
       files: AppSourceFileContract[];
+    }
+
+    export interface AppViewGrantRequest {
+      /** Email address of the project member who can open the published output. */
+      email: string;
+      /** Remove this member's access to every revision of this app. */
+      revoke?: boolean;
+    }
+
+    export interface AppViewGrantResult {
+      /**
+         * Recipient-specific path for the pinned release.
+         * @nullable
+         */
+      url: string | null;
+      /**
+         * When this app-only grant expires.
+         * @nullable
+         */
+      expires_at: string | null;
     }
 
     export interface AppfiguresReviewSignalExtra {
@@ -31043,6 +31083,21 @@ export namespace Schemas {
       previous: string | null;
     }
 
+    export interface CohortFromSelection {
+      /** Reuse this key when retrying the same submission. */
+      request_id: string;
+      /**
+         * Name for the new static cohort.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Selected person UUIDs from this project.
+         * @maxItems 1000
+         */
+      person_ids: string[];
+    }
+
     /**
      * Minimal serializer for cohort references, read by the person cohorts endpoint.
      */
@@ -31137,6 +31192,11 @@ export namespace Schemas {
     export interface CohortRealtimeRequest {
       /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. True for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
       enabled: boolean;
+    }
+
+    export interface CohortSelectionResult {
+      /** ID of the cohort created by this submission. */
+      cohort_id: number;
     }
 
     export interface CohortUsedInCohort {
@@ -77992,7 +78052,10 @@ export namespace Schemas {
     /**
      * * `auto` - Automatic
      * * `select` - Dropdown
+     * * `query_select` - Query dropdown
+     * * `date_range` - Date range
      * * `slider` - Slider
+     * * `table` - Editable table
      */
     export type NotebookAppInputKindEnum = typeof NotebookAppInputKindEnum[keyof typeof NotebookAppInputKindEnum];
 
@@ -78000,8 +78063,36 @@ export namespace Schemas {
     export const NotebookAppInputKindEnum = {
       Auto: 'auto',
       Select: 'select',
+      QuerySelect: 'query_select',
+      DateRange: 'date_range',
       Slider: 'slider',
+      Table: 'table',
     } as const;
+
+    export interface NotebookAppSelection {
+      /**
+         * Result column whose selected value sets the input.
+         * @maxLength 256
+         */
+      column: string;
+      /**
+         * Published input to update.
+         * @maxLength 80
+         */
+      variable: string;
+      /**
+         * Tab to open after selection.
+         * @maxLength 80
+         */
+      tab_id?: string;
+      /**
+         * Optional Hog condition over row, value, and inputs.
+         * @maxLength 1200
+         */
+      condition?: string;
+      /** Compiled Hog condition for this selection. */
+      readonly condition_bytecode: readonly unknown[];
+    }
 
     /**
      * * `output` - Output
@@ -78015,6 +78106,18 @@ export namespace Schemas {
       Output: 'output',
       Source: 'source',
       Both: 'both',
+    } as const;
+
+    /**
+     * * `create_cohort` - Create a cohort
+     * * `run_workflow` - Run a workflow
+     */
+    export type NotebookAppSubmitActionEnum = typeof NotebookAppSubmitActionEnum[keyof typeof NotebookAppSubmitActionEnum];
+
+
+    export const NotebookAppSubmitActionEnum = {
+      CreateCohort: 'create_cohort',
+      RunWorkflow: 'run_workflow',
     } as const;
 
     export interface NotebookAppBlock {
@@ -78061,18 +78164,39 @@ export namespace Schemas {
          * @maxLength 80
          */
       variable?: string;
+      /**
+         * End date variable for a date range.
+         * @maxLength 80
+         */
+      end_variable?: string;
       /** Control used for an input.
        *
        * * `auto` - Automatic
        * * `select` - Dropdown
-       * * `slider` - Slider */
+       * * `query_select` - Query dropdown
+       * * `date_range` - Date range
+       * * `slider` - Slider
+       * * `table` - Editable table */
       input_kind?: NotebookAppInputKindEnum;
+      /**
+         * Column supplying choices for a query dropdown.
+         * @maxLength 256
+         */
+      option_column?: string;
+      /**
+         * Additional list variables displayed alongside the first column of a table input.
+         * @maxItems 9
+         * @items.maxLength 80
+         */
+      table_columns?: string[];
       /**
          * Allowed values for a dropdown.
          * @maxItems 100
          * @items.maxLength 1000
          */
       options?: string[];
+      /** Action when a viewer selects a result. */
+      selection?: NotebookAppSelection | null;
       /** Slider minimum. */
       min?: number;
       /** Slider maximum. */
@@ -78088,6 +78212,13 @@ export namespace Schemas {
        * * `source` - Source
        * * `both` - Source and output */
       display?: NotebookAppCellDisplayEnum;
+      /** Action viewers can explicitly submit with rows from a SQL cell.
+       *
+       * * `create_cohort` - Create a cohort
+       * * `run_workflow` - Run a workflow */
+      submit_action?: NotebookAppSubmitActionEnum;
+      /** Workflow to run with the submitted rows. */
+      workflow_id?: string;
     }
 
     export interface NotebookAppLayout {
@@ -78164,6 +78295,145 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookAppCellDependencies {
+      node_id: string;
+      dataframe: string;
+      upstream: string[];
+    }
+
+    export interface NotebookAppComputeWidgetInput {
+      version_id: string;
+      /** @maxLength 128 */
+      slot: string;
+    }
+
+    export interface NotebookAppComputeRequest {
+      /** @minimum 0 */
+      revision: number;
+      variables: NotebookVariable[];
+      widget_input?: NotebookAppComputeWidgetInput;
+      /** @maxLength 200 */
+      node_id: string;
+    }
+
+    export interface WidgetFrameColumn {
+      /** Column name. */
+      name: string;
+      /** Column type reported by the completed notebook run. */
+      type: string;
+    }
+
+    export interface WidgetFrame {
+      /** Notebook cell authorized for this version and dataframe slot. */
+      sourceNodeId?: string;
+      /** Logical dataframe name. */
+      name: string;
+      /** Completed notebook run used for every page in this iframe load. */
+      runId: string;
+      /** Dataframe columns in display order. */
+      columns: WidgetFrameColumn[];
+      /** Requested page of dataframe rows. */
+      rows: unknown[][];
+      /**
+         * Rows available in the completed run.
+         * @minimum 0
+         */
+      totalRowCount: number;
+      /**
+         * Rows returned in this response.
+         * @minimum 0
+         */
+      includedRowCount: number;
+      /**
+         * Zero-based offset of this page.
+         * @minimum 0
+         */
+      offset: number;
+      /**
+         * Offset for the next page, if any.
+         * @minimum 0
+         * @nullable
+         */
+      nextOffset: number | null;
+      /** Whether more rows exist after this page. */
+      truncated: boolean;
+    }
+
+    export interface NotebookAppComputeResult {
+      widget_frame?: WidgetFrame;
+      text?: string;
+      columns?: string[];
+      rows?: unknown[][];
+    }
+
+    export interface NotebookAppDraftComputeRequest {
+      /** @minimum 0 */
+      revision: number;
+      variables: NotebookVariable[];
+      widget_input?: NotebookAppComputeWidgetInput;
+      /** @maxLength 200 */
+      node_id: string;
+      layout: NotebookAppLayout;
+    }
+
+    export interface NotebookAppDraftQueryRequest {
+      /** @minimum 0 */
+      revision: number;
+      variables: NotebookVariable[];
+      layout: NotebookAppLayout;
+    }
+
+    export interface NotebookAppRefreshCheckTarget {
+      node_id: string;
+      title: string;
+      kind: string;
+    }
+
+    export interface NotebookAppRefreshHistory {
+      revision: number;
+      due_at: string;
+      /** @nullable */
+      finished_at: string | null;
+      status: string;
+      detail: string;
+      output_count: number;
+      checked_count: number;
+      /** @nullable */
+      duration_seconds: number | null;
+    }
+
+    export interface NotebookAppRefreshedOutput {
+      /** @nullable */
+      columns?: string[] | null;
+      results: unknown[][];
+      /** @nullable */
+      types?: string[][] | null;
+      /** @nullable */
+      hasMore?: boolean | null;
+    }
+
+    export type NotebookAppRefreshOutputsOutputs = {[key: string]: NotebookAppRefreshedOutput};
+
+    export interface NotebookAppRefreshOutputs {
+      revision: number;
+      outputs: NotebookAppRefreshOutputsOutputs;
+    }
+
+    export interface NotebookAppRefreshStatus {
+      check_targets: NotebookAppRefreshCheckTarget[];
+      checked_node_ids: string[];
+      published_revision: number;
+      enabled: boolean;
+      revision?: number;
+      interval_minutes?: number;
+      freshness_minutes?: number;
+      next_due_at?: string;
+      /** @nullable */
+      last_success_at?: string | null;
+      stale?: boolean;
+      history: NotebookAppRefreshHistory[];
+    }
+
     export interface NotebookAppRelease {
       revision: number;
       /** @nullable */
@@ -78178,16 +78448,52 @@ export namespace Schemas {
     }
 
     export interface NotebookAppReleaseReview {
+      dependencies?: NotebookAppCellDependencies[];
       has_previous: boolean;
       problems: string[];
       /** @nullable */
       results_as_of: string | null;
     }
 
+    export interface NotebookAppScheduleSettings {
+      /**
+         * Published Python or connected SQL cells to check privately with the schedule owner's current access.
+         * @maxItems 3
+         * @items.maxLength 128
+         */
+      checked_node_ids?: string[];
+      /**
+         * Published revision to refresh.
+         * @minimum 0
+         */
+      revision: number;
+      /** Whether this schedule runs. */
+      enabled: boolean;
+      /**
+         * Minutes between scheduled refreshes.
+         * @minimum 60
+         * @maximum 10080
+         */
+      interval_minutes?: number;
+      /**
+         * Maximum acceptable result age, in minutes.
+         * @minimum 60
+         * @maximum 43200
+         */
+      freshness_minutes?: number;
+    }
+
+    export interface NotebookAppWidgetSlot {
+      node_id: string;
+      version_id: string;
+      slot: string;
+    }
+
     export interface NotebookAppViewerQuery {
       node_id: string;
       query: string;
       matches_defaults: boolean;
+      widget_slots?: NotebookAppWidgetSlot[];
     }
 
     export interface NotebookAppViewerRequest {
@@ -132438,47 +132744,6 @@ export namespace Schemas {
       code: string;
       /** Actionable error detail. */
       detail: string;
-    }
-
-    export interface WidgetFrameColumn {
-      /** Column name. */
-      name: string;
-      /** Column type reported by the completed notebook run. */
-      type: string;
-    }
-
-    export interface WidgetFrame {
-      /** Logical dataframe name. */
-      name: string;
-      /** Completed notebook run used for every page in this iframe load. */
-      runId: string;
-      /** Dataframe columns in display order. */
-      columns: WidgetFrameColumn[];
-      /** Requested page of dataframe rows. */
-      rows: unknown[][];
-      /**
-         * Rows available in the completed run.
-         * @minimum 0
-         */
-      totalRowCount: number;
-      /**
-         * Rows returned in this response.
-         * @minimum 0
-         */
-      includedRowCount: number;
-      /**
-         * Zero-based offset of this page.
-         * @minimum 0
-         */
-      offset: number;
-      /**
-         * Offset for the next page, if any.
-         * @minimum 0
-         * @nullable
-         */
-      nextOffset: number | null;
-      /** Whether more rows exist after this page. */
-      truncated: boolean;
     }
 
     /**

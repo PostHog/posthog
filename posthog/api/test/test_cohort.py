@@ -40,7 +40,7 @@ from posthog.api.cohort import (
 )
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models import User
+from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.event.new_events_schema import use_new_events_schema
@@ -148,6 +148,105 @@ _FLAG_CALL_COMPILE_REFUSAL = "can't calculate this criterion"
 _FLAG_CALL_FILTER_REFUSAL = "instead of a SQL expression"
 _FLAG_CALL_SQL_EXPRESSION_REFUSAL = "on another criterion"
 _REALTIME_CRITERIA_REFUSAL = "Realtime is on for this cohort"
+
+
+class TestCohortSelectionSubmission(APIBaseTest):
+    def test_retry_creates_one_cohort_and_one_activity(self):
+        person_ids = [str(uuid4()), str(uuid4())]
+        data = {"request_id": str(uuid4()), "name": "Activation follow-up", "person_ids": person_ids}
+        url = f"/api/projects/{self.team.id}/cohorts/from_selection/"
+        with (
+            patch("posthog.api.cohort.get_person_ids_and_uuids_by_uuids", return_value=list(enumerate(person_ids, 1))),
+            patch.object(Cohort, "insert_users_list_by_uuid"),
+            patch.object(Cohort, "insert_users_list_by_id_uuid_pairs_skip_validation") as insert,
+        ):
+            first = self.client.post(url, data, format="json")
+            retry = self.client.post(url, {**data, "person_ids": list(reversed(person_ids))}, format="json")
+            changed = self.client.post(url, {**data, "name": "Other selection"}, format="json")
+        assert first.status_code == retry.status_code == 200, first.content
+        assert first.json() == retry.json()
+        assert changed.status_code == 409
+        assert insert.call_count == 1
+        cohort = Cohort.objects.get(team=self.team, id=first.json()["cohort_id"])
+        assert cohort.created_by == self.user
+        assert (
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="Cohort", item_id=str(cohort.pk), activity="created"
+            ).count()
+            == 1
+        )
+
+    def test_read_only_token_cannot_create_a_cohort(self):
+        key = self.create_personal_api_key_with_scopes(["cohort:read", "person:read"])
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/from_selection/",
+            {"request_id": str(uuid4()), "name": "Activation follow-up", "person_ids": [str(uuid4())]},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+        assert response.status_code == 403
+        assert not Cohort.objects.filter(team=self.team, name="Activation follow-up").exists()
+
+    def test_edit_access_to_one_cohort_does_not_grant_creation(self):
+        self.organization.available_product_features = [
+            {"key": feature, "name": feature}
+            for feature in (AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "viewer@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        original = Cohort.objects.create(team=self.team, name="Editable cohort")
+        for resource_id, level in [(None, "viewer"), (str(original.pk), "editor")]:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="cohort",
+                resource_id=resource_id,
+                access_level=level,
+                organization_member=membership,
+            )
+        self.client.force_login(member)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/from_selection/",
+            {"request_id": str(uuid4()), "name": "Activation follow-up", "person_ids": [str(uuid4())]},
+            format="json",
+        )
+        assert response.status_code == 403
+
+    def test_retry_after_membership_failure_finishes_original_cohort(self):
+        url = f"/api/projects/{self.team.id}/cohorts/from_selection/"
+        person_id = str(uuid4())
+        data = {"request_id": str(uuid4()), "name": "Retry selection", "person_ids": [person_id]}
+        with (
+            patch("posthog.api.cohort.get_person_ids_and_uuids_by_uuids", return_value=[(1, person_id)]),
+            patch.object(Cohort, "insert_users_list_by_uuid"),
+            patch.object(
+                Cohort,
+                "insert_users_list_by_id_uuid_pairs_skip_validation",
+                side_effect=[RuntimeError("Unavailable"), 1],
+            ),
+        ):
+            assert self.client.post(url, data, format="json").status_code == 500
+            first_cohort = Cohort.objects.get(team=self.team, name=data["name"])
+            retry = self.client.post(url, data, format="json")
+        assert retry.status_code == 200
+        assert retry.json() == {"cohort_id": first_cohort.pk}
+
+    def test_missing_person_rolls_back_cohort_and_allows_retry(self):
+        url = f"/api/projects/{self.team.id}/cohorts/from_selection/"
+        data = {"request_id": str(uuid4()), "name": "Activation follow-up", "person_ids": [str(uuid4())]}
+        with (
+            patch(
+                "posthog.api.cohort.get_person_ids_and_uuids_by_uuids", side_effect=[[], [(1, data["person_ids"][0])]]
+            ),
+            patch.object(Cohort, "insert_users_list_by_uuid"),
+            patch.object(Cohort, "insert_users_list_by_id_uuid_pairs_skip_validation") as insert,
+        ):
+            missing = self.client.post(url, data, format="json")
+            assert missing.status_code == 400
+            assert not Cohort.objects.filter(team=self.team, name=data["name"]).exists()
+            assert self.client.post(url, data, format="json").status_code == 200
+        assert insert.call_count == 1
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

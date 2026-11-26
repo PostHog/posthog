@@ -6,7 +6,12 @@ from django.db.models import QuerySet
 from rest_framework.exceptions import ValidationError
 
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
-from products.notebooks.backend.facade.contracts import AppBlockSource, AppRelease, AppReleaseReview
+from products.notebooks.backend.facade.contracts import (
+    AppBlockSource,
+    AppCellDependencies,
+    AppRelease,
+    AppReleaseReview,
+)
 from products.notebooks.backend.markdown_collab import get_markdown_notebook_markdown
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun
 from products.notebooks.backend.sql_v2_state import (
@@ -97,14 +102,11 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
             markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS, group_anchored_prose=True
         )
     }
-    variables = {variable["name"] for variable in notebook.variables or []}
+    variables = {variable["name"]: variable for variable in notebook.variables or []}
     result_ids = {
         block.node_id
         for block in blocks
-        if block.kind == "cell"
-        and block.display != "source"
-        and block.node_id in sources
-        and sources[block.node_id].tag_name in ("SQLV2", "PythonV2")
+        if block.needs_result and block.node_id in sources and sources[block.node_id].tag_name in ("SQLV2", "PythonV2")
     }
     states = release_cell_states(notebook, result_ids)
     problems: list[str] = []
@@ -113,12 +115,33 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
         name = block.title or block.id
         if block.kind == "input" and block.variable not in variables:
             problems.append(f"{name}: choose an existing notebook variable.")
-        if block.kind != "cell":
+        if block.kind == "input" and block.input_kind == "date_range":
+            start = variables.get(block.variable, {})
+            end = variables.get(block.end_variable, {})
+            if start.get("type") != "date" or end.get("type") != "date" or block.variable == block.end_variable:
+                problems.append(f"{name}: choose two different date variables.")
+            elif (
+                isinstance(start_value := start.get("value"), str)
+                and isinstance(end_value := end.get("value"), str)
+                and end_value
+                and start_value[:10] > end_value[:10]
+            ):
+                problems.append(f"{name}: the start date must be on or before the end date.")
+        if block.kind == "input" and block.input_kind == "table":
+            if any(
+                variables.get(column, {}).get("type") != "list" for column in [block.variable, *block.table_columns]
+            ):
+                problems.append(f"{name}: bind each table column to a list variable.")
+        if block.kind != "cell" and not block.needs_query_choices:
             continue
         node_id = block.node_id
         if node_id not in sources:
             problems.append(f"{name}: the source cell is missing.")
-        elif block.display != "source" and node_id in result_ids:
+        elif block.submit_action and sources[node_id].tag_name != "SQLV2":
+            problems.append(f"{name}: choose a SQL cell for the submit action.")
+        elif block.needs_query_choices and sources[node_id].tag_name != "SQLV2":
+            problems.append(f"{name}: choose a native SQL cell for dropdown options.")
+        elif block.needs_result and node_id in result_ids:
             cell = states.get(node_id)
             if not cell or not cell.last_run or cell.status != "done":
                 status = cell.status if cell and cell.status != "done" else "stale"
@@ -128,9 +151,26 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
             if props.get("runId") != cell.last_run["run_id"] or not isinstance(props.get("result"), dict):
                 problems.append(f"{name}: run the preview and wait for the result to save.")
                 continue
+            if block.needs_query_choices and (
+                cell.connection_id
+                or cell.send_raw_query
+                or block.option_column not in props["result"].get("columns", [])
+            ):
+                problems.append(f"{name}: choose a result column from a native SQL cell.")
+                continue
             completed.append(cell.last_run["finished_at"])
+            if block.submit_action == "create_cohort" and "person_id" not in (props["result"].get("columns") or []):
+                problems.append(f"{name}: include a person_id column in the SQL result to create a cohort.")
     return AppReleaseReview(
         problems=problems,
+        dependencies=[
+            AppCellDependencies(
+                node_id=cell.node_id,
+                dataframe=cell.dataframe_name or cell.node_id,
+                upstream=[states[node].dataframe_name or node for node in cell.depends_on if node in states],
+            )
+            for cell in sorted(states.values(), key=lambda item: (item.dataframe_name, item.node_id))
+        ],
         results_as_of=min(completed, default=None),
         has_previous=notebook.app_published is not None and releases_for(notebook)[1:2].exists(),
     )

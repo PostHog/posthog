@@ -9,7 +9,9 @@ import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/s
 import type { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import type { NotebookAppBlockApi, NotebookAppRefreshedOutputApi } from '../generated/api.schemas'
 import { type PublishedRunResult, type SavedRows, savedQueryResult } from './notebookAppPublishedResults'
+import { NotebookAppSubmission } from './NotebookAppSubmission'
 import type { ViewerOutput } from './notebookAppViewerLogic'
 
 function publishedVisualization(
@@ -40,14 +42,14 @@ function publishedVisualization(
     return viz
 }
 
-function rowSummary(rows: SavedRows, count: number): string {
+function rowSummary(rows: SavedRows, count: number, draft: boolean): string {
     switch (rows) {
         case 'partial':
             return `Only the first ${count} saved rows are available.`
         case 'capped':
             return `Showing ${count} saved rows, the limit for a SQL run.`
         case 'complete':
-            return 'Published result'
+            return draft ? 'Saved notebook result' : 'Published result'
     }
 }
 
@@ -63,21 +65,38 @@ function publishedQueryHeight(
 
 export function PublishedNotebookQuery({
     cell,
+    block,
+    project,
+    pendingInputs,
     current,
+    scheduled,
     pinned,
     sessionId,
     chartInputFilters,
+    draft = false,
+    onSelectResultRow,
 }: {
     cell: NotebookComponentBlockNode
+    block: NotebookAppBlockApi
+    project: string
+    pendingInputs: boolean
     current?: ViewerOutput
+    scheduled?: NotebookAppRefreshedOutputApi
     pinned?: PublishedRunResult
     sessionId: string
+    draft?: boolean
+    onSelectResultRow?: QueryContext['onSelectResultRow']
     chartInputFilters: QueryContext['chartInputFilters']
 }): JSX.Element {
     const attributes = { ...cell.props, ...getSqlV2PropsFromQueryProp(cell.props) }
     const output = current
         ? { result: current.result, rows: 'complete' as const }
-        : savedQueryResult(attributes, pinned)
+        : scheduled
+          ? {
+                result: { results: scheduled.results, columns: scheduled.columns ?? [], types: scheduled.types ?? [] },
+                rows: scheduled.hasMore ? ('partial' as const) : ('complete' as const),
+            }
+          : savedQueryResult(attributes, pinned)
     if (output === 'loading') {
         return <Spinner />
     }
@@ -85,15 +104,35 @@ export function PublishedNotebookQuery({
         return <LemonBanner type="info">The saved result is unavailable.</LemonBanner>
     }
     if (!output) {
-        return <LemonBanner type="info">No published result for this cell.</LemonBanner>
+        return (
+            <LemonBanner type="info">
+                {draft ? 'No saved notebook result for this cell.' : 'No published result for this cell.'}
+            </LemonBanner>
+        )
     }
     const { result, rows } = output
+    const key = sessionId + '-' + cell.id + '-' + (current?.generation ?? 'published')
+    if (block.submit_action && !draft) {
+        return (
+            <>
+                <NotebookAppSubmission
+                    key={key}
+                    action={block.submit_action}
+                    workflowId={block.workflow_id}
+                    project={project}
+                    columns={(result.columns ?? []).map(String)}
+                    rows={result.results}
+                    pendingInputs={pendingInputs}
+                />
+                {!current && <small className="text-secondary">{rowSummary(rows, result.results.length, draft)}</small>}
+            </>
+        )
+    }
     const viz = publishedVisualization(
         rows === 'partial' ? { ...attributes, outputTab: 'results' } : attributes,
         result,
         current?.query
     )
-    const key = sessionId + '-' + cell.id + '-' + (current?.generation ?? 'published')
     const height = publishedQueryHeight(viz.display, attributes.height)
     return (
         <div className="min-w-0">
@@ -103,12 +142,13 @@ export function PublishedNotebookQuery({
                     uniqueKey={'SQLEditor-notebook-app-' + key}
                     query={viz}
                     cachedResults={result}
-                    context={{ chartInputFilters }}
+                    context={{ chartInputFilters, onSelectResultRow }}
                     readOnly
                     embedded
                 />
             </div>
-            {!current && <small className="text-secondary">{rowSummary(rows, result.results.length)}</small>}
+            {!current && scheduled && <small className="text-secondary">Scheduled result · </small>}
+            {!current && <small className="text-secondary">{rowSummary(rows, result.results.length, draft)}</small>}
         </div>
     )
 }

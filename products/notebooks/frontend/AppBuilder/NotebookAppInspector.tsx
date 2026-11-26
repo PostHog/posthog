@@ -1,13 +1,16 @@
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { MarkdownNotebookEntityPicker } from 'scenes/notebooks/Notebook/MarkdownNotebookEntityPicker'
 import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
+import { NotebookAppChoiceSettings } from './NotebookAppChoiceSettings'
 import { appCellTitle } from './notebookAppLayout'
+import { NotebookAppSelectionSettings } from './NotebookAppSelectionSettings'
 
 const SLIDER_FIELDS = [
     { key: 'min', label: 'Minimum', defaultValue: 0 },
@@ -34,6 +37,7 @@ export function NotebookAppInspector({
     onClose: () => void
     onSource: (id: string) => void
 }): JSX.Element {
+    const source = cells.find((cell) => cell.id === block?.node_id)
     const variableType = variables.find((variable) => variable.name === block?.variable)?.type
     return (
         <aside
@@ -130,7 +134,9 @@ export function NotebookAppInspector({
                                             (cell.type === 'component' && !!cell.props.nodeId)
                                     )
                                     .map((cell) => ({ value: cell.id, label: appCellTitle(cell) }))}
-                                onChange={(node_id) => onBlock(block.id, { node_id })}
+                                onChange={(node_id) =>
+                                    onBlock(block.id, { node_id, submit_action: undefined, workflow_id: undefined })
+                                }
                             />
                             <LemonLabel>Display</LemonLabel>
                             <LemonSelect
@@ -141,8 +147,26 @@ export function NotebookAppInspector({
                                     { value: 'source', label: 'Source' },
                                     { value: 'both', label: 'Source and output' },
                                 ]}
-                                onChange={(display) => onBlock(block.id, { display })}
+                                onChange={(display) =>
+                                    onBlock(
+                                        block.id,
+                                        display === 'source'
+                                            ? { display, submit_action: undefined, workflow_id: undefined }
+                                            : { display }
+                                    )
+                                }
                             />
+                            {source?.type === 'component' &&
+                                source.tagName === 'SQLV2' &&
+                                block.display !== 'source' && (
+                                    <NotebookAppSelectionSettings
+                                        cell={source}
+                                        block={block}
+                                        layout={layout}
+                                        onChange={(selection) => onBlock(block.id, { selection })}
+                                    />
+                                )}
+                            <RowActionSettings source={source} block={block} onBlock={onBlock} />
                             <LemonButton size="small" type="secondary" onClick={() => onSource(block.node_id || '')}>
                                 Open source cell
                             </LemonButton>
@@ -155,7 +179,14 @@ export function NotebookAppInspector({
                                 fullWidth
                                 value={block.variable}
                                 options={variables.map((variable) => ({ value: variable.name, label: variable.name }))}
-                                onChange={(variable) => onBlock(block.id, { variable })}
+                                onChange={(variable) =>
+                                    onBlock(
+                                        block.id,
+                                        block.input_kind === 'table'
+                                            ? { variable, input_kind: 'auto', table_columns: [] }
+                                            : { variable }
+                                    )
+                                }
                             />
                             <LemonLabel>Control</LemonLabel>
                             <LemonSelect
@@ -163,6 +194,19 @@ export function NotebookAppInspector({
                                 value={block.input_kind ?? 'auto'}
                                 options={[
                                     { value: 'auto', label: 'Match variable type' },
+                                    { value: 'query_select', label: 'Dropdown from query' },
+                                    {
+                                        value: 'date_range',
+                                        label: 'Date range',
+                                        disabledReason:
+                                            variableType !== 'date' ? 'Choose a date variable first.' : undefined,
+                                    },
+                                    {
+                                        value: 'table',
+                                        label: 'Editable table',
+                                        disabledReason:
+                                            variableType !== 'list' ? 'Choose a list variable first' : undefined,
+                                    },
                                     {
                                         value: 'select',
                                         label: variableType === 'list' ? 'Multi-select dropdown' : 'Dropdown',
@@ -174,21 +218,52 @@ export function NotebookAppInspector({
                                             variableType !== 'number' ? 'Select a number variable first' : undefined,
                                     },
                                 ]}
-                                onChange={(input_kind) => onBlock(block.id, { input_kind })}
+                                onChange={(input_kind) => onBlock(block.id, { input_kind, table_columns: undefined })}
                             />
-                            {block.input_kind === 'select' && (
+                            {block.input_kind === 'table' && (
                                 <>
-                                    <LemonLabel>Options (one per line)</LemonLabel>
-                                    <LemonTextArea
-                                        value={(block.options ?? []).join('\n')}
-                                        onChange={(text) => onBlock(block.id, { options: text.split('\n') })}
-                                        aria-label="Dropdown options"
+                                    <LemonLabel>Additional columns</LemonLabel>
+                                    {variables
+                                        .filter((v) => v.type === 'list' && v.name !== block.variable)
+                                        .map((v) => (
+                                            <LemonCheckbox
+                                                key={v.name}
+                                                label={v.name}
+                                                checked={block.table_columns?.includes(v.name) ?? false}
+                                                onChange={(checked) =>
+                                                    onBlock(block.id, {
+                                                        table_columns: checked
+                                                            ? [...(block.table_columns ?? []), v.name]
+                                                            : block.table_columns?.filter((name) => name !== v.name),
+                                                    })
+                                                }
+                                            />
+                                        ))}
+                                    <p className="text-xs text-secondary">
+                                        Each column writes to a list variable. Add list variables in the notebook to
+                                        offer more columns.
+                                    </p>
+                                </>
+                            )}
+                            <NotebookAppChoiceSettings
+                                cells={cells}
+                                block={block}
+                                variableType={variableType}
+                                onChange={(patch) => onBlock(block.id, patch)}
+                            />
+                            {block.input_kind === 'date_range' && (
+                                <>
+                                    <LemonLabel>End date variable</LemonLabel>
+                                    <LemonSelect
+                                        fullWidth
+                                        aria-label="End date variable"
+                                        value={block.end_variable || undefined}
+                                        placeholder="Choose a second date variable"
+                                        options={variables
+                                            .filter((item) => item.type === 'date' && item.name !== block.variable)
+                                            .map((item) => ({ value: item.name, label: item.name }))}
+                                        onChange={(end_variable) => onBlock(block.id, { end_variable })}
                                     />
-                                    {variableType !== 'list' && (
-                                        <span className="text-xs text-secondary">
-                                            To allow multiple selections, choose List of text in the notebook variables.
-                                        </span>
-                                    )}
                                 </>
                             )}
                             {block.input_kind === 'slider' &&
@@ -212,5 +287,72 @@ export function NotebookAppInspector({
                 </>
             )}
         </aside>
+    )
+}
+
+function RowActionSettings({
+    source,
+    block,
+    onBlock,
+}: {
+    source?: NotebookBlockNode
+    block: NotebookAppBlockApi
+    onBlock: (id: string, patch: Partial<NotebookAppBlockApi>) => void
+}): JSX.Element | null {
+    const [workflowPickerBlock, setWorkflowPickerBlock] = useState<string | null>(null)
+    if (source?.type !== 'component' || source.tagName !== 'SQLV2' || block.display === 'source') {
+        return null
+    }
+    return (
+        <>
+            <LemonLabel>Row action</LemonLabel>
+            <LemonSelect
+                fullWidth
+                value={block.submit_action ?? 'none'}
+                options={[
+                    { value: 'none', label: 'None' },
+                    { value: 'create_cohort', label: 'Create a cohort' },
+                    { value: 'run_workflow', label: 'Run a workflow' },
+                ]}
+                onChange={(value) => {
+                    if (value === 'run_workflow') {
+                        setWorkflowPickerBlock(block.id)
+                    } else {
+                        onBlock(block.id, {
+                            submit_action: value === 'none' ? undefined : value,
+                            workflow_id: undefined,
+                        })
+                    }
+                }}
+            />
+            {workflowPickerBlock === block.id && (
+                <MarkdownNotebookEntityPicker
+                    action="select"
+                    kind="workflow"
+                    onClose={() => setWorkflowPickerBlock(null)}
+                    onSelect={({ props }) => {
+                        onBlock(block.id, {
+                            submit_action: 'run_workflow',
+                            workflow_id: String(props.id),
+                        })
+                        setWorkflowPickerBlock(null)
+                    }}
+                />
+            )}
+            {block.submit_action === 'create_cohort' && (
+                <p className="text-xs text-secondary">Return person UUIDs in a column named person_id.</p>
+            )}
+            {block.submit_action === 'run_workflow' && (
+                <>
+                    <LemonButton type="secondary" size="small" onClick={() => setWorkflowPickerBlock(block.id)}>
+                        Change workflow
+                    </LemonButton>
+                    <p className="text-xs text-secondary">
+                        Choose an active manual or scheduled workflow. It receives the selected records in the rows
+                        variable.
+                    </p>
+                </>
+            )}
+        </>
     )
 }

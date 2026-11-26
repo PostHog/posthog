@@ -518,7 +518,7 @@ class DockerSandbox(AgentServerLaunchMixin):
     def create(config: SandboxConfig) -> DockerSandbox:
         skills_snapshot: tempfile.TemporaryDirectory[str] | None = None
         try:
-            skill_source = DockerSandbox._local_skill_source(config)
+            skill_source = None if config.block_network else DockerSandbox._local_skill_source(config)
             if skill_source == "local":
                 skills_snapshot = tempfile.TemporaryDirectory(prefix="posthog-task-skills-")
                 try:
@@ -541,7 +541,7 @@ class DockerSandbox(AgentServerLaunchMixin):
                             value = DockerSandbox._transform_url_for_docker(value)
                         env_args.extend(["-e", f"{key}={value}"])
 
-            host_port = DockerSandbox._find_available_port()
+            host_port = None if config.block_network else DockerSandbox._find_available_port()
             # Streamlit sandboxes are reached via their auth proxy (8080); everything else
             # via the agent-server. Ports must be published at `docker run` time — the proxy
             # boots later inside the container, so we publish 8080 up front regardless.
@@ -550,7 +550,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             )
             port_args = ["-p", f"{host_port}:{container_port}"]
 
-            mount_map = parse_sandbox_repo_mount_map()
+            mount_map = {} if config.block_network else parse_sandbox_repo_mount_map()
             volume_args: list[str] = []
             for repo_key, local_path in mount_map.items():
                 org, repo = repo_key.split("/", 1)
@@ -559,7 +559,7 @@ class DockerSandbox(AgentServerLaunchMixin):
 
             # Native runtimes need the same files as plugin discovery. Eval snapshots replace
             # whole directories so image-only skills cannot enter the comparison.
-            local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
+            local_skills_host = None if config.block_network else os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
             if (
                 skill_source != "local"
                 and not bundled_skills_disabled(config.environment_variables)
@@ -581,6 +581,13 @@ class DockerSandbox(AgentServerLaunchMixin):
             if config.template == SandboxTemplate.PI_BASE:
                 cap_args.extend(["--cap-add", "NET_ADMIN"])
 
+            network_args = ["--add-host", "host.docker.internal:host-gateway"]
+            if config.block_network:
+                network_args = ["--network", "none"]
+                cap_args = []
+                volume_args = []
+                port_args = []
+
             docker_args = [
                 "docker",
                 "run",
@@ -590,8 +597,7 @@ class DockerSandbox(AgentServerLaunchMixin):
                 "--pull=never",
                 "--name",
                 container_name,
-                "--add-host",
-                "host.docker.internal:host-gateway",
+                *network_args,
                 *cap_args,
                 "-w",
                 WORKING_DIR,

@@ -24,7 +24,7 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -74,12 +74,16 @@ from products.notebooks.backend.analytics import (
 )
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
+from products.notebooks.backend.facade.app_delivery import change_app_view_grant, revoke_app_view_grants
+from products.notebooks.backend.facade.app_embeds import change_signed_embed
 from products.notebooks.backend.facade.app_releases import (
+    plan_draft_queries,
     plan_viewer_queries,
     read_published_run_rows,
     read_release,
     record_release,
     review_release,
+    run_app_cell,
 )
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
@@ -138,11 +142,19 @@ from products.notebooks.backend.kernel_runtime import (
     get_kernel_runtime,
 )
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.app_embeds import AppEmbedRequestSerializer
 from products.notebooks.backend.presentation.app_serializers import (
     NotebookAppLayoutField,
     NotebookAppLayoutSerializer,
+    NotebookAppRefreshOutputsSerializer,
+    NotebookAppRefreshStatusSerializer,
+    NotebookAppScheduleSettingsSerializer,
     notebook_app_builder_enabled,
     update_app_revision,
+)
+from products.notebooks.backend.presentation.app_view_access import (
+    AppViewGrantRequestSerializer,
+    AppViewGrantResultSerializer,
 )
 from products.notebooks.backend.presentation.notebook_throttles import (
     NotebookAppQueryBurstThrottle,
@@ -309,7 +321,14 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
         extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
 
+class NotebookAppCellDependenciesSerializer(serializers.Serializer):
+    node_id = serializers.CharField()
+    dataframe = serializers.CharField()
+    upstream = serializers.ListField(child=serializers.CharField())
+
+
 class NotebookAppReleaseReviewSerializer(serializers.Serializer):
+    dependencies = NotebookAppCellDependenciesSerializer(many=True, required=False)
     has_previous = serializers.BooleanField()
     problems = serializers.ListField(child=serializers.CharField())
     results_as_of = serializers.DateTimeField(allow_null=True)
@@ -322,10 +341,42 @@ class NotebookAppViewerRequestSerializer(serializers.Serializer):
     )
 
 
+class NotebookAppWidgetSlotSerializer(serializers.Serializer):
+    node_id = serializers.CharField()
+    version_id = serializers.UUIDField()
+    slot = serializers.CharField()
+
+
+class NotebookAppDraftQueryRequestSerializer(NotebookAppViewerRequestSerializer):
+    layout = NotebookAppLayoutSerializer()
+
+
+class NotebookAppComputeWidgetInputSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField()
+    slot = serializers.CharField(max_length=128)
+
+
+class NotebookAppComputeRequestSerializer(NotebookAppViewerRequestSerializer):
+    widget_input = NotebookAppComputeWidgetInputSerializer(required=False)
+    node_id = serializers.CharField(max_length=200)
+
+
+class NotebookAppDraftComputeRequestSerializer(NotebookAppComputeRequestSerializer):
+    layout = NotebookAppLayoutSerializer()
+
+
+class NotebookAppComputeResultSerializer(serializers.Serializer):
+    widget_frame = WidgetFrameSerializer(required=False)
+    text = serializers.CharField(required=False, allow_blank=True)
+    columns = serializers.ListField(child=serializers.CharField(), required=False)
+    rows = serializers.ListField(child=serializers.ListField(child=serializers.JSONField()), required=False)
+
+
 class NotebookAppViewerQuerySerializer(serializers.Serializer):
     node_id = serializers.CharField()
     query = serializers.CharField()
     matches_defaults = serializers.BooleanField()
+    widget_slots = NotebookAppWidgetSlotSerializer(many=True, required=False)
 
 
 class NotebookAppReleaseSerializer(serializers.Serializer):
@@ -630,6 +681,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 updated_notebook = super().update(locked_instance, validated_data)
                 if validated_data.get("app_published") is not None:
                     record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
+                elif "app_published" in validated_data:
+                    revoke_app_view_grants(updated_notebook.team_id, updated_notebook.pk)
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id
                     notify_notebook_id = str(updated_notebook.short_id)
@@ -897,9 +950,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         throttles = super().get_throttles()
         if self.action == "create":
             return [*throttles, NotebookCreateBurstThrottle(), NotebookCreateSustainedThrottle()]
-        if self.action == "app_queries":
+        if self.action in ("app_queries", "app_draft_queries", "app_refresh_outputs"):
             return [*throttles, NotebookAppQueryBurstThrottle(), NotebookAppQuerySustainedThrottle()]
-        if self.action in ("kernel_start", "kernel_restart"):
+        if self.action in ("kernel_start", "kernel_restart", "app_compute", "app_draft_compute"):
             return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
         return throttles
 
@@ -916,6 +969,40 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
         return Response(NotebookAppReleaseReviewSerializer(review).data)
 
+    @extend_schema(request=AppEmbedRequestSerializer, responses=AppViewGrantResultSerializer)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_embeds",
+        required_scopes=["notebook:write", "sharing_configuration:write"],
+    )
+    def app_embeds(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if request.user.pk is None or not notebook_app_builder_enabled(request.user, notebook.team):
+            raise Http404()
+        self._require_app_sharing_access()
+        data = AppEmbedRequestSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        result = change_signed_embed(notebook.team_id, notebook.pk, request.user.pk, **data.validated_data)
+        return Response(AppViewGrantResultSerializer(result).data)
+
+    @extend_schema(request=AppViewGrantRequestSerializer, responses=AppViewGrantResultSerializer)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_view_grants",
+        required_scopes=["notebook:write", "sharing_configuration:write"],
+    )
+    def app_view_grants(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, notebook.team):
+            raise Http404()
+        self._require_app_sharing_access()
+        data = AppViewGrantRequestSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        result = change_app_view_grant(notebook.team_id, notebook.pk, **data.validated_data)
+        return Response(AppViewGrantResultSerializer(result).data)
+
     @extend_schema(responses=NotebookAppReleaseSerializer)
     @action(methods=["GET"], detail=True, url_path="app_release", required_scopes=["notebook:read"])
     def app_release(self, request: Request, **kwargs) -> Response:
@@ -926,6 +1013,57 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if release is None:
             raise Http404()
         return Response(NotebookAppReleaseSerializer(release).data)
+
+    def _published_app(self, request: Request) -> Notebook:
+        notebook = self.get_object()
+        if notebook.app_published is None or not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        return notebook
+
+    @extend_schema(responses=NotebookAppRefreshStatusSerializer)
+    @action(methods=["GET"], detail=True, required_scopes=["notebook:read"])
+    def app_refresh_status(self, request: Request, **kwargs) -> Response:
+        from products.notebooks.backend.facade.app_refresh import refresh_status
+
+        notebook = self._published_app(request)
+        return Response(NotebookAppRefreshStatusSerializer(refresh_status(notebook.team_id, notebook.pk)).data)
+
+    @extend_schema(request=NotebookAppScheduleSettingsSerializer, responses=NotebookAppRefreshStatusSerializer)
+    @action(methods=["POST"], detail=True, required_scopes=["notebook:write", "query:read"])
+    def app_refresh_schedule(self, request: Request, **kwargs) -> Response:
+        from products.notebooks.backend.facade.app_refresh import configure, refresh_status
+
+        notebook = self._published_app(request)
+        serializer = NotebookAppScheduleSettingsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not self._has_query_access() or not isinstance(request.user, User):
+            raise PermissionDenied()
+        data = serializer.validated_data
+        configure(
+            notebook.team_id,
+            notebook.pk,
+            request.user.pk,
+            data["revision"],
+            data["interval_minutes"],
+            data["freshness_minutes"],
+            data["enabled"],
+            data.get("checked_node_ids"),
+        )
+        return Response(NotebookAppRefreshStatusSerializer(refresh_status(notebook.team_id, notebook.pk)).data)
+
+    @extend_schema(responses=NotebookAppRefreshOutputsSerializer)
+    @action(methods=["GET"], detail=True, required_scopes=["notebook:read", "query:read"])
+    def app_refresh_outputs(self, request: Request, **kwargs) -> Response:
+        from products.notebooks.backend.facade.app_refresh import read_outputs
+
+        notebook = self._published_app(request)
+        if not self._has_query_access() or not isinstance(request.user, User):
+            raise PermissionDenied()
+        release = read_release(notebook.team_id, notebook.pk)
+        if release is None:
+            raise Http404()
+        outputs = read_outputs(notebook.team_id, notebook.pk, request.user.pk, release.revision)
+        return Response(NotebookAppRefreshOutputsSerializer({"revision": release.revision, "outputs": outputs}).data)
 
     @extend_schema(request=NotebookAppViewerRequestSerializer, responses=NotebookAppViewerQuerySerializer(many=True))
     @action(
@@ -947,6 +1085,71 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         plans = plan_viewer_queries(notebook.team_id, notebook.pk, params.validated_data["revision"], inputs)
         return Response(NotebookAppViewerQuerySerializer(plans, many=True).data)
 
+    @extend_schema(
+        request=NotebookAppDraftQueryRequestSerializer, responses=NotebookAppViewerQuerySerializer(many=True)
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_draft_queries",
+        pagination_class=None,
+        filter_backends=[],
+        required_scopes=["notebook:write", "query:read"],
+    )
+    def app_draft_queries(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        self._require_query_access()
+        params = NotebookAppDraftQueryRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        data = params.validated_data
+        inputs = {v["name"]: v.get("value") for v in data["variables"]}
+        plans = plan_draft_queries(notebook.team_id, notebook.pk, data["revision"], data["layout"], inputs)
+        return Response(NotebookAppViewerQuerySerializer(plans, many=True).data)
+
+    @extend_schema(request=NotebookAppComputeRequestSerializer, responses=NotebookAppComputeResultSerializer)
+    @action(methods=["POST"], detail=True, url_path="app_compute", required_scopes=["notebook:read", "query:read"])
+    def app_compute(self, request: Request, **kwargs) -> Response:
+        return self._compute_app_cell(request, NotebookAppComputeRequestSerializer(data=request.data))
+
+    @extend_schema(request=NotebookAppDraftComputeRequestSerializer, responses=NotebookAppComputeResultSerializer)
+    @action(
+        methods=["POST"], detail=True, url_path="app_draft_compute", required_scopes=["notebook:write", "query:read"]
+    )
+    def app_draft_compute(self, request: Request, **kwargs) -> Response:
+        return self._compute_app_cell(request, NotebookAppDraftComputeRequestSerializer(data=request.data))
+
+    def _compute_app_cell(self, request: Request, params: NotebookAppComputeRequestSerializer) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        self._require_query_access()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("Sign in to run this calculation.")
+        params.is_valid(raise_exception=True)
+        data = params.validated_data
+        inputs = {v["name"]: v.get("value") for v in data["variables"]}
+        try:
+            result = run_app_cell(
+                notebook.team_id,
+                notebook.pk,
+                user,
+                data["revision"],
+                data["node_id"],
+                inputs,
+                draft_layout=data.get("layout"),
+                widget_input=(data["widget_input"]["version_id"], data["widget_input"]["slot"])
+                if "widget_input" in data
+                else None,
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        except (ExposedHogQLError, KernelSandboxLimitExceeded) as error:
+            raise ValidationError(str(error)) from error
+        return Response(NotebookAppComputeResultSerializer(result).data)
+
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":
             notebook = Notebook(
@@ -960,6 +1163,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return notebook
 
         return self.get_object()
+
+    def _require_app_sharing_access(self) -> None:
+        if not authorization.check(
+            resource=Resource(type=ResourceType.ORGANIZATION, id=str(self.team.organization_id)),
+            action=Action.SHARE,
+            subject=request_subject(self.request),
+        ):
+            raise PermissionDenied("An organization admin can manage app sharing.")
+        self._require_query_access()
 
     def _has_query_access(self) -> bool:
         return authorization.check(

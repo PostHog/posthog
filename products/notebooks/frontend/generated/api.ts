@@ -9,10 +9,20 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AppEmbedRequestApi,
+    AppViewGrantRequestApi,
+    AppViewGrantResultApi,
     NotebookApi,
+    NotebookAppComputeRequestApi,
+    NotebookAppComputeResultApi,
+    NotebookAppDraftComputeRequestApi,
+    NotebookAppDraftQueryRequestApi,
     NotebookAppLayoutApi,
+    NotebookAppRefreshOutputsApi,
+    NotebookAppRefreshStatusApi,
     NotebookAppReleaseApi,
     NotebookAppReleaseReviewApi,
+    NotebookAppScheduleSettingsApi,
     NotebookAppViewerQueryApi,
     NotebookAppViewerRequestApi,
     NotebookCollabPresenceApi,
@@ -471,6 +481,90 @@ export const notebooksActivityRetrieve = async (
     })
 }
 
+export const getNotebooksAppComputeCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_compute/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppComputeCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookAppComputeRequestApi: NotebookAppComputeRequestApi,
+    options?: RequestInit
+): Promise<NotebookAppComputeResultApi> => {
+    return apiMutator<NotebookAppComputeResultApi>(getNotebooksAppComputeCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookAppComputeRequestApi),
+    })
+}
+
+export const getNotebooksAppDraftComputeCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_draft_compute/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppDraftComputeCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookAppDraftComputeRequestApi: NonReadonly<NotebookAppDraftComputeRequestApi>,
+    options?: RequestInit
+): Promise<NotebookAppComputeResultApi> => {
+    return apiMutator<NotebookAppComputeResultApi>(getNotebooksAppDraftComputeCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookAppDraftComputeRequestApi),
+    })
+}
+
+export const getNotebooksAppDraftQueriesCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_draft_queries/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppDraftQueriesCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookAppDraftQueryRequestApi: NonReadonly<NotebookAppDraftQueryRequestApi>,
+    options?: RequestInit
+): Promise<NotebookAppViewerQueryApi[]> => {
+    return apiMutator<NotebookAppViewerQueryApi[]>(getNotebooksAppDraftQueriesCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookAppDraftQueryRequestApi),
+    })
+}
+
+export const getNotebooksAppEmbedsCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_embeds/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppEmbedsCreate = async (
+    projectId: string,
+    shortId: string,
+    appEmbedRequestApi: AppEmbedRequestApi,
+    options?: RequestInit
+): Promise<AppViewGrantResultApi> => {
+    return apiMutator<AppViewGrantResultApi>(getNotebooksAppEmbedsCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(appEmbedRequestApi),
+    })
+}
+
 export const getNotebooksAppPreviewCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/app_preview/`
 }
@@ -481,7 +575,7 @@ export const getNotebooksAppPreviewCreateUrl = (projectId: string, shortId: stri
 export const notebooksAppPreviewCreate = async (
     projectId: string,
     shortId: string,
-    notebookAppLayoutApi: NotebookAppLayoutApi,
+    notebookAppLayoutApi: NonReadonly<NotebookAppLayoutApi>,
     options?: RequestInit
 ): Promise<NotebookAppReleaseReviewApi> => {
     return apiMutator<NotebookAppReleaseReviewApi>(getNotebooksAppPreviewCreateUrl(projectId, shortId), {
@@ -513,6 +607,63 @@ export const notebooksAppQueriesCreate = async (
     })
 }
 
+export const getNotebooksAppRefreshOutputsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_refresh_outputs/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppRefreshOutputsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<NotebookAppRefreshOutputsApi> => {
+    return apiMutator<NotebookAppRefreshOutputsApi>(getNotebooksAppRefreshOutputsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksAppRefreshScheduleCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_refresh_schedule/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppRefreshScheduleCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookAppScheduleSettingsApi: NotebookAppScheduleSettingsApi,
+    options?: RequestInit
+): Promise<NotebookAppRefreshStatusApi> => {
+    return apiMutator<NotebookAppRefreshStatusApi>(getNotebooksAppRefreshScheduleCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookAppScheduleSettingsApi),
+    })
+}
+
+export const getNotebooksAppRefreshStatusRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_refresh_status/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppRefreshStatusRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<NotebookAppRefreshStatusApi> => {
+    return apiMutator<NotebookAppRefreshStatusApi>(getNotebooksAppRefreshStatusRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getNotebooksAppReleaseRetrieveUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/app_release/`
 }
@@ -528,6 +679,27 @@ export const notebooksAppReleaseRetrieve = async (
     return apiMutator<NotebookAppReleaseApi>(getNotebooksAppReleaseRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksAppViewGrantsCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_view_grants/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppViewGrantsCreate = async (
+    projectId: string,
+    shortId: string,
+    appViewGrantRequestApi: AppViewGrantRequestApi,
+    options?: RequestInit
+): Promise<AppViewGrantResultApi> => {
+    return apiMutator<AppViewGrantResultApi>(getNotebooksAppViewGrantsCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(appViewGrantRequestApi),
     })
 }
 

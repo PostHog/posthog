@@ -32,11 +32,14 @@ from products.canvas.backend.facade.notebooks import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.notebooks.backend.app_viewer import plan_viewer_queries
+from products.notebooks.backend.facade.contracts import AppWidgetSlot
 from products.notebooks.backend.models import (
     GeneratedWidget,
     GeneratedWidgetGenerationJob,
     GeneratedWidgetVersion,
     Notebook,
+    NotebookAppRelease,
     NotebookNodeRun,
     NotebookRun,
     NotebookWidgetInstance,
@@ -935,6 +938,171 @@ class TestWidgetData(APIBaseTest):
             }
         ]
 
+    def test_viewer_plan_follows_the_visible_widget_version_and_bound_source(self) -> None:
+        instance = self._mapping()
+        instance.input_bindings = {self.INPUT_NAME: {"source": "regions"}}
+        instance.save(update_fields=["input_bindings"])
+        self.notebook.content = markdown_content(
+            '<SQLV2 nodeId="source" code="SELECT {region} AS region" returnVariable="regions" />\n\n'
+            '<SQLV2 nodeId="other" code="SELECT 1" returnVariable="unrelated" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.variables = [{"name": "region", "type": "string", "value": "All"}]
+        block = {"kind": "cell", "node_id": self.NODE_ID}
+        self.notebook.app_published = {"blocks": [block, {"kind": "input", "variable": "region"}]}
+        self.notebook.save(update_fields=["content", "variables", "app_published"])
+        [plan] = plan_viewer_queries(self.team.id, self.notebook.pk, 0, {"region": "Europe"})
+        assert plan.node_id == "source"
+        assert "Europe" in plan.query
+        assert plan.widget_slots == [
+            AppWidgetSlot(node_id=self.NODE_ID, version_id=self._pinned_version(instance).id, slot=self.INPUT_NAME)
+        ]
+        assert not plan.matches_defaults
+        block["display"] = "source"
+        self.notebook.save(update_fields=["app_published"])
+        assert plan_viewer_queries(self.team.id, self.notebook.pk, 0, {"region": "Europe"}) == []
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_draft_widget_resolves_only_its_declared_dataframe_without_a_release(self, _flag) -> None:
+        instance = self._mapping()
+        self.notebook.variables = [{"name": "region", "type": "string", "value": "All"}]
+        self.notebook.content = markdown_content(
+            f'<SQLV2 nodeId="points" code="SELECT {{region}} AS region" returnVariable="{self.INPUT_NAME}" />\n\n'
+            '<SQLV2 nodeId="hidden" code="SELECT 1" returnVariable="hidden_rows" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.save(update_fields=["variables", "content"])
+        layout = {
+            "tabs": [{"id": "main", "title": "Main"}],
+            "blocks": [
+                {"id": "filter", "tab_id": "main", "kind": "input", "variable": "region"},
+                {"id": "map", "tab_id": "main", "kind": "cell", "node_id": self.NODE_ID},
+            ],
+        }
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/app_draft_queries/"
+        payload = {
+            "layout": layout,
+            "revision": self.notebook.version,
+            "variables": [{"name": "region", "type": "string", "value": "Europe"}],
+        }
+        response = self.client.post(url, payload, format="json")
+        assert response.status_code == 200, response.json()
+        [plan] = response.json()
+        assert plan["node_id"] == "points" and "Europe" in plan["query"]
+        assert plan["widget_slots"] == [
+            {"node_id": self.NODE_ID, "slot": self.INPUT_NAME, "version_id": str(self._pinned_version(instance).id)}
+        ]
+        layout["blocks"].pop()
+        assert self.client.post(url, payload, format="json").json() == []
+        self.notebook.refresh_from_db()
+        assert self.notebook.app_published is None and self.notebook.variables[0]["value"] == "All"
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_private_widget_runs_only_its_versioned_input_in_published_and_draft_apps(self, _flag) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        version.input_contract[0]["columns"] = [{"name": "shifts", "type": "int64"}]
+        version.save(update_fields=["input_contract"])
+        source = (
+            f'<PythonV2 nodeId="capacity" code="import pandas as pd; {self.INPUT_NAME} = pd.DataFrame(dict(shifts=[orders // 48]))" returnVariable="{self.INPUT_NAME}" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        layout = {
+            "tabs": [{"id": "main", "title": "Main"}],
+            "blocks": [
+                {"id": "orders", "tab_id": "main", "kind": "input", "variable": "orders"},
+                {"id": "summary", "tab_id": "main", "kind": "cell", "node_id": self.NODE_ID},
+            ],
+        }
+        defaults = [{"name": "orders", "type": "number", "value": 240}]
+        self.notebook.content = markdown_content(source)
+        self.notebook.app_published = layout
+        self.notebook.app_revision = 1
+        self.notebook.variables = defaults
+        self.notebook.save(update_fields=["app_revision", "app_published", "content", "variables"])
+        NotebookAppRelease.objects.for_team(self.team.id).create(
+            team=self.team,
+            notebook=self.notebook,
+            revision=1,
+            markdown=source,
+            layout=layout,
+            variables=defaults,
+        )
+        base = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/"
+        target = {"version_id": str(version.id), "slot": self.INPUT_NAME}
+        payload = {"node_id": self.NODE_ID, "variables": defaults, "revision": 1, "widget_input": target}
+        kernel = MagicMock()
+        kernel.execute.return_value = SimpleNamespace(
+            status="ok",
+            result=None,
+            stdout='{"columns":["shifts"],"types":["int64"],"rows":[{"shifts":5}],"row_count":1}',
+        )
+        with patch("products.notebooks.backend.app_compute.get_kernel_runtime", return_value=kernel):
+            for path, context in [
+                ("app_compute/", {}),
+                ("app_draft_compute/", {"layout": layout, "revision": self.notebook.version}),
+            ]:
+                response = self.client.post(base + path, {**payload, **context}, format="json")
+                assert response.status_code == 200, response.content
+                frame = response.json()["widget_frame"]
+                assert frame["sourceNodeId"] == "capacity" and frame["name"] == self.INPUT_NAME
+                assert frame["rows"] == [[5]] and frame["columns"] == [{"name": "shifts", "type": "int64"}]
+                assert frame["runId"] and not frame["truncated"]
+            invalid_requests: list[dict[str, object]] = [
+                {"widget_input": {**target, "slot": "unrelated"}},
+                {"widget_input": {**target, "version_id": str(uuid4())}},
+                {"node_id": "capacity"},
+            ]
+            for invalid in invalid_requests:
+                assert self.client.post(base + "app_compute/", {**payload, **invalid}, format="json").status_code == 400
+            version.input_contract[0]["columns"][0]["name"] = "unrelated"
+            version.save(update_fields=["input_contract"])
+            assert self.client.post(base + "app_compute/", payload, format="json").status_code == 400
+        assert not NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
+
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_private_connected_widget_uses_the_viewers_access_when_the_adapter_omits_types(self, _flag) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        version.input_contract[0]["columns"] = [{"name": "shifts", "type": "unknown"}]
+        version.save(update_fields=["input_contract"])
+        connection_id = str(uuid4())
+        self.notebook.content = markdown_content(
+            f'<SQLV2 nodeId="staffing" connectionId="{connection_id}" returnVariable="{self.INPUT_NAME}" code="SELECT 8 AS shifts" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.save(update_fields=["content"])
+        payload = {
+            "layout": {
+                "tabs": [{"id": "main", "title": "Main"}],
+                "blocks": [{"id": "result", "kind": "cell", "tab_id": "main", "node_id": self.NODE_ID}],
+            },
+            "variables": [],
+            "revision": self.notebook.version,
+            "node_id": self.NODE_ID,
+            "widget_input": {"slot": self.INPUT_NAME, "version_id": str(version.id)},
+        }
+
+        def query(**kwargs):
+            assert kwargs["user"] == self.user and kwargs["connection_id"] == connection_id
+            return SimpleNamespace(error=None, columns=["shifts"], types=None, results=[[8]])
+
+        with patch("products.notebooks.backend.app_compute.execute_hogql_query", side_effect=query):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/app_draft_compute/",
+                payload,
+                format="json",
+            )
+        assert response.status_code == 200, response.content
+        frame = response.json()["widget_frame"]
+        assert frame["columns"] == [{"name": "shifts", "type": "unknown"}] and frame["rows"] == [[8]]
+
     def test_frame_is_whitelisted_and_bounded(self) -> None:
         self._run()
         self._mapping()
@@ -947,6 +1115,7 @@ class TestWidgetData(APIBaseTest):
             user=self.user,
         )
 
+        assert result.frame["sourceNodeId"] == "source"
         assert result.frame["includedRowCount"] == 100
         assert result.frame["truncated"] is True
         assert len(str(result.frame).encode()) < MAX_FRAME_BYTES

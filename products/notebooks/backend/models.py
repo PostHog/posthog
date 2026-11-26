@@ -98,6 +98,82 @@ class NotebookAppRelease(TeamScopedRootMixin, UUIDModel):
         constraints = [models.UniqueConstraint(fields=["notebook", "revision"], name="notebook_app_release_revision")]
 
 
+class NotebookAppSchedule(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    notebook = models.OneToOneField(Notebook, on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    owner = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    revision = models.PositiveIntegerField()
+    enabled = models.BooleanField(default=True)
+    interval_minutes = models.PositiveIntegerField()
+    freshness_minutes = models.PositiveIntegerField()
+    configured_at = models.DateTimeField(default=timezone.now)
+    next_due_at = models.DateTimeField()
+    last_success_at = models.DateTimeField(null=True)
+    checked_node_ids = models.JSONField(default=list, db_default=[])
+    stale_at = models.DateTimeField(null=True, db_index=True)
+    stale_notified = models.BooleanField(default=False)
+    outputs = models.JSONField(default=dict)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["next_due_at"], condition=models.Q(enabled=True), name="notebook_app_schedule_due")
+        ]
+
+
+class NotebookAppRefreshRun(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    schedule = models.ForeignKey(NotebookAppSchedule, on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    revision = models.PositiveIntegerField()
+    due_at = models.DateTimeField()
+    started_at = models.DateTimeField(null=True)
+    finished_at = models.DateTimeField(null=True)
+    status = models.CharField(max_length=12, choices=Status, default=Status.QUEUED)
+    detail = models.CharField(max_length=200, blank=True)
+    output_count = models.PositiveIntegerField(default=0)
+    checked_count = models.PositiveIntegerField(default=0, db_default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["schedule", "due_at"], name="notebook_app_refresh_slot")]
+        indexes = [models.Index(fields=["status", "due_at"], name="notebook_app_run_dispatch")]
+
+
+class NotebookAppViewGrant(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    release = models.ForeignKey(NotebookAppRelease, on_delete=models.CASCADE, related_name="+")
+    recipient = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["release", "recipient"], name="notebook_app_release_recipient"),
+        ]
+
+
+class NotebookAppEmbed(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    release = models.ForeignKey(NotebookAppRelease, on_delete=models.CASCADE, related_name="+")
+    issued_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    origin = models.CharField(max_length=255)
+    tenant_column = models.CharField(max_length=120)
+    tenant_value = models.CharField(max_length=256)
+    verification_key = models.BinaryField()
+    snapshot = models.JSONField()
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["release", "origin", "tenant_column", "tenant_value"], name="notebook_app_embed_audience"
+            ),
+        ]
+
+
 RELATED_OBJECTS = ("group", "account")
 
 

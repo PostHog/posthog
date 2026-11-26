@@ -1,5 +1,8 @@
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
@@ -14,7 +17,62 @@ from products.notebooks.backend.markdown_conversion import (
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun
 
 
+def test_table_inputs_bind_only_published_list_columns():
+    release = AppRelease(
+        revision=1,
+        published_at=None,
+        results_as_of=None,
+        title="Targets",
+        has_previous=False,
+        variables=[{"name": name, "type": "list", "value": []} for name in ["segment", "target", "private"]],
+        markdown='<SQLV2 nodeId="targets" code="SELECT arrayZip({segment}, {target})" />',
+        layout={
+            "blocks": [
+                {"kind": "cell", "node_id": "targets"},
+                {"kind": "input", "variable": "segment", "input_kind": "table", "table_columns": ["target"]},
+            ]
+        },
+    )
+    plans = resolve_viewer_queries(release, {"segment": ["North"], "target": ["25"]})
+    assert len(plans) == 1
+    assert "North" in plans[0].query and "25" in plans[0].query
+    with pytest.raises(ValidationError, match="published app input"):
+        resolve_viewer_queries(release, {"private": ["secret"]})
+
+
 class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_draft_queries_run_unpublished_layout_without_changing_defaults(self, _flag) -> None:
+        notebook = Notebook.objects.create(
+            team=self.team,
+            created_by=self.user,
+            variables=[{"name": "region", "type": "string", "value": "All"}],
+            content=build_markdown_notebook_content('<SQLV2 nodeId="display" code="SELECT {region} AS region" />'),
+        )
+        url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/app_draft_queries/"
+        layout = {
+            "tabs": [{"id": "main", "title": "Main"}],
+            "blocks": [
+                {"id": "input", "kind": "input", "tab_id": "main", "variable": "region"},
+                {"id": "out", "kind": "cell", "tab_id": "main", "node_id": "display"},
+            ],
+        }
+        payload = {
+            "layout": layout,
+            "revision": notebook.version,
+            "variables": [{"name": "region", "type": "string", "value": "Europe"}],
+        }
+        response = self.client.post(url, payload, format="json")
+        assert response.status_code == 200, response.json()
+        [plan] = response.json()
+        assert plan["node_id"] == "display" and "Europe" in plan["query"]
+        assert self.client.post(url, {**payload, "revision": notebook.version + 1}, format="json").status_code == 409
+        notebook.refresh_from_db()
+        assert notebook.variables[0]["value"] == "All"
+        assert notebook.app_draft is None and notebook.app_published is None
+
     @patch(
         "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
     )
@@ -68,6 +126,22 @@ class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):
             self.organization.members.add(user)
             self.client.force_login(user)
             assert self.client.get(notebook_url).json()["user_access_level"] == "viewer"
+            assert (
+                self.client.post(
+                    notebook_url + "app_draft_queries/",
+                    {"revision": notebook.version, "variables": [], "layout": layout},
+                    format="json",
+                ).status_code
+                == 403
+            )
+            assert (
+                self.client.post(
+                    notebook_url + "app_draft_compute/",
+                    {"revision": notebook.version, "variables": [], "layout": layout, "node_id": "output"},
+                    format="json",
+                ).status_code
+                == 403
+            )
             assert self.client.patch(notebook_url, {"title": "Unauthorized"}, format="json").status_code == 403
             payload = {
                 "revision": 1,
@@ -146,6 +220,65 @@ def test_date_filter_only_recomputes_native_outputs_with_changed_bindings() -> N
     assert "2026-10-19" in plans["date"].query
     assert not plans["date"].matches_defaults
     assert plans["constant"].matches_defaults
+
+
+def test_query_dropdown_refreshes_hidden_choices_with_upstream_input() -> None:
+    release = AppRelease(
+        revision=1,
+        published_at=None,
+        results_as_of=None,
+        title="Accounts",
+        has_previous=False,
+        markdown='<SQLV2 nodeId="accounts" code="select {region} as account" />',
+        variables=[
+            {"name": "region", "type": "string", "value": "All"},
+            {"name": "account", "type": "string", "value": ""},
+        ],
+        layout={
+            "blocks": [
+                {"kind": "input", "variable": "region"},
+                {
+                    "kind": "input",
+                    "variable": "account",
+                    "input_kind": "query_select",
+                    "node_id": "accounts",
+                    "option_column": "account",
+                },
+            ]
+        },
+    )
+    [plan] = resolve_viewer_queries(release, {"region": "West"})
+    assert plan.node_id == "accounts"
+    assert "West" in plan.query and not plan.matches_defaults
+
+
+def test_date_range_exposes_and_orders_both_bounds() -> None:
+    import pytest
+
+    from rest_framework.exceptions import ValidationError
+
+    release = AppRelease(
+        revision=1,
+        published_at=None,
+        results_as_of=None,
+        title="Date range",
+        has_previous=False,
+        markdown='<SQLV2 nodeId="summary" code="select {date_from}, {date_to}" />',
+        variables=[
+            {"name": "date_from", "type": "date", "value": "2026-09-01"},
+            {"name": "date_to", "type": "date", "value": "2026-09-30"},
+        ],
+        layout={
+            "blocks": [
+                {"kind": "input", "input_kind": "date_range", "variable": "date_from", "end_variable": "date_to"},
+                {"kind": "cell", "node_id": "summary"},
+            ]
+        },
+    )
+    [plan] = resolve_viewer_queries(release, {"date_from": "2026-09-14", "date_to": "2026-09-16"})
+    assert "2026-09-14" in plan.query and "2026-09-16" in plan.query
+    with pytest.raises(ValidationError, match="end date"):
+        resolve_viewer_queries(release, {"date_to": "2026-08-20"})
 
 
 class TestPublishedAppResults(APIBaseTest):
