@@ -22,6 +22,8 @@ describe('messageTemplatesLogic', () => {
     let requests: URLSearchParams[]
     let holdNextPages: boolean
     let heldNextPages: ((status: number) => void)[]
+    let holdCounts: boolean
+    let heldCounts: ((status: number) => void)[]
 
     const names = (): string[] => logic.values.templates.map((t) => t.name)
     const many = (count: number, prefix: string): MessageTemplate[] =>
@@ -42,6 +44,8 @@ describe('messageTemplatesLogic', () => {
         requests = []
         holdNextPages = false
         heldNextPages = []
+        holdCounts = false
+        heldCounts = []
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': async ({ request }) => {
@@ -53,10 +57,9 @@ describe('messageTemplatesLogic', () => {
                     const rows = filtered || !everything ? stored : everything
                     const next = offset + limit < rows.length ? `?offset=${offset + limit}` : null
                     const page = { count: rows.length, next, results: rows.slice(offset, offset + limit) }
-                    const status =
-                        offset > 0 && holdNextPages
-                            ? await new Promise<number>((release) => heldNextPages.push(release))
-                            : 200
+                    const held =
+                        offset > 0 && holdNextPages ? heldNextPages : limit === 1 && holdCounts ? heldCounts : null
+                    const status = held ? await new Promise<number>((release) => held.push(release)) : 200
                     return status === 200 ? [200, page] : [status, { detail: 'failed' }]
                 },
             },
@@ -181,13 +184,36 @@ describe('messageTemplatesLogic', () => {
         expect(logic.values.templateCount).toBe(4)
     })
 
-    it('cuts a long search to what the server accepts', async () => {
+    it('counts the templates even when a filter is set before the first page lands', async () => {
+        logic.actions.setCreatedByFilter(7)
+        await expectLogic(logic).toFinishAllListeners()
+        await waitFor(() => expect(logic.values.templateCount).toBe(3))
+    })
+
+    it('keeps the newest template count when an older count answers last', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        holdCounts = true
+        logic.actions.loadTemplateCount()
+        await waitFor(() => expect(heldCounts).toHaveLength(1))
+        holdCounts = false
+        stored = [...stored, template('d', 'Fresh', [])]
+        logic.actions.loadTemplateCount()
+        await waitFor(() => expect(logic.values.templateCount).toBe(4))
+
+        heldCounts[0](200)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.templateCount).toBe(4)
+    })
+
+    it('cuts a long search to what the server accepts, without splitting an emoji', async () => {
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        const accepted = 'x'.repeat(TEMPLATE_SEARCH_MAX_LENGTH - 1) + '😀'
+
+        logic.actions.setSearch(accepted + 'y'.repeat(50))
         await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
 
-        logic.actions.setSearch('x'.repeat(TEMPLATE_SEARCH_MAX_LENGTH + 50))
-        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
-
-        expect(requests.at(-1)?.get('search')).toEqual('x'.repeat(TEMPLATE_SEARCH_MAX_LENGTH))
+        expect(requests.at(-1)?.get('search')).toEqual(accepted)
     })
 
     it('saves a tag edit with only the tags, so it never republishes the content', async () => {

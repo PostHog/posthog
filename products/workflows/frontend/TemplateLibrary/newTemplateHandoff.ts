@@ -2,7 +2,7 @@ import api from 'lib/api'
 import type { AiFirstHandoffLogicProps } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 import { urls } from 'scenes/urls'
 
-import { TEMPLATE_SEARCH_MAX_LENGTH } from './messageTemplatesLogic'
+import { cutTemplateSearch } from './messageTemplatesLogic'
 
 // pinned: MCP tool name from products/workflows/mcp/email_templates.yaml
 const CREATE_TEMPLATE_TOOL = 'workflows-create-email-template'
@@ -17,7 +17,7 @@ export async function findCreatedTemplateId(name: unknown): Promise<string | nul
         return null
     }
     const { results } = await api.messaging.getTemplates({
-        search: search.slice(0, TEMPLATE_SEARCH_MAX_LENGTH),
+        search: cutTemplateSearch(search),
         basic: true,
     })
     const match = results

@@ -97,7 +97,7 @@ export interface messageTemplatesLogicActions {
         hasMoreTemplates: boolean
         templates: MessageTemplate[]
     }
-    loadTemplateCount: () => any
+    loadTemplateCount: (_: void) => void
     loadTemplateCountFailure: (
         error: string,
         errorObject?: any
@@ -107,10 +107,10 @@ export interface messageTemplatesLogicActions {
     }
     loadTemplateCountSuccess: (
         templateCount: number,
-        payload?: any
+        payload?: void
     ) => {
         templateCount: number
-        payload?: any
+        payload?: void
     }
     loadTemplates: (_: void) => void
     loadTemplatesFailure: (
@@ -194,7 +194,7 @@ export interface messageTemplatesLogicMeta {
         canLoadMoreTemplates: (
             hasMoreTemplates: boolean,
             templatesLoading: boolean,
-            loadedListParams: any,
+            loadedListParams: MessagingTemplatesListParams | null,
             listParams: MessagingTemplatesListParams
         ) => boolean
     }
@@ -210,6 +210,11 @@ export type messageTemplatesLogicType = MakeLogicType<
 export const TEMPLATES_PAGE_SIZE = 50
 // The list API rejects a longer search. Template names are no longer, so a pasted name still matches.
 export const TEMPLATE_SEARCH_MAX_LENGTH = 400
+
+// The server counts characters by code point, and a cut through an emoji would leave half a pair that cannot be encoded.
+export function cutTemplateSearch(search: string): string {
+    return Array.from(search).slice(0, TEMPLATE_SEARCH_MAX_LENGTH).join('')
+}
 
 export interface MessageTemplatesLogicProps {
     listKey?: string
@@ -286,6 +291,9 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             {
                 loadTemplates: async (_: void, breakpoint) => {
                     const { listParams, hasActiveFilters } = values
+                    if (hasActiveFilters && values.templateCount === null) {
+                        actions.loadTemplateCount()
+                    }
                     const page = await api.messaging.getTemplates(listParams)
                     breakpoint()
                     actions.templatesPageLoaded(listParams, !!page.next, hasActiveFilters ? null : page.count)
@@ -356,8 +364,9 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         templateCount: [
             null as number | null,
             {
-                loadTemplateCount: async () => {
+                loadTemplateCount: async (_: void, breakpoint) => {
                     const page = await api.messaging.getTemplates({ basic: true, limit: 1 })
+                    breakpoint()
                     return page.count
                 },
             },
@@ -373,7 +382,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 transactionalOnly: boolean
             ): MessagingTemplatesListParams => ({
                 limit: TEMPLATES_PAGE_SIZE,
-                search: search.trim().slice(0, TEMPLATE_SEARCH_MAX_LENGTH) || undefined,
+                search: cutTemplateSearch(search.trim()) || undefined,
                 created_by: createdByFilter ?? undefined,
                 tags: tagsFilter.length ? tagsFilter : undefined,
                 transactional: transactionalOnly || undefined,
