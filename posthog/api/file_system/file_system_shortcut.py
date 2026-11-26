@@ -14,12 +14,17 @@ from posthog.api.file_system.access_levels import FileSystemAccessLevelSerialize
 from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.models.file_system.constants import DEFAULT_SURFACE, RETIRED_FILE_SYSTEM_TYPES, surface_q
+from posthog.models.file_system.constants import (
+    DEFAULT_SURFACE,
+    RETIRED_FILE_SYSTEM_TYPES,
+    UNFILED_FILE_SYSTEM_TYPES,
+    surface_q,
+)
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
 
 
 def reject_retired_type(value: str) -> str:
-    if value in RETIRED_FILE_SYSTEM_TYPES:
+    if value in RETIRED_FILE_SYSTEM_TYPES or value in UNFILED_FILE_SYSTEM_TYPES:
         raise serializers.ValidationError(f"Shortcuts of type '{value}' can no longer be created.")
     return value
 

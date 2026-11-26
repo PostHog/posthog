@@ -269,17 +269,22 @@ class TestFileSystemShortcutAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("create", "", {"path": "Old link", "type": "link"}),
-            ("bulk_update", "bulk_update/", {"add": [{"path": "Old link", "type": "link"}]}),
+            (f"{action}_{file_type}", url_suffix, file_type)
+            for file_type in ("link", "hog_flow", "message_template")
+            for action, url_suffix in (("create", ""), ("bulk_update", "bulk_update/"))
         ]
     )
-    def test_rejects_new_shortcut_of_retired_type(self, _name: str, url_suffix: str, body: dict) -> None:
+    def test_rejects_new_shortcut_of_a_type_the_tree_no_longer_files(
+        self, _name: str, url_suffix: str, file_type: str
+    ) -> None:
+        item = {"path": "Old item", "type": file_type, "ref": "0190a1b2-0000-7000-8000-000000000003"}
+        body = {"add": [item]} if url_suffix else item
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system_shortcut/{url_suffix}", body, format="json"
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-        self.assertFalse(FileSystemShortcut.objects.filter(type="link").exists())
+        self.assertFalse(FileSystemShortcut.objects.filter(type=file_type).exists())
 
     def test_reorder_rejects_empty_list(self):
         response = self.client.post(
