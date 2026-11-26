@@ -26,20 +26,22 @@
     }
 
     /*
-     * The selected item marks its top edge with the brand color, so a column of
-     * groups shows at a glance which item each row has on. A pseudo-element draws
-     * the mark, so it keeps the item's size and leaves the focus ring alone.
+     * The selected item sinks onto a brand-color shelf, so a column of groups
+     * shows at a glance which item each row has on. The press dips the item 2px
+     * onto a 1px shelf; the bar covers the bottom border and that shelf, and ends
+     * level with the 3px shelf of the raised items beside it. A pseudo-element
+     * draws it, so the item keeps its size and its focus ring.
      */
     .quill-toggle-group__item:is([aria-pressed='true'], [data-pressed])::after {
         position: absolute;
         inset-inline: -1px;
-        inset-block-start: -1px;
-        height: 2px;
+        inset-block-end: -2px;
+        height: 3px;
         pointer-events: none;
         content: '';
         background-color: var(--primary);
-        border-start-start-radius: inherit;
-        border-start-end-radius: inherit;
+        border-end-start-radius: inherit;
+        border-end-end-radius: inherit;
     }
 
     /*
