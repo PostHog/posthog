@@ -15,18 +15,6 @@ export type SesClientOptions = Pick<
 
 export type SesSend = { email: SesEmail } | { email: SesEmail; files: LoadedAttachment[]; deadline: AbortSignal }
 
-/**
- * SES error codes that signal a transient rate-limit shape — safe to retry
- * shortly after. `TooManyRequestsException` is the SES-v2-specific class;
- * `ThrottlingException` is a generic AWS SDK error code that can surface
- * from the underlying transport layer for the same condition (not exported
- * as a class for sesv2, so we match by `name`).
- *
- * `SendingPausedException` is *not* on this list — it signals a reputation
- * or account-state problem that won't recover in seconds. Retrying within
- * 500ms just burns reschedules; the job hard-fails instead, surfaces via
- * `email_failed`, and the underlying SES config needs operator attention.
- */
 const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingException'] as const
 export type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
 
@@ -111,8 +99,9 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 const isOneOf = <T extends string>(names: readonly T[], name: string | undefined): name is T =>
     (names as readonly (string | undefined)[]).includes(name)
 
-// Every other error name reads as `other`, so an unexpected SDK error cannot add a series.
-function sendResultLabel(error: unknown): string {
+export const isSesThrottle = (error: unknown): boolean => isOneOf(SES_THROTTLE_ERROR_NAMES, errorNameOf(error))
+
+function boundedSendResultLabel(error: unknown): string {
     const name = errorNameOf(error)
     if (isOneOf(SES_THROTTLE_ERROR_NAMES, name)) {
         return 'throttled'
@@ -247,19 +236,21 @@ export class SesTransport {
             return { kind: 'accepted', messageId: response.MessageId }
         } catch (error: unknown) {
             observeDuration('error')
-            sesSendResultsTotal.inc({ result: sendResultLabel(error) })
+            sesSendResultsTotal.inc({ result: boundedSendResultLabel(error) })
             return failureOf(error, SEND_POLICIES[kind], deadline, attempts)
         }
     }
 
     destroy(): void {
-        Object.values(this.clients).forEach((client) => client.destroy())
+        new Set(Object.values(this.clients)).forEach((client) => client.destroy())
     }
 }
 
 export type SandboxSesSender = { send(email: SesEmail, abortSignal: AbortSignal): Promise<{ MessageId?: string }> }
 
-export function createSandboxSesSender(options: SesClientOptions): SandboxSesSender {
+export function createSandboxSesSender(
+    options: Pick<SESv2ClientConfig, 'region' | 'endpoint' | 'credentials'>
+): SandboxSesSender {
     const client = new SESv2Client({ ...options, maxAttempts: 1 })
     return { send: (email, abortSignal) => client.send(new SendEmailCommand(email), { abortSignal }) }
 }

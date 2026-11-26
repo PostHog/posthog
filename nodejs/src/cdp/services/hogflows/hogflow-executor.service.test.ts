@@ -85,6 +85,7 @@ type DeliveredEmail = { to: string[]; subject: string; attachments: { filename: 
 class SesV2Fake {
     readonly delivered: DeliveredEmail[] = []
     endpoint = ''
+    private readonly answers: ('accept' | 'throttle')[] = []
     private readonly server = createServer((request, response) => void this.handle(request, response))
 
     static async start(): Promise<SesV2Fake> {
@@ -102,6 +103,10 @@ class SesV2Fake {
         })
     }
 
+    answerInTurn(...answers: ('accept' | 'throttle')[]): void {
+        this.answers.push(...answers)
+    }
+
     async close(): Promise<void> {
         this.server.closeAllConnections()
         await new Promise((resolve) => this.server.close(resolve))
@@ -116,6 +121,12 @@ class SesV2Fake {
             response
                 .writeHead(404, { 'content-type': 'application/json', 'x-amzn-errortype': 'NotFoundException' })
                 .end(JSON.stringify({ message: `No route for ${request.method} ${request.url}` }))
+            return
+        }
+        if (this.answers.shift() === 'throttle') {
+            response
+                .writeHead(429, { 'content-type': 'application/json', 'x-amzn-errortype': 'TooManyRequestsException' })
+                .end(JSON.stringify({ message: 'Too many requests' }))
             return
         }
         const { Destination, Content } = parseJSON(Buffer.concat(chunks).toString())
@@ -3691,8 +3702,16 @@ describe('Hogflow Executor', () => {
     })
 
     describe('email queue routing', () => {
-        afterEach(() => {
+        const startedSes: SesV2Fake[] = []
+        const startSes = async (): Promise<SesV2Fake> => {
+            const ses = await SesV2Fake.start()
+            startedSes.push(ses)
+            return ses
+        }
+
+        afterEach(async () => {
             jest.restoreAllMocks()
+            await Promise.all(startedSes.splice(0).map((ses) => ses.close()))
         })
 
         const insertEmailSetup = async (provider: 'maildev' | 'ses'): Promise<void> => {
@@ -3892,16 +3911,9 @@ describe('Hogflow Executor', () => {
                 .mockResolvedValueOnce(fcmResponse(200))
                 .mockResolvedValueOnce(fcmResponse(503))
                 .mockResolvedValueOnce(fcmResponse(200))
-            const sesSend = jest.spyOn(SesTransport.prototype, 'send')
-            sesSend
-                .mockResolvedValueOnce({ kind: 'accepted', messageId: 'first-email' })
-                .mockResolvedValueOnce({
-                    kind: 'not_sent',
-                    reason: 'throttled',
-                    errorName: 'TooManyRequestsException',
-                    message: 'Too many requests',
-                })
-                .mockResolvedValue({ kind: 'accepted', messageId: 'follow-up-email' })
+            const ses = await startSes()
+            ses.answerInTurn('accept', 'throttle', 'throttle', 'throttle')
+            const { executor: runner } = createExecutor(createEmailService({ ses }))
 
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-push-queue-routing-test',
@@ -3981,7 +3993,7 @@ if (not res.success) { throw Error(res.error) }`,
             invocation.queuePriority = 2
 
             // Step 1: Hogflow worker executes (queue !== 'email') — should route to email queue
-            const hogflowResult = await executor.execute(invocation)
+            const hogflowResult = await runner.execute(invocation)
             expect(hogflowResult.finished).toBe(false)
             expect(hogflowResult.invocation.queue).toBe('email')
             expect(hogflowResult.invocation.queueParameters?.type).toBe('email')
@@ -3990,10 +4002,10 @@ if (not res.success) { throw Error(res.error) }`,
             expect(hogflowResult.invocation.queueMetadata?.originPriority).toBe(2)
 
             const results = []
-            let emailResult = await executor.execute(hogflowResult.invocation)
+            let emailResult = await runner.execute(hogflowResult.invocation)
             results.push(emailResult)
             while (!emailResult.finished && emailResult.invocation.queue === 'email') {
-                emailResult = await executor.execute(emailResult.invocation)
+                emailResult = await runner.execute(emailResult.invocation)
                 results.push(emailResult)
             }
             expect(emailResult.invocation).toMatchObject({ queue: 'hogflow', queuePriority: 2 })
@@ -4008,7 +4020,7 @@ if (not res.success) { throw Error(res.error) }`,
 
             let workflowResult = emailResult
             while (!workflowResult.finished) {
-                workflowResult = await executor.execute(workflowResult.invocation)
+                workflowResult = await runner.execute(workflowResult.invocation)
                 results.push(workflowResult)
             }
             expect(workflowResult.error).toBeUndefined()
@@ -4018,7 +4030,7 @@ if (not res.success) { throw Error(res.error) }`,
                 .map((m) => m.metric_name)
                 .filter((name) => name === 'email_sent' || name === 'push_sent')
             expect(sentMetrics).toEqual(['email_sent', 'push_sent', 'push_sent', 'email_sent'])
-            expect(sesSend).toHaveBeenCalledTimes(3)
+            expect(ses.delivered.map((email) => email.subject)).toEqual(['Test Email', 'Follow-up Email'])
             expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
 
@@ -4342,20 +4354,20 @@ if (not res.success) { throw Error(res.error) }`,
             { name: 'delivers a code-key step with an accepted send', send: codeSend, sent: 1 },
         ])('$name', async ({ send, sent }) => {
             await insertEmailSetup('ses')
-            const sesSend = jest.spyOn(SesTransport.prototype, 'send')
-            sesSend.mockResolvedValue({ kind: 'accepted', messageId: 'code-key-email' })
+            const ses = await startSes()
+            const { executor: runner } = createExecutor(createEmailService({ ses }))
             const invocation = flowInvocation(emailFlow(codeKeyStep()))
             invocation.state.send = send()
 
-            let result = await executor.execute(invocation)
+            let result = await runner.execute(invocation)
             const metrics = [...result.metrics]
             while (!result.finished) {
-                result = await executor.execute(result.invocation)
+                result = await runner.execute(result.invocation)
                 metrics.push(...result.metrics)
             }
 
             expect(metrics.filter((m) => m.metric_name === 'email_sent')).toHaveLength(sent)
-            expect(sesSend).toHaveBeenCalledTimes(sent)
+            expect(ses.delivered).toHaveLength(sent)
         })
 
         it.each([
@@ -4372,8 +4384,8 @@ if (not res.success) { throw Error(res.error) }`,
             "captures the email's events by the code send's choice $captureEngagement and the team switch $teamCaptures, step state saved without the send: $savedWithoutSend",
             async ({ captureEngagement, teamCaptures, savedWithoutSend, captured }) => {
                 await insertEmailSetup('ses')
-                const sesSend = jest.spyOn(SesTransport.prototype, 'send')
-                sesSend.mockResolvedValue({ kind: 'accepted', messageId: 'captured-email' })
+                const ses = await startSes()
+                const { executor: runner } = createExecutor(createEmailService({ ses }))
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO workflows_teamworkflowsconfig
@@ -4386,20 +4398,20 @@ if (not res.success) { throw Error(res.error) }`,
                 const invocation = flowInvocation(emailFlow(storedStep()))
                 invocation.state.send = { tracking: { captureEngagement } }
 
-                let result = await executor.execute(invocation)
+                let result = await runner.execute(invocation)
                 const events = [...result.capturedPostHogEvents]
                 if (savedWithoutSend) {
                     delete result.invocation.state.currentAction!.hogFunctionState!.send
                 }
                 while (!result.finished) {
-                    result = await executor.execute(result.invocation)
+                    result = await runner.execute(result.invocation)
                     events.push(...result.capturedPostHogEvents)
                 }
 
                 expect(
                     events.map((event) => event.event).filter((event) => event.startsWith('$workflows_email_'))
                 ).toEqual(captured)
-                expect(sesSend).toHaveBeenCalledTimes(1)
+                expect(ses.delivered).toHaveLength(1)
             }
         )
     })
