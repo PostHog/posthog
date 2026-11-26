@@ -157,7 +157,9 @@ pub fn create_require_secret_key_step(context: Arc<LogsPipelineContext>) -> Admi
                     }
                 }
                 let rule_sets = futures::future::join_all(
-                    team_ids.iter().map(|t| cache.get_compiled_rule_set(*t)),
+                    team_ids
+                        .iter()
+                        .map(|t| context.retry(|| cache.get_compiled_rule_set(*t))),
                 )
                 .await;
                 let mut rule_ids: Vec<(i64, String)> = Vec::new();

@@ -1,9 +1,10 @@
+import { retryOnDependencyUnavailableError } from '~/common/kafka/error-handling'
 import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import type { LogsIngestionMessage } from '../types'
 import { compileRuleSet } from './compile-rules'
-import { findRequireSecretKeyDrops } from './require-secret-key'
+import { RetryOnDependencyUnavailable, findRequireSecretKeyDrops } from './require-secret-key'
 import { SamplingRulesCache } from './sampling-rules-cache'
 
 describe('findRequireSecretKeyDrops', () => {
@@ -22,8 +23,9 @@ describe('findRequireSecretKeyDrops', () => {
     const outage = (): DependencyUnavailableError =>
         new DependencyUnavailableError('pg down', 'Postgres', new Error('pg down'))
     const message = { teamId: 1, recordCount: 1, bytesUncompressed: 10 } as LogsIngestionMessage
-    const findDrops = (): ReturnType<typeof findRequireSecretKeyDrops> =>
-        findRequireSecretKeyDrops([message], cache, () => true)
+    const noRetry: RetryOnDependencyUnavailable = (fn) => fn()
+    const findDrops = (retry = noRetry): ReturnType<typeof findRequireSecretKeyDrops> =>
+        findRequireSecretKeyDrops([message], cache, () => true, retry)
 
     beforeEach(() => {
         query = jest.fn()
@@ -46,6 +48,16 @@ describe('findRequireSecretKeyDrops', () => {
 
         query.mockResolvedValueOnce({ rows: [requireKeyRule] })
         const { dropped } = await findDrops()
+
+        expect(dropped).toEqual(new Set([message]))
+    })
+
+    it('retries a transient rules fetch failure in place instead of failing the batch', async () => {
+        query.mockRejectedValueOnce(outage()).mockResolvedValueOnce({ rows: [requireKeyRule] })
+
+        const { dropped } = await findDrops((fn) =>
+            retryOnDependencyUnavailableError(fn, { retryCount: 2, initialRetryDelayMs: 1 })
+        )
 
         expect(dropped).toEqual(new Set([message]))
     })

@@ -26,6 +26,7 @@ import {
     LogsPipelineContext,
     isSamplingEvalEnabledForTeam,
     isUnbilledInternal,
+    retryOnDependencyUnavailable,
     teamIdMatchesCsv,
 } from './logs-pipeline-context'
 
@@ -130,8 +131,11 @@ export function createRequireSecretKeyStep<T extends LogsAdmissionInput>(
         if (!cache || context.identity.samplingRuleSource !== 'logs') {
             return values.map((value) => ok(value))
         }
-        const { dropped, byTeam } = await findRequireSecretKeyDrops(values, cache, (teamId) =>
-            isSamplingEvalEnabledForTeam(context, teamId)
+        const { dropped, byTeam } = await findRequireSecretKeyDrops(
+            values,
+            cache,
+            (teamId) => isSamplingEvalEnabledForTeam(context, teamId),
+            (fn) => retryOnDependencyUnavailable(context, fn)
         )
         for (const [teamId, totals] of byTeam) {
             logMessageDroppedCounter.inc({ reason: 'require_secret_key', team_id: teamId.toString() }, totals.messages)

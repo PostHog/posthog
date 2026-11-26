@@ -949,8 +949,11 @@ export class LogsIngestionConsumer {
         if (!cache || this.samplingRuleSource !== 'logs') {
             return { secretKeyAllowedMessages: messages, secretKeyDroppedMessages: [] }
         }
-        const { dropped, byTeam } = await findRequireSecretKeyDrops(messages, cache, (teamId) =>
-            this.isSamplingEvalEnabledForTeam(teamId)
+        const { dropped, byTeam } = await findRequireSecretKeyDrops(
+            messages,
+            cache,
+            (teamId) => this.isSamplingEvalEnabledForTeam(teamId),
+            (fn) => this.retryOnDependencyUnavailable(fn)
         )
         for (const [teamId, totals] of byTeam) {
             logMessageDroppedCounter.inc({ reason: 'require_secret_key', team_id: teamId.toString() }, totals.messages)
