@@ -38,12 +38,20 @@ export interface QueryBatchRunnerOptions {
 const UNTIL_BATCH_ACCEPTS_NO_TIME: TimeRange = { from: 'now-7d', to: 'now' }
 
 function batchTarget(request: QueryRequest, index: number): QueryBatchRequestApi['queries'][number] {
-    const { query, time = UNTIL_BATCH_ACCEPTS_NO_TIME, legend } = request
+    const { query, legend } = request
+    const time = request.time ?? UNTIL_BATCH_ACCEPTS_NO_TIME
     const refId = String(index)
     const target: QueryBatchRequestApi['queries'][number]['target'] =
         query.language === 'hogql' || query.language === 'promql' || query.language === 'logql'
             ? { refId, language: query.language, query: query.query }
-            : { refId, language: 'query', query: JSON.stringify(query.query) }
+            : {
+                  refId,
+                  language: 'query',
+                  // A `date_from` in its filters, even null, keeps the range saved in the query instead of `time`.
+                  query: JSON.stringify(
+                      request.time ? query.query : { query: query.query, filters: { date_from: null } }
+                  ),
+              }
     return {
         target: legend ? { ...target, legend } : target,
         time: { from: time.from, to: time.to },

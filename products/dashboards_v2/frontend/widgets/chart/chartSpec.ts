@@ -33,7 +33,7 @@ const chartTargetSchema = z.strictObject({
 })
 
 // PromQL and LogQL text carries no range, so without one around the chart the query has no window to run on.
-function hasNoOwnRange(target: ChartTarget): boolean {
+export function hasNoOwnRange(target: ChartTarget): boolean {
     return target.query.language === 'promql' || target.query.language === 'logql'
 }
 
@@ -67,10 +67,6 @@ export function chartSpec(vizTypes: VizSpec[]): WidgetSpec<ChartConfig, 'chart'>
             .refine((config) => (config.query === undefined) !== (config.targets === undefined), {
                 message: 'A chart needs either a query or a list of targets, not both',
                 path: ['query'],
-            })
-            .refine((config) => config.time !== undefined || !chartTargets(config).some(hasNoOwnRange), {
-                message: 'A PromQL or LogQL chart needs its own time range',
-                path: ['time'],
             })
             .refine(
                 (config) =>

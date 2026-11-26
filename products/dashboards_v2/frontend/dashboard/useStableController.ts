@@ -40,7 +40,7 @@ export function useStableController(props: DashboardController): DashboardContro
         () =>
             hasRefresh
                 ? {
-                      intervals: intervalsKey ? intervalsKey.split(',').map(Number) : undefined,
+                      intervals: intervalsKey?.split(',').filter(Boolean).map(Number),
                       initialInterval,
                       refreshing,
                       onRefresh: () => latest.current.refresh?.onRefresh?.(),

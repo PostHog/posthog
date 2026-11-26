@@ -47,7 +47,16 @@ export function FilterBar({
         addedHere.current = false
     }, [filters])
 
-    const pending = filters.find((filter) => filter.id === pendingId && filterValue(values, filter.id) === undefined)
+    const pendingHasValue = pendingId !== null && filterValue(values, pendingId) !== undefined
+    useLayoutEffect(() => {
+        if (pendingHasValue) {
+            setPendingId(null)
+        }
+    }, [pendingHasValue])
+    // Clear all remounts the pills, so an editor holding drafts of the cleared value starts again from nothing.
+    const [cleared, setCleared] = useState(0)
+
+    const pending = filters.find((filter) => filter.id === pendingId && !pendingHasValue)
     const listed = activeFirst(filters, values).filter((filter) => filter !== pending)
     if (filters.length === 0 && !onAdd) {
         return null
@@ -55,7 +64,7 @@ export function FilterBar({
 
     const pill = (filter: SavedFilter): JSX.Element => (
         <FilterPill
-            key={filter.id}
+            key={`${filter.id}-${cleared}`}
             filter={filter}
             types={types}
             value={filterValue(values, filter.id)}
@@ -105,7 +114,10 @@ export function FilterBar({
                         </Text>
                         {withValue.length > 0 && (
                             <Button
-                                onClick={() => withValue.forEach((filter) => onValueChange(filter.id, undefined))}
+                                onClick={() => {
+                                    withValue.forEach((filter) => onValueChange(filter.id, undefined))
+                                    setCleared((count) => count + 1)
+                                }}
                                 data-attr="dashboard-v2-filters-clear"
                             >
                                 Clear all

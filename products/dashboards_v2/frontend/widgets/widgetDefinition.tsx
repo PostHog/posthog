@@ -3,6 +3,7 @@ import type { ComponentType, ReactNode } from 'react'
 
 import type { ContentWidget, SavedWidget } from '../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../menu/menuAction'
+import { parseOnce } from '../schema/parseOnce'
 import { type WidgetSpec, type WidgetTypeSpec, defineWidgetSpec } from './widgetSpec'
 import { WidgetMessage } from './WidgetView'
 
@@ -66,7 +67,7 @@ export function defineWidget<Config, const Type extends string>(
     const checkedWidgets = new WeakMap<SavedWidget, ContentWidget<Config> | null>()
     const checked = (widget: SavedWidget): ContentWidget<Config> | null => {
         if (!checkedWidgets.has(widget)) {
-            const config = definition.configSchema.safeParse(widget.config)
+            const config = parseOnce(definition.configSchema, widget.config)
             checkedWidgets.set(widget, config.success ? { ...widget, config: config.data } : null)
         }
         return checkedWidgets.get(widget) ?? null

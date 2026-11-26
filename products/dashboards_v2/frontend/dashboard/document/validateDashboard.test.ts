@@ -236,20 +236,6 @@ describe('validateDashboard', () => {
             expected: [{ path: 'filters[1]', message: 'Another filter already narrows this field' }],
         },
         {
-            name: 'a PromQL chart with no time range of its own',
-            document: withTiles([
-                {
-                    id: 'a',
-                    place: { x: 0, y: 0, w: 12, h: 8 },
-                    widget: {
-                        type: 'chart',
-                        config: { query: { language: 'promql', query: 'up' }, viz: { type: 'line' } },
-                    },
-                },
-            ]),
-            expected: [{ path: 'tabs[0].tiles[0].widget.config.time', message: expect.any(String) }],
-        },
-        {
             name: 'a time range the picker cannot read',
             document: { ...(withTiles([]) as object), time: { from: 'now-7days', to: 'now' } },
             expected: [{ path: 'time.from', message: expect.any(String) }],
