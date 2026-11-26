@@ -64,7 +64,6 @@ import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { IssueSceneStatusSelect } from './IssueSceneStatusSelect'
-import { IssueStillSeenCue } from './IssueStillSeenCue'
 import { IssueSummary } from './IssueSummary'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
@@ -81,8 +80,16 @@ function isDisplayed(element: HTMLElement | null): boolean {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, issueIdValid, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
-        useValues(errorTrackingIssueSceneLogic)
+    const {
+        issue,
+        issueId,
+        issueIdValid,
+        lastSeen,
+        initialEventTimestamp,
+        selectedEvent,
+        mobileDetailOpen,
+        stillSeenAfterResolve,
+    } = useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateSeverity, updateStatus, updateName, setMobileDetailOpen } =
         useActions(errorTrackingIssueSceneLogic)
     const { severityUpdateInFlightIds, statusUpdateInFlightIds } = useValues(issueActionsLogic)
@@ -187,12 +194,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     actions={
                                         isMobile ? undefined : (
                                             <div className="flex flex-wrap items-center justify-end gap-1">
-                                                <IssueStillSeenCue />
                                                 <ButtonGroup>
                                                     <IssueSceneStatusSelect
                                                         status={issue.status}
                                                         resolvedUntil={issue.resolved_until}
                                                         latestRelease={issue.latest_release}
+                                                        stillSeen={stillSeenAfterResolve}
                                                         onChange={updateStatus}
                                                     />
                                                     <IssueSeveritySelect
@@ -297,12 +304,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
                                 {isMobile && (
                                     <div className="flex items-center gap-1.5 px-2 py-1.5 border-b flex-wrap">
-                                        <IssueStillSeenCue />
                                         <ButtonGroup>
                                             <IssueSceneStatusSelect
                                                 status={issue.status}
                                                 resolvedUntil={issue.resolved_until}
                                                 latestRelease={issue.latest_release}
+                                                stillSeen={stillSeenAfterResolve}
                                                 onChange={updateStatus}
                                             />
                                             <IssueSeveritySelect

@@ -18,10 +18,11 @@ export default meta
 
 type Story = StoryObj<typeof IssueSceneStatusSelect>
 
-export const ResolvedUntilANewRelease: Story = {
+export const ResolvedInTheNextReleaseAndStillSeen: Story = {
     args: {
         status: 'resolved',
         resolvedUntil: 'new_release',
+        stillSeen: true,
         latestRelease: {
             id: '0198c7e4-0000-0000-0000-000000000001',
             version: '2.4.0',

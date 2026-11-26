@@ -1,4 +1,4 @@
-import { IconCheck, IconChevronDown } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconWarning } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
@@ -15,6 +15,9 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
     Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from 'lib/ui/quill'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -40,11 +43,13 @@ export function IssueSceneStatusSelect({
     status,
     resolvedUntil,
     latestRelease,
+    stillSeen,
     onChange,
 }: {
     status: IssueStatus
     resolvedUntil: ErrorTrackingIssueReadApi['resolved_until'] | undefined
     latestRelease: ErrorTrackingIssueReadApi['latest_release'] | undefined
+    stillSeen: boolean
     onChange: (status: IssueStatus, resolvedUntil?: ResolvedUntilEnumApi) => void
 }): JSX.Element {
     const showResolveModes = useFeatureFlag('ERROR_TRACKING_RESOLVE_IN_NEXT_RELEASE')
@@ -55,6 +60,19 @@ export function IssueSceneStatusSelect({
     // An issue resolved before its mode was recorded reopens on the next exception.
     const currentMode = status === 'resolved' ? (resolvedUntil ?? 'next_occurrence') : null
     const statusLabel = currentMode ? RESOLVED_LABEL_BY_MODE[currentMode] : getIssueStatusConfig(status).label
+    const tooltip =
+        status === 'resolved' ? (
+            <div className="flex flex-col gap-1">
+                <IssueResolvedRule resolvedUntil={resolvedUntil} latestRelease={latestRelease} />
+                {stillSeen && (
+                    <span className="flex gap-1">
+                        <IconWarning className="mt-0.5 size-3.5 shrink-0 text-warning-foreground" />
+                        Still seen since the resolve. Exceptions keep arriving from releases this issue was already seen
+                        in, or older ones, so they don't reopen it.
+                    </span>
+                )}
+            </div>
+        ) : null
 
     const statusItem = (itemStatus: IssueStatus): JSX.Element => (
         <DropdownMenuItem onClick={() => itemStatus !== status && onChange(itemStatus)}>
@@ -65,21 +83,32 @@ export function IssueSceneStatusSelect({
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger
-                render={<Button variant="outline" left className="gap-1" aria-label={`Status: ${statusLabel}`} />}
-            >
-                <StatusIndicator
-                    status={status}
-                    size="xsmall"
-                    className="text-secondary"
-                    tooltip={
-                        status === 'resolved' ? (
-                            <IssueResolvedRule resolvedUntil={resolvedUntil} latestRelease={latestRelease} />
-                        ) : undefined
+            <Tooltip disabled={!tooltip}>
+                <TooltipTrigger
+                    render={
+                        <DropdownMenuTrigger
+                            render={
+                                <Button
+                                    variant="outline"
+                                    left
+                                    className="gap-1"
+                                    aria-label={`Status: ${statusLabel}${stillSeen ? ', still seen since the resolve' : ''}`}
+                                />
+                            }
+                        />
                     }
-                />
-                <IconChevronDown className="size-3.5 text-muted-foreground" />
-            </DropdownMenuTrigger>
+                >
+                    <StatusIndicator status={status} size="xsmall" className="text-secondary" />
+                    {stillSeen && (
+                        <IconWarning
+                            className="size-3.5 text-warning-foreground"
+                            data-attr="error-tracking-issue-still-seen"
+                        />
+                    )}
+                    <IconChevronDown className="size-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent>{tooltip}</TooltipContent>
+            </Tooltip>
             <DropdownMenuContent align="start">
                 <DropdownMenuGroup>
                     <DropdownMenuLabel>Status</DropdownMenuLabel>
