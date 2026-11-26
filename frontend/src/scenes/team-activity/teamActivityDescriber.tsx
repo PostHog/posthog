@@ -518,6 +518,8 @@ const TEAM_PROPERTIES_MAPPING: Record<
         const lists = [
             ['blocked_hosts', 'blocked domains for feature flag requests'],
             ['blocked_ips', 'blocked IP addresses for feature flag requests'],
+            ['allowed_hosts', 'allowed domains for feature flag requests'],
+            ['allowed_ips', 'allowed IP addresses for feature flag requests'],
         ] as const
         for (const [field, label] of lists) {
             const beforeEntries = (before[field] ?? []) as string[]

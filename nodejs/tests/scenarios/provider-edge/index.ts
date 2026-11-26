@@ -41,40 +41,43 @@ export type FaultHold = {
 
 type HeldFault = { firstAppliedAt(): Promise<number | undefined>; remove(): Promise<void> }
 
+async function appliedBefore(
+    fault: HeldFault,
+    windowEnds: AbortSignal | undefined,
+    deadline: number
+): Promise<boolean> {
+    let windowEndsAt = deadline
+    const endWindow = (): void => {
+        windowEndsAt = Math.min(windowEndsAt, Date.now())
+    }
+    if (windowEnds?.aborted) {
+        endWindow()
+    }
+    windowEnds?.addEventListener('abort', endWindow, { once: true })
+    const appliedInWindow = async (): Promise<boolean> => {
+        const appliedAt = await fault.firstAppliedAt()
+        return appliedAt !== undefined && appliedAt <= windowEndsAt
+    }
+    try {
+        let readFrom = Date.now()
+        let applied = await appliedInWindow()
+        while (!applied && !windowEnds?.aborted && Date.now() <= deadline) {
+            await sleep(FAULT_POLL_MS, undefined, { signal: windowEnds }).catch(() => undefined)
+            readFrom = Date.now()
+            applied = await appliedInWindow()
+        }
+        // A read that started before the window ended can answer after it, so its negative answer gets one more read.
+        return applied || (readFrom <= windowEndsAt && (await appliedInWindow()))
+    } finally {
+        windowEnds?.removeEventListener('abort', endWindow)
+    }
+}
+
 export function holdOf(fault: HeldFault): FaultHold {
     return {
-        observed: async (holdEnds) => {
-            const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
-            let windowEndsAt = deadline
-            const holdEnded = (): void => {
-                windowEndsAt = Math.min(windowEndsAt, Date.now())
-            }
-            if (holdEnds?.aborted) {
-                return false
-            }
-            holdEnds?.addEventListener('abort', holdEnded, { once: true })
-            const answeredInWindow = async (): Promise<boolean> =>
-                ((await fault.firstAppliedAt()) ?? Infinity) <= windowEndsAt
-            try {
-                let answered = await answeredInWindow()
-                while (!answered && Date.now() <= deadline && !holdEnds?.aborted) {
-                    await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
-                    answered = await answeredInWindow()
-                }
-                return answered
-            } finally {
-                holdEnds?.removeEventListener('abort', holdEnded)
-            }
-        },
-        accepted: async (until) => {
-            const applied = async (): Promise<boolean> => (await fault.firstAppliedAt()) !== undefined
-            let accepted = await applied()
-            while (!accepted && !until.aborted) {
-                await sleep(FAULT_POLL_MS, undefined, { signal: until }).catch(() => undefined)
-                accepted = await applied()
-            }
-            return accepted
-        },
+        observed: async (holdEnds) =>
+            !holdEnds?.aborted && (await appliedBefore(fault, holdEnds, Date.now() + FAULT_OBSERVED_WITHIN_MS)),
+        accepted: (until) => appliedBefore(fault, until, Infinity),
         release: () => fault.remove(),
     }
 }

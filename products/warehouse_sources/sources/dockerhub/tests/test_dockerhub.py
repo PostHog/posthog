@@ -16,9 +16,11 @@ from products.warehouse_sources.sources.dockerhub.dockerhub import (
     DockerhubResumeConfig,
     DockerhubRetryableError,
     _audit_logs_url,
+    _org_group_members_url,
     _org_groups_url,
     _org_members_url,
     _repositories_url,
+    _repository_pulls_url,
     _tags_url,
     check_access,
     check_endpoint_access,
@@ -26,7 +28,12 @@ from products.warehouse_sources.sources.dockerhub.dockerhub import (
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.sources.dockerhub.settings import DOCKERHUB_ENDPOINTS, ENDPOINTS, ORG_SCOPED_ENDPOINTS
+from products.warehouse_sources.sources.dockerhub.settings import (
+    DOCKERHUB_ENDPOINTS,
+    ENDPOINTS,
+    ORG_SCOPED_ENDPOINTS,
+    PUBLISHER_SCOPED_ENDPOINTS,
+)
 from products.warehouse_sources.sources.dockerhub.source import DockerhubSource
 from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
@@ -47,6 +54,7 @@ BETA_TAGS_URL = _tags_url("acme", "beta")
 MEMBERS_URL = _org_members_url("acme")
 GROUPS_URL = _org_groups_url("acme")
 ACTIONS_URL = f"{DOCKERHUB_BASE_URL}/v2/auditlogs/acme/actions"
+PULLS_URL = _repository_pulls_url("acme")
 LOGIN = ScriptedResponse(json={"token": "jwt-1"})
 
 
@@ -428,6 +436,8 @@ class TestDockerhubSourceResponse:
             answer = ScriptedResponse(json={"logs": []})
         elif endpoint == "audit_log_actions":
             answer = ScriptedResponse(json={"actions": {}})
+        elif endpoint == "repository_pulls":
+            answer = ScriptedResponse(json={"pulls": None})
         else:
             answer = _page([])
         result = _driver().run(endpoint, [LOGIN, answer])
@@ -553,6 +563,121 @@ class TestAuditLogActions:
         assert result.urls[1:] == [ACTIONS_URL]
 
 
+class TestOrgGroupMembers:
+    def test_fan_out_walks_groups_in_id_order_and_tags_rows_with_their_group(self) -> None:
+        devs_page_2 = f"{_org_group_members_url('acme', 'devs')}&page=2"
+        result = _driver().run(
+            "org_group_members",
+            [
+                LOGIN,
+                # The groups endpoint takes no ordering, so it can answer in any order.
+                _page([{"id": 20, "name": "ops"}, {"id": 10, "name": "devs"}]),
+                _page([{"id": "u1", "username": "ana"}], devs_page_2),
+                _page([{"id": "u2", "username": "bo"}]),
+                _page([{"id": "u1", "username": "ana"}]),
+            ],
+        )
+        assert result.raised is None
+        assert result.urls[1:] == [
+            GROUPS_URL,
+            _org_group_members_url("acme", "devs"),
+            devs_page_2,
+            _org_group_members_url("acme", "ops"),
+        ]
+        # A user in two groups is one row per group, which the (group_id, id) key keeps apart.
+        assert [(row["group_id"], row["group_name"], row["id"]) for row in result.rows] == [
+            (10, "devs", "u1"),
+            (10, "devs", "u2"),
+            (20, "ops", "u1"),
+        ]
+        assert result.saved_states == [
+            DockerhubResumeConfig(next_url=devs_page_2, group_id=10),
+            DockerhubResumeConfig(group_id=10),
+            DockerhubResumeConfig(group_id=20),
+        ]
+
+    @parameterized.expand(
+        [
+            # Resume mid-group on the saved cursor, then carry on with the later groups.
+            ("saved_group_mid_page", 20, True, ["ops_page_2", "web"]),
+            # The saved group was deleted: continue at the next higher id, not from the start.
+            ("saved_group_deleted", 15, False, ["ops", "web"]),
+        ]
+    )
+    def test_resumes_after_the_groups_already_synced(
+        self, _name: str, saved_group_id: int, with_cursor: bool, expected: list[str]
+    ) -> None:
+        ops_page_2 = f"{_org_group_members_url('acme', 'ops')}&page=2"
+        groups = [{"id": 30, "name": "web"}, {"id": 10, "name": "devs"}, {"id": 20, "name": "ops"}]
+        if saved_group_id != 20:
+            groups = [group for group in groups if group["id"] != saved_group_id]
+        url_for = {
+            "ops_page_2": ops_page_2,
+            "ops": _org_group_members_url("acme", "ops"),
+            "web": _org_group_members_url("acme", "web"),
+        }
+        result = _driver().run(
+            "org_group_members",
+            [LOGIN, _page(groups), _page([{"id": "u1"}]), _page([{"id": "u2"}])],
+            resume_state=DockerhubResumeConfig(next_url=ops_page_2 if with_cursor else None, group_id=saved_group_id),
+        )
+        assert result.raised is None
+        assert result.urls[1:] == [GROUPS_URL, *[url_for[name] for name in expected]]
+
+    def test_group_name_is_escaped_as_one_path_segment(self) -> None:
+        assert _org_group_members_url("acme", "a/b c").startswith(
+            f"{DOCKERHUB_BASE_URL}/v2/orgs/acme/groups/a%2Fb%20c/members?"
+        )
+
+
+class TestRepositoryPulls:
+    def test_weekly_per_repository_rows_carry_the_namespace(self) -> None:
+        pulls = [
+            {
+                "repo": "alpha",
+                "start": "2026-01-05T00:00:00Z",
+                "end": "2026-01-12T00:00:00Z",
+                "pullCount": 7,
+                "ipCount": 3,
+            },
+            {
+                "repo": "beta",
+                "start": "2026-01-05T00:00:00Z",
+                "end": "2026-01-12T00:00:00Z",
+                "pullCount": 1,
+                "ipCount": 1,
+            },
+        ]
+        result = _driver().run("repository_pulls", [LOGIN, ScriptedResponse(json={"pulls": pulls})])
+        assert result.raised is None
+        assert result.rows == [{**row, "namespace": "acme"} for row in pulls]
+        assert result.paths[1:] == ["/api/publisher/analytics/v1/namespaces/acme/pulls"]
+        request = result.requests[-1]
+        assert (request.param("timespan"), request.param("period"), request.param("group")) == (
+            "weeks",
+            "last-12-months",
+            "repo",
+        )
+        assert request.headers["authorization"] == "Bearer jwt-1"
+
+    @parameterized.expand(
+        [
+            # The API serializes an empty period as null rather than [].
+            ("null_pulls", {"pulls": None}, None),
+            ("missing_pulls", {}, None),
+            ("non_list_pulls", {"pulls": {"unexpected": True}}, DockerhubRetryableError),
+        ]
+    )
+    def test_payload_edge_cases(self, _name: str, body: dict[str, Any], expected_error: type | None) -> None:
+        result = _driver().run("repository_pulls", [LOGIN, ScriptedResponse(json=body)])
+        assert result.urls[1:] == [PULLS_URL]
+        assert result.rows == []
+        if expected_error is None:
+            assert result.raised is None
+        else:
+            assert isinstance(result.raised, expected_error)
+
+
 class TestFormatIncrementalStart:
     @parameterized.expand(
         [
@@ -594,14 +719,19 @@ class TestCheckEndpointAccess:
     def test_unreachable_org_endpoints_report_what_to_change(
         self, _name: str, status: int, expected_substr: str
     ) -> None:
-        with scripted_network([LOGIN, *[ScriptedResponse(status=status) for _ in ORG_SCOPED_ENDPOINTS]]) as network:
+        probed = (*ORG_SCOPED_ENDPOINTS, *PUBLISHER_SCOPED_ENDPOINTS)
+        with scripted_network([LOGIN, *[ScriptedResponse(status=status) for _ in probed]]) as network:
             permissions = check_endpoint_access("tom", "token", "acme", list(ENDPOINTS))
         assert permissions["repositories"] is None
-        assert len(network.requests_log) == 1 + len(ORG_SCOPED_ENDPOINTS)
+        assert len(network.requests_log) == 1 + len(probed)
         assert network.requests_log[0].path == "/v2/users/login"
         for endpoint in ORG_SCOPED_ENDPOINTS:
             reason = permissions[endpoint]
             assert reason is not None and expected_substr in reason
+        # A token that cannot read pull analytics is told about the publisher program, not org ownership.
+        for endpoint in PUBLISHER_SCOPED_ENDPOINTS:
+            reason = permissions[endpoint]
+            assert reason is not None and "Docker Verified Publisher" in reason
 
     @parameterized.expand(
         [
@@ -636,6 +766,7 @@ class TestCheckEndpointAccess:
                     "/v2/orgs/acme/groups",
                     "/v2/auditlogs/acme",
                     "/v2/auditlogs/acme/actions",
+                    "/api/publisher/analytics/v1/namespaces/acme/pulls",
                 }
             )
         assert paths == expected_paths

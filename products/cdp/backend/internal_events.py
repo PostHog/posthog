@@ -1,8 +1,9 @@
 import re
 import uuid
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Any, Optional, Protocol
 
 import structlog
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -63,12 +64,51 @@ def is_managed_alert_internal_event(event_name: object) -> bool:
 # An edit through the generic API requires each of those write scopes and editor access on each,
 # on top of the hog function ones, so a token or member that cannot touch the alert cannot touch its
 # destination either. Metrics and traces alerts are served by the platform alerts API, which also
-# checks `alert`. The other alert products stay read-only there.
+# checks `alert`. Insight alerts are gated per insight, not by a resource-wide level, so they also
+# need the edit gate below. The other alert products stay read-only there.
+_INSIGHT_ALERT_EVENT_PREFIX = "$insight_alert_"
 GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES: dict[str, tuple[str, ...]] = {
     "$logs_alert_": ("logs",),
     "$metrics_alert_": ("metrics", "alert"),
     "$traces_alert_": ("tracing", "alert"),
+    _INSIGHT_ALERT_EVENT_PREFIX: ("alert",),
 }
+
+
+class AlertDestinationEditGate(Protocol):
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        alert_ids: Collection[str],
+        user_id: int,
+        key_scopes: Collection[str] | None,
+    ) -> str | None: ...
+
+
+# The per-alert checks an alert product's own API applies, which the generic API must apply too. The
+# products register them from their app config, because cdp cannot import them. A prefix listed here
+# with no registered gate refuses every edit, so a missing registration cannot open the destinations.
+_GATED_ALERT_EVENT_PREFIXES: frozenset[str] = frozenset({_INSIGHT_ALERT_EVENT_PREFIX})
+_alert_destination_edit_gates: dict[str, AlertDestinationEditGate] = {}
+
+
+def register_alert_destination_edit_gate(event_prefix: str, gate: AlertDestinationEditGate) -> None:
+    _alert_destination_edit_gates[event_prefix] = gate
+
+
+def _refuse_ungated_edit(**_: Any) -> str:
+    return "This alert destination can only be edited from its alert."
+
+
+def alert_destination_edit_gate(event_name: object) -> AlertDestinationEditGate | None:
+    """The per-alert check a generic-API edit of this alert event's destinations must pass, if any."""
+    if not is_managed_alert_internal_event(event_name):
+        return None
+    prefix = next((prefix for prefix in _GATED_ALERT_EVENT_PREFIXES if str(event_name).startswith(prefix)), None)
+    if prefix is None:
+        return None
+    return _alert_destination_edit_gates.get(prefix, _refuse_ungated_edit)
 
 
 def generic_api_editable_alert_scopes(event_name: object) -> tuple[str, ...]:
