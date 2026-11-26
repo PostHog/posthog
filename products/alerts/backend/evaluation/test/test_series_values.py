@@ -20,12 +20,12 @@ from products.alerts.backend.evaluation.dispatcher import check_alert_for_insigh
 from products.alerts.backend.evaluation.series_values_shadow import (
     SHADOW_BUILD_BUDGET_SECONDS,
     SHADOW_COMPARISON_EVENT,
-    compare_closed_values,
+    compare_precomputed_values,
     compare_series_values_shadow,
 )
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
-from products.product_analytics.backend.facade.contracts import ClosedSeriesValues
+from products.product_analytics.backend.facade.contracts import PrecomputedSeriesValues
 from products.product_analytics.backend.facade.models import Insight
 
 _NOW = "2024-01-15T12:00:00Z"
@@ -209,7 +209,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         alert = self._alert(detector=_THRESHOLD_DETECTOR)
         live = check_alert_for_insight(alert)
 
-        with patch(f"{_SHADOW}.closed_series_values", side_effect=RuntimeError("boom")):
+        with patch(f"{_SHADOW}.precomputed_series_values", side_effect=RuntimeError("boom")):
             shadowed, properties = self._shadowed_check(alert)
 
         assert shadowed == live
@@ -250,7 +250,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
         with (
             self._enrolled(),
-            patch(f"{_SHADOW}.closed_series_values", side_effect=cancellation),
+            patch(f"{_SHADOW}.precomputed_series_values", side_effect=cancellation),
             patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
             self.assertRaises(type(cancellation)),
         ):
@@ -360,12 +360,12 @@ class TestCompareClosedValues(SimpleTestCase):
     def test_a_stored_day_missing_from_the_live_result_is_not_a_match(
         self, _name: str, stored: int, outcome: str, max_abs_difference: float
     ) -> None:
-        closed = ClosedSeriesValues(
+        precomputed = PrecomputedSeriesValues(
             values={datetime(2024, 1, 13): 5, datetime(2024, 1, 14): stored}, live_from=datetime(2024, 1, 15)
         )
         live = [{"days": ["2024-01-14", "2024-01-15"], "data": [2, 3]}]
 
-        comparison = compare_closed_values(closed, live)
+        comparison = compare_precomputed_values(precomputed, live)
 
         assert (
             comparison.outcome,
