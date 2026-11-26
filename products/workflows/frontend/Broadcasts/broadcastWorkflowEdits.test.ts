@@ -6,13 +6,7 @@ import type {
     HogFlowScheduleApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-import {
-    StoppableBroadcast,
-    canEditInWizard,
-    canMoveToDraft,
-    opensInWizard,
-    sendNowDisabledReason,
-} from './broadcastsLogic'
+import { StoppableBroadcast, canEditInWizard, canMoveToDraft, opensInWizard } from './broadcastsLogic'
 import { DEFAULT_BROADCAST_CONVERSION, DEFAULT_BROADCAST_EMAIL, buildBroadcastPayload } from './broadcastWizardLogic'
 
 const trigger = (filters: Record<string, any> = { properties: [] }): Record<string, any> => ({
@@ -107,16 +101,6 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         }
         const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
         expect(canMoveToDraft(broadcast, jobs)).toBe(expected)
-    })
-
-    it.each<[string, HogFlowBatchJobApi['status'][] | null, boolean]>([
-        ['a broadcast that never ran', [], true],
-        ['a broadcast whose runs have not loaded', null, true],
-        ['a recurring broadcast stopped between runs', ['completed'], false],
-        ['a broadcast whose only run failed', ['failed'], false],
-    ])('offers Send now on %s: %s', (_, jobStatuses, expected) => {
-        const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
-        expect(sendNowDisabledReason(jobs) === undefined).toBe(expected)
     })
 
     it.each([

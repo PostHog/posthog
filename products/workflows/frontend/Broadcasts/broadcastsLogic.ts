@@ -193,16 +193,6 @@ export function canMoveToDraft(
     )
 }
 
-/**
- * "Send now" deletes the broadcast's schedules before it dispatches, and the server refuses a second
- * dispatch once a broadcast has a run and nothing scheduled. Null batch jobs means they haven't loaded.
- */
-export function sendNowDisabledReason(batchJobs: Pick<HogFlowBatchJobApi, 'status'>[] | null): string | undefined {
-    return batchJobs?.length
-        ? 'This broadcast already started sending. To send it now, send it again as a new broadcast.'
-        : undefined
-}
-
 const RUN_STATUS: Record<string, BroadcastRunStatus> = {
     waiting: 'sending',
     queued: 'sending',
