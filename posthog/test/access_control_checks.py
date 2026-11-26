@@ -22,6 +22,7 @@ from django.apps import apps
 from django.db import connections
 from django.db.models import ForeignKey, Model, QuerySet
 from django.db.models.lookups import Exact, In
+from django.db.models.signals import post_save
 
 from rest_framework import serializers
 from rest_framework.views import APIView
@@ -57,6 +58,14 @@ KNOWN_GAPS: dict[tuple[str, str, str], str] = {
     ("referenced_object", "DataWarehouseExpressionViewSet.create", "ExternalDataSource"): (
         "The built-in managed warehouse connection is open to the whole project, so get_direct_connection_source "
         "skips the object check for it."
+    ),
+    ("referenced_object", "QueryViewSet.create", "ExternalDataSource"): (
+        "The built-in managed warehouse connection is open to the whole project, so get_direct_connection_source "
+        "skips the object check for it."
+    ),
+    ("referenced_object", "CanvasViewSet.publish_layout", "Canvas"): (
+        "Canvas object rules only narrow editing, and a placed component is only read. Pinning an older version "
+        "is limited to the component's creator."
     ),
     ("detail_action", "HogFlowViewSet.cancel_invocations", ""): (
         "A deleted workflow has no row to check, so the view requires project-wide editor access instead."
@@ -98,6 +107,7 @@ def install() -> None:
     _wrap(QuerySet, "_clone", _clone)
     _wrap(QuerySet, "_fetch_all", _fetch_all)
     _wrap(serializers.BaseSerializer, "save", _save)
+    post_save.connect(_note_created, weak=False, dispatch_uid="access_control_checks")
 
 
 def start_test() -> None:
@@ -186,6 +196,15 @@ def _record_object(obj: Any) -> None:
     resource = _controlled_resource(type(obj)) if isinstance(obj, Model) else None
     if resource is not None and obj.pk is not None:
         request.gated.add((resource, str(obj.pk)))
+
+
+def _note_created(sender: type[Model], instance: Model, created: bool, **kwargs: Any) -> None:
+    request = _active()
+    resource = _controlled_resource(sender) if created else None
+    if request is not None and resource is not None:
+        # A row the request made, such as a new project's starter dashboard, can share its id with an
+        # unrelated value in the request, so a later load of it is not a reference.
+        request.gated.add((resource, str(instance.pk)))
 
 
 def _has_object_permission(
