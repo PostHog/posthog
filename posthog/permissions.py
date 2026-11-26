@@ -5,7 +5,7 @@ from typing import Any, Optional, cast
 
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Model
+from django.db.models import Model, QuerySet
 
 import posthoganalytics
 from loginas.utils import is_impersonated_session
@@ -56,6 +56,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Parent, Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.authorization.backend.presentation.resources import MEMBERSHIP_RESOURCES, resource_for_object
 
 CREATE_ACTIONS = ["create", "update"]
@@ -137,6 +138,18 @@ def request_subject(request: Request) -> Optional[Subject]:
     """
     user = getattr(request, "user", None)
     return Subject(user_id=user.pk) if isinstance(user, User) and user.pk is not None else None
+
+
+def filter_visible_project_objects[M: Model](
+    queryset: QuerySet[M], *, team_id: int, include_all_if_admin: bool, user_id: int | None = None
+) -> QuerySet[M]:
+    """Filter rows already scoped to the project for the given user, or the current request's user."""
+    return filter_queryset(
+        queryset,
+        resource=Resource(type=ResourceType(cast(str, model_to_resource(queryset.model))), project_id=team_id),
+        subject=Subject(user_id=user_id) if user_id is not None else None,
+        include_all_if_admin=include_all_if_admin,
+    )
 
 
 def _can_in_organization(request: Request, organization: Organization, action: Action) -> bool:
@@ -423,22 +436,10 @@ def organization_deactivated_error(reason: Optional[str]) -> str:
 
 
 class ActiveOrganizationPermission(BasePermission):
-    """
-    Deny token-authenticated requests that target a deactivated organization.
+    """Deny requests that target an explicitly deactivated organization.
 
-    `ActiveOrganizationMiddleware` redirects the browser away from a deactivated organization, but
-    it skips every `/api` path, so API keys kept full read and write access. Appended to every
-    `TeamAndOrgViewSetMixin` view in `get_permissions`, so it holds regardless of a view's own
-    `authentication_classes`.
-
-    Session auth passes through. The middleware already covers the browser, and a member of a
-    deactivated organization still has to reach the app to see why and to pay an unpaid balance.
-
-    A null `is_active` counts as deactivated. The column is nullable because the field was added
-    with `null=True`, and treating an unknown state as deactivated fails closed.
-
-    Checked against the URL-resolved organization, never `user.current_organization`, because the
-    current organization is a UI preference the API doesn't validate.
+    Billing and organization discovery stay reachable so members can pay or switch organizations.
+    Check the URL-resolved organization because the current organization is only a UI preference.
     """
 
     # Billing stays reachable, so an integration can still read the state that explains the refusal.
@@ -482,9 +483,7 @@ class ActiveOrganizationPermission(BasePermission):
         return True
 
     def _applies(self, request: Request, view) -> bool:
-        if getattr(view, "scope_object", None) in self.EXEMPT_SCOPE_OBJECTS:
-            return False
-        return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
+        return getattr(view, "scope_object", None) not in self.EXEMPT_SCOPE_OBJECTS
 
     def _admits(self, organization: Organization) -> bool:
         if organization.is_pending_deletion:
@@ -492,7 +491,7 @@ class ActiveOrganizationPermission(BasePermission):
                 detail=ORGANIZATION_PENDING_DELETION_ERROR,
                 code="organization_pending_deletion",
             )
-        if not organization.is_active:
+        if organization.is_active is False:
             raise PermissionDenied(
                 detail=organization_deactivated_error(organization.is_not_active_reason),
                 code="organization_deactivated",
@@ -1602,6 +1601,32 @@ def posthog_feature_flag_enabled(
             only_evaluate_locally=only_evaluate_locally,
             caller_properties=caller_properties,
         )
+    )
+
+
+DASHBOARD_V2_FLAG = "dashboard-v2"
+DASHBOARD_V2_USERS_FLAG = "dashboard-v2-users"
+
+
+def dashboard_v2_enabled(team: Team, user: object | None) -> bool:
+    """`dashboard-v2` picks the projects and `dashboard-v2-users` picks the people in them, as the web app does.
+    Without a signed-in user, such as a shared link or a background job, the answer is no."""
+    if not isinstance(user, User):
+        return False
+    distinct_id = str(user.distinct_id or user.uuid)
+    return posthog_feature_flag_enabled(
+        DASHBOARD_V2_FLAG,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        only_evaluate_locally=True,
+    ) and posthog_feature_flag_enabled(
+        DASHBOARD_V2_USERS_FLAG,
+        distinct_id,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        person_properties={"email": user.email},
+        only_evaluate_locally=True,
     )
 
 

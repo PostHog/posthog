@@ -12,7 +12,7 @@ import httpx
 from parameterized import parameterized
 
 from posthog.hogql import ast
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ServerConfigurationQueryError, TransientQueryError
 from posthog.hogql.functions.prompt_jev import PromptJevCall
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -124,22 +124,25 @@ class TestPromptJev(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (429, "could not evaluate", 5),
-            (529, "could not evaluate", 5),
-            (500, "could not evaluate", 1),
-            (402, "used all its AI credits", 1),
+            (429, "could not evaluate", 5, True),
+            (529, "could not evaluate", 5, True),
+            (500, "could not evaluate", 1, True),
+            (402, "used all its AI credits", 1, False),
         ]
     )
-    def test_gateway_failure_does_not_return_a_decision(self, status: int, message: str, attempts: int) -> None:
+    def test_gateway_failure_does_not_return_a_decision(
+        self, status: int, message: str, attempts: int, transient: bool
+    ) -> None:
         node = parse_expr("jev('refund', 'Refund?')")
         assert isinstance(node, ast.Call)
         with (
             patch("httpx.AsyncClient.post", return_value=httpx.Response(status)) as post,
             patch("posthog.hogql.transforms.prompt_jev.asyncio.sleep", new=AsyncMock()),
-            self.assertRaisesRegex(QueryError, message),
+            self.assertRaisesRegex(QueryError, message) as error,
         ):
             PromptJevRunner(team_id=1, distinct_id=None).evaluate(PromptJevCall.parse(node), ["refund"])
         self.assertEqual(post.call_count, attempts)
+        self.assertEqual(isinstance(error.exception, TransientQueryError), transient)
 
     def test_full_model_server_is_retried_until_it_answers(self) -> None:
         node = parse_expr("jev(body, 'Refund?')")
@@ -187,7 +190,7 @@ class TestPromptJev(SimpleTestCase):
         with (
             patch("httpx.AsyncClient.post", side_effect=stalled_response) as post,
             patch("posthog.hogql.transforms.prompt_jev.asyncio.timeout", side_effect=controlled_timeout),
-            self.assertRaisesRegex(QueryError, "time limit"),
+            self.assertRaisesRegex(TransientQueryError, "time limit"),
         ):
             runner.evaluate(PromptJevCall.parse(node), [str(i) for i in range(8)])
         self.assertEqual(post.call_count, 4)
@@ -199,7 +202,7 @@ class TestPromptJev(SimpleTestCase):
         runner = PromptJevRunner(team_id=1, distinct_id=None)
         runner.deadline = time.monotonic() - 1
         self.assertEqual(runner.source_timeout(), 1)
-        with patch("httpx.AsyncClient.post") as post, self.assertRaisesRegex(QueryError, "time limit"):
+        with patch("httpx.AsyncClient.post") as post, self.assertRaisesRegex(TransientQueryError, "time limit"):
             runner.evaluate(PromptJevCall.parse(node), ["refund"])
         post.assert_not_called()
 
@@ -257,7 +260,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             ),
             patch("posthog.hogql.query.sync_execute") as execute,
             patch("httpx.AsyncClient.post") as post,
-            self.assertRaisesRegex(QueryError, "native ClickHouse connection"),
+            self.assertRaisesRegex(ServerConfigurationQueryError, "native ClickHouse connection"),
         ):
             execute_hogql_query("SELECT jev('refund', 'Refund?') AS p", self.team, user=self.user)
         execute.assert_not_called()
@@ -417,6 +420,9 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
 
     @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
     def test_missing_gateway_configuration(self) -> None:
-        with patch("httpx.AsyncClient.post") as post, self.assertRaisesRegex(QueryError, "not configured"):
+        with (
+            patch("httpx.AsyncClient.post") as post,
+            self.assertRaisesRegex(ServerConfigurationQueryError, "not configured"),
+        ):
             execute_hogql_query("SELECT jev('a', 'q') AS p", self.team, user=self.user)
         post.assert_not_called()

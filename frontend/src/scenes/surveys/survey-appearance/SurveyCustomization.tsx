@@ -153,7 +153,7 @@ export function Customization({
             {survey.type !== SurveyType.ExternalSurvey && (
                 <CustomizationSection
                     title="Layout"
-                    description="Container, placement, and typography. Only applied in web surveys, not native mobile apps."
+                    description="Container, placement, and typography. Container settings only apply to web surveys. Position also applies on iOS and React Native, and font family on iOS, Android, and Flutter."
                 >
                     <SurveyContainerAppearance
                         appearance={surveyAppearance}

@@ -1,10 +1,12 @@
 import { execFile, spawn } from 'child_process'
-import { closeSync, openSync, writeFileSync } from 'fs'
+import { closeSync, openSync, readFileSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
 import { Client, DatabaseError } from 'pg'
+import { setTimeout as sleep } from 'timers/promises'
 import { promisify } from 'util'
+import { parse, stringify } from 'yaml'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
@@ -26,6 +28,7 @@ export const STACK = {
     sesRateLimiterValkey: SES_RATE_LIMITER_VALKEY,
     personhogReadinessUrl: 'http://127.0.0.1:9101/_readiness',
     kafkaContainer: 'posthog-kafka-1',
+    composeProject: 'posthog',
     templates: ['template-email', 'template-webhook'],
 }
 
@@ -85,15 +88,181 @@ async function runHogli(
 }
 
 const NOT_REACHABLE = 3
-const FIRST_START_TIMEOUT_S = 3600
+export const FIRST_START_TIMEOUT_S = 3600
 
 const STACK_UNITS = {
     intents: ['product_analytics', 'workflows'],
     exclude_units: ['nodejs', 'frontend', 'ingestion', 'ngrok'],
 }
 
+const COMPOSE_BASE = String.raw`docker compose -p (?<project>[\w.-]+) -f docker-compose\.dev\.yml -f docker-compose\.profiles\.yml(?: --profile [\w-]+)*`
+const ECHO = String.raw`echo "[^"$\x60\\]*"`
+const GENERATED_COMPOSE_SHELL = new RegExp(
+    String.raw`^(?<head>(?:echo '[^']*' && )?if \[ "\$\{POSTHOG_SANDBOX:-\}" = "1" \]; then ${ECHO} && echo "docker-compose ready" && sleep infinity; else (?<compose>${COMPOSE_BASE}))` +
+        String.raw` up --pull always -d ` +
+        String.raw`(?<tail>\|\| \{ ${ECHO}; exit 1; \} && echo "docker-compose ready" && \k<compose> logs --tail=100 -f; fi)$`
+)
+const KEEPING_COMPOSE_UP = ' up --pull always --no-recreate -d '
+
+export class StackNotReadyError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'StackNotReadyError'
+    }
+}
+
+// The keys hogli writes on its docker-compose proc. Any other, such as a cmd that phrocs would run in place of the
+// shell or a merge key that brings one in, is refused rather than interpreted.
+const COMPOSE_PROC_KEYS = new Set(['shell', 'ready_pattern', 'capability', 'groups', 'autostart'])
+
+export function keepRunningContainers(mprocsYaml: string): { yaml: string; project: string } {
+    let config: { procs?: Record<string, Record<string, unknown> | null> } | null
+    try {
+        config = parse(mprocsYaml)
+    } catch (error) {
+        throw new StackNotReadyError(`The dev config hogli generated is not valid YAML: ${(error as Error).message}`)
+    }
+    const compose = config?.procs?.['docker-compose']
+    const shell = typeof compose?.shell === 'string' ? compose.shell : ''
+    const otherKeys = Object.keys(compose ?? {}).filter((key) => !COMPOSE_PROC_KEYS.has(key))
+    const generated = otherKeys.length === 0 ? GENERATED_COMPOSE_SHELL.exec(shell) : null
+    if (!compose || !generated) {
+        throw new StackNotReadyError(
+            `The dev config hogli generated has no docker-compose proc in the shape the runner knows, one \`docker compose up --pull always -d\` then its logs, so the runner cannot keep the running containers. Its shell is: ${shell || 'missing'}${otherKeys.length > 0 ? `; its other keys: ${otherKeys.join(', ')}` : ''}`
+        )
+    }
+    compose.shell = generated.groups!.head + KEEPING_COMPOSE_UP + generated.groups!.tail
+    return { yaml: stringify(config, { lineWidth: 0 }), project: generated.groups!.project }
+}
+
+// bin/start moves these services' data from anonymous to named volumes before compose runs, and expects compose
+// to recreate the containers on the named ones. A kept container would go on writing to its old volume.
+const NAMED_VOLUMES: Record<string, string> = { clickhouse: 'clickhouse-data', zookeeper: 'zookeeper-data' }
+
+export async function onAnonymousVolumes(
+    docker: string,
+    project: string,
+    services: string[],
+    signal?: AbortSignal
+): Promise<string[]> {
+    const moving = services.filter((service) => service in NAMED_VOLUMES)
+    if (moving.length === 0) {
+        return []
+    }
+    const { stdout } = await promisify(execFile)(docker, ['volume', 'ls', '--format', '{{.Name}}'], {
+        timeout: 10_000,
+        signal,
+    })
+    const volumes = new Set(stdout.split('\n'))
+    return moving.filter((service) => !volumes.has(`${project}_${NAMED_VOLUMES[service]}`))
+}
+
+export type ExistingServices = { running: string[]; stopped: string[]; containers: string[] }
+
+// A one-shot service such as kafka-init has restart policy "no" and exits 0 when it is done. Any other container
+// that is not running would start again as it is, with the mounts of the worktree that made it.
+export async function existingServices(
+    docker: string,
+    project: string,
+    signal?: AbortSignal
+): Promise<ExistingServices> {
+    const run = async (args: string[]): Promise<string[][]> => {
+        const { stdout } = await promisify(execFile)(docker, args, { timeout: 10_000, signal })
+        return stdout
+            .split('\n')
+            .filter((line) => line !== '')
+            .map((line) => line.split(' '))
+    }
+    const listed = await run([
+        'ps',
+        '--all',
+        '--filter',
+        `label=com.docker.compose.project=${project}`,
+        '--filter',
+        'label=com.docker.compose.oneoff=False',
+        '--format',
+        '{{.ID}} {{.Label "com.docker.compose.service"}} {{.State}}',
+    ])
+    const notRunning = listed.filter(([, , state]) => state !== 'running').map(([id]) => id)
+    const finished =
+        notRunning.length === 0
+            ? []
+            : await run([
+                  'inspect',
+                  '--format',
+                  '{{.Id}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}}',
+                  ...notRunning,
+              ])
+    const done = new Set(
+        finished
+            .filter(([, policy, status, code]) => policy === 'no' && status === 'exited' && code === '0')
+            .map(([id]) => id)
+    )
+    const stopped = new Set(
+        listed
+            .filter(([id, , state]) => state !== 'running' && ![...done].some((full) => full.startsWith(id)))
+            .map(([, service]) => service)
+    )
+    const running = new Set(listed.filter(([, , state]) => state === 'running').map(([, service]) => service))
+    return {
+        running: [...running].filter((service) => !stopped.has(service)).sort(),
+        stopped: [...stopped].sort(),
+        containers: listed.filter(([, service]) => running.has(service) && !stopped.has(service)).map(([id]) => id),
+    }
+}
+
+export type ContainerStart = { service: string; finishedJob: boolean; startedAt: string }
+
+// A kept container that stops after the check above is started again by compose as it is, with the mounts of the
+// worktree that made it. Its start time shows that.
+export async function containerStarts(
+    docker: string,
+    containers: string[],
+    signal?: AbortSignal
+): Promise<Map<string, ContainerStart>> {
+    if (containers.length === 0) {
+        return new Map()
+    }
+    const format =
+        '{{.Id}} {{index .Config.Labels "com.docker.compose.service"}} {{.HostConfig.RestartPolicy.Name}} {{.State.Status}} {{.State.ExitCode}} {{.State.StartedAt}}'
+    // docker inspect prints the containers it finds, and exits 1 with "No such object" for each one that is gone.
+    const stdout = await promisify(execFile)(docker, ['inspect', '--format', format, ...containers], {
+        timeout: 10_000,
+        signal,
+    }).then(
+        (result) => result.stdout,
+        (error: Error & { code?: unknown; stdout?: string; stderr?: string }) => {
+            const errors = (error.stderr ?? '').split('\n').filter((line) => line !== '')
+            const gone =
+                errors.length > 0 &&
+                errors.every((line) => {
+                    const missing = /^Error(?: response from daemon)?: No such (?:object|container): (\S+)$/.exec(line)
+                    return missing !== null && containers.includes(missing[1])
+                })
+            if (error.code !== 1 || signal?.aborted || !gone) {
+                throw error
+            }
+            return error.stdout ?? ''
+        }
+    )
+    const lines = stdout.split('\n').filter((line) => line !== '')
+    return new Map(
+        lines.map((line) => {
+            const [id, service, policy, status, code, startedAt] = line.split(' ')
+            return [id, { service, finishedJob: policy === 'no' && status === 'exited' && code === '0', startedAt }]
+        })
+    )
+}
+
+function startedAgain(project: string, services: string[]): StackNotReadyError {
+    return new StackNotReadyError(
+        `The dev services ${[...new Set(services)].sort().join(', ')} started again while the runner started the stack, so they may run with the mounts of the worktree that made them. Recreate them from your worktree with \`docker compose -p ${project} -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d --no-deps --force-recreate <service>\`, then run again.`
+    )
+}
+
 export async function startStack(
     hogli: Hogli,
+    docker: string,
     stateDir: string,
     env: NodeJS.ProcessEnv,
     signal: AbortSignal
@@ -110,8 +279,76 @@ export async function startStack(
     }
     writeFileSync(config, JSON.stringify({ _posthog: STACK_UNITS }))
     await runHogli(hogli, ['dev:generate'], logFile, hogliEnv, signal)
+    const { yaml, project } = keepRunningContainers(readFileSync(config, 'utf8'))
+    writeFileSync(config, yaml)
+    const { running: kept, stopped, containers } = await existingServices(docker, project, signal)
+    if (stopped.length > 0) {
+        throw new StackNotReadyError(
+            `The dev services ${stopped.join(', ')} have containers that are not running and are not finished one-shot jobs. The runner keeps only running services, because a stopped container starts again with the mounts of the worktree that made it and the volumes it had. Recreate them from your worktree with \`docker compose -p ${project} -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d --no-deps --force-recreate <service>\`, or start the stack with \`hogli start\` while no other worktree uses it, then run again.`
+        )
+    }
+    const unmoved = await onAnonymousVolumes(docker, project, kept, signal)
+    if (unmoved.length > 0) {
+        throw new StackNotReadyError(
+            `The dev services ${unmoved.join(', ')} still keep their data on anonymous volumes, and the runner would keep them there. Start the stack once with \`hogli start\` while no other worktree uses it, so it moves the data to named volumes, then run again.`
+        )
+    }
+    if (kept.length > 0) {
+        process.stderr.write(
+            `Keeping the existing dev services as they are: ${kept.join(', ')}. A change to their compose definition is not applied until they are recreated.\n`
+        )
+    }
+    const before = await containerStarts(docker, containers, signal)
     await runHogli(hogli, ['up', '-d', '--custom', config], logFile, hogliEnv, signal)
     await runHogli(hogli, ['wait', '--timeout', String(FIRST_START_TIMEOUT_S)], logFile, hogliEnv, signal)
+    const after = await containerStarts(docker, [...before.keys()], signal)
+    const again = [...before].filter(([id, start]) => {
+        const now = after.get(id)
+        return now !== undefined && now.startedAt !== start.startedAt && !now.finishedJob
+    })
+    if (again.length > 0) {
+        throw startedAgain(
+            project,
+            again.map(([, { service }]) => service)
+        )
+    }
+}
+
+export type MigratedTable = { url: string; table: string }
+
+export async function untilMigrated(
+    tables: MigratedTable[],
+    withinMs: number,
+    intervalMs: number,
+    signal: AbortSignal,
+    pause = (ms: number): Promise<void> => sleep(ms, undefined, { signal })
+): Promise<void> {
+    const deadline = performance.now() + withinMs
+    for (;;) {
+        signal.throwIfAborted()
+        const missing = await Promise.all(
+            tables.map(({ url, table }) =>
+                withPostgres(async (client) => {
+                    const { rows } = await client.query<{ present: boolean }>(
+                        'SELECT to_regclass($1) IS NOT NULL AS present',
+                        [table]
+                    )
+                    return rows[0].present ? null : `${new URL(url).pathname.slice(1)} has no table ${table}`
+                }, url).catch((error: Error) => error.message)
+            )
+        )
+        signal.throwIfAborted()
+        const problems = missing.filter((problem): problem is string => problem !== null)
+        if (problems.length === 0) {
+            return
+        }
+        if (performance.now() >= deadline) {
+            throw new StackNotReadyError(
+                `Postgres was not ready with its migrations within ${withinMs / 1000} seconds: ${problems.join('; ')}. Check \`docker ps\` for a restarted posthog-db-1 and the migrate procs in hogli's log.`
+            )
+        }
+        await pause(Math.min(intervalMs, Math.max(0, deadline - performance.now())))
+    }
 }
 
 export async function syncTemplates(
@@ -219,13 +456,19 @@ export async function groupMembers(group: string, docker: string): Promise<numbe
     return members
 }
 
+const groupOrPartitionErrored = (rpkDescribe: string): boolean =>
+    /^ERROR\s/m.test(rpkDescribe) || /^TOPIC\s.*\sERROR\s*$/m.test(rpkDescribe)
+
 export function lagOf(rpkDescribe: string): number | null {
+    if (groupOrPartitionErrored(rpkDescribe)) {
+        return null
+    }
     const lag = /^TOTAL-LAG\s+(\d+)\s*$/m.exec(rpkDescribe)
     return lag ? Number(lag[1]) : null
 }
 
 export async function groupLag(group: string, docker: string): Promise<number> {
-    const output = await rpk(docker, ['group', 'describe', group])
+    const output = await rpkOrThrow(docker, ['group', 'describe', group])
     const lag = lagOf(output)
     if (lag === null) {
         throw new Error(`Could not read the lag of ${group} from rpk:\n${output}`)
@@ -251,6 +494,30 @@ export function seekFailures(rpkSeek: string): string[] {
         const [topic, partition] = row.trim().split(/\s+/)
         return error ? [`${topic}/${partition}: ${error}`] : []
     })
+}
+
+const CREATED_OR_PRESENT = /^(OK|TOPIC_ALREADY_EXISTS\b)/
+
+export function topicCreateFailures(rpkCreate: string): string[] {
+    const [header = '', ...rows] = rpkCreate.split('\n').filter((line) => line.trim() !== '')
+    if (!/^TOPIC\s+STATUS\s*$/.test(header)) {
+        return [rpkCreate.trim() || 'rpk printed nothing']
+    }
+    return rows.flatMap((row) => {
+        const [topic, ...words] = row.trim().split(/\s+/)
+        const status = words.join(' ')
+        return CREATED_OR_PRESENT.test(status) ? [] : [`${topic}: ${status}`]
+    })
+}
+
+export async function createTopics(topics: string[], docker: string): Promise<void> {
+    if (topics.length === 0) {
+        return
+    }
+    const failures = topicCreateFailures(await rpk(docker, ['topic', 'create', '--', ...topics]))
+    if (failures.length > 0) {
+        throw new Error(`Could not create the Kafka topics the roles read:\n${failures.join('\n')}`)
+    }
 }
 
 export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string): Promise<void> {
@@ -334,6 +601,21 @@ export async function terminateRoleConnections(
     }, postgresUrl)
 }
 
+const DOCKER_READ_WITHIN_MS = 10_000
+
+export async function serviceImagesOf(docker: string): Promise<string[]> {
+    const run = (args: string[]): Promise<string> =>
+        promisify(execFile)(docker, args, { timeout: DOCKER_READ_WITHIN_MS }).then(({ stdout }) => stdout)
+    const containers = (await run(['ps', '-q', '--filter', `label=com.docker.compose.project=${STACK.composeProject}`]))
+        .split('\n')
+        .filter(Boolean)
+    if (containers.length === 0) {
+        return []
+    }
+    const format = '{{index .Config.Labels "com.docker.compose.service"}} {{.Config.Image}} {{.Image}}'
+    return (await run(['inspect', '--format', format, ...containers])).split('\n').filter(Boolean).sort()
+}
+
 export async function rolesNotReady(specs: RoleSpec[]): Promise<RoleSpec[]> {
     const results = await Promise.all(
         specs.map((spec) =>
@@ -399,7 +681,13 @@ export async function expectOk(url: string): Promise<void> {
     }
 }
 
-export type ProbeFailure = { name: string; reason: string; unanswered: boolean }
+export type ProbeFailure = {
+    name: string
+    reason: string
+    unanswered: boolean
+    hostLimit?: string
+    sockets?: Record<string, number>
+}
 
 export type Probes = Record<string, () => Promise<unknown>>
 
@@ -420,7 +708,38 @@ export function dependencyProbes(
 
 const ANSWER_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EHOSTUNREACH'])
 
+const HOST_LIMITS: Record<string, string> = {
+    EADDRNOTAVAIL: 'local ports',
+    EMFILE: 'file descriptors',
+    ENFILE: 'file descriptors',
+}
+
 const TIMER_SLACK_MS = 10
+
+const SOCKET_GROUPS_KEPT = 20
+
+// A host out of local ports lists tens of thousands of sockets, which is past execFile's 1 MiB default.
+const SOCKET_LISTING_MAX_BYTES = 64 * 1024 * 1024
+
+// What held the host's ports is gone once the run ends, so the check keeps the busiest TCP states and peers.
+async function socketsOf(): Promise<Record<string, number> | undefined> {
+    try {
+        const { stdout } = await promisify(execFile)('ss', ['-tanH'], {
+            timeout: PROBE_TIMEOUT_MS,
+            maxBuffer: SOCKET_LISTING_MAX_BYTES,
+        })
+        const counts = new Map<string, number>()
+        for (const line of stdout.split('\n')) {
+            const [state, , , , peer] = line.trim().split(/\s+/)
+            if (peer !== undefined) {
+                counts.set(`${state} ${peer}`, (counts.get(`${state} ${peer}`) ?? 0) + 1)
+            }
+        }
+        return Object.fromEntries([...counts].sort(([, a], [, b]) => b - a).slice(0, SOCKET_GROUPS_KEPT))
+    } catch {
+        return undefined
+    }
+}
 
 const codeOf = (error: unknown): unknown =>
     typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
@@ -430,6 +749,10 @@ const isTypedAnswer = (error: unknown): boolean =>
 
 const isAnswer = (error: unknown): boolean =>
     isTypedAnswer(error) || (error instanceof Error && isTypedAnswer(error.cause))
+
+export const hostLimitOf = (error: unknown): string | undefined =>
+    HOST_LIMITS[String(codeOf(error))] ??
+    (error instanceof Error ? HOST_LIMITS[String(codeOf(error.cause))] : undefined)
 
 export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
     const results = await Promise.all(
@@ -441,15 +764,17 @@ export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
             } catch (error) {
                 const ranOutItsClock = performance.now() - startedAt >= PROBE_TIMEOUT_MS - TIMER_SLACK_MS
                 const reason = error instanceof Error ? error.message : String(error)
-                return { name, reason, unanswered: ranOutItsClock && !isAnswer(error) }
+                const hostLimit = hostLimitOf(error)
+                const sockets = hostLimit ? await socketsOf() : undefined
+                return {
+                    name,
+                    reason,
+                    unanswered: ranOutItsClock && !isAnswer(error),
+                    ...(hostLimit ? { hostLimit } : {}),
+                    ...(sockets ? { sockets } : {}),
+                }
             }
         })
     )
     return results.filter((failure): failure is ProbeFailure => failure !== null)
 }
-
-export const downServices = (
-    edgeUrl: string | undefined,
-    postgresUrl: string,
-    sesValkey: { host: string; port: number }
-): Promise<ProbeFailure[]> => failedProbes(dependencyProbes(edgeUrl, postgresUrl, sesValkey))

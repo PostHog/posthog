@@ -139,21 +139,21 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             >
                 <ContentAutopilotKpiStat
                     label="Prompts tracked"
-                    description="Prompts that are on and not archived. The next daily run checks them."
+                    description="Paused and archived prompts don't count."
                     {...overviewKpis.promptsTracked}
                     onClick={() => setWorkspaceTab('prompts')}
                     data-attr="content-autopilot-prompts-overview-kpi-prompts"
                 />
                 <ContentAutopilotKpiStat
-                    label="Mentioned in answers"
-                    description="Share of answers that name your brand, with or without a link. An answer that cites your site always counts as a mention."
+                    label="Visibility"
+                    description="Share of answers that name your brand or link to your site."
                     {...overviewKpis.mentionRate}
                     onClick={() => setChartMetric('mentioned')}
                     data-attr="content-autopilot-prompts-overview-kpi-mentioned"
                 />
                 <ContentAutopilotKpiStat
                     label="Cited as a source"
-                    description="Share of answers that link to a page on your site as a source, so people can click through to it."
+                    description="Share of answers that link to a page on your site."
                     {...overviewKpis.citationRate}
                     onClick={() => setChartMetric('cited')}
                     data-attr="content-autopilot-prompts-overview-kpi-cited"
@@ -172,7 +172,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 metric={chartMetric}
                 onMetricChange={setChartMetric}
                 query={visibilityQuery}
-                description="One line per engine, one point per day. Failed checks are left out."
                 data-attr="content-autopilot-prompts-overview-visibility"
             />
 
@@ -180,19 +179,13 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
 
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader
-                        title="By engine"
-                        description={`Each engine's answers to your prompts ${windowRange(overview)}. Failed checks are left out.`}
-                    />
+                    <PagePerformanceCardHeader title="By engine" />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-engines">
                         <ContentAutopilotEngineTable engines={engines} />
                     </div>
                 </PagePerformanceCard>
                 <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader
-                        title="Mentions by topic"
-                        description="Pick a topic to filter this page to it. Pick it again to clear the filter."
-                    />
+                    <PagePerformanceCardHeader title="Visibility by topic" />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-topics">
                         <ContentAutopilotPromptsTopicTable
                             rows={overview.topics}
@@ -230,10 +223,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     </div>
                 </PagePerformanceCard>
                 <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader
-                        title="What the engines searched for"
-                        description="The web searches the engines ran while answering your prompts. Expand one to see its prompts."
-                    />
+                    <PagePerformanceCardHeader title="What the engines searched for" />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
                         <ContentAutopilotPromptsSearchTable
                             rows={overview.top_searches}

@@ -448,9 +448,6 @@ CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLE
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION", "warpstream_ingestion"
 )
-CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION: str = os.getenv(
-    "CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION", "warpstream_calculated_events"
-)
 CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION", "warpstream_replay"
 )
@@ -910,6 +907,10 @@ CACHES["aeo_prompt_suggestions"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Batch reservations and the transactional email throttles read and write throttle history here. A read from
+# a lagging replica would miss the units that an earlier send charged and let a batch past its limit.
+# Keep default's key prefix and primary: other throttles count single requests through default and must see
+# the units their batches reserved here.
 CACHES["throttle_history"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
@@ -927,6 +928,18 @@ CACHES["radar_login_attempt"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
     "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.2, "SOCKET_TIMEOUT": 0.2},
+}
+
+# Vercel installation tokens only save a token request, so a stalled Redis must cost that request, not hold the call.
+# The entry is an encrypted string, so JSON keeps pickle out of the read.
+CACHES["vercel_installation_tokens"] = {
+    **CACHES["default"],
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+        "SOCKET_CONNECT_TIMEOUT": 0.2,
+        "SOCKET_TIMEOUT": 0.2,
+    },
 }
 
 # Dedicated cache for the feature flags service (if configured)
@@ -1007,6 +1020,7 @@ if TEST:
     CACHES["distinct_id_usage_report"] = CACHES["default"]
     CACHES["data_deletion_stats"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
+    CACHES["vercel_installation_tokens"] = CACHES["default"]
     CACHES["radar_login_attempt"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)

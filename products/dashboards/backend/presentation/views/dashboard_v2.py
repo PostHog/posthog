@@ -1,11 +1,12 @@
+import re
 import json
-import uuid
 from typing import Any, cast
 
 from django.conf import settings
 from django.http.response import HttpResponseBase
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema_field
+from opentelemetry import trace
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.parsers import JSONParser
 
@@ -17,6 +18,7 @@ from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.models.user import User
+from posthog.permissions import dashboard_v2_enabled
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.api import (
@@ -24,12 +26,19 @@ from products.dashboards.backend.facade.api import (
     DashboardNotFound,
     DashboardNotViewable,
     QueryBatchBusy,
-    dashboard_v2_enabled,
     query_batch_stream,
     viewable_dashboard_id,
 )
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
-from products.dashboards.backend.facade.enums import QueryBatchLanguage
+from products.dashboards.backend.facade.enums import (
+    QueryBatchEngine,
+    QueryBatchLanguage,
+    QueryBatchTargetFormat,
+    ResultFormat,
+)
+
+# W3C trace context, version 00: https://www.w3.org/TR/trace-context/#traceparent-header
+_TRACEPARENT = re.compile(r"00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}")
 
 
 @extend_schema_field({"type": "object", "additionalProperties": True})
@@ -45,12 +54,33 @@ class QueryBatchTargetSerializer(serializers.Serializer):
     language = serializers.ChoiceField(
         choices=QueryBatchLanguage.choices,
         help_text=(
-            "'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends "
-            "to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and "
-            "'logql': `query` is the expression, run as a range query over the panel's time range."
+            "'query': `query` is a PostHog query node as JSON, bare or as `{query: <query node>, filters?, "
+            "variables?}`, as a PostHog dashboard sends to `/query`. 'insight' is a deprecated name for 'query'. "
+            "'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` "
+            "is the expression, run as a range query over the panel's time range."
         ),
     )
     query = serializers.CharField(max_length=200_000, help_text="The query text, read according to `language`.")
+    legend = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=1000,
+        help_text="The series name template the panel draws. Returned unchanged on the target's line.",
+    )
+    format = serializers.ChoiceField(
+        required=False,
+        choices=QueryBatchTargetFormat.choices,
+        help_text="How the panel draws the result. Returned unchanged on the target's line.",
+    )
+    engine = serializers.ChoiceField(
+        required=False,
+        choices=QueryBatchEngine.choices,
+        help_text=(
+            "For query and hogql targets: 'new' runs on the new events schema and materialized views. "
+            "'classic', the default, runs as `/query` does."
+        ),
+    )
 
 
 class QueryBatchTimeSerializer(serializers.Serializer):
@@ -99,6 +129,12 @@ class QueryBatchQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Answer from the cache only, stale or not. Never runs or refreshes the query.",
     )
+    tile = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=64,
+        help_text="The tile this target belongs to. Only labels the query's run in the query log.",
+    )
 
 
 class QueryBatchRequestSerializer(serializers.Serializer):
@@ -107,6 +143,15 @@ class QueryBatchRequestSerializer(serializers.Serializer):
         allow_empty=False,
         max_length=MAX_QUERIES_PER_BATCH,
         help_text=f"The panels' queries, at most {MAX_QUERIES_PER_BATCH}.",
+    )
+    format = serializers.ChoiceField(
+        choices=ResultFormat.choices,
+        required=False,
+        default=ResultFormat.RESULT,
+        help_text=(
+            "`result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, "
+            "PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels."
+        ),
     )
     dashboard = serializers.IntegerField(
         required=False,
@@ -144,9 +189,13 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: OpenApiResponse(
                 description=(
                     "An `application/x-ndjson` stream with one JSON line per query, in the order each finishes: "
-                    "`{i, result: {result, cache: {key, "
-                    "fetchedAt, stale, hit}, provenance?}}` or `{i, error}`, where `i` is the query's index. Blank "
-                    "lines are keep-alives."
+                    "`{i, refId, legend?, format?, result: {result | frames, format?, warnings?, canonical, "
+                    "cache: {key, fetchedAt, stale, hit}, provenance: {mode, timeline}}, truncated?}` or "
+                    "`{i, refId, legend?, format?, error}`, where `i` is the query's index. With the request's "
+                    "`format` set to `frames`, `result.format` says whether the line holds `frames` "
+                    "(`{name, labels, fields, meta: {interval, date_from, date_to, end}, hash}`) or the runner's "
+                    "`result`. A `frames` line keeps the runner's `warnings`. `canonical` is the query text that ran. `truncated` is true when the result stopped "
+                    "at its row limit. Blank lines are keep-alives."
                 )
             )
         },
@@ -167,7 +216,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "This endpoint is available only in the web app. Use /query with an API key."
             )
         user = cast(User, request.user)
-        if not dashboard_v2_enabled(self.team, str(user.distinct_id)):
+        if not dashboard_v2_enabled(self.team, user):
             raise exceptions.NotFound()
         dashboard_id = request.validated_data.get("dashboard")
         if dashboard_id is not None:
@@ -184,8 +233,11 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             QueryBatchInput(
                 target=QueryBatchTarget(
                     ref_id=item["target"]["refId"],
-                    language=QueryBatchLanguage(item["target"]["language"]),
+                    language=_language(item["target"]["language"]),
                     query=item["target"]["query"],
+                    legend=item["target"].get("legend"),
+                    format=QueryBatchTargetFormat(item["target"]["format"]) if "format" in item["target"] else None,
+                    engine=QueryBatchEngine(item["target"]["engine"]) if "engine" in item["target"] else None,
                 ),
                 date_from=item["time"]["from"],
                 date_to=item["time"]["to"],
@@ -194,25 +246,52 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 swr=item["swr"],
                 cache_only=item["cacheOnly"],
                 max_data_points=item.get("maxDataPoints"),
+                tile=item.get("tile"),
             )
             for item in request.validated_data["queries"]
         ]
+        server_traceparent = _server_traceparent()
         try:
             stream = query_batch_stream(
                 team=self.team,
                 user=user,
                 inputs=inputs,
                 dashboard_id=dashboard_id,
-                client_query_id=f"dashboard-v2-batch-{uuid.uuid4().hex[:12]}",
+                client_query_id=f"dashboard-v2-batch-{dashboard_id if dashboard_id is not None else 'none'}",
                 asynchronous=settings.SERVER_GATEWAY_INTERFACE == "ASGI",
+                traceparent=server_traceparent or _traceparent(request.headers.get("traceparent")),
+                result_format=ResultFormat(request.validated_data["format"]),
             )
         except QueryBatchBusy:
             raise exceptions.Throttled(wait=5, detail="Too many dashboards are loading at once. Try again shortly.")
         return streaming_response(
             stream,
             content_type="application/x-ndjson",
-            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+                # The ingress strips an inbound `traceparent`, so the browser learns the server's trace from this.
+                **({"traceresponse": server_traceparent} if server_traceparent else {}),
+            },
         )
+
+
+def _language(value: str) -> QueryBatchLanguage:
+    language = QueryBatchLanguage(value)
+    return QueryBatchLanguage.QUERY if language == QueryBatchLanguage.INSIGHT else language
+
+
+def _traceparent(header: str | None) -> str | None:
+    # Only a well-formed header reaches the query tags, so a client cannot write arbitrary text into query_log.
+    return header if header is not None and _TRACEPARENT.fullmatch(header) else None
+
+
+def _server_traceparent() -> str | None:
+    # https://www.w3.org/TR/trace-context-2/#traceresponse-header uses the traceparent format.
+    context = trace.get_current_span().get_span_context()
+    if not context.is_valid:
+        return None
+    return f"00-{context.trace_id:032x}-{context.span_id:016x}-{context.trace_flags:02x}"
 
 
 def _scoped_node(target: dict[str, Any]) -> object:
@@ -228,4 +307,6 @@ def _scoped_node(target: dict[str, Any]) -> object:
         parsed = json.loads(text.strip())
     except ValueError:
         return None
-    return parsed.get("query") if isinstance(parsed, dict) else None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed if isinstance(parsed.get("kind"), str) else parsed.get("query")

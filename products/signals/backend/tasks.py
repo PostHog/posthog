@@ -21,6 +21,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
+from posthog.egress.github.limiter import github_installation_pace_seconds
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
@@ -216,6 +217,76 @@ def refresh_linked_pull_request_state(self: Task, team_id: int, pr_url: str) -> 
         merged_at=details.merged_at,
         merged_by=details.merged_by,
     )
+
+
+def _load_repo_sync_progress(progress_key: str) -> tuple[int, list[dict]]:
+    progress = cache.get(progress_key)
+    if isinstance(progress, tuple) and len(progress) == 2:
+        return progress
+    return 1, []
+
+
+def _fetch_signals_repositories_paced(
+    github: GitHubIntegration, progress_key: str, lease_key: str, lease_token: str
+) -> list[dict]:
+    page, accumulated = _load_repo_sync_progress(progress_key)
+    while True:
+        github._wait_for_budget()
+        cache.set(lease_key, lease_token, timeout=300)
+        try:
+            repos, has_more = github.list_repositories(page=page, per_page=100, priority=Priority.BATCH)
+        except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+            if accumulated:
+                cache.set(progress_key, (page, accumulated), timeout=3600)
+            raise
+        accumulated.extend(repos)
+        if not has_more or not repos:
+            cache.delete(progress_key)
+            return accumulated
+        page += 1
+
+
+def _sync_signals_repository_cache_paced(github: GitHubIntegration, integration_id: int) -> None:
+    lease_key = f"signals:github-repo-sync-lease:{integration_id}"
+    lease_token = f"{time.monotonic_ns()}"
+    if not cache.add(lease_key, lease_token, timeout=300):
+        return
+    try:
+        if not github.repository_cache_is_stale():
+            return
+        cached_repositories = github._get_stored_repository_list()
+        accumulated = _fetch_signals_repositories_paced(
+            github, f"signals:github-repo-sync-progress:{integration_id}", lease_key, lease_token
+        )
+        github._store_repository_cache(accumulated if accumulated != cached_repositories else None, timezone.now())
+    finally:
+        if cache.get(lease_key) == lease_token:
+            cache.delete(lease_key)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(GitHubIntegrationError, OperationalError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_signals_github_repository_cache(self: Task, team_id: int, integration_id: int) -> None:
+    from posthog.integrations import IntegrationManager  # noqa: PLC0415
+
+    integration = IntegrationManager.github.oauth.get_many(team_id, [integration_id]).get(integration_id)
+    if integration is None:
+        return
+    github = GitHubIntegration(integration, source="signals_pr_browser", priority=Priority.BATCH)
+    try:
+        _sync_signals_repository_cache_paced(github, integration_id)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+    except GitHubEgressBudgetExhausted as error:
+        delay = github_installation_pace_seconds(error.scope, priority=Priority.BATCH) if error.scope else 0
+        raise self.retry(exc=error, countdown=max(int(delay), 60))
 
 
 @shared_task(

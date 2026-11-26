@@ -12,10 +12,11 @@ import json
 import asyncio
 import logging
 from collections.abc import Mapping
+from dataclasses import fields
 from typing import Any, Literal, cast
 
 from django.conf import settings
-from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
+from django.db.models import Prefetch, Q, QuerySet
 from django.utils.text import slugify
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
@@ -29,7 +30,8 @@ from rest_framework.response import Response
 from posthog.api.cohort import CohortSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.pagination import DefaultLimitOffsetPagination, FacadeLimitOffsetPagination, facade_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import MAX_LISTED_IDS, action
 from posthog.auth import ProjectSecretAPIKeyAuthentication
@@ -40,6 +42,7 @@ from posthog.models.activity_logging.activity_page import ActivityLogPaginatedRe
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
@@ -68,24 +71,38 @@ from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
     split_restricted_property_names,
 )
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
-from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade import experiments as experiments_facade
 from products.experiments.backend.facade.api import (
     get_experiment_health,
+    get_latest_recalculation,
+    get_recalculation_run,
     get_running_time_target,
+    request_metrics_recalculation,
     start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.facade.contracts import (
+    ExperimentBasic,
+    ExperimentDetail,
     ExperimentHealthReaderAccess,
+    ExperimentListFilters,
+    ExperimentVersionConflict,
     LegacyMigrationError,
+    ListAccess,
     RunningTimeMode,
+    WarehouseNativeResultAccessDenied,
 )
-from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
+from products.experiments.backend.facade.legacy_migration import (
+    experiment_uses_legacy_metrics,
+    migrate_experiment as migrate_legacy_experiment,
+)
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.facade.temporal import ExperimentTimeseriesRecalculationWorkflowInputs
 from products.experiments.backend.facade.warehouse_native_access import (
@@ -96,14 +113,13 @@ from products.experiments.backend.llm_metric_templates import build_template, li
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
-    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentMetricsRecalculation,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
-    experiment_has_legacy_metrics,
 )
+from products.experiments.backend.presentation.saved_metrics import list_access
 from products.experiments.backend.presentation.scout_writes import (
     is_true,
     refuse_scout_cleanup_pr,
@@ -123,6 +139,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentHealthQuerySerializer,
     ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
@@ -147,16 +164,6 @@ from products.experiments.backend.presentation.serializers import (
     RunningTimeTargetQuerySerializer,
     RunningTimeTargetSerializer,
     ShipVariantSerializer,
-)
-from products.experiments.backend.recalculation import (
-    build_job_payload,
-    build_timeseries_cold_start_payload,
-    exceeds_recalculation_age_limit,
-    get_active_recalculation,
-    get_latest_recalculation,
-    get_recalculation_by_id,
-    get_run_results,
-    request_recalculation,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
@@ -194,9 +201,7 @@ from products.tasks.backend.facade import api as tasks_facade
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# Heavy JSON columns the list view never renders. Deferred for the list action so large
-# pages don't pay to read/decode detail-only data; the full serializer still loads them
-# for retrieve/update. None of these are touched by the list filters or status derivation.
+# Heavy JSON columns that bulk_update_tags defers, because it does not read them.
 LIST_DEFERRED_FIELDS = (
     "metrics",
     "metrics_secondary",
@@ -222,29 +227,8 @@ def flag_evaluation_contexts_prefetch() -> Prefetch:
     )
 
 
-def list_is_legacy_annotation() -> Case:
-    """DB-side `is_legacy` for the list endpoint, mirroring ``experiment_has_legacy_metrics`` in SQL.
-
-    The list serializer omits metrics, so it can't compute legacy-ness in Python without
-    re-reading the deferred JSON columns (one query per row). Instead we annotate the flag in the
-    single list query: a JSONB containment check on the inline metrics plus an ``EXISTS`` over the
-    saved metrics. The metric columns are referenced only in the predicate, so they stay out of the
-    SELECT output and the response — the deferral still holds.
-    """
-    inline_legacy = Q()
-    for kind in LEGACY_METRIC_KINDS:
-        inline_legacy |= Q(metrics__contains=[{"kind": kind}]) | Q(metrics_secondary__contains=[{"kind": kind}])
-    saved_legacy = Exists(
-        ExperimentToSavedMetric.objects.filter(
-            experiment=OuterRef("pk"),
-            saved_metric__query__kind__in=LEGACY_METRIC_KINDS,
-        )
-    )
-    return Case(
-        When(inline_legacy | saved_legacy, then=Value(True)),
-        default=Value(False),
-        output_field=BooleanField(),
-    )
+class ExperimentsPagination(FacadeLimitOffsetPagination, DefaultLimitOffsetPagination):
+    """Pages the facade list, with the schema of the default paginator, which states no maximum for `limit`."""
 
 
 def _build_prompt_variants(versions: list[int]) -> list[dict[str, Any]]:
@@ -468,7 +452,6 @@ class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeam
     retrieve=extend_schema(
         description="Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.",
     ),
-    # GET /experiments/ — DRF mixin, filtering via ExperimentService.filter_experiments_queryset
     list=extend_schema(
         description="List experiments for the current project. Supports filtering by status and archival state.",
         parameters=EXPERIMENT_LIST_FILTER_PARAMETERS,
@@ -505,6 +488,10 @@ class EnterpriseExperimentsViewSet(
         ExperimentProjectSecretApiKeyTeamSustainedThrottle,
     ]
     serializer_class = ExperimentSerializer
+    pagination_class = ExperimentsPagination
+    path_parameters = {
+        "pk": PathParameter(type=int, description="A unique integer value identifying this experiment."),
+    }
     queryset = (
         Experiment.objects.select_related(
             "team",
@@ -529,23 +516,55 @@ class EnterpriseExperimentsViewSet(
     ordering = "-created_at"
 
     def get_serializer_class(self):
-        # The list view renders only scalar/flag fields; use the lightweight serializer so the
-        # heavy metric fields (and their prefetch/fingerprinting) are skipped — see safely_get_queryset.
         if self.action == "list":
             return ExperimentBasicSerializer
         return ExperimentSerializer
 
+    def read_object(self) -> ExperimentDetail | None:
+        if self.action != "retrieve":
+            raise NotImplementedError()
+        return experiments_facade.get_experiment(team=self.team, experiment_id=self.kwargs["pk"])
+
+    def object_access_ref(self, record: ExperimentDetail) -> ObjectAccessRef:
+        return ObjectAccessRef(
+            resource="experiment", id=str(record.id), team_id=self.team.id, created_by_id=record.created_by_id
+        )
+
+    def _experiment_response(self, experiment_id: int, *, team: Team | None = None, status_code: int = 200) -> Response:
+        """The experiment with the id as the detail endpoint shows it, read again after a write."""
+        experiment = experiments_facade.get_experiment(
+            team=team or self.team, experiment_id=experiment_id, include_deleted=True
+        )
+        if experiment is None:
+            raise NotFound()
+        return Response(
+            ExperimentSerializer(experiment, context=self.get_serializer_context()).data, status=status_code
+        )
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return self._experiment_response(serializer.save().id, status_code=201)
+
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if is_scout_sandbox_request(request) and isinstance(request.data, Mapping):
             self._check_scout_update(request)
-        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
-        # and retry precisely; the default exception handler would flatten it to a plain string.
-        try:
-            return super().update(request, *args, **kwargs)
-        except ExperimentVersionConflict as err:
-            return Response(err.response_data(), status=err.status_code)
+        serializer = self.get_serializer(self.get_object(), data=request.data, partial=kwargs.pop("partial", False))
+        serializer.is_valid(raise_exception=True)
+        return self._experiment_response(serializer.save().id)
 
     def handle_exception(self, exc: Exception) -> Response:
+        # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
+        # and retry precisely.
+        if isinstance(exc, ExperimentVersionConflict):
+            body: dict[str, Any] = {"detail": exc.detail, "current_version": exc.current_version}
+            if exc.conflicting_fields:
+                body["conflicting_fields"] = exc.conflicting_fields
+            if exc.conflicting_metric_uuids:
+                body["conflicting_metric_uuids"] = exc.conflicting_metric_uuids
+            return Response(body, status=409)
+        if isinstance(exc, WarehouseNativeResultAccessDenied):
+            exc = PermissionDenied(exc.detail)
         # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
         # feature flag rule yet. That is a refused request, and the capture keeps an action that should work visible.
         if isinstance(exc, ConfigFormatError | ExperimentRuleError):
@@ -573,7 +592,26 @@ class EnterpriseExperimentsViewSet(
 
     @tracer.start_as_current_span("ExperimentViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return super().list(request, *args, **kwargs)
+        list_filters = ExperimentListFilters(
+            **{field.name: request.query_params.get(field.name) for field in fields(ExperimentListFilters)}
+        )
+        access = self._experiment_list_access()
+
+        def fetch(page: PageRequest) -> Page[ExperimentBasic]:
+            return experiments_facade.list_experiments(team=self.team, filters=list_filters, access=access, page=page)
+
+        return facade_page_response(self, fetch)
+
+    def _experiment_list_access(self) -> ListAccess | None:
+        """The access control narrowing a queryset list gets from TeamAndOrgViewSetMixin, with the same gates."""
+        if is_service_auth(self.request):
+            return None
+        return list_access(
+            self.user_access_control,
+            "experiment",
+            viewer_id=cast(User, self.request.user).id,
+            include_all_if_admin=self.request.GET.get("admin_include_all") == "true",
+        )
 
     @tracer.start_as_current_span("ExperimentViewSet.safely_get_queryset")
     def safely_get_queryset(self, queryset) -> QuerySet:
@@ -592,22 +630,12 @@ class EnterpriseExperimentsViewSet(
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
-        if self.action == "list":
-            # ExperimentBasicSerializer omits metrics/saved_metrics, so drop the saved-metric
-            # prefetch and defer the heavy JSON columns. The ?event= filter reads metrics via its
-            # own values_list/queries, so it is unaffected by the defer. is_legacy is computed in
-            # SQL (see list_is_legacy_annotation) so the badge/guards survive without loading metrics.
-            queryset = (
-                queryset.prefetch_related(None)
-                .prefetch_related(flag_evaluation_contexts_prefetch())
-                .defer(*LIST_DEFERRED_FIELDS)
-                .annotate(is_legacy_annotation=list_is_legacy_annotation())
-            )
         service = ExperimentService(team=self.team, user=getattr(request, "user", None))
         return service.filter_experiments_queryset(
             queryset,
             action=self.action,
-            query_params=getattr(request, "query_params", None),
+            # Only the list narrows by the query string, so a lookup of one experiment gets the same answer for any query.
+            query_params=getattr(request, "query_params", None) if self.action == "list" else None,
             request_data=getattr(request, "data", None),
         )
 
@@ -737,7 +765,7 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
         launched_experiment = service.launch_experiment(experiment, request=request)
-        return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(launched_experiment.id)
 
     @extend_schema(
         request=ArchiveExperimentSerializer,
@@ -766,7 +794,7 @@ class EnterpriseExperimentsViewSet(
             can_write_feature_flag=self._token_can_write_feature_flag(request),
             request=request,
         )
-        return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(archived_experiment.id)
 
     @extend_schema(
         request=None,
@@ -787,7 +815,7 @@ class EnterpriseExperimentsViewSet(
             can_write_feature_flag=self._token_can_write_feature_flag(request),
             request=request,
         )
-        return Response(ExperimentSerializer(unarchived_experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(unarchived_experiment.id)
 
     @extend_schema(
         request=EndExperimentSerializer,
@@ -839,7 +867,7 @@ class EnterpriseExperimentsViewSet(
             set_repository_as_team_default=request_serializer.validated_data["set_repository_as_team_default"],
             request=request,
         )
-        return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(ended_experiment.id)
 
     @extend_schema(
         request=ShipVariantSerializer,
@@ -894,7 +922,7 @@ class EnterpriseExperimentsViewSet(
             set_repository_as_team_default=request_serializer.validated_data["set_repository_as_team_default"],
             request=request,
         )
-        return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(shipped_experiment.id)
 
     @extend_schema(
         request=None,
@@ -962,12 +990,12 @@ class EnterpriseExperimentsViewSet(
         target = service.get_cleanup_repository_target(experiment)
         return Response(ExperimentFlagCleanupTargetSerializer(target).data)
 
-    @extend_schema(
-        request=None,
-        responses=ExperimentHealthSerializer,
+    @validated_request(
+        query_serializer=ExperimentHealthQuerySerializer,
+        responses={200: OpenApiResponse(response=ExperimentHealthSerializer)},
     )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
-    def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def health(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         """
         Health check findings for this experiment: problems in its configuration and its feature flag
         that keep it from producing trustworthy results, each with a fix. `checks` gives the result of
@@ -1128,6 +1156,11 @@ class EnterpriseExperimentsViewSet(
         A running experiment with `only_count_matured_users` on gets the info
         `metrics_not_matured` while it is younger than the conversion or retention window of
         every primary metric, because no user can count for those metrics until a window passes.
+
+        With `at_launch=true`, a draft is checked as it will be when its launch succeeds: a check
+        that runs only after launch, such as `no_metric`, also runs as if the experiment launched
+        now. A check that needs exposures, a calculation or a flag change keeps the reason
+        "Runs after launch".
         """
         experiment: Experiment = self.get_object()
         # The checks read the stored results and the exposure counts, which came from the warehouse.
@@ -1137,6 +1170,7 @@ class EnterpriseExperimentsViewSet(
             experiment_id=experiment.id,
             reader_access=self._health_reader_access(request, experiment),
             user=request.user if isinstance(request.user, User) else None,
+            at_launch=request.validated_query_data["at_launch"],
         )
         return Response(ExperimentHealthSerializer(health).data)
 
@@ -1230,7 +1264,7 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
         paused_experiment = service.pause_experiment(experiment, request=request)
-        return Response(ExperimentSerializer(paused_experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(paused_experiment.id)
 
     @extend_schema(
         request=None,
@@ -1249,7 +1283,7 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
         resumed_experiment = service.resume_experiment(experiment, request=request)
-        return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(resumed_experiment.id)
 
     @extend_schema(
         request=None,
@@ -1273,7 +1307,7 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
         frozen_experiment = service.freeze_exposure(experiment, request=request)
-        return Response(ExperimentSerializer(frozen_experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(frozen_experiment.id)
 
     @extend_schema(
         request=None,
@@ -1294,7 +1328,7 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
         unfrozen_experiment = service.unfreeze_exposure(experiment, request=request)
-        return Response(ExperimentSerializer(unfrozen_experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(unfrozen_experiment.id)
 
     @extend_schema(
         request=None,
@@ -1317,13 +1351,13 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
         reset_experiment = service.reset_experiment(experiment, request=request)
-        return Response(ExperimentSerializer(reset_experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(reset_experiment.id)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
 
-        if experiment_has_legacy_metrics(source_experiment):
+        if experiment_uses_legacy_metrics(team=self.team, experiment_id=source_experiment.id):
             return Response(
                 {"detail": "Duplication is not supported for experiments using legacy metrics."},
                 status=400,
@@ -1340,9 +1374,7 @@ class EnterpriseExperimentsViewSet(
             serializer_context=self.get_serializer_context(),
         )
 
-        return Response(
-            ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
-        )
+        return self._experiment_response(duplicate_experiment.id, status_code=201)
 
     @extend_schema(
         request=None,
@@ -1370,7 +1402,7 @@ class EnterpriseExperimentsViewSet(
         refuse_scout_experiment_migrate(is_scout_sandbox_request(request))
         experiment: Experiment = self.get_object()
 
-        if not experiment_has_legacy_metrics(experiment):
+        if not experiment_uses_legacy_metrics(team=self.team, experiment_id=experiment.id):
             raise ValidationError(
                 "This experiment already uses the new experiments engine, so there is nothing to migrate."
             )
@@ -1380,7 +1412,7 @@ class EnterpriseExperimentsViewSet(
         except (LegacyMigrationError, ValueError) as e:
             raise ValidationError(f"Couldn't migrate this experiment: {e}. Contact support if it keeps happening.")
 
-        return Response(ExperimentSerializer(migration.experiment, context=self.get_serializer_context()).data)
+        return self._experiment_response(migration.experiment.id)
 
     @extend_schema(
         request=CreateFromPromptInputSerializer,
@@ -1462,10 +1494,7 @@ class EnterpriseExperimentsViewSet(
             allow_unknown_events=True,
         )
 
-        return Response(
-            ExperimentSerializer(experiment, context=self.get_serializer_context()).data,
-            status=201,
-        )
+        return self._experiment_response(experiment.id, status_code=201)
 
     @extend_schema(
         request=None,
@@ -1504,7 +1533,7 @@ class EnterpriseExperimentsViewSet(
         refuse_scout_experiment_copy_to_project(is_scout_sandbox_request(request))
         source_experiment: Experiment = self.get_object()
 
-        if experiment_has_legacy_metrics(source_experiment):
+        if experiment_uses_legacy_metrics(team=self.team, experiment_id=source_experiment.id):
             return Response(
                 {"detail": "Copying is not supported for experiments using legacy metrics."},
                 status=400,
@@ -1537,13 +1566,9 @@ class EnterpriseExperimentsViewSet(
             },
         )
 
-        target_context = {
-            **self.get_serializer_context(),
-            "team_id": target_team.id,
-            "project_id": target_team.project_id,
-            "get_team": lambda: target_team,
-        }
-        return Response(ExperimentSerializer(new_experiment, context=target_context).data, status=201)
+        # The response's access level comes from the access control of this view, which reads the rules of the
+        # source project.
+        return self._experiment_response(new_experiment.id, team=target_team, status_code=201)
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1685,22 +1710,24 @@ class EnterpriseExperimentsViewSet(
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
         ExperimentService(team=self.team, user=request.user).assert_user_may_run_warehouse_native_sources(experiment)
-        result = request_recalculation(experiment, cast(User, request.user), trigger)
-        # Read without mutating — the serializer surfaces is_existing on the response so clients can detect
-        # the idempotent-reuse path without inspecting the HTTP status code.
-        is_existing = result.get("is_existing", False)
+        result = request_metrics_recalculation(
+            team_id=experiment.team_id,
+            experiment_id=experiment.id,
+            user_id=cast(User, request.user).id,
+            trigger=trigger,
+        )
 
         # A rejected run is new but already FAILED, so it gets a 201 and no workflow.
-        if not is_existing and result["status"] == ExperimentMetricsRecalculation.Status.PENDING:
+        if not result.is_existing and result.status == ExperimentMetricsRecalculation.Status.PENDING:
             start_metrics_recalculation_workflow(
-                str(result["id"]),
+                result.id,
                 team_id=experiment.team_id,
                 organization_id=str(experiment.team.organization_id),
             )
 
         return Response(
             ExperimentMetricsRecalculationJobSerializer(result).data,
-            status=200 if is_existing else 201,
+            status=200 if result.is_existing else 201,
         )
 
     @extend_schema(responses={200: ExperimentMetricsRecalculationLatestSerializer, 404: None})
@@ -1713,26 +1740,12 @@ class EnterpriseExperimentsViewSet(
     )
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
-        _check_warehouse_native_result_access(experiment, self.team, request.user)
-        active = get_active_recalculation(experiment)
-        active_run = {"id": str(active.id), "status": active.status} if active is not None else None
-        recalc = get_latest_recalculation(experiment)
-
-        if recalc is not None:
-            return Response(_serialize_latest(experiment, _build_run_payload(recalc), active_run))
-
-        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
-        # placeholder so the user sees results immediately, even while a first run is active (its pending
-        # payload would blank them out); an active run still rides along for polling. Pure read, no
-        # workflow start.
-        fallback = build_timeseries_cold_start_payload(experiment)
-        if fallback is not None:
-            return Response(_serialize_latest(experiment, fallback, active_run))
-
-        if active is not None:
-            return Response(_serialize_latest(experiment, _build_run_payload(active), active_run))
-
-        return Response({"detail": "No completed recalculation found"}, status=404)
+        latest = get_latest_recalculation(
+            team_id=experiment.team_id, experiment_id=experiment.id, user_id=_request_user_id(request)
+        )
+        if latest is None:
+            return Response({"detail": "No completed recalculation found"}, status=404)
+        return Response(ExperimentMetricsRecalculationLatestSerializer(latest).data)
 
     @extend_schema(
         parameters=[
@@ -1762,11 +1775,15 @@ class EnterpriseExperimentsViewSet(
         self, request: Request, recalculation_id: str, *args: Any, **kwargs: Any
     ) -> Response:
         experiment: Experiment = self.get_object()
-        _check_warehouse_native_result_access(experiment, self.team, request.user)
-        recalc = get_recalculation_by_id(experiment, recalculation_id)
-        if recalc is None:
+        run = get_recalculation_run(
+            team_id=experiment.team_id,
+            experiment_id=experiment.id,
+            recalculation_id=recalculation_id,
+            user_id=_request_user_id(request),
+        )
+        if run is None:
             return Response({"detail": "Recalculation not found"}, status=404)
-        return Response(ExperimentMetricsRecalculationRunSerializer(_build_run_payload(recalc)).data)
+        return Response(ExperimentMetricsRecalculationRunSerializer(run).data)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
@@ -2180,6 +2197,10 @@ class EnterpriseExperimentsViewSet(
             return False
 
 
+def _request_user_id(request: Request) -> int | None:
+    return request.user.id if isinstance(request.user, User) else None
+
+
 def _check_warehouse_native_result_access(experiment: Experiment, team: Team, user: Any) -> None:
     """A stored run holds totals read from the customer's warehouse. The reader needs the connection access
     that the query endpoint asks for, or the run hands out what that endpoint refuses."""
@@ -2187,17 +2208,3 @@ def _check_warehouse_native_result_access(experiment: Experiment, team: Team, us
     if connection_id is None:
         return
     validate_warehouse_native_connection_access(team, user if isinstance(user, User) else None, connection_id)
-
-
-def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
-    results = get_run_results(recalc)
-    payload = build_job_payload(recalc, results=results, include_live_progress=True)
-    payload["results"] = results
-    return payload
-
-
-def _serialize_latest(experiment: Experiment, payload: dict, active_run: dict | None) -> dict:
-    if active_run is not None:
-        payload["active_run"] = active_run
-    payload["exceeds_recalculation_age_limit"] = exceeds_recalculation_age_limit(experiment)
-    return ExperimentMetricsRecalculationLatestSerializer(payload).data

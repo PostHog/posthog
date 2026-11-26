@@ -51,6 +51,25 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "<style>p{}</style><p>{{x}}</p>",
                 f"<style>p{{}}</style><p>{ESCAPED_X}</p>",
             ),
+            (
+                "whole_unquoted_attributes",
+                "handlebars",
+                "<a href={{x}} title=%recipient.x%><a href=%unsubscribe_url%>",
+                '<a href="{{ variables.x | join: &quot;,&quot; }}" title="{{ variables.x | join: &quot;,&quot; }}">'
+                '<a href="{{ unsubscribe_url }}">',
+            ),
+            (
+                "in_the_title_and_after_a_script",
+                "handlebars",
+                "<title>{{x}}</title><script>a</script><p>{{x}}</p>",
+                f"<title>{ESCAPED_X}</title><script>a</script><p>{ESCAPED_X}</p>",
+            ),
+            (
+                "recipient_variable_in_a_go_link",
+                "go",
+                '<a href="https://example.com/?%recipient.x%">',
+                f'<a href="https://example.com/?{ESCAPED_X.replace(chr(34), "&quot;")}">',
+            ),
             ("after_a_stray_less_than", "handlebars", "a<3 {{x}}", f"a<3 {ESCAPED_X}"),
             ("brace_before_a_value", "handlebars", "{ {{x}}", f"{{ {ESCAPED_X}"),
             ("liquid_in_text", "handlebars", "{% if a %}{{x}}", '{{ "{%" }} if a %}' + ESCAPED_X),
@@ -67,7 +86,11 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("helper", "{{lookup a b}}", "{{lookup a b}}"),
             ("parent_path_at_the_top", "{{../x}}", "{{../x}}"),
             ("sendgrid_helper", '{{formatDate x "YYYY"}}', '{{formatDate x "YYYY"}}'),
-            ("unquoted_attribute", "<a href={{x}}>", "{{x}}"),
+            ("part_of_an_unquoted_attribute", "<a href=/{{x}}>", "{{x}}"),
+            ("start_of_an_unquoted_attribute", "<a href={{x}}/a>", "{{x}}"),
+            ("raw_unquoted_attribute", "<a href={{{x}}}>", "{{{x}}}"),
+            ("unquoted_event_handler", "<a onclick={{x}} >", "{{x}}"),
+            ("unquoted_attribute_after_a_script_comment", "<script><!--</script><a href={{x}}>", "{{x}}"),
             ("attribute_name", '<a {{x}}="y">', "{{x}}"),
             ("event_handler", '<a onclick="{{x}}">', "{{x}}"),
             ("style_attribute", '<p style="color: {{x}}">', "{{x}}"),
@@ -77,7 +100,16 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("no_break_space_inside_an_unquoted_value", '<img alt=x\u00a0title="{{x}}">', "{{x}}"),
             ("value_under_a_lookup", '{{#if (lookup flags "enabled") includeZero=true}}{{x}}{{/if}}', "{{x}}"),
             ("after_a_script_that_hides_its_end", "<script><!--<script></script>--></script><p>{{x}}</p>", "{{x}}"),
-            ("after_any_script", "<script>x</script><p>{{x}}</p>", "{{x}}"),
+            ("after_a_script_in_an_svg", """<svg><script><a title="</script>" onclick="f('{{x}}')">""", "{{x}}"),
+            (
+                "a_closing_tag_with_a_long_s_in_a_script",
+                """<script>var a="</\u017fcript>"; f({{x}})</script>""",
+                "{{x}}",
+            ),
+            ("after_a_title_in_an_svg", """<svg><title/></svg><a onclick="f('{{x}}')">""", "{{x}}"),
+            ("raw_in_the_title", "<title>{{{x}}}</title>", "{{{x}}}"),
+            ("after_the_start_of_a_closing_title", "<title></titl{{x}}></title>", "{{x}}"),
+            ("a_loop_that_opens_a_comment_in_a_script", "<script><!{{#each a}}-{{/each}}</script>", "{{#each a}}"),
             ("script", "<script>var x = {{x}};</script>", "{{x}}"),
             ("style", "<style>p { color: {{x}} }</style>", "{{x}}"),
             ("html_comment", "<!-- {{x}} -->", "{{x}}"),
@@ -97,16 +129,39 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         [
             ("unclosed", "handlebars", "a {{ b"),
             ("unclosed_block", "handlebars", "{{#if a}}<img src=x onerror=alert(1)>"),
-            ("loop", "go", "{{range .Items}}x{{end}}"),
-            ("go_comment_with_a_tab", "go", "{{-\t/* c */ -}}<img src=x onerror=alert(1)>"),
-            ("go_trim", "go", "{{- .x -}}"),
+            ("go_unclosed_block", "go", "{{if .x}}<img src=x onerror=alert(1)>"),
+            ("go_end_without_a_block", "go", "<img src=x onerror=alert(1)>{{end}}"),
+            ("go_second_else", "go", "{{if .x}}a{{else}}b{{else}}c{{end}}"),
+            ("go_function", "go", "{{if gt .x 5}}a{{end}}"),
+            ("go_index_of_a_loop", "go", "{{range $i, $e := .xs}}{{$i}}{{end}}"),
+            ("go_unknown_variable", "go", "{{$y.Name}}"),
             ("backslash_before_a_go_tag", "go", '\\{{printf "<img src=x onerror=alert(1)>"}}'),
-            ("go_link", "go", '<a href="{{.x}}">'),
+            ("go_whole_link", "go", '<a href="{{.x}}">'),
+            ("go_link_path", "go", '<a href="https://example.com/{{.x}}">'),
+            ("go_script_link", "go", '<a href="javascript:{{.x}}">'),
+            ("go_link_start_in_an_entity", "go", '<a href="javascript&colon;?{{.x}}">'),
+            ("go_query_start_in_an_entity", "go", '<a href="https://e&#47;{{.x}}">'),
+            (
+                "go_value_after_a_condition_in_a_link",
+                "go",
+                '<a href="https://e.com?q={{if .a}}1">{{else}}{{.y}}">{{end}}',
+            ),
+            ("go_long_link_without_a_query", "go", '<a href="https://' + "a" * 48_000 + "{{.x}}" * 8_000 + '">'),
+            ("go_single_quoted_attribute", "go", "<a title='{{.x}}'>"),
+            ("go_reserved_loop_name", "go", "{{range $this := .xs}}{{$this.n}}{{end}}"),
+            ("go_liquid_keyword_loop_name", "go", "{{range $not := .xs}}{{$not.n}}{{end}}"),
+            ("go_hidden_loop_name", "go", "{{range $x := .a}}{{range $x, $y := .b}}{{$x}}{{end}}{{end}}"),
+            ("go_this_property", "go", "{{$.this.x}}"),
+            ("go_generated_loop_name", "go", "{{range $go_item1 := .xs}}{{$go_item1}}{{end}}"),
+            ("go_long_else_if_chain", "go", "{{if .a}}x" + "{{else if .a}}y" * 1000 + "{{end}}"),
+            ("go_unclosed_tag_with_spaces", "go", "{{" + " " * 5000 + "x"),
+            ("go_link_after_a_condition", "go", '<a href="{{if .x}}javascript:{{end}}{{.x}}">'),
+            ("go_event_handler", "go", '<a onclick="{{.x}}">'),
+            ("go_unquoted_attribute", "go", "<a href={{.x}}>"),
             ("go_data_attribute", "go", '<a data-href="{{.x}}">'),
             ("go_meta_refresh", "go", '<meta http-equiv="refresh" content="0;url={{.x}}">'),
-            ("go_plain_attribute", "go", '<a title="{{.x}}">'),
             ("go_size_property", "go", "<p>{{.Order.size}}</p>"),
-            ("go_after_any_script", "go", "<script>x</script><p>{{.x}}</p>"),
+            ("go_after_a_comment_in_a_script", "go", "<script><!--</script><p>{{.x}}</p>"),
         ]
     )
     def test_a_go_template_or_invalid_handlebars_stays_as_text(self, _name: str, engine: str, source: str) -> None:
@@ -197,12 +252,16 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("many_values", "<p>{{x}}</p>" * 60_000),
-            ("long_in_liquid_units", "🧾" * 2_500_001),
+            ("many_values", "handlebars", "<p>{{x}}</p>" * 60_000),
+            ("long_in_liquid_units", "handlebars", "🧾" * 2_500_001),
+            # The converted body fits, and the setup before it doesn't.
+            ("long_after_go_setup", "go", "🧾" * 2_499_723 + "{{.x}}"),
         ]
     )
-    def test_a_template_that_converts_too_large_stays_plain_text(self, _name: str, source: str) -> None:
-        converted = convert_text(source)
+    def test_a_template_that_converts_too_large_stays_plain_text(
+        self, _name: str, engine: mailgun_templates.Engine, source: str
+    ) -> None:
+        converted = convert_text(source, engine=engine)
 
         assert converted.too_large
         assert "variables." not in converted.text
