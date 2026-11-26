@@ -120,7 +120,9 @@ describe('isCustomerFacingSurface', () => {
             },
             false,
         ],
-        ['PostHog AI', { mcpConsumer: 'posthog_ai', apiKeyScopes: SANDBOX_SCOPES }, false],
+        ['PostHog AI', { mcpConsumer: 'posthog_ai', apiKeyScopes: SANDBOX_SCOPES }, true],
+        ['the CLI', { mcpConsumer: 'posthog-cli' }, true],
+        ['the wizard', { mcpConsumer: 'posthog-code', clientUserAgent: 'posthog/wizard 1.0' }, false],
     ])('%s', (_name, input, expected) => {
         expect(isCustomerFacingSurface(input)).toBe(expected)
     })

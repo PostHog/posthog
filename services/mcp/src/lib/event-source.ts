@@ -137,9 +137,15 @@ export function isCustomerAgentCaller(input: EventSourceInput): boolean {
     return resolveEventSource(input) === EVENT_SOURCE.MCP && !isFirstPartyCaller(input)
 }
 
-// Mirrors `Task.OriginProduct.USER_CREATED` in `products/tasks/backend/models.py`. Every other origin is a
-// run that PostHog started, such as a report fix, and those runs declare the same `posthog-code` consumer.
-const PERSON_STARTED_TASK_ORIGIN = 'user_created'
+const PERSON_FACING_SOURCES: ReadonlySet<EventSource> = new Set([
+    EVENT_SOURCE.SLACK,
+    EVENT_SOURCE.POSTHOG_AI,
+    EVENT_SOURCE.CLI,
+])
+
+// Values of `Task.OriginProduct` in `products/tasks/backend/models.py`. Every other origin is a run that
+// PostHog started, such as a report fix, and those runs declare the same `posthog-code` consumer.
+const PERSON_STARTED_TASK_ORIGINS: ReadonlySet<string> = new Set(['user_created', 'slack', 'posthog_ai'])
 
 export interface CustomerSurfaceInput extends EventSourceInput {
     taskOriginProduct?: string | undefined
@@ -150,11 +156,8 @@ export function isCustomerFacingSurface(input: CustomerSurfaceInput): boolean {
     if (source === EVENT_SOURCE.MCP) {
         return !isFirstPartyCaller(input)
     }
-    if (source === EVENT_SOURCE.SLACK) {
-        return true
+    if (source === EVENT_SOURCE.POSTHOG_CODE) {
+        return input.taskOriginProduct === undefined || PERSON_STARTED_TASK_ORIGINS.has(input.taskOriginProduct)
     }
-    return (
-        source === EVENT_SOURCE.POSTHOG_CODE &&
-        (input.taskOriginProduct === undefined || input.taskOriginProduct === PERSON_STARTED_TASK_ORIGIN)
-    )
+    return PERSON_FACING_SOURCES.has(source)
 }
