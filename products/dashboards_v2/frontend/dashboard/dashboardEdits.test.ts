@@ -78,7 +78,7 @@ describe('dashboardEdits', () => {
 
     it('sets the parts of a tile inside a section and leaves its siblings alone', () => {
         const parts = { header: false, footer: false }
-        const board = applyEdit(nested, { edit: 'setTileParts', id: 'a', parts }, sizeOf)
+        const board = applyEdit(nested, { edit: 'setTilesParts', ids: ['a'], parts }, sizeOf)
 
         expect(findTile(board, 'a')?.widget).toMatchObject({ parts })
         expect(findTile(board, 'below')?.widget).not.toHaveProperty('parts')

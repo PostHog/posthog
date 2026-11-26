@@ -5,6 +5,7 @@ import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils/dom'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -22,7 +23,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayCategory, GroupMathType, PropertyMathType } from '~/types'
 
+import { CATEGORY_OPTIONS, getFilterSummary, getFilterTypeLabel } from './coreEventLabels'
 import { coreEventsLogic } from './coreEventsLogic'
+import { QuillCoreEventsSettings } from './QuillCoreEventsSettings'
 
 // Only allow: total count, unique users/groups, and property sum
 const ALLOWED_MATH_TYPES = [
@@ -31,47 +34,6 @@ const ALLOWED_MATH_TYPES = [
     GroupMathType.UniqueGroup,
     PropertyMathType.Sum,
 ] as const
-
-const CATEGORY_OPTIONS = [
-    { value: CoreEventCategory.Acquisition, label: 'Acquisition', description: 'Sign up, app install' },
-    { value: CoreEventCategory.Activation, label: 'Activation', description: 'Onboarding, first core action' },
-    {
-        value: CoreEventCategory.Monetization,
-        label: 'Monetization',
-        description: 'Purchase, subscription started',
-    },
-    { value: CoreEventCategory.Expansion, label: 'Expansion', description: 'Plan upgraded' },
-    { value: CoreEventCategory.Referral, label: 'Referral', description: 'Invite sent' },
-    { value: CoreEventCategory.Retention, label: 'Retention', description: 'Repeat purchase' },
-    { value: CoreEventCategory.Churn, label: 'Churn', description: 'Subscription canceled' },
-    { value: CoreEventCategory.Reactivation, label: 'Reactivation', description: 'Returned after churn' },
-]
-
-function getFilterTypeLabel(filter: EventsNode | ActionsNode | DataWarehouseNode): string {
-    switch (filter.kind) {
-        case NodeKind.EventsNode:
-            return 'Event'
-        case NodeKind.ActionsNode:
-            return 'Action'
-        case NodeKind.DataWarehouseNode:
-            return 'Data warehouse'
-        default:
-            return 'Unknown'
-    }
-}
-
-function getFilterSummary(filter: EventsNode | ActionsNode | DataWarehouseNode): string {
-    switch (filter.kind) {
-        case NodeKind.EventsNode:
-            return filter.event || 'All events'
-        case NodeKind.ActionsNode:
-            return filter.name || `Action #${filter.id}`
-        case NodeKind.DataWarehouseNode:
-            return filter.table_name || 'Unknown table'
-        default:
-            return 'Unknown'
-    }
-}
 
 const defaultFilter: EventsNode = {
     kind: NodeKind.EventsNode,
@@ -103,8 +65,9 @@ const eventToFormState = (event: CoreEvent): FormState => ({
 })
 
 export function CoreEventsSettings(): JSX.Element {
-    const { coreEvents } = useValues(coreEventsLogic)
+    const { coreEvents, coreEventsLoading } = useValues(coreEventsLogic)
     const { addCoreEvent, updateCoreEvent, removeCoreEvent } = useActions(coreEventsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [formState, setFormState] = useState<FormState>(createEmptyFormState)
@@ -167,7 +130,6 @@ export function CoreEventsSettings(): JSX.Element {
         const hasValidFilter =
             (formState.filter.kind === NodeKind.EventsNode &&
                 formState.filter.event != defaultFilter.event &&
-                formState.filter.kind === NodeKind.EventsNode &&
                 formState.filter.event) ||
             (formState.filter.kind === NodeKind.ActionsNode && formState.filter.id !== undefined) ||
             (formState.filter.kind === NodeKind.DataWarehouseNode && formState.filter.table_name)
@@ -182,6 +144,54 @@ export function CoreEventsSettings(): JSX.Element {
     }
 
     const disabledReason = getDisabledReason()
+
+    const filterPicker = (
+        <SeriesActionFilter
+            bordered
+            series={[formState.filter]}
+            onChange={handleSeriesChange}
+            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+            typeKey="core-events-settings"
+            mathAvailability={MathAvailability.All}
+            allowedMathTypes={ALLOWED_MATH_TYPES}
+            hideRename
+            hideDuplicate
+            showSeriesIndicator={false}
+            entitiesLimit={1}
+            actionsTaxonomicGroupTypes={[
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.DataWarehouse,
+            ]}
+            excludedProperties={{
+                [TaxonomicFilterGroupType.Events]: [null],
+            }}
+        />
+    )
+
+    if (todayRailNav) {
+        return (
+            <QuillCoreEventsSettings
+                coreEvents={coreEvents}
+                loading={coreEventsLoading}
+                onAdd={handleOpenNewModal}
+                onEdit={handleOpenEditModal}
+                onRemove={removeCoreEvent}
+                dialogOpen={isModalOpen}
+                editing={isEditing}
+                name={formState.name}
+                description={formState.description}
+                category={formState.category}
+                filterPicker={filterPicker}
+                onNameChange={(name) => setFormState((prev) => ({ ...prev, name }))}
+                onDescriptionChange={(description) => setFormState((prev) => ({ ...prev, description }))}
+                onCategoryChange={(category) => setFormState((prev) => ({ ...prev, category }))}
+                onSave={handleSave}
+                onClose={handleCloseModal}
+                saveDisabledReason={disabledReason}
+            />
+        )
+    }
 
     return (
         <div className="space-y-4">
@@ -286,27 +296,7 @@ export function CoreEventsSettings(): JSX.Element {
 
                     <div className="space-y-1">
                         <LemonLabel>Event, action, or data warehouse table</LemonLabel>
-                        <SeriesActionFilter
-                            bordered
-                            series={[formState.filter]}
-                            onChange={handleSeriesChange}
-                            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
-                            typeKey="core-events-settings"
-                            mathAvailability={MathAvailability.All}
-                            allowedMathTypes={ALLOWED_MATH_TYPES}
-                            hideRename
-                            hideDuplicate
-                            showSeriesIndicator={false}
-                            entitiesLimit={1}
-                            actionsTaxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.Events,
-                                TaxonomicFilterGroupType.Actions,
-                                TaxonomicFilterGroupType.DataWarehouse,
-                            ]}
-                            excludedProperties={{
-                                [TaxonomicFilterGroupType.Events]: [null],
-                            }}
-                        />
+                        {filterPicker}
                     </div>
 
                     <div className="space-y-1">

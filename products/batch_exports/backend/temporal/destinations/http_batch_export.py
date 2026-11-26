@@ -15,7 +15,6 @@ from posthog.hogql.printer.events_json_document import event_document_sql
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
@@ -37,6 +36,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     reads_recent_events_table,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.clickhouse import get_batch_exports_client
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
@@ -216,21 +216,18 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
     interval_start = await maybe_resume_from_heartbeat(inputs)
     is_backfill = inputs.get_is_backfill()
 
-    clickhouse_url = None
-    cluster = None
-    # The recent events tables are stored on the batch exports cluster, so a query that reads one runs there.
-    if settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL and reads_recent_events_table(
+    reads_recent_events = reads_recent_events_table(
         team_id=inputs.team_id,
         interval_start=interval_start,
         interval_end=inputs.data_interval_end,
         use_new_events_schema=use_native_schema,
         is_backfill=is_backfill,
         backfill_details=inputs.backfill_details,
-    ):
-        clickhouse_url = settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL
-        cluster = settings.CLICKHOUSE_BATCH_EXPORTS_CLUSTER
+    )
 
-    async with get_client(team_id=inputs.team_id, clickhouse_url=clickhouse_url, cluster=cluster) as client:
+    async with get_batch_exports_client(
+        team_id=inputs.team_id, reads_new_events_table=use_native_schema, reads_recent_events=reads_recent_events
+    ) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 

@@ -25,7 +25,7 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 # Distributed proxy into the logs cluster, rather than `trace_spans` itself, so the MV there has
 # to write through the proxy or it resolves to nothing.
 _is_dev = run_mode() is RunMode.CLOUD_DEV
-_role = NodeRole.APM if _is_dev else NodeRole.LOGS
+_role = NodeRole.INGESTION_APM if _is_dev else NodeRole.LOGS
 _mv = KAFKA_TRACE_SPANS_AVRO_MV(to_table="writable_trace_spans") if _is_dev else KAFKA_TRACE_SPANS_AVRO_MV()
 
 operations = [

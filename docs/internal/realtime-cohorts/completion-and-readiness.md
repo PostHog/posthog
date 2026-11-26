@@ -227,6 +227,12 @@ A cohort made only of references needs no stamp, so it is never compatible eithe
 On a team whose access row is at `processing` or `off` and that is not on `REALTIME_COHORT_TEAM_ALLOWLIST`, no stamp counts, even one from before the grant, so its cohorts are never compatible.
 A team with no row and not on the env list still counts the stamps it had before the levels existed, and `realtime_cohort_team_access enable` clears them before it grants the team.
 
+When a run sets the last stamp a cohort was missing, and the cohort is flag-compatible after the run commits, the finalizer captures `cohort realtime ready` for the team.
+It sends the seconds since the run was created and, for a `cohort_created` run (the build that turning realtime on queues), the seconds since realtime was turned on.
+A team enablement, an edit and a repair leave `realtime_enabled_at` where it was, so their runs send no turn-on time.
+The event is not a count of every cohort that becomes usable: a cohort stamped while its team is below `serving` reports nothing then, and nothing reports it when the team is promoted.
+An edit that clears a stamp makes the cohort report again once it is rebuilt, and an event that fails to send after the commit is lost.
+
 The realtime cohorts gate (`is_realtime_cohort_flag_targeting_enabled`) is open for a team whose access row is `serving`, and for a team on `REALTIME_COHORT_TEAM_ALLOWLIST` when the realtime targeting rollout flag is on for the user.
 That list also holds load-test teams, which is why the flag still decides there.
 The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the gate is open and every such cohort is flag-compatible.
@@ -237,11 +243,14 @@ For a team inside the gate, that field also carries how many of the project's co
 Behind the same gate, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `off`, `building`, `rebuilding`, `ready`, or `needs_attention`.
 `off` is a cohort with event criteria that could be realtime and that nobody turned realtime on for.
 An `off` cohort whose criteria look back further than the [plan's history limit](definitions-and-eligibility.md#plan-limits) carries `reason: history_over_limit`, because it can't be turned on.
+An `off` or `needs_attention` cohort carries `reason: unsupported_time_range` when the pipeline drops one of its event criteria for its time range, such as an event counted several times since a fixed date.
+The reason is read at request time with the leaf rule a turn-on checks, so an `off` cohort with this reason is one a turn-on refuses, and the reason wins over `history_over_limit`, because a turn-on checks the pipeline first.
+The converse does not hold: an `off` cohort with no reason can still be refused, because the reason reads only the cohort's own criteria, not the cohorts it includes, and covers none of a turn-on's other refusals.
 A `daily` cohort carries the first check of the [realtime decision](definitions-and-eligibility.md#the-realtime-decision) that kept it off realtime, in the order the save applies them.
 The reason is read at request time from what the save stored, with no query and no second compile:
 
 - `unsupported_criteria`: a leaf has a `bytecode_error` and no bytecode, or a leaf is `person_metadata`.
-- `action_criteria`: such a leaf is behavioral and its `key` is an action id. It wins over another leaf with a `bytecode_error`, but not over a `person_metadata` leaf.
+- `action_criteria`: such a leaf is behavioral, and its `event_type` is `actions` or its `key` is a number. It wins over another leaf with a `bytecode_error`, but not over a `person_metadata` leaf.
 - `includes_non_realtime_cohort`: every other leaf compiled, and a cohort reference has no bytecode, because the cohort it names was not realtime at that save.
 - `history_over_limit`: its criteria look back further than `REALTIME_COHORT_MAX_HISTORY_DAYS`.
 - `members_over_limit`: its current `count` is above `REALTIME_COHORT_MAX_PERSON_COUNT`.
@@ -254,6 +263,8 @@ Unless another leaf is `person_metadata` or carries both, that cohort gets no cr
 The reason is as stale as `cohort_type`: a cohort that includes another one keeps `includes_non_realtime_cohort` after that cohort becomes realtime, until it is saved again.
 Every `history_over_limit` carries the plan's limit in `history_limit_days`, because that is the limit a person can raise.
 A `needs_attention` cohort carries `reason: too_large_to_build` when the save path refused its behavioral run on the scan limit, see [backfill coordination](backfill-coordination.md#when-things-go-wrong).
+Sending `enabled: true` to the `realtime` action for a `needs_attention` cohort with no reason queues a build for each kind that has not stamped and has no active run, after the same eligibility and plan history checks a turn-on runs, and the cohort page offers this as "Try again".
+When it can queue nothing, for a team whose saves trigger no backfills or a kind whose run is `blocked`, it refuses with `realtime_refused` and reports no `cohort realtime retried` event.
 
 A cohort that needs two backfill kinds reads `building` or `rebuilding` while every kind that has not stamped is being prepared, and `needs_attention` when nothing is preparing one of those kinds.
 A kind that has stamped is finished for this cohort, so neither its runs nor its debounce key are consulted, including a team run of that kind that stays active while it holds for other cohorts.

@@ -173,7 +173,11 @@ import {
   type GatewayEnvInput,
 } from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
-import { readProductLaunch, readRunLaunch } from "./launch/run-launch";
+import {
+  codexConfigOverrides,
+  readProductLaunch,
+  readRunLaunch,
+} from "./launch/run-launch";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
 import {
   CliProcessRegistry,
@@ -2459,14 +2463,7 @@ export class AgentServer {
                   ? this.config.reasoningEffort
                   : undefined,
               serviceTier: this.config.serviceTier,
-              // Codex runs at most 3 sub-agents per session at once by default; the main agent does
-              // not count. A run that starts more sub-agents at once sets its own limit.
-              ...(launch.codexMaxSubagents && {
-                configOverrides: {
-                  "agents.max_concurrent_threads_per_session":
-                    launch.codexMaxSubagents,
-                },
-              }),
+              configOverrides: codexConfigOverrides(launch),
               developerInstructions: codexInstructions,
               httpHeaders: codexSubscriptionTokens
                 ? undefined

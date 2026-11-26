@@ -1359,6 +1359,8 @@ export namespace Schemas {
       own_domains: string[];
       /** Active, unarchived prompts the project tracks. */
       active_prompts: number;
+      /** How many unarchived prompts the project can keep turned on at once. A request that would turn on more is refused with a 400, so at most max_active_prompts minus active_prompts more can be turned on. */
+      max_active_prompts: number;
       /** Unarchived prompts that are turned off. No run checks them. */
       paused_prompts: number;
       /** Keywords in the project's keyword list. */
@@ -1427,7 +1429,7 @@ export namespace Schemas {
       status: SetupStepStatusEnum;
       /** How many brands, prompts or keywords the step added. */
       added?: number;
-      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or 'paused' when the prompts step saved its prompts turned off. */
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, 'paused' when the prompts step saved its prompts turned off, or 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts. */
       detail?: string;
     }
 
@@ -1472,7 +1474,7 @@ export namespace Schemas {
       run_first_check?: boolean;
       /** Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine. */
       only_first_run?: boolean;
-      /** With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on. */
+      /** With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on. */
       activate_paused_prompts?: boolean;
     }
 
@@ -9664,6 +9666,25 @@ export namespace Schemas {
       variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
     }
 
+    /**
+     * Exposed entities with no row of the metric query that counted, by variant.
+     */
+    export type ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows = {[key: string]: number} | null;
+
+    /**
+     * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+     */
+    export type ExperimentWarehouseNativeRowsLeftOutUnknownVariants = {[key: string]: number} | null;
+
+    export interface ExperimentWarehouseNativeRowsLeftOut {
+      /** Exposure rows with an empty entity_id. */
+      empty_id?: number | null;
+      /** Exposed entities with no row of the metric query that counted, by variant. */
+      exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows;
+      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+      unknown_variants?: ExperimentWarehouseNativeRowsLeftOutUnknownVariants;
+    }
+
     export interface ExperimentQueryResponse {
       baseline?: ExperimentStatsBaseValidated | null;
       /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
@@ -9673,6 +9694,8 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
+      /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
@@ -16432,6 +16455,26 @@ export namespace Schemas {
      */
     export type AnomalyBucketDetails = { [key: string]: unknown } | null;
 
+    /**
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change
+     */
+    export type AnomalyJudgeKindEnum = typeof AnomalyJudgeKindEnum[keyof typeof AnomalyJudgeKindEnum];
+
+
+    export const AnomalyJudgeKindEnum = {
+      Spike: 'spike',
+      Drop: 'drop',
+      Flatline: 'flatline',
+      TrendBreak: 'trend_break',
+      LevelShift: 'level_shift',
+      PatternChange: 'pattern_change',
+    } as const;
+
     export interface AnomalyBucket {
       /** The start of the bucket, in the project timezone. */
       bucket_start: string;
@@ -16462,6 +16505,20 @@ export namespace Schemas {
          * @nullable
          */
       details: AnomalyBucketDetails;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     export interface AnomalyDashboard {
@@ -16487,6 +16544,20 @@ export namespace Schemas {
          * @nullable
          */
       score: number | null;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     /**
@@ -16735,6 +16806,20 @@ export namespace Schemas {
       value: number | null;
       /** Whether the detector flagged the bucket. */
       flag: boolean;
+      /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+       *
+       * * `spike` - Spike
+       * * `drop` - Drop
+       * * `flatline` - Flatline
+       * * `trend_break` - Trend break
+       * * `level_shift` - Level shift
+       * * `pattern_change` - Pattern change */
+      anomaly_kind: AnomalyJudgeKindEnum | null;
+      /**
+         * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+         * @nullable
+         */
+      anomaly_reason: string | null;
     }
 
     export interface AnomalySeriesPoints {
@@ -30737,6 +30822,7 @@ export namespace Schemas {
      * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
      * * `members_over_limit` - Members over limit
      * * `test_account_filter` - Test account filter
+     * * `unsupported_time_range` - Unsupported time range
      */
     export type CohortRealtimeUnavailableReasonEnum = typeof CohortRealtimeUnavailableReasonEnum[keyof typeof CohortRealtimeUnavailableReasonEnum];
 
@@ -30749,10 +30835,11 @@ export namespace Schemas {
       IncludesNonRealtimeCohort: 'includes_non_realtime_cohort',
       MembersOverLimit: 'members_over_limit',
       TestAccountFilter: 'test_account_filter',
+      UnsupportedTimeRange: 'unsupported_time_range',
     } as const;
 
     export interface CohortRealtimeReadiness {
-      /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+      /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
        *
        * * `static` - Static
        * * `person_properties` - Person properties
@@ -30770,7 +30857,7 @@ export namespace Schemas {
       ready_at: string | null;
       /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
       build: CohortHistoryBuild | null;
-      /** Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
+      /** Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: `too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
        *
        * * `history_over_limit` - History over limit
        * * `too_large_to_build` - Too large to build
@@ -30778,7 +30865,8 @@ export namespace Schemas {
        * * `action_criteria` - Action criteria
        * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
        * * `members_over_limit` - Members over limit
-       * * `test_account_filter` - Test account filter */
+       * * `test_account_filter` - Test account filter
+       * * `unsupported_time_range` - Unsupported time range */
       reason: CohortRealtimeUnavailableReasonEnum | null;
       /**
          * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
@@ -31023,7 +31111,7 @@ export namespace Schemas {
     }
 
     export interface CohortRealtimeRequest {
-      /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
+      /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. True for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
       enabled: boolean;
     }
 
@@ -36927,7 +37015,7 @@ export namespace Schemas {
     }};
 
     export interface DataDeletionRequestCreate {
-      /** HogQL query that selects one event UUID column. */
+      /** HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL. */
       query: string;
       /** Variables referenced by the HogQL query. */
       variables?: DataDeletionRequestCreateVariables;
@@ -36946,7 +37034,7 @@ export namespace Schemas {
     }};
 
     export interface DataDeletionRequestInput {
-      /** HogQL query that selects one event UUID column. */
+      /** HogQL query that selects one event UUID column. When some of the project's $feature_flag_called events are stored only in posthog.flag_evaluations, a query that reads events must also select uuid from posthog.flag_evaluations, for example with UNION ALL. */
       query: string;
       /** Variables referenced by the HogQL query. */
       variables?: DataDeletionRequestInputVariables;
@@ -43624,19 +43712,19 @@ export namespace Schemas {
 
     export interface EmitReportResponse {
       /**
-         * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
+         * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it. With `source_issue_already_reported`, the id of the open report that already names the issue: edit that report.
          * @nullable
          */
       report_id: string | null;
       /**
-         * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
+         * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped. With `source_issue_already_reported`, the current status of the open report.
          * @nullable
          */
       report_status: string | null;
       /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
       emitted: boolean;
       /**
-         * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+         * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | `source_issue_already_reported` | null when a report was authored. `source_issue_already_reported` means an open report already names one of your `source_issues`, so no report was created: add your findings to the report in `report_id` with edit-report.
          * @nullable
          */
       skipped_reason: string | null;
@@ -49924,6 +50012,11 @@ export namespace Schemas {
          * @nullable
          */
       aggregation_group_type_index?: number | null;
+      /**
+         * Display-only name for this release condition group. It does not affect evaluation.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     /**
@@ -50250,6 +50343,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -50284,6 +50378,7 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
       MetricAllZero: 'metric_all_zero',
@@ -50363,6 +50458,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -50395,6 +50491,7 @@ export namespace Schemas {
       NewFlagNoTraffic: 'new_flag_no_traffic',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricUsesFeatureFlagCalled: 'metric_uses_feature_flag_called',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
       MetricAllZero: 'metric_all_zero',
@@ -50429,6 +50526,7 @@ export namespace Schemas {
        * * `multiple_variants_share` - Multiple Variants Share
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -50493,6 +50591,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -50886,6 +50985,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `metric_all_zero` - Metric All Zero
@@ -51214,7 +51314,7 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
@@ -51541,6 +51641,8 @@ export namespace Schemas {
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
+      /** Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: ExperimentExposureQueryResponseTotalExposures;
@@ -53877,7 +53979,7 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health: ExperimentHealth | null;
@@ -62490,6 +62592,20 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type MarketingAnalyticsRecommendationsConversionSourceKind = typeof MarketingAnalyticsRecommendationsConversionSourceKind[keyof typeof MarketingAnalyticsRecommendationsConversionSourceKind];
+
+
+    export const MarketingAnalyticsRecommendationsConversionSourceKind = {
+      Posthog: 'posthog',
+      GoogleAds: 'google_ads',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationsConversionSource {
+      /** Names of the conversion goals CPAs count. Empty for `google_ads`. */
+      goalNames: string[];
+      kind: MarketingAnalyticsRecommendationsConversionSourceKind;
+    }
+
     export type MarketingAnalyticsRecommendationsDataGapKind = typeof MarketingAnalyticsRecommendationsDataGapKind[keyof typeof MarketingAnalyticsRecommendationsDataGapKind];
 
 
@@ -62660,6 +62776,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRecommendationsQueryResponse {
+      /** The conversions CPAs count. Null when no Google Ads account was read. */
+      conversionSource?: MarketingAnalyticsRecommendationsConversionSource | null;
       /** Data the rules needed but could not read, so some figures use a fallback. */
       dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
@@ -90690,7 +90808,7 @@ export namespace Schemas {
 
     export interface PatchedAEOPromptUpdateRequest {
       /**
-         * Turn the prompt on or off for future runs.
+         * Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already tracks its max_active_prompts, shown by GET aeo_setup/context/.
          * @nullable
          */
       active?: boolean | null;
@@ -93829,7 +93947,7 @@ export namespace Schemas {
       readonly is_legacy?: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure?: boolean;
-      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+      /** The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event?: string;
       /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
       readonly health?: ExperimentHealth | null;
@@ -97225,17 +97343,29 @@ export namespace Schemas {
       /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
       require_tags?: boolean;
       /**
-         * Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.
+         * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.
          * @maxItems 1000
          * @items.maxLength 2000
          */
       blocked_hosts?: string[];
       /**
-         * IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.
+         * IP addresses or CIDR ranges to block from /flags requests, up to 100. The widest ranges are /8 for IPv4 and /16 for IPv6.
          * @maxItems 1000
          * @items.maxLength 2000
          */
       blocked_ips?: string[];
+      /**
+         * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.
+         * @maxItems 1000
+         * @items.maxLength 2000
+         */
+      allowed_hosts?: string[];
+      /**
+         * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins.
+         * @maxItems 1000
+         * @items.maxLength 2000
+         */
+      allowed_ips?: string[];
     }
 
     /**
@@ -99366,6 +99496,8 @@ export namespace Schemas {
       auto_model_choice?: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled?: boolean;
+      /** Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Applies to tasks started after the change. */
+      chatgpt_apps_enabled?: boolean;
     }
 
     export interface PatchedSlackAppWorkspaceSettingsUpdate {
@@ -108390,6 +108522,8 @@ export namespace Schemas {
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
+      /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
@@ -108412,6 +108546,8 @@ export namespace Schemas {
       /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
       health_findings?: ExperimentExposureHealthFinding[] | null;
       kind?: 'ExperimentExposureQuery';
+      /** Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only. */
+      rows_left_out?: ExperimentWarehouseNativeRowsLeftOut | null;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: QueryResponseAlternative20TotalExposures;
@@ -108948,6 +109084,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative39 {
+      /** The conversions CPAs count. Null when no Google Ads account was read. */
+      conversionSource?: MarketingAnalyticsRecommendationsConversionSource | null;
       /** Data the rules needed but could not read, so some figures use a fallback. */
       dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
@@ -122552,6 +122690,11 @@ export namespace Schemas {
       auto_model_choice: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled: boolean;
+      /**
+         * Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Null when this person has no ChatGPT plan that Slack tasks can use.
+         * @nullable
+         */
+      chatgpt_apps_enabled: boolean | null;
     }
 
     export interface SlackAppRepositoryOptions {
@@ -123290,6 +123433,11 @@ export namespace Schemas {
       malformed: boolean;
       /** Each catalog field's value for this record. A malformed value reads as null, or an empty array. */
       field_values: SourceFilterPreviewRecordFieldValues;
+      /**
+         * For an excluded record, the conditions of the expression that the record does not pass, as written in the expression and in expression order. The conditions are the operands of a top-level AND, or the whole expression when it is one condition. A condition that reads a malformed value fails. Null for records that pass, and for every record when the expression's top level is OR or the expression has more than 8 conditions.
+         * @nullable
+         */
+      failed_conditions: string[] | null;
     }
 
     export interface SourceFilterPreviewRequest {
@@ -129674,10 +129822,12 @@ export namespace Schemas {
       opened: number;
       /** Sends with at least one tracked link click. */
       clicked: number;
-      /** Delivered sends nobody clicked. */
+      /** Delivered sends nobody clicked, of those that tracked clicks. */
       not_clicked: number;
       /** Sends that went out with open and click tracking off, counted by when they were queued like the other counts. They can't record an open or a click. */
       untracked: number;
+      /** Sends that went out with opens tracked and click tracking off, counted like `untracked`. They can't record a click, so `not_clicked` and `without_click` leave them out, along with the `untracked` sends. */
+      clicks_untracked: number;
       /** How many days after the click or the send the event counts. */
       window_days: number;
       /** Clicked sends and how many converted. Null without an event. */
@@ -129705,6 +129855,13 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
+    }
+
+    export interface TransactionalEmailTracking {
+      /** False when the email went out with open tracking off, so it can never record an open. */
+      opens: boolean;
+      /** False when the email went out with click tracking off, so it can never record a click. */
+      clicks: boolean;
     }
 
     export interface TransactionalEmailLogDetail {
@@ -129760,6 +129917,8 @@ export namespace Schemas {
       action_id: string;
       /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
       sensitive: boolean;
+      /** What PostHog tracked for this email, in the terms of the send request's `tracking` option. Each kind reads true until the email's sent status arrives, and for an email sent before PostHog recorded it. */
+      tracking: TransactionalEmailTracking;
     }
 
     export interface TransactionalEmailLogEntry {
@@ -145778,6 +145937,13 @@ export namespace Schemas {
      * @minimum 1
      */
     page?: number;
+    };
+
+    export type ExperimentsHealthRetrieveParams = {
+    /**
+     * Check a draft as it will be when its launch succeeds. The checks that run only after launch also run, as if the experiment launched now with no exposures, calculation or flag change yet. Has no effect on a launched experiment.
+     */
+    at_launch?: boolean;
     };
 
     export type ExperimentsRunningTimeTargetRetrieveParams = {

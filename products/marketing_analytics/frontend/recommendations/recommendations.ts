@@ -7,6 +7,9 @@ import {
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
     MarketingAnalyticsRecommendationDetectedChange,
     MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsConversionSource,
+    MarketingAnalyticsRecommendationsDataGap,
+    MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsSource,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
@@ -38,7 +41,7 @@ export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommen
     brand_overlap: 'You pay for brand searches where your site already ranks in the top 3 organically.',
     content_gap: 'Searches that convert cheaply in ads, where your site ranks below position 10 or not at all.',
     keyword_gap:
-        'Popular organic searches you do not bid on. Their words already convert in your ads, or they rank on a page your ads link to.',
+        'Popular organic searches you do not bid on. Each one is a variant of a search that converts in your ads, or ranks on a page your ads link to.',
     spend_without_conversions: 'Search terms that cost at least twice the benchmark CPA and never converted.',
     striking_distance: 'Searches where your site ranks between positions 5 and 20. The top 3 gets most of the clicks.',
     keyword_tracking:
@@ -359,6 +362,52 @@ export function recommendationDataGaps(source: ExternalDataSource): Recommendati
         sourceId: source.id,
         sourceName: marketingSourceName(source),
     }))
+}
+
+export type DataGapNavigation = 'edit_conversion_goals' | 'open_utm_audit'
+
+const SERVER_DATA_GAP_ACTIONS: Record<
+    MarketingAnalyticsRecommendationsDataGapKind,
+    'manage_source' | DataGapNavigation | null
+> = {
+    conversion_action_tables_not_synced: 'manage_source',
+    performance_max_search_terms_count_primary_conversions: null,
+    hidden_search_spend: null,
+    posthog_conversions_not_ready: null,
+    posthog_conversion_goals_unusable: 'edit_conversion_goals',
+    // It also covers a truncated result, which no goal edit fixes.
+    posthog_conversions_failed: null,
+    posthog_campaigns_unmatched: 'open_utm_audit',
+}
+
+export type ServerDataGap = { kind: MarketingAnalyticsRecommendationsDataGapKind; message: string } & (
+    | { action: 'manage_source'; sourceId: string; sourceName: string }
+    | { action: DataGapNavigation | null; sourceName: string | null }
+)
+
+export function serverDataGaps(
+    gaps: MarketingAnalyticsRecommendationsDataGap[],
+    selectedSources: ExternalDataSource[],
+    utmAuditEnabled: boolean
+): ServerDataGap[] {
+    return gaps.map((gap) => {
+        const source = gap.campaignTable
+            ? selectedSources.find((source) => recommendationsSource(source)?.campaignTable === gap.campaignTable)
+            : undefined
+        const sourceName = source ? marketingSourceName(source) : null
+        const action = SERVER_DATA_GAP_ACTIONS[gap.kind]
+        if (action === 'manage_source' && source && sourceName) {
+            return { kind: gap.kind, message: gap.message, action, sourceId: source.id, sourceName }
+        }
+        const reachable = action === 'edit_conversion_goals' || (action === 'open_utm_audit' && utmAuditEnabled)
+        return { kind: gap.kind, message: gap.message, action: reachable ? action : null, sourceName }
+    })
+}
+
+export function conversionSourceLabel(source: MarketingAnalyticsRecommendationsConversionSource): string {
+    return source.kind === 'posthog'
+        ? `CPAs from your PostHog goals: ${source.goalNames.join(', ')}`
+        : 'CPAs from Google Ads conversions'
 }
 
 export function recommendationsSource(source: ExternalDataSource): MarketingAnalyticsRecommendationsSource | null {

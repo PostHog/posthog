@@ -2,10 +2,14 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.personal_api_key_minting import mint_personal_api_key
 
+from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
 
@@ -94,21 +98,36 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
 
-    def test_rotate_preserves_existing_pats(self):
+    def test_rotate_replaces_the_partners_pats_for_every_member_and_keeps_the_users_own_key(self):
         token = self._get_bearer_token()
         self._post_with_bearer(
             "/api/agentic/provisioning/resources",
             token=token,
         )
-        initial_pat = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).first()
-        assert initial_pat is not None
+        initial_pat = PersonalAPIKey.objects.get(user=self.user, provisioned_by=self.partner)
+        teammate = User.objects.create_and_join(
+            organization=self.organization, email="teammate@example.com", password="testpass"
+        )
+        assert maybe_create_provisioned_pat(teammate, self.team, self.partner, "query:read")
+        own_key = mint_personal_api_key(
+            self.user,
+            label=initial_pat.label,
+            scopes=initial_pat.scopes,
+            teams=AccessibleTeams.for_user(self.user, [self.team.id]),
+            organization_ids=[str(self.team.organization_id)],
+        ).key
 
-        self._post_with_bearer(
+        res = self._post_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
             token=token,
         )
-        assert PersonalAPIKey.objects.filter(id=initial_pat.id).exists()
-        assert PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).count() == 2
+
+        assert res.status_code == 200
+        assert not PersonalAPIKey.objects.filter(id=initial_pat.id).exists()
+        assert not PersonalAPIKey.objects.filter(user=teammate).exists()
+        rotated_pat = PersonalAPIKey.objects.get(user=self.user, provisioned_by=self.partner)
+        assert rotated_pat.scoped_teams == [self.team.id]
+        assert PersonalAPIKey.objects.filter(id=own_key.id).exists()
 
     @patch("posthog.models.team.team.Team.reset_token_and_save", side_effect=Exception("db error"))
     def test_rotate_returns_500_when_reset_token_fails(self, _mock_reset):

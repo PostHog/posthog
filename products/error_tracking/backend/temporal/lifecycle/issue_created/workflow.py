@@ -12,6 +12,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     AutoMergeReopenedTarget,
     FingerprintEmbeddingMergeResult,
 )
+from products.error_tracking.backend.temporal.lifecycle.change_log import LifecycleChangeInputs, record_lifecycle_change
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
     IssueCreatedSnapshot,
@@ -153,6 +154,20 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
         # Runs before the alert and the side effects so that they carry the inferred severity.
         inputs = await self._with_inferred_severity(inputs)
 
+        # Only an issue that stayed on its own gets a created row: a merged one no longer exists.
+        change_log = asyncio.create_task(
+            record_lifecycle_change(
+                LifecycleChangeInputs(
+                    notification_id=inputs.notification_id,
+                    team_id=inputs.team_id,
+                    issue_id=inputs.issue_id,
+                    kind="created",
+                    event_uuid=inputs.event_uuid,
+                    event_timestamp=inputs.event_timestamp,
+                )
+            )
+        )
+
         # Patched: executions in flight when this activity shipped replay the old sequence.
         # Dispatch runs alongside the other side effects and is always awaited, so a
         # failure on either side never suppresses the other. Its open-ended retry covers
@@ -217,6 +232,7 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
                 await summary
             if tags is not None:
                 await tags
+            await change_log
         return IssueCreatedWorkflowResult(
             notified=True,
             embedding_skipped_reason=preparation.skipped_reason,
@@ -279,4 +295,5 @@ def _reopened_inputs(
         event_uuid=inputs.event_uuid,
         event_timestamp=inputs.event_timestamp,
         assignee=target.assignee,
+        previous_status=target.previous_status,
     )

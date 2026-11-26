@@ -52,7 +52,7 @@ async def test_staging_arrow_compression_is_scoped_to_allowed_teams(
             BATCH_EXPORT_ARROW_COMPRESSION_METHOD=compression,
             BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS=team_ids,
         ),
-        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as get_client,
+        patch("products.batch_exports.backend.temporal.clickhouse.get_client") as get_client,
         patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_s3_client") as get_s3_client,
     ):
         get_client.return_value.__aenter__.return_value = client

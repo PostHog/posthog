@@ -242,6 +242,12 @@ class SlackSettings(UUIDModel):
         blank=True,
         help_text="Let PostHog pick the model for each new task this user starts from Slack.",
     )
+    # Only read on a personal row. NULL means the user never picked, which resolves to off.
+    chatgpt_apps_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Let Slack tasks that run on this user's ChatGPT plan use the apps connected to that plan.",
+    )
     # Only read on a personal row. NULL means feature tips never evaluated this user.
     # The shape is ``FeatureTipsState`` in ``logic/feature_tips/state.py``.
     feature_tips = models.JSONField(

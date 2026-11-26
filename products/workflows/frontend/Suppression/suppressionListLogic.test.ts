@@ -120,6 +120,41 @@ describe('suppressionListLogic', () => {
             ]).toEqual([1, 1, ['b@example.com']])
         })
     })
+    describe('search length', () => {
+        it('shows no matches for a search longer than the endpoint accepts, without asking it', async () => {
+            const searches: string[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team/messaging_suppressions/suppressions/': ({ request }) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
+                        searches.push(search)
+                        if (search.length > 512) {
+                            return [
+                                400,
+                                { attr: 'search', detail: 'Ensure this field has no more than 512 characters.' },
+                            ]
+                        }
+                        return [
+                            200,
+                            { count: 1, next: null, previous: null, results: [suppressionRow('a@example.com')] },
+                        ]
+                    },
+                },
+            })
+            const logic = suppressionListLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSuppressionsSuccess'])
+            const longSearch = 'a'.repeat(513)
+
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm(longSearch)
+            })
+                .toDispatchActions(['loadSuppressions'])
+                .toFinishAllListeners()
+
+            expect([logic.values.suppressions.count, searches.includes(longSearch)]).toEqual([0, false])
+        })
+    })
     describe('removal warning', () => {
         it.each([
             ['a bounced address', [suppressionRow('a@example.com', 'BOUNCE')], 'Remove', false],

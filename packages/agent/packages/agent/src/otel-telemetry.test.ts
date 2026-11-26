@@ -112,6 +112,13 @@ describe("OtelRunTelemetry", () => {
         },
       },
       {
+        name: "session_log_gap",
+        entry: makeEntry("_posthog/session_log_gap", { droppedCount: 2 }),
+        severityText: "WARN",
+        body: "session log gap",
+        attrs: { dropped_count: 2 },
+      },
+      {
         name: "double-prefixed extension method",
         entry: makeEntry("__posthog/run_started", {}),
         body: "run started",
