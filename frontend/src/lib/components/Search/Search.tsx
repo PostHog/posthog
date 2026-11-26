@@ -875,6 +875,11 @@ function SearchResults({
                                                                             tabIndex={-1}
                                                                         >
                                                                             {icon}
+                                                                            {item.leadingLabel && (
+                                                                                <span className="text-xs text-tertiary tabular-nums shrink-0 mt-[2px]">
+                                                                                    {item.leadingLabel}
+                                                                                </span>
+                                                                            )}
                                                                             <span className="truncate">
                                                                                 {String(item.displayName || item.name)}
                                                                             </span>

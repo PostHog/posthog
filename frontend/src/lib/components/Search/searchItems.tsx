@@ -29,6 +29,8 @@ export interface SearchItem {
     id: string
     name: string
     displayName?: string
+    /** Muted label rendered before the name, e.g. "#4821" on a row a number query found by its ID. */
+    leadingLabel?: string
     category: string
     productCategory?: string | null
     href?: string
@@ -132,8 +134,15 @@ export const fileSystemEntryToSearchItem = (
     }
 }
 
-/** Maps one unified search result to a search item. */
-export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'][number]): SearchItem => {
+/** The unified search types whose rows a number query also finds by ID (`match_id` in posthog/api/search.py). */
+const ID_MATCH_TYPES = new Set(['experiment', 'feature_flag', 'cohort'])
+
+/** Maps one unified search result to a search item. `searchedId` is the ID a number query names, from
+ *  `idFromNumberQuery`. */
+export const unifiedSearchResultToSearchItem = (
+    result: SearchResponse['results'][number],
+    searchedId: string | null = null
+): SearchItem => {
     let name = result.result_id
     let href = ''
     let itemType: string = result.type
@@ -199,9 +208,14 @@ export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'
             break
     }
 
+    // A row whose ID is the number typed shows that ID before its name. Without it, a person who pasted
+    // an ID cannot tell the match from a row whose name holds the same number.
+    const isIdMatch = searchedId !== null && ID_MATCH_TYPES.has(result.type) && result.result_id === searchedId
+
     return {
         id: `${result.type}-${result.result_id}`,
         name,
+        ...(isIdMatch ? { leadingLabel: `#${result.result_id}` } : {}),
         category: result.type,
         href,
         itemType,
