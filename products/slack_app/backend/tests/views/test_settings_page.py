@@ -1,12 +1,16 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, User
+from posthog.models.github_integration_base import ReauthorizationRequired
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
@@ -147,6 +151,60 @@ class TestSlackAppSettings(APIBaseTest):
         assert cleared.json()["personal"]["default_integration_id"] is None
         assert cleared.json()["personal"]["untagged_followup_mode"] == "never"
 
+    def test_settings_page_reads_the_personal_row_once_and_keeps_the_resolver_fallbacks(self) -> None:
+        self._link_slack_user()
+        SlackSettings.objects.create(
+            slack_workspace_id=SLACK_TEAM_ID,
+            slack_user_id="U123",
+            untagged_followup_mode="retired-mode",
+            thread_join_mode="retired-mode",
+            auto_model_choice=True,
+            feature_tips={"opted_out_at": "2026-01-01T00:00:00Z"},
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(self._url())
+
+        personal = response.json()["personal"]
+        assert personal["untagged_followup_mode"] == "never"
+        assert personal["untagged_question_mode"] == "ask"
+        assert personal["thread_join_mode"] == "never"
+        assert personal["auto_model_choice"] is True
+        assert personal["feature_tips_enabled"] is False
+        # One read for both settings rows, one for the external channels switch.
+        assert sum('"slack_app_slacksettings"' in query["sql"] for query in queries.captured_queries) == 2
+
+    @parameterized.expand(
+        [
+            ("no_plan", False, True, True, None),
+            ("setting_flag_off", True, False, True, None),
+            ("plan_runs_off", True, True, False, None),
+            ("plan_slack_runs_use", True, True, True, False),
+        ]
+    )
+    def test_chatgpt_apps_setting_shows_only_for_a_plan_slack_tasks_use(
+        self, _name: str, has_plan: bool, setting_flag: bool, byos: bool, expected: bool | None
+    ) -> None:
+        self._link_slack_user()
+
+        with (
+            patch("products.tasks.backend.facade.api.can_bill_plan_unattended", return_value=has_plan),
+            patch(
+                "products.slack_app.backend.logic.settings_page.is_slack_app_chatgpt_apps_setting_enabled",
+                return_value=setting_flag,
+            ),
+            patch("products.slack_app.backend.logic.settings_page.is_slack_app_byos_enabled", return_value=byos),
+        ):
+            response = self.client.get(self._url())
+            assert response.json()["personal"]["chatgpt_apps_enabled"] is expected
+            if expected is None:
+                return
+
+            changed = self.client.patch(self._url("personal/"), {"chatgpt_apps_enabled": True}, format="json")
+
+        assert changed.json()["personal"]["chatgpt_apps_enabled"] is True
+        assert SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id="U123").chatgpt_apps_enabled
+
     def test_personal_project_must_be_one_the_person_can_open(self) -> None:
         self._link_slack_user()
         other_org_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
@@ -208,6 +266,62 @@ class TestSlackAppSettings(APIBaseTest):
         assert cleared.status_code == status.HTTP_200_OK
         assert not SlackChannelSettings.objects.filter(organization=self.organization).exists()
 
+    @parameterized.expand([("connected", True), ("not_connected", False)])
+    @patch("products.slack_app.backend.api.UserGitHubIntegration")
+    def test_repository_options_come_from_the_persons_own_github(
+        self, _name: str, connected: bool, mock_github_class
+    ) -> None:
+        cache.clear()
+        if connected:
+            UserIntegration.objects.create(
+                user=self.user,
+                kind=UserIntegration.IntegrationKind.GITHUB,
+                integration_id="gh-1",
+                config={},
+                sensitive_config={"access_token": "gh-token"},
+            )
+        mock_github_class.return_value.list_all_cached_repositories.return_value = [
+            {"full_name": "hedgebox/web"},
+            {"full_name": "Hedgebox/api"},
+        ]
+
+        response = self.client.get(self._url("repositories/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "repositories": ["Hedgebox/api", "hedgebox/web"] if connected else [],
+            "github_connected": connected,
+        }
+
+    @patch("products.slack_app.backend.api.UserGitHubIntegration")
+    def test_repository_options_ask_to_reconnect_an_expired_github(self, mock_github_class) -> None:
+        cache.clear()
+        UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="gh-1",
+            config={},
+            sensitive_config={"access_token": "gh-token"},
+        )
+        mock_github_class.return_value.list_all_cached_repositories.side_effect = ReauthorizationRequired()
+
+        response = self.client.get(self._url("repositories/"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Reconnect GitHub" in response.json()["detail"]
+
+    @parameterized.expand(
+        [("project_scope_only", ["integration:read"], 403), ("with_user_scope", ["integration:read", "user:read"], 200)]
+    )
+    def test_repository_options_need_the_user_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+        cache.clear()
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.get(self._url("repositories/"), HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        assert response.status_code == expected
+
     @parameterized.expand(
         [
             ("project_in_another_workspace", "other_workspace", None, "C111", None),
@@ -239,6 +353,22 @@ class TestSlackAppSettings(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SlackChannelSettings.objects.exists()
+
+    @patch("products.slack_app.backend.logic.settings_page.MAX_CHANNEL_SETTINGS", 1)
+    def test_channel_settings_stop_at_the_limit_but_existing_ones_stay_editable(self) -> None:
+        body = {"default_integration_id": None, "default_repository": "example/web-app", "untagged_question_mode": None}
+        assert self.client.put(self._url("channels/C111/"), body, format="json").status_code == status.HTTP_200_OK
+
+        refused = self.client.put(self._url("channels/C222/"), body, format="json")
+        edited = self.client.put(
+            self._url("channels/C111/"), {**body, "default_repository": "example/api"}, format="json"
+        )
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        assert edited.status_code == status.HTTP_200_OK
+        assert list(SlackChannelSettings.objects.values_list("slack_channel_id", "default_repository")) == [
+            ("C111", "example/api")
+        ]
 
     @patch(
         "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True

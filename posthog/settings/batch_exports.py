@@ -117,7 +117,6 @@ BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS: list[str] = get_list(
     os.getenv("BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS", "")
 )
 
-CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
 # Insert blocks are formed before ClickHouse partitions the rows into staging files.
 BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES: int = get_from_env(
     "BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES", 64 * 1024 * 1024, type_cast=int
@@ -204,3 +203,15 @@ BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE: int = get_from_env(
 BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ: int = get_from_env(
     "BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ", 500 * 1024**3, type_cast=int
 )  # 500GiB (again, rather arbitrary for now)
+
+# TODO: Remove once every batch export reads events_json.
+# Which teams' batch exports read events_json instead of the legacy events table. An excluded team stays on the
+# legacy table whatever the other two say. Otherwise a listed team moves, and the rest move when their team id
+# modulo 100 is below the percentage.
+BATCH_EXPORTS_NEW_EVENTS_TABLE_TEAM_IDS: list[str] = get_list(os.getenv("BATCH_EXPORTS_NEW_EVENTS_TABLE_TEAM_IDS", ""))
+BATCH_EXPORTS_NEW_EVENTS_TABLE_EXCLUDED_TEAM_IDS: list[str] = get_list(
+    os.getenv("BATCH_EXPORTS_NEW_EVENTS_TABLE_EXCLUDED_TEAM_IDS", "")
+)
+BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: int = get_from_env(
+    "BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE", 0, type_cast=int
+)

@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -291,4 +291,11 @@ export const WarehouseProperties: Story = {}
 
 export const WarehousePropertiesGroupsTab: Story = {
     parameters: { pageUrl: urls.warehouseProperties('groups') },
+}
+
+export const WarehousePropertiesQuill: Story = {
+    parameters: {
+        featureFlags: [...STORYBOOK_FEATURE_FLAGS, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: { waitForSelector: 'text=Billing profile', snapshotBrowsers: [] },
+    },
 }

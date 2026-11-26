@@ -106,7 +106,7 @@ class ExportedAsset(models.Model):
 
     # Relations
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True, related_name="+")
     insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True)
 
     # Content related fields

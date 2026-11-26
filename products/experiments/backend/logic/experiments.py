@@ -17,7 +17,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.logic.saved_metrics import visible_to
+from products.experiments.backend.logic.list_access import visible_to
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -83,9 +83,7 @@ def _experiments(team: Team) -> QuerySet[Experiment]:
     )
 
 
-def get_detail(
-    *, team: Team, experiment_id: int, include_deleted: bool, search: str | None, order: str | None
-) -> Experiment | None:
+def get_detail(*, team: Team, experiment_id: int, include_deleted: bool) -> Experiment | None:
     queryset = (
         _experiments(team)
         .filter(pk=experiment_id)
@@ -97,10 +95,7 @@ def get_detail(
         )
     )
     queryset = ExperimentService(team=team, user=None).filter_experiments_queryset(
-        queryset,
-        action="retrieve",
-        query_params=_query_params({"search": search, "order": order}),
-        include_deleted=include_deleted,
+        queryset, action="retrieve", include_deleted=include_deleted
     )
     return strict_fetch(queryset).first()
 
@@ -116,11 +111,11 @@ def list_page(
 
 
 def resolved_exposure_event(experiment: Experiment) -> str:
-    # A rule-linked experiment counts the $experiment_exposure events of its rule, whatever the rollout says.
+    # A rule-linked experiment counts the $experiment_exposure events of its rule, whatever the cutoff says.
     if experiment.is_rule_linked:
         return EXPERIMENT_EXPOSURE_EVENT
     # A draft has no start_date, so the setup UI shows the event that the draft would count if it launched now.
-    return resolve_default_exposure_event(experiment.team, experiment.start_date or timezone.now())
+    return resolve_default_exposure_event(experiment.start_date or timezone.now())
 
 
 def _with_split_percent(variants: list) -> list:

@@ -22,6 +22,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { cn } from 'lib/utils/css-classes'
 import { uuid } from 'lib/utils/dom'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { emailTemplaterLogic, saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
@@ -46,6 +47,7 @@ import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
 import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
+import { MessageTemplateSceneMenuBar } from './MessageTemplateSceneMenuBar'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
@@ -89,6 +91,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         templateChanged,
         messageLoading,
         templateLoading,
+        savedTemplateLoading,
         templatePickerOpen,
         externallyEdited,
         isSyncingExternalEdit,
@@ -100,15 +103,19 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSavingDraft,
         isDiscardingDraft,
         isSavingSensitive,
+        isTransactional,
+        section,
+        failedTagSaves,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
     const impact = useFeatureFlag('WORKFLOWS_EMAIL_IMPACT')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
-    // The editor remounts after each save, and stays the same email until the person leaves the page.
+    // The editor remounts when the template loads again, and stays the same email until the person leaves the page.
     const [visitId] = useState(() => uuid())
 
     const testSendLogic = messageTemplateTestSendLogic(props)
@@ -139,8 +146,17 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         )
     }
 
+    const isLoaded = props.id === 'new' || originalTemplate.id === props.id
+    // Only the saved template tells its type, and the two types have different headers.
+    if (!isLoaded && templateLoading && transactionalEmailsEnabled && section !== 'transactional') {
+        return <SpinnerOverlay sceneLevel />
+    }
+
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
+    // Only the saved template tells its type, so until it loads the page takes the one its section mostly holds.
+    const isLibraryTemplate = isLoaded ? !isTransactional : section !== 'transactional'
+    const showMenuBar = sceneMenuBarEnabled && isLibraryTemplate
     const saveDisabledReason =
         editDisabledReason ??
         (draftsEnabled && isSavingDraft
@@ -165,10 +181,17 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const sendTestDisabledReason =
         editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)
 
+    const isCreating = props.id === 'new' && savedTemplateLoading
+    // Tags look empty until the saved ones load, so editing them earlier would replace those.
+    const canEditTags = !editDisabledReason && isLoaded && !isCreating
     const editor = (
-        <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
+        <div
+            className="flex flex-col flex-1 gap-2 min-h-0 relative"
+            // Create leaves the page and a sync replaces the form, so an edit typed meanwhile would be lost.
+            {...(isCreating || isSyncingExternalEdit ? { inert: '' } : {})}
+        >
             {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
-            {isSyncingExternalEdit && <SpinnerOverlay />}
+            {(isSyncingExternalEdit || isCreating) && <SpinnerOverlay />}
             {(messageLoading || templateLoading) && !isSyncingExternalEdit ? (
                 <Spinner className="text-lg" />
             ) : (
@@ -193,17 +216,22 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         </div>
     )
 
+    const activeTab =
+        !sendLinks && transactionalTab === 'sends'
+            ? 'runs'
+            : (!impact || !transactionalHogFlowId) && transactionalTab === 'impact'
+              ? 'design'
+              : transactionalTab
     const tabs = (
         <LemonTabs
-            activeKey={
-                !sendLinks && transactionalTab === 'sends'
-                    ? 'runs'
-                    : (!impact || !transactionalHogFlowId) && transactionalTab === 'impact'
-                      ? 'design'
-                      : transactionalTab
-            }
+            activeKey={activeTab}
             onChange={setTransactionalTab}
-            className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
+            className={cn(
+                'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow',
+                // The new editor scrolls on its own, so its tab fits the page. The other tabs scroll the page.
+                activeTab === 'design' &&
+                    'has-[[data-attr=email-document-editor]]:basis-0 has-[[data-attr=email-document-editor]]:min-h-0 has-[[data-attr=email-document-editor]]:[&>div]:basis-0 has-[[data-attr=email-document-editor]]:[&>div]:min-h-0'
+            )}
             tabs={[
                 // Unmounting the editor would drop a canvas edit it hasn't exported yet.
                 { key: 'design', label: 'Design', content: editor, keepMounted: true },
@@ -313,12 +341,21 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             {...{ className: 'flex flex-col grow h-full' }}
         >
             <SceneContent className="h-full flex flex-col grow">
+                {showMenuBar && (
+                    <MessageTemplateSceneMenuBar
+                        {...props}
+                        editDisabledReason={editDisabledReason}
+                        saveDisabledReason={saveDisabledReason}
+                        sendTestDisabledReason={sendTestDisabledReason}
+                        canEditTags={canEditTags}
+                    />
+                )}
                 <SceneTitleSection
                     name={template.name}
                     description={template.description}
                     resourceType={{ type: 'template' }}
-                    canEdit={!editDisabledReason}
-                    descriptionAlwaysVisible
+                    canEdit={!editDisabledReason && !isCreating}
+                    descriptionAlwaysVisible={!isLibraryTemplate}
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
@@ -365,8 +402,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     (templateChanged ? 'Save your changes before duplicating' : undefined)
                                 }
                                 editDisabledReason={editDisabledReason}
-                                templateChanged={templateChanged && !draftsEnabled}
-                                saving={isTemplateSubmitting || templateLoading}
+                                templateChanged={templateChanged && !draftsEnabled && !savedTemplateLoading}
+                                saving={isTemplateSubmitting || templateLoading || savedTemplateLoading}
                                 onSendTest={() => setSendTestEmailModalOpen(true)}
                                 onDiscard={() => resetTemplate(originalTemplate)}
                                 onSave={() => void saveWithLatestEmailEdit(submitTemplate)}
@@ -386,7 +423,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 >
                                     Send test
                                 </LemonButton>
-                                {templateChanged && !draftsEnabled && (
+                                {templateChanged && !draftsEnabled && !savedTemplateLoading && (
                                     <LemonButton
                                         data-attr="cancel-message-template"
                                         type="secondary"
@@ -401,7 +438,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     htmlType="submit"
                                     form="template"
                                     onClick={() => void saveWithLatestEmailEdit(submitTemplate)}
-                                    loading={isTemplateSubmitting || templateLoading}
+                                    loading={isTemplateSubmitting || templateLoading || savedTemplateLoading}
                                     disabledReason={saveDisabledReason}
                                     size="small"
                                     sideAction={
@@ -423,7 +460,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                                                           editDisabledReason ??
                                                                           (!hasDraft
                                                                               ? 'There is no draft to discard'
-                                                                              : isSavingDraft || isDiscardingDraft
+                                                                              : isSavingDraft ||
+                                                                                  isDiscardingDraft ||
+                                                                                  savedTemplateLoading
                                                                                 ? 'Wait for the draft to finish saving'
                                                                                 : undefined),
                                                                       'data-attr': 'message-template-discard-draft',
@@ -485,13 +524,17 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     }
                 />
 
-                <SceneTags
-                    tags={[...(template.tags ?? [])]}
-                    onSave={saveTags}
-                    canEdit={!editDisabledReason}
-                    loading={isTemplateSubmitting}
-                    dataAttrKey="message-template"
-                />
+                {!showMenuBar && (
+                    <SceneTags
+                        // The row keeps its own copy of the tags while it is edited.
+                        key={failedTagSaves}
+                        tags={[...(template.tags ?? [])]}
+                        onSave={saveTags}
+                        canEdit={canEditTags}
+                        loading={isTemplateSubmitting}
+                        dataAttrKey="message-template"
+                    />
+                )}
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
                 <SendTestEmailModal {...props} isOpen={isSendTestEmailModalOpen} />
@@ -512,6 +555,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     type="primary"
                                     size="small"
                                     onClick={() => syncExternalEdit()}
+                                    disabledReason={savedTemplateLoading ? 'Saving your changes' : undefined}
                                     loading={isSyncingExternalEdit}
                                 >
                                     Reload

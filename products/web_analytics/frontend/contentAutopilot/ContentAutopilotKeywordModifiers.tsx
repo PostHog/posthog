@@ -20,9 +20,7 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
         <PagePerformanceCard className="min-w-0">
             <PagePerformanceCardHeader
                 title="What the engines add to your searches"
-                description={
-                    'Words the engines put in their web searches that your prompts don\'t contain, such as a year, "pricing" or "vs". Each points at content the engines look for. Words whose answers cite you much less than usual are marked as gaps.'
-                }
+                description='Words the engines add to their searches, such as a year or "vs". A gap is a word whose answers cite you much less than usual.'
             />
             <div className="flex flex-col gap-3 p-3" data-attr="content-autopilot-keywords-modifiers">
                 <div className="flex flex-wrap items-center justify-end gap-2">

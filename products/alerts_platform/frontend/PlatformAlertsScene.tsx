@@ -25,8 +25,11 @@ import {
     describeInterval,
     describeSchedule,
     listRowMute,
+    listRowFiringSince,
 } from './platformAlertFormat'
+import { PlatformAlertGroupRowMenu } from './PlatformAlertGroupRowMenu'
 import { PlatformAlertMuteMarker } from './PlatformAlertMuteMarker'
+import { PlatformAlertRowMenu } from './PlatformAlertRowMenu'
 import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } from './platformAlertsLogic'
 import { PlatformAlertStateLabel } from './PlatformAlertStateLabel'
 import { PlatformAlertStateSummary } from './PlatformAlertStateSummary'
@@ -101,20 +104,24 @@ function listColumns(
         },
         {
             title: 'State',
-            render: (_, row) =>
-                row.kind === 'group' ? (
+            render: (_, row) => {
+                const since = listRowFiringSince(row)
+                return (
                     <div className="flex flex-wrap items-center gap-x-2">
-                        <PlatformAlertStateLabel status={row.group.state} />
-                        {row.group.state === 'firing' && row.group.firing_started_at && (
+                        {row.kind === 'group' ? (
+                            <PlatformAlertStateLabel status={row.group.state} />
+                        ) : (
+                            <PlatformAlertStateSummary configuration={row.configuration} />
+                        )}
+                        {since && (
                             <span className="inline-flex items-center gap-1 whitespace-nowrap text-muted">
                                 <span>since</span>
-                                <TZLabel time={row.group.firing_started_at} />
+                                <TZLabel time={since} />
                             </span>
                         )}
                     </div>
-                ) : (
-                    <PlatformAlertStateSummary configuration={row.configuration} />
-                ),
+                )
+            },
         },
         {
             title: 'Destinations',
@@ -140,6 +147,15 @@ function listColumns(
                     <Tooltip title={describeSchedule(row.configuration)}>
                         <span className="border-dotted border-b">{describeInterval(row.configuration)}</span>
                     </Tooltip>
+                ),
+        },
+        {
+            width: 0,
+            render: (_, row) =>
+                row.kind === 'group' ? (
+                    <PlatformAlertGroupRowMenu configuration={row.configuration} group={row.group} />
+                ) : (
+                    <PlatformAlertRowMenu configuration={row.configuration} />
                 ),
         },
     ]

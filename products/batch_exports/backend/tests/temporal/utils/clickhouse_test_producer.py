@@ -297,12 +297,7 @@ class ClickHouseTestProducer:
         else:
             query = query_or_model
 
-        clickhouse_url = None
-        # 5 min batch exports should query a single node, which is known to have zero replication lag
-        if workload in (Workload.DEFAULT, Workload.OFFLINE) and is_5_min_batch_export(full_range=full_range):
-            clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
-
-        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url, workload=workload) as client:
+        async with get_client(team_id=team_id, workload=workload) as client:
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 

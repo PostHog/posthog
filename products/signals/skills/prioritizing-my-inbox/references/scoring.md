@@ -59,10 +59,10 @@ Widen the bands when the person asks for a longer window.
 
 ### `interest_bonus`
 
-Match each report's title and summary against the interest profile from Step 1.
+Match each report's title and `summary_lead` against the interest profile from Step 1.
 
 - +2 for each matched theme, up to two themes.
-- Count a title match in full and a summary-only match at half.
+- Count a title match in full and a `summary_lead`-only match at half.
 - Scale by theme weight: `strength: high` and `last_seen` in the last 3 days counts in full, `medium` or older counts at about two thirds, `low` at about one third.
 - +2 when the report names an object from `computed.owned` or `computed.watched` by name or id.
 - +1 when a `source_product` is in `computed.products.works_in`.
@@ -96,5 +96,5 @@ It belongs in the list if the person is the reviewer or the theme is strong; oth
 ## Signals of noise
 
 - The same scout files a near-identical title every day: a digest. Keep the newest.
-- A report matches a theme only through one generic word in a long summary: discount it.
+- A report matches a theme only through one generic word in its `summary_lead`: discount it.
 - Low lifts on all three outcomes, low priority, and no personal link: a candidate to leave out, not to dismiss. Leaving it out of the list is enough.

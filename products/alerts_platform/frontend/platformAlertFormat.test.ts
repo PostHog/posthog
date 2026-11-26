@@ -15,8 +15,12 @@ import {
     describeGroup,
     describeInterval,
     describeOverflow,
+    canChangeFromList,
+    canSnoozeGroups,
+    groupSnoozeLockedByAlert,
     describeSchedule,
     listRowMute,
+    listRowFiringSince,
     groupLabels,
     ruleMetadataEntriesError,
 } from './platformAlertFormat'
@@ -163,6 +167,86 @@ describe('platformAlertFormat', () => {
                 ? { kind: 'alert', configuration }
                 : { kind: 'group', configuration, group: alerts[groupIndex] }
         expect(listRowMute(row, new Date('2026-10-05T12:00:00Z'))).toEqual(expected)
+    })
+
+    const firing = (at: string): [PlatformAlertStateApi, string | null] => [PlatformAlertStateApi.Firing, at]
+    test.each<[string, boolean, [PlatformAlertStateApi, string | null][], number | null, string | null]>([
+        ['an alert with one group', true, [firing('2026-10-05T11:00:00Z')], null, '2026-10-05T11:00:00Z'],
+        ['an alert with one group that is not firing', true, [[PlatformAlertStateApi.NotFiring, null]], null, null],
+        [
+            'an alert with one group that errored while firing',
+            true,
+            [[PlatformAlertStateApi.Errored, '2026-10-05T11:00:00Z']],
+            null,
+            null,
+        ],
+        ['a disabled alert with one group', false, [firing('2026-10-05T11:00:00Z')], null, null],
+        [
+            'an alert with two groups',
+            true,
+            [firing('2026-10-05T10:00:00Z'), firing('2026-10-05T11:00:00Z')],
+            null,
+            null,
+        ],
+        [
+            'a group row',
+            true,
+            [firing('2026-10-05T10:00:00Z'), firing('2026-10-05T11:00:00Z')],
+            1,
+            '2026-10-05T11:00:00Z',
+        ],
+    ])('listRowFiringSince: %s', (_, enabled, groups, groupIndex, expected) => {
+        const alerts = groups.map(([state, firing_started_at]) => ({ ...makeAlert(state), firing_started_at }))
+        const configuration = makeConfiguration({ enabled, alerts })
+        const row: PlatformAlertListRow =
+            groupIndex === null
+                ? { kind: 'alert', configuration }
+                : { kind: 'group', configuration, group: alerts[groupIndex] }
+        expect(listRowFiringSince(row)).toEqual(expected)
+    })
+
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean]>([
+        ['a grouped alert the platform owns', { owner: 'platform' }, true],
+        ['a grouped alert its source owns', { owner: 'source' }, false],
+        [
+            'an ungrouped alert',
+            {
+                owner: 'platform',
+                grouping: { mode: 'single', keys: [], max_instances: 100, on_overflow: 'degrade_visible' },
+            },
+            false,
+        ],
+    ])('canSnoozeGroups: %s', (_, overrides, expected) => {
+        const grouping: PlatformAlertConfigurationApi['grouping'] = {
+            mode: 'by_result_labels',
+            keys: ['service_name'],
+            max_instances: 100,
+            on_overflow: 'degrade_visible',
+        }
+        expect(canSnoozeGroups(makeConfiguration({ grouping, ...overrides }))).toEqual(expected)
+    })
+
+    test.each<[string, string | null, boolean]>([
+        ['an alert snoozed until later', '2026-10-06T12:00:00Z', true],
+        ['an alert whose snooze ended', '2026-10-04T12:00:00Z', false],
+        ['an alert with no snooze', null, false],
+    ])('groupSnoozeLockedByAlert: %s', (_, snooze_until, expected) => {
+        expect(groupSnoozeLockedByAlert(makeConfiguration({ snooze_until }), new Date('2026-10-05T12:00:00Z'))).toEqual(
+            expected
+        )
+    })
+
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean]>([
+        ['a platform alert with no source row', { owner: 'platform', legacy_configuration_id: null }, true],
+        [
+            'a platform alert that keeps its source row',
+            { owner: 'platform', legacy_configuration_id: '0192a5b0-0000-7000-8000-000000000001' },
+            true,
+        ],
+        ['a source alert with no source row', { owner: 'source', legacy_configuration_id: null }, false],
+        ['a source alert', { owner: 'source', legacy_configuration_id: '0192a5b0-0000-7000-8000-000000000001' }, false],
+    ])('canChangeFromList: %s', (_, overrides, expected) => {
+        expect(canChangeFromList(makeConfiguration(overrides))).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([

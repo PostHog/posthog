@@ -1,7 +1,7 @@
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from functools import reduce
 from operator import or_
@@ -27,6 +27,7 @@ from posthog.schema import (
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.property import operator_is_negative
 
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -627,6 +628,20 @@ class ExposureEvents:
 
 
 @frozen
+class BillingLimits:
+    """The organization's billing limits that a running experiment depends on, as PostHog applies them to the project.
+
+    Each is when the limit stops, or None when no limit is in force. A limit can also lift earlier, for example when the
+    organization raises it.
+    """
+
+    # Capture drops the project's product analytics events until then.
+    events_ends_at: datetime | None
+    # The flags service returns no flags to the project's flag requests until then.
+    feature_flags_ends_at: datetime | None
+
+
+@frozen
 class HealthContext:
     """Every input of the health checks, loaded once, so that each check is a pure function of it."""
 
@@ -664,10 +679,8 @@ class HealthContext:
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
-    # Whether capture drops the project's events now, because the organization reached its billing limit for events.
-    # None when not read: it is read only for a running experiment without exposures, because a limit in force now
-    # says nothing about an earlier run. Also None when the read fails.
-    events_billing_limited: bool | None
+    # None when not read, and when the read fails. Only the exposure query reads it, and only for a running experiment.
+    billing_limits: BillingLimits | None
     # The baseline set in the experiment's settings. None when unset: the analysis then picks a variant of the flag.
     baseline_variant_key: str | None
     primary_metric_count: int
@@ -681,6 +694,10 @@ class HealthContext:
     # None without a start date.
     daily_calculation_ends_at: datetime | None
     metric_events: tuple[MetricEvents, ...]
+    # Whether PostHog keeps `$feature_flag_called` events for a shorter time than other events, and copies each call of
+    # a multivariate flag to `$experiment_exposure`. Both hold on PostHog Cloud only: self-hosted ingestion makes no
+    # copy and keeps flag calls in the events table.
+    flag_calls_kept_shorter: bool
     # Whether a warehouse-native query on the customer's warehouse returns the exposures. No event of this project
     # describes them then, and an experiment with such an exposure reads only warehouse-native metrics.
     warehouse_native_exposures: bool
@@ -984,22 +1001,36 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     return None if _flag_calls_unrecorded(experiment) else False
 
 
-def _events_billing_limited(experiment: Experiment) -> bool | None:
+# The exposure query reads the limits for its cache key, before it looks up a cached answer, so the default Redis timeout
+# would let a stalled Redis delay every exposure answer, cached ones included.
+_BILLING_LIMIT_READ_TIMEOUT_SECONDS = 0.25
+
+
+def load_billing_limits(team: Team) -> BillingLimits | None:
     # Deferred because ee is optional, and the billing module imports the usage report stack. A build without ee has
     # no billing limits.
     try:
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited  # noqa: PLC0415
+        from ee.billing.quota_limiting import QuotaResource, get_team_limited_until  # noqa: PLC0415
     except ImportError:
-        return False
+        return BillingLimits(events_ends_at=None, feature_flags_ends_at=None)
+    events, feature_flags = QuotaResource.EVENTS.value, QuotaResource.FEATURE_FLAG_REQUESTS.value
     try:
-        return is_team_limited(
-            experiment.team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        limited_until = get_team_limited_until(
+            team.api_token, (events, feature_flags), timeout_seconds=_BILLING_LIMIT_READ_TIMEOUT_SECONDS
         )
     except Exception as error:
-        # The exposure query builds this context, so a Redis error here would fail the exposure answer for a read
-        # that only explains one finding.
+        # The exposure query reads the limits for its cache key, so a Redis error here would fail the exposure answer
+        # for a read that only explains a finding.
         capture_exception(error)
         return None
+    return BillingLimits(
+        events_ends_at=_limit_end(limited_until.get(events)),
+        feature_flags_ends_at=_limit_end(limited_until.get(feature_flags)),
+    )
+
+
+def _limit_end(score: float | None) -> datetime | None:
+    return None if score is None else datetime.fromtimestamp(score, tz=UTC)
 
 
 def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
@@ -1058,7 +1089,7 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     )
     reads_flag_calls = event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
     # The configs that the exposure query builds from, so the filters read here are the ones it applies.
-    params = get_exposure_config_params_for_builder(criteria, experiment.team, experiment.start_date)
+    params = get_exposure_config_params_for_builder(criteria, experiment.start_date)
     config, activation = params.exposure_config, params.activation_config
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
     filters = [(prop, source) for source in (config, activation) if source for prop in source.properties or []]
@@ -1302,6 +1333,7 @@ def load_health_context(
     flag_history: FlagHistory | FlagHistoryNotChecked | None = None,
     can_read_flag_history: bool = False,
     can_read_flag_calls: bool = False,
+    billing_limits: BillingLimits | None = None,
 ) -> HealthContext:
     links = saved_metric_links(experiment)
     shared_metric_roles = [saved_metric_link_role(link) for link in links]
@@ -1330,11 +1362,7 @@ def load_health_context(
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),
-        events_billing_limited=(
-            _events_billing_limited(experiment)
-            if experiment.is_running and exposures is not None and exposures.total == 0
-            else None
-        ),
+        billing_limits=billing_limits,
         baseline_variant_key=_configured_baseline_variant_key(experiment.stats_config),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
@@ -1343,6 +1371,7 @@ def load_health_context(
         past_daily_calculation=is_past_daily_calculation(experiment.start_date, timezone.now()),
         daily_calculation_ends_at=daily_calculation_end(experiment.start_date),
         metric_events=metric_events,
+        flag_calls_kept_shorter=is_cloud(),
         warehouse_native_exposures=warehouse_native_exposure_config(experiment.exposure_criteria) is not None,
         exposure_events=exposure_events,
         events_received=events_received,

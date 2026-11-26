@@ -394,7 +394,11 @@ function lineHeightPercent(value: string | undefined, fontSize: number): number 
         return undefined
     }
     const number = parseFloat(value)
-    return value.endsWith('%') ? number : value.endsWith('px') ? (number / fontSize) * 100 : number * 100
+    return value.endsWith('%')
+        ? number
+        : value.endsWith('px')
+          ? (number / fontSize) * 100
+          : Math.round(number * 10000) / 100
 }
 
 /**
