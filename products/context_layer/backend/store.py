@@ -124,6 +124,12 @@ class BundleExport:
 
 
 @frozen
+class BundleContent:
+    content: bytes
+    head_sha: str
+
+
+@frozen
 class LandingStats:
     pages_added: int
     pages_modified: int
@@ -825,3 +831,11 @@ def get_bundle_export(organization_id: uuid.UUID | str, *, expiration_seconds: i
     if url is None:
         raise ContextLayerStoreError(f"could not presign the bundle for organization {organization_id}")
     return BundleExport(url=url, head_sha=config.head_sha)
+
+
+def read_bundle(organization_id: uuid.UUID | str) -> BundleContent:
+    config = get_config(organization_id)
+    content = object_storage.read_bytes(bundle_key(organization_id, config.head_sha), missing_ok=True)
+    if content is None:
+        raise ContextLayerStoreError(f"no bundle for organization {organization_id} at {config.head_sha}")
+    return BundleContent(content=content, head_sha=config.head_sha)

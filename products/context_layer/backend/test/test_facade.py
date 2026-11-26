@@ -32,12 +32,12 @@ class TestContextLayerFacade(BaseTest):
     def test_flag_check_fails_closed(self, _flag) -> None:
         assert facade.is_context_layer_enabled(organization_id=str(self.organization.id), distinct_id="u") is False
 
-    def test_get_sandbox_mount_presigns_current_head(self) -> None:
+    def test_get_sandbox_mount_reads_the_bundle_at_current_head(self) -> None:
         config = store.initialize_repo(self.organization.id)
         mount = facade.get_sandbox_mount(self.organization.id)
         assert mount is not None
         assert mount.head_sha == config.head_sha
-        assert mount.bundle_url.startswith("http")
+        assert mount.bundle.startswith(b"# v2 git bundle")
 
     def test_get_sandbox_mount_is_none_without_wiki(self) -> None:
         assert facade.get_sandbox_mount(self.organization.id) is None

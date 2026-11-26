@@ -97,6 +97,7 @@ WIZARD_ALLOWED_DOMAINS = (
     "dl.google.com",
     "maven.google.com",
     "plugins.gradle.org",
+    "plugins-artifacts.gradle.org",
     "downloads.gradle.org",
     "index.crates.io",
     "repo.hex.pm",

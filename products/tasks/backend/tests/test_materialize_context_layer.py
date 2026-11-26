@@ -4,6 +4,8 @@ from django.test import SimpleTestCase
 
 from asgiref.sync import async_to_sync
 
+from products.context_layer.backend.facade.api import ContextLayerMount
+from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.materialize_context_layer import (
     MaterializeContextLayerInput,
@@ -46,3 +48,25 @@ class TestMaterializeContextLayer(SimpleTestCase):
         command = sandbox.execute.call_args.args[0]
         assert command.startswith("rm -rf ")
         assert "/tmp/workspace/context" in command
+
+    def test_pushes_the_bundle_into_the_sandbox_so_the_mount_needs_no_storage_egress(self) -> None:
+        sandbox = MagicMock()
+        sandbox.write_file.return_value = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+        sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+        mount = ContextLayerMount(bundle=b"# v2 git bundle\n", head_sha="a" * 40)
+        with (
+            patch(f"{MODULE}.context_layer_facade.get_sandbox_mount", return_value=mount),
+            patch(
+                "products.tasks.backend.logic.services.sandbox.get_sandbox_class",
+                return_value=MagicMock(get_by_id=MagicMock(return_value=sandbox)),
+            ),
+        ):
+            output = async_to_sync(materialize_context_layer_in_sandbox)(
+                MaterializeContextLayerInput(context=_context(), sandbox_id="sandbox-1")
+            )
+
+        assert output.mounted is True
+        assert sandbox.write_file.call_args.args == ("/tmp/workspace/context.bundle", mount.bundle)
+        command = sandbox.execute.call_args.args[0]
+        assert "curl" not in command
+        assert "git clone --quiet /tmp/workspace/context.bundle /tmp/workspace/context" in command

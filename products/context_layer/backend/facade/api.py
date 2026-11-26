@@ -138,7 +138,7 @@ __all__ = [
 class ContextLayerMount:
     """Everything a provisioner needs to clone the wiki into a sandbox."""
 
-    bundle_url: str
+    bundle: bytes
     head_sha: str
 
 
@@ -166,11 +166,8 @@ def sandbox_environment_variables(organization_id: uuid.UUID | str, team_id: int
 
 
 def get_sandbox_mount(organization_id: uuid.UUID | str) -> ContextLayerMount | None:
-    """A short-lived bundle URL for cloning the wiki into a sandbox, or None
-    when the organization has no wiki. The presign is minted here, at clone
-    time, so the sandbox never holds storage credentials."""
     try:
-        export = store.get_bundle_export(organization_id)
+        bundle = store.read_bundle(organization_id)
     except store.ContextLayerStoreError:
         return None
-    return ContextLayerMount(bundle_url=export.url, head_sha=export.head_sha)
+    return ContextLayerMount(bundle=bundle.content, head_sha=bundle.head_sha)
