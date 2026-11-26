@@ -127,6 +127,29 @@ describe('HogFlow Quota Limiting', () => {
                 expected: false,
             },
             {
+                name: 'a support reply whose internal event entry names only the event is not limited',
+                trigger: {
+                    type: 'internal-event',
+                    filters: { source: 'internal-events', events: [{ id: '$conversation_message_sent' }] },
+                },
+                actions: [transactionalCategoryEmail],
+                limitedResources: ['workflow_emails'],
+                expected: false,
+            },
+            {
+                name: 'a support reply next to another internal event is limited',
+                trigger: {
+                    type: 'internal-event',
+                    filters: {
+                        source: 'internal-events',
+                        events: [{ id: '$conversation_message_sent' }, { id: '$slack_message_posted' }],
+                    },
+                },
+                actions: [transactionalCategoryEmail],
+                limitedResources: ['workflow_emails'],
+                expected: true,
+            },
+            {
                 name: 'a transactional ticket update on an analytics trigger is not limited',
                 trigger: eventTrigger({ id: '$conversation_ticket_created', type: 'events' }),
                 actions: [transactionalCategoryEmail],

@@ -46,7 +46,8 @@ function triggersOnlyOnSupportEvents(hogFlow: HogFlow): boolean {
         return false
     }
     const events = trigger.filters?.events ?? []
-    // The filter compiler matches the event name only on entries of type `events`, so another entry matches any event.
+    // The filter compiler checks the event name only on entries of type `events`, so an untyped entry can match events
+    // with any name.
     return (
         events.length > 0 &&
         !trigger.filters?.actions?.length &&
