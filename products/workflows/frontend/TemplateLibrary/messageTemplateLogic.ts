@@ -864,12 +864,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.templateEditedElsewhere(event)
             }
         },
+        setDraftState: ({ draft }) => {
+            cache.serverDraft = draft
+        },
         syncExternalEdit: () => {
             // A draft only holds what the person typed, so a reload that finds it gone must not take the text with it.
             // Reload from the banner is the person choosing the other version, so it takes nothing along.
-            cache.beforeSync = values.externallyEdited
-                ? null
-                : { draft: values.savedDraft, content: values.template.content }
+            // The server's own copy of the draft, which it stores normalized, so a reload compares like with like.
+            const serverDraft = cache.serverDraft !== undefined ? cache.serverDraft : values.savedDraft
+            cache.beforeSync = values.externallyEdited ? null : { draft: serverDraft, content: values.template.content }
             actions.setSyncingExternalEdit(true)
             actions.loadTemplate()
         },
@@ -957,6 +960,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     // The form type still allows the legacy 'hog' templating, which templates never use.
                     draft_content: { ...content, email: omitNullDesign(content.email) } as MessageTemplateContentApi,
                 })
+                cache.serverDraft = (updated.draft_content as TemplateContent | null | undefined) ?? null
                 actions.saveDraftDone(content, updated.updated_at)
             } catch {
                 actions.saveDraftFailed()

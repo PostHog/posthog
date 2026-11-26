@@ -514,6 +514,30 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.externallyEdited).toBe(false)
         })
 
+        it('asks nothing when the server stored the draft trimmed and only metadata changed elsewhere', async () => {
+            jest.useFakeTimers()
+            const trimmed = { ...draft, email: { ...draft.email, subject: 'Typed subject' } }
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': () => [
+                        200,
+                        { ...serverTemplate, draft_content: trimmed, updated_at: '2026-01-01T00:01:00Z' },
+                    ],
+                },
+            })
+            logic.actions.setTemplateValue('content', {
+                ...draft,
+                email: { ...draft.email, subject: 'Typed subject ' },
+            })
+            await jest.advanceTimersByTimeAsync(1500)
+            await expectLogic(logic).toDispatchActions(['saveDraftDone'])
+            useServerCopy({ name: 'Renamed elsewhere', draft_content: trimmed })
+
+            await reloadAfterEditElsewhere()
+
+            expect(logic.values.externallyEdited).toBe(false)
+        })
+
         it('saves the typed draft again when the person keeps theirs after it was removed elsewhere', async () => {
             jest.useFakeTimers()
             useServerCopy({ ...changedElsewhere, draft_content: null })
