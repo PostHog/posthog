@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
 
+import { pairProblemsOf } from '../runner/pair'
 import { admissionsOf } from '../runner/status'
 
 const card = {
@@ -115,6 +116,12 @@ describe('load', () => {
     it.each<[string, object | string, object | string | undefined, string | string[]]>([
         ['a card that is not YAML', 'id: [', undefined, 'card: '],
         ['a card with the wrong shape', { ...card, clock: 'scheduled' }, undefined, 'clock: '],
+        [
+            'a card that runs paired and names a reason it runs unpaired',
+            { ...card, pair: true, unpaired: 'it judges no no_loss' },
+            undefined,
+            'unpaired: a card that runs paired names no reason to run unpaired',
+        ],
         [
             'an unknown traffic kind',
             { ...card, drive: { ...card.drive, traffic: [{ name: 'event_sms' }] } },
@@ -922,6 +929,12 @@ describe('load', () => {
         ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],
         ['leaves out the cloud pair', [card, profile], [{ ...card, pair: true }, profile], true],
         [
+            'leaves out why the card runs unpaired',
+            [card, profile],
+            [{ ...card, unpaired: 'it judges no no_loss' }, profile],
+            true,
+        ],
+        [
             'ignores the key order of the profile settings',
             [card, { ...profile, settings }],
             [card, { ...profile, settings: Object.fromEntries(Object.entries(settings).reverse()) }],
@@ -948,6 +961,18 @@ describe('load', () => {
         ...readdirSync(path.join(__dirname, 'dev')).map((file) => [path.join('dev', file), 'dev'] as const),
     ])('loads the shipped card %s on the %s target with the shipped definitions and profile', (file, target) => {
         expect(load(path.join(__dirname, file), { target }).card.id).toBe(path.basename(file, '.yaml'))
+    })
+
+    it('runs every shipped card that applies valves as a pair, or names why it runs unpaired', () => {
+        const shipped = readdirSync(__dirname)
+            .filter((file) => file.endsWith('.yaml'))
+            .map((file) => load(path.join(__dirname, file)))
+            .filter(({ card }) => card.valves.length > 0)
+
+        expect(
+            shipped.filter(({ card }) => !card.pair && card.unpaired === undefined).map(({ card }) => card.id)
+        ).toEqual([])
+        expect(shipped.filter(({ card }) => card.pair).flatMap((loaded) => pairProblemsOf(loaded, true))).toEqual([])
     })
 
     it('admits a chaos card on a full-traffic profile against the targets its own traffic derives', () => {

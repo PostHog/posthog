@@ -107,8 +107,13 @@ export const Card = z
         bars: z.array(Named).default([]),
         gates: z.record(z.string(), z.number()).default({}),
         pair: z.boolean().optional(),
+        unpaired: z.string().min(1).optional(),
     })
     .strict()
+    .refine(({ pair, unpaired }) => !pair || unpaired === undefined, {
+        message: 'a card that runs paired names no reason to run unpaired',
+        path: ['unpaired'],
+    })
     .refine(({ drive, valves }) => !drive.stopOnBreak || valves.length === 0, {
         message: 'a stopOnBreak card schedules no valves, since its drive can stop before they are due',
         path: ['valves'],
