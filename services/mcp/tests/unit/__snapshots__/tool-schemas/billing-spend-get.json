@@ -1,6 +1,18 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "after": {
+            "anyOf": [
+                {
+                    "maxLength": 512,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Deprecated name for `cursor`: the cursor from the previous page's `next` link."
+        },
         "breakdowns": {
             "anyOf": [
                 {
@@ -62,6 +74,19 @@
                 }
             ],
             "description": "Series per page, ranked by total, with a `next` link for the page after. Requires a project breakdown and is ignored without one. Omit it to get every series at once."
+        },
+        "page_size": {
+            "anyOf": [
+                {
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Deprecated name for `limit`: series per page, ranked by total. Requires a project breakdown."
         },
         "start_date": {
             "anyOf": [

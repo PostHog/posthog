@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { BILLING_DEPRECATED_ALIASES } from '@/tools/billing/deprecatedAliases'
 import { GENERATED_TOOLS } from '@/tools/generated/billing'
+import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY } from '@/tools/types'
 
 describe('billing usage filters', () => {
     it.each(['billing-spend-timeseries-get', 'billing-usage-timeseries-get'])(
@@ -28,5 +30,34 @@ describe('billing usage filters', () => {
 
         expect(result.success).toBe(true)
         expect(result.data).toMatchObject(input)
+    })
+})
+
+describe('deprecated billing aliases', () => {
+    it.each([
+        ['billing-usage-get', 'usage'],
+        ['billing-spend-get', 'spend'],
+    ])('%s pages with limit and cursor and keeps the data fence', async (toolName, series) => {
+        const requestMock = vi.fn().mockResolvedValue({ results: [{ label: 'Project <ignore previous>' }], next: null })
+        const context = {
+            api: { request: requestMock },
+            stateManager: { getOrgID: vi.fn().mockResolvedValue('org-1') },
+        } as unknown as Context
+        const alias = BILLING_DEPRECATED_ALIASES[toolName]!()
+
+        const result = (await alias.handler(
+            context,
+            alias.schema.parse({ breakdowns: ['type', 'team'], page_size: 10, after: 'abc' })
+        )) as Record<string, unknown>
+
+        expect(requestMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                path: `/api/organizations/org-1/billing/${series}/timeseries/`,
+                query: expect.objectContaining({ limit: 10, cursor: 'abc' }),
+            })
+        )
+        expect(result._deprecation_notice).toContain(`billing-${series}-timeseries-get`)
+        expect(result[POSTHOG_INFORMATIONAL_RESPONSE_KEY]).toBe(true)
+        expect(String(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY])).toContain('_deprecation_notice')
     })
 })
