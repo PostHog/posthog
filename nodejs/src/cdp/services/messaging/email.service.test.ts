@@ -3067,23 +3067,28 @@ describe('EmailService', () => {
                 }
             )
 
-            it.each<[string, number, number, () => () => number]>([
-                ['keeps confirming the job lease', 2_000, 1, () => () => Date.now()],
-                ['keeps confirming a job lease as short as the margin', 5_000, 1, () => () => Date.now()],
-                [
-                    'stops confirming the job lease',
-                    2_000,
-                    0,
-                    () => {
-                        const confirmedAt = Date.now()
-                        return () => confirmedAt
-                    },
-                ],
+            const heartbeatsEvery = (intervalMs: number): (() => number) => {
+                const dequeuedAt = Date.now()
+                return () =>
+                    intervalMs > 0
+                        ? dequeuedAt + Math.floor((Date.now() - dequeuedAt) / intervalMs) * intervalMs
+                        : dequeuedAt
+            }
+
+            it.each<[string, number, number, number]>([
+                ['keeps landing heartbeats', 2_000, 500, 1],
+                ['has a stall timeout as short as the margin', 5_000, 1_000, 1],
+                ['has a stall timeout just past its heartbeat interval', 1_200, 1_000, 1],
+                ['lands no heartbeat', 2_000, 0, 0],
             ])(
-                'a send with files whose worker %s, with a stall timeout of %i ms, while its files download sends %i emails',
-                async (_name, stallTimeoutMs, emails, heartbeats) => {
+                'a send with files whose worker %s, with a stall timeout of %i ms and heartbeats every %i ms, sends %i emails while its files download',
+                async (_name, stallTimeoutMs, heartbeatIntervalMs, emails) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 10_000 })
-                    emailService.endSendsWithFilesBeforeTheJobLeaseLapses(heartbeats(), stallTimeoutMs)
+                    emailService.endSendsWithFilesBeforeTheJobLeaseLapses(
+                        heartbeatsEvery(heartbeatIntervalMs),
+                        stallTimeoutMs,
+                        heartbeatIntervalMs
+                    )
                     send([pdf])
                     bucket.downloadDelayMs = 1_500
 

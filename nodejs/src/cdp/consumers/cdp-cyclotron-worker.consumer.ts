@@ -60,7 +60,8 @@ export class CdpCyclotronWorker<
         )
         this.emailService.endSendsWithFilesBeforeTheJobLeaseLapses(
             (invocation) => jobQueue.leaseConfirmedAt(invocation),
-            config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS
+            config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
+            config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS
         )
         this.crashGuardSettings = deps.crashGuardSettings ?? null
     }

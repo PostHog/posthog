@@ -491,38 +491,40 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     it('a worker that loses Postgres before SES takes its send with files stops that send before the janitor can release the job, so the email goes out once', async () => {
         const stallTimeoutMs = 6_000
         const heldSes = await HeldSesRequests.start(ses)
-        const [id] = await enqueue(transactionalSend([invoice.metadata]))
-        await startWorker(roomFor(1), sesTransportFor(heldSes), hub.postgres, {
-            CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: stallTimeoutMs,
-        })
-        await waitForExpect(() => expect(heldSes.holding).toBe(1))
+        try {
+            const [id] = await enqueue(transactionalSend([invoice.metadata]))
+            await startWorker(roomFor(1), sesTransportFor(heldSes), hub.postgres, {
+                CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: stallTimeoutMs,
+            })
+            await waitForExpect(() => expect(heldSes.holding).toBe(1))
 
-        cyclotron.loseConnections()
-        const janitor = new CyclotronV2Janitor({
-            pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
-            stallTimeoutMs,
-            stallBackoffBaseMs: 0,
-            cleanupGraceMs: 60_000,
-        })
-        await waitForExpect(
-            async () => {
-                await janitor.runOnce()
-                expect((await jobRow(id)).status).toBe('available')
-            },
-            stallTimeoutMs * 2,
-            200
-        )
-        await janitor.stop()
-        await startWorker(roomFor(1), sesTransportFor(ses), hub.postgres, {
-            CYCLOTRON_NODE_DATABASE_URL: hub.CYCLOTRON_NODE_DATABASE_URL,
-        })
-        expect(await ended(id)).toBe('completed')
+            cyclotron.loseConnections()
+            const janitor = new CyclotronV2Janitor({
+                pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+                stallTimeoutMs,
+                stallBackoffBaseMs: 0,
+                cleanupGraceMs: 60_000,
+            })
+            await waitForExpect(
+                async () => {
+                    await janitor.runOnce()
+                    expect((await jobRow(id)).status).toBe('available')
+                },
+                stallTimeoutMs * 2,
+                200
+            ).finally(() => janitor.stop())
+            await startWorker(roomFor(1), sesTransportFor(ses), hub.postgres, {
+                CYCLOTRON_NODE_DATABASE_URL: hub.CYCLOTRON_NODE_DATABASE_URL,
+            })
+            expect(await ended(id)).toBe('completed')
 
-        const forwarded = heldSes.release()
-        await waitForExpect(() => expect(delivered()).toHaveLength(1 + forwarded))
-        cyclotron.acceptConnections()
-        await heldSes.close()
-        expect({ forwarded, delivered: delivered() }).toEqual({ forwarded: 0, delivered: [['invoice.pdf']] })
+            const forwarded = heldSes.release()
+            await waitForExpect(() => expect(delivered()).toHaveLength(1 + forwarded))
+            expect({ forwarded, delivered: delivered() }).toEqual({ forwarded: 0, delivered: [['invoice.pdf']] })
+        } finally {
+            cyclotron.acceptConnections()
+            await heldSes.close()
+        }
     }, 30_000)
 
     it('a worker whose heartbeats keep landing sends a send with files whose download outlasts the first job lease', async () => {
