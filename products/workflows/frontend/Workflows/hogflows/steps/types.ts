@@ -390,6 +390,8 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             tracking_enabled: z.boolean().optional(),
             // When true, links get the UTM tags they don't already carry. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             utm_tags_enabled: z.boolean().optional(),
+            // When false, this email's clicks aren't connected to sessions. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
+            run_link_tag_enabled: z.boolean().optional(),
             // When true, PostHog stores a placeholder for the body and keeps no subject or variables. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             sensitive: z.boolean().optional(),
             // Overrides click tracking without turning off opens. Absent defaults to !sensitive. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.

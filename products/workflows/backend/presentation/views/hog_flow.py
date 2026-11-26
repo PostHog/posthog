@@ -1101,6 +1101,9 @@ WORKFLOW_SAVE_ACTIONS = frozenset({"create", "update", "partial_update", "graph"
 
 def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: dict) -> Any:
     actions = data.get("actions") if isinstance(data, dict) else None
+    # The move to the test sender drops this field, so a bad value must be refused before it can be dropped.
+    if isinstance(actions, list):
+        _refuse_a_non_boolean_run_link_tag(actions)
     get_team = context.get("get_team")
     user = getattr(context.get("request"), "user", None)
     if (
@@ -1160,6 +1163,19 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
     if not moved:
         return data
     return {**data, "actions": converted}
+
+
+def _refuse_a_non_boolean_run_link_tag(actions: list) -> None:
+    for step_action in actions:
+        if not isinstance(step_action, dict):
+            continue
+        config = step_action.get("config")
+        if (
+            isinstance(config, dict)
+            and (step_action.get("type") == "function_email" or config.get("template_id") == "template-email")
+            and not isinstance(config.get("run_link_tag_enabled", True), bool)
+        ):
+            raise serializers.ValidationError({"run_link_tag_enabled": "Must be true or false."})
 
 
 def _has_no_sender(action: dict) -> bool:
@@ -1890,6 +1906,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
             "pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, "
             "so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). "
+            "function_email also accepts run_link_tag_enabled?: <bool> (default true) - when false, tracked "
+            "link clicks in that email are not connected to the sessions they start. The project setting "
+            "workflows_config.email_workflow_run_link_tag_enabled turns it off for every email. "
             "function_email also accepts click_tracking_enabled?: <bool> (defaults to false when sensitive is true, "
             "true otherwise) to override link click tracking without turning off opens. "
             "function_push also accepts sensitive?: <bool> (default false) - when true, the notification is "
@@ -2549,6 +2568,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
             if fixed_template_id:
                 template_id = _apply_fixed_template_id(config, template_id, fixed_template_id, strict=strict)
+            _refuse_a_non_boolean_run_link_tag([data])
             if data.get("type") == "function_email":
                 if "click_tracking_enabled" in config:
                     click_tracking = config["click_tracking_enabled"]
@@ -4780,8 +4800,8 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "With sender 'sandbox': drop the settings the PostHog test sender can't keep (custom from address or "
-            "name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch "
-            "is refused and the error lists them, so confirm with the user before setting it."
+            "name, several senders, replyTo, cc, bcc, turned-off tracking, turned-off run_link_tag_enabled, UTM tags). "
+            "Without it, the switch is refused and the error lists them, so confirm with the user before setting it."
         ),
     )
 
@@ -4841,11 +4861,21 @@ def _email_step_sender_ids(action: dict) -> list[str | None]:
 
 
 def _refuse_unusable_email_senders(actions: list[dict], *, team_id: int) -> None:
+    # The opt-out keeps a senderless step off the test sender, so without this every send of it would fail.
+    problems: list[str] = [
+        f'The "{step_action.get("name") or "Email"}" step has no sender, so its emails would fail. Choose a verified sender.'
+        for step_action in actions
+        if step_action.get("type") == "function_email"
+        and isinstance(step_action.get("config"), dict)
+        and step_action["config"].get("run_link_tag_enabled") is False
+        and not _email_step_sender_ids(step_action)
+    ]
     named = [(step_action, _email_step_sender_ids(step_action)) for step_action in actions]
     if not any(sender_ids for _, sender_ids in named):
+        if problems:
+            raise serializers.ValidationError({"actions": " ".join(problems)})
         return
     verification = own_sender_verification(team_id)
-    problems: list[str] = []
     for step_action, sender_ids in named:
         for sender_id in sender_ids:
             if sender_id is not None and verification.get(sender_id):
