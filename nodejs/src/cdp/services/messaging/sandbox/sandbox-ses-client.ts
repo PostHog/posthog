@@ -2,7 +2,7 @@ import { logger } from '~/common/utils/logger'
 
 import { settleBeforeAbortEvenWhileCredentialsStall } from '../attachment-store'
 import { formatMailbox } from '../email.service'
-import { SandboxSesSender, SesEmail } from '../ses-transport'
+import { SandboxSesSender, SesEmail, isSesThrottle } from '../ses-transport'
 import { SES_SEND_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxMessage } from './sandbox-message'
 
@@ -35,7 +35,6 @@ export type SandboxSesResult =
 
 export type SandboxSesSettings = { configurationSet: string; tenantName: string; sendTimeoutMs?: number }
 
-const THROTTLE_ERROR_NAMES = new Set(['ThrottlingException', 'TooManyRequestsException'])
 const EMAIL_ADDRESS = /\S*@\S+/g
 
 export class SandboxSesClient {
@@ -104,7 +103,7 @@ function withoutEmailAddresses(text: string): string {
 }
 
 function classifySesError(error: unknown): SandboxSesResult {
-    if (error instanceof Error && THROTTLE_ERROR_NAMES.has(error.name)) {
+    if (isSesThrottle(error)) {
         return { status: 'retry', reason: 'ses_throttled' }
     }
     const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode

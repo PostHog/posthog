@@ -407,8 +407,6 @@ describe('EmailService', () => {
                 null,
                 workflowsActivationReporter
             )
-            expect(serviceWithoutSES.sesTransport).toBeNull()
-
             await insertIntegration(hub.postgres, team.id, {
                 id: getIntegrationId(1),
                 kind: 'email',

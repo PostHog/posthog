@@ -14,18 +14,6 @@ export type SesClientOptions = Pick<
 
 export type SesSend = { email: SesEmail } | { email: SesEmail; files: LoadedAttachment[]; deadline: AbortSignal }
 
-/**
- * SES error codes that signal a transient rate-limit shape — safe to retry
- * shortly after. `TooManyRequestsException` is the SES-v2-specific class;
- * `ThrottlingException` is a generic AWS SDK error code that can surface
- * from the underlying transport layer for the same condition (not exported
- * as a class for sesv2, so we match by `name`).
- *
- * `SendingPausedException` is *not* on this list — it signals a reputation
- * or account-state problem that won't recover in seconds. Retrying within
- * 500ms just burns reschedules; the job hard-fails instead, surfaces via
- * `email_failed`, and the underlying SES config needs operator attention.
- */
 const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingException'] as const
 export type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
 
@@ -53,10 +41,7 @@ export type SesSendOutcomeOf<K extends SesSendOutcomeKind> = Extract<SesSendOutc
 
 type SendKind = 'plain' | 'files'
 
-const SEND_POLICIES = {
-    plain: { client: {}, withFilesLabel: 'false' },
-    files: { client: {}, withFilesLabel: 'true' },
-} satisfies Record<SendKind, { client: Partial<SESv2ClientConfig>; withFilesLabel: 'true' | 'false' }>
+const WITH_FILES_LABEL = { plain: 'false', files: 'true' } satisfies Record<SendKind, 'true' | 'false'>
 
 const MAY_HAVE_SENT_BEFORE_DEADLINE =
     'SES did not answer before the send deadline. It may have sent the email, so it is not sent again.'
@@ -87,8 +72,9 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 const isOneOf = <T extends string>(names: readonly T[], name: string | undefined): name is T =>
     (names as readonly (string | undefined)[]).includes(name)
 
-// Every other error name reads as `other`, so an unexpected SDK error cannot add a series.
-function sendResultLabel(error: unknown): string {
+export const isSesThrottle = (error: unknown): boolean => isOneOf(SES_THROTTLE_ERROR_NAMES, errorNameOf(error))
+
+function boundedSendResultLabel(error: unknown): string {
     const name = errorNameOf(error)
     if (isOneOf(SES_THROTTLE_ERROR_NAMES, name)) {
         return 'throttled'
@@ -157,10 +143,8 @@ export class SesTransport {
     private readonly clients: Record<SendKind, SESv2Client>
 
     constructor(options: SesClientOptions) {
-        this.clients = {
-            plain: new SESv2Client({ ...SEND_POLICIES.plain.client, ...options }),
-            files: new SESv2Client({ ...SEND_POLICIES.files.client, ...options }),
-        }
+        const client = new SESv2Client(options)
+        this.clients = { plain: client, files: client }
     }
 
     async send(send: SesSend): Promise<SesSendOutcome> {
@@ -171,7 +155,7 @@ export class SesTransport {
         const startedAt = performance.now()
         const observeDuration = (result: 'success' | 'error'): void =>
             sesSendDurationMs
-                .labels({ result, with_files: SEND_POLICIES[kind].withFilesLabel })
+                .labels({ result, with_files: WITH_FILES_LABEL[kind] })
                 .observe(performance.now() - startedAt)
         try {
             const response = deadline
@@ -188,19 +172,21 @@ export class SesTransport {
             return { kind: 'accepted', messageId: response.MessageId }
         } catch (error: unknown) {
             observeDuration('error')
-            sesSendResultsTotal.inc({ result: sendResultLabel(error) })
+            sesSendResultsTotal.inc({ result: boundedSendResultLabel(error) })
             return failureOf(error, deadline, anAttemptSesMayHaveAccepted())
         }
     }
 
     destroy(): void {
-        Object.values(this.clients).forEach((client) => client.destroy())
+        new Set(Object.values(this.clients)).forEach((client) => client.destroy())
     }
 }
 
 export type SandboxSesSender = { send(email: SesEmail, abortSignal: AbortSignal): Promise<{ MessageId?: string }> }
 
-export function createSandboxSesSender(options: SesClientOptions): SandboxSesSender {
+export function createSandboxSesSender(
+    options: Pick<SESv2ClientConfig, 'region' | 'endpoint' | 'credentials'>
+): SandboxSesSender {
     const client = new SESv2Client({ ...options, maxAttempts: 1 })
     return { send: (email, abortSignal) => client.send(new SendEmailCommand(email), { abortSignal }) }
 }
