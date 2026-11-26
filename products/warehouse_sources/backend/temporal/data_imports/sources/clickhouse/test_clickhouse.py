@@ -716,6 +716,19 @@ class TestClickHouseSourceNonRetryableErrors:
                 "DatabaseError: HTTP driver received HTTP status 407 (for url http://wh.6dt3hlb5.requestrepo.com:18123)",
                 _PROXY_AUTH_REQUIRED,
             ),
+            # QUOTA_EXCEEDED (code 201) — a server-side quota on the connecting user was
+            # exceeded. The message names the quota's reset time, but retrying before then
+            # replays the same rejection, so this must stop rather than retry to the maximum.
+            (
+                "ClickHouseConnectionError: Received ClickHouse exception, code: 201, server response: Code: 201. "
+                "DB::Exception: Quota for user `play` for 3600s has been exceeded: execution_time = "
+                "601.308620926/600. Interval will end at 2026-11-26 04:30:52. Name of quota template: "
+                "`explorer`. (QUOTA_EXCEEDED) (version 26.12.1.396 (official build)) "
+                "(for url https://play.clickhouse.com:443)",
+                "Your ClickHouse user has exceeded a query quota configured on the server (for example an hourly "
+                "execution-time limit). Wait for the quota's interval to reset, or ask your ClickHouse "
+                "administrator to raise the quota for this user, then resume.",
+            ),
         ],
     )
     def test_407_responses_are_non_retryable(self, source, observed_error, expected_message):

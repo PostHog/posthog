@@ -496,6 +496,15 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # (e.g. Tinybird) wrap this error without the usual "Code: NNN. DB::Exception:"
             # native wording.
             "TOO_MANY_ROWS_OR_BYTES": "Your ClickHouse server's result size limit was exceeded while reading this table. Raise the max_result_bytes/max_result_rows limit for the user PostHog connects with, sync fewer columns, or switch this table to an incremental sync so each run reads a smaller window, then resume.",
+            # QUOTA_EXCEEDED (code 201) — the connecting user has a server-side quota
+            # (e.g. a rolling-hour execution_time budget) and this sync pushed it over. The
+            # message names exactly when the quota interval resets, but retrying before then
+            # replays the identical rejection, and Temporal's retry budget is far shorter than
+            # a typical quota window — so, like Code: 241/243/396 above, this is a config limit
+            # on the customer's database, not something we can change our side. We match the
+            # error-code name, which a quota-enforcing proxy in front of ClickHouse (not just
+            # ClickHouse itself) could also raise, rather than "Code: 201" alone.
+            "QUOTA_EXCEEDED": "Your ClickHouse user has exceeded a query quota configured on the server (for example an hourly execution-time limit). Wait for the quota's interval to reset, or ask your ClickHouse administrator to raise the quota for this user, then resume.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
