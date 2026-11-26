@@ -894,6 +894,16 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
         rulesOutage.sampling_rules_faults = { 101: err('Error', 'pg down', true) }
         rulesOutage.batches = [[await f.logs(plain, 2), await f.logs(json, 2)], [await f.logs(json, 1)]]
         scenarios.push(finish(rulesOutage))
+
+        const rulesBlip = baseScenario(
+            'require-secret-key-rules-blip',
+            'A rules lookup blip shorter than the retries is absorbed: public-token messages still drop and the batch does not fail.',
+            { LOGS_SAMPLING_ENABLED_TEAMS: '*' }
+        )
+        rulesBlip.sampling_rules = { 101: [{ ...pathRule('require-key', {}), rule_type: 'require_secret_key' }] }
+        rulesBlip.sampling_rules_faults = { 101: { ...err('Error', 'pg blip', true), times: 1 } }
+        rulesBlip.batches = [[await f.logs(plain, 2), await f.logs(json, 2)]]
+        scenarios.push(finish(rulesBlip))
     }
     {
         const rng = new Rng(11)

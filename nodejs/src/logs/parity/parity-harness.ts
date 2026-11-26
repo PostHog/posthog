@@ -292,6 +292,7 @@ export function buildParityConsumer(
     const patternFaultsLeft = new Map(
         Object.entries(scenario.pattern_keys_faults).map(([teamId, fault]) => [Number(teamId), fault.times])
     )
+    const samplingFaultsLeft = new Map<number, number>()
 
     // Rules compile once per team, as the production caches serve them, so a benchmark does not time compilation.
     const compiled = new Map<string, unknown>()
@@ -377,7 +378,13 @@ export function buildParityConsumer(
             getCompiledRuleSet: (teamId: number) => {
                 const fault = scenario.sampling_rules_faults?.[teamId]
                 if (fault) {
-                    return Promise.reject(toError(fault))
+                    const left = samplingFaultsLeft.get(teamId) ?? fault.times
+                    if (left === undefined || left > 0) {
+                        if (left !== undefined) {
+                            samplingFaultsLeft.set(teamId, left - 1)
+                        }
+                        return Promise.reject(toError(fault))
+                    }
                 }
                 return Promise.resolve(
                     memo(`sampling:${teamId}`, () =>

@@ -1680,6 +1680,18 @@
    "sha256": "ed6bc9873df908a98fdb59c8e703d43b7ecae7602b013600bae33230193fb623"
   }
  ],
+ "require-secret-key-rules-blip.json": [
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "e30fa4751313dca7228fff1c3b1af0b640bfb248fa47590635a32d1ce6e8aef8"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "746a710b6beef8068c79bb4601bf5052c9a37a25eb752b215726c717e7153e79"
+  }
+ ],
  "require-secret-key-rules-outage.json": [
   {
    "codec": "zstandard",
