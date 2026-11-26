@@ -315,4 +315,5 @@ for (const spec of selected) {
     if (values.run) {
         await api('POST', `/api/evals/${saved.id}/run`, {})
     }
+    console.info(`${values.run ? 'Started' : 'Saved'} ${spec.key}: ${values.url}/evals/${saved.id}`)
 }

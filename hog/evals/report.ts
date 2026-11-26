@@ -32,7 +32,7 @@ interface Session {
     createdAt: string
     eval: { title: string }
     decisions: string | Decision[] | null
-    agentResult: string | null
+    agentResult: { text?: string } | null
 }
 
 interface SessionEvent {
@@ -55,9 +55,11 @@ if (values.session) {
     const events = await get<SessionEvent[]>(`/api/sessions/${values.session}/events`)
     for (const { event } of events) {
         if (event.type === 'tool_execution_start' && event.args?.command) {
+            console.info(`$ ${event.args.command}`)
         }
     }
     const session = await get<Session>(`/api/sessions/${values.session}`)
+    console.info(`\n${session.agentResult?.text || session.error || '(no final message)'}`)
 
     process.exit(0)
 }
@@ -95,6 +97,7 @@ const rows = latest.map((session) => {
 })
 
 if (values.json) {
+    console.info(JSON.stringify(rows, null, 2))
     process.exit(0)
 }
 
@@ -102,9 +105,11 @@ for (const row of rows) {
     const score = row.criteria ? `${row.passed}/${row.criteria}` : row.status
     const cost = row.costUsd === null ? '' : `$${row.costUsd.toFixed(2)}`
     const minutes = row.minutes === null ? '' : `${row.minutes.toFixed(1)} min`
-
+    console.info([row.eval, row.model, score, cost, minutes, row.id].filter(Boolean).join('  '))
     if (row.error) {
+        console.info(`    error: ${row.error}`)
     }
     for (const failure of row.failed) {
+        console.info(`    failed: ${failure.criterionDescription}`)
     }
 }

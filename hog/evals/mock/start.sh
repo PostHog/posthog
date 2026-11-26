@@ -25,7 +25,7 @@ docker run -d --name hog-mock \
     -p 18080-18083:18080-18083 \
     -v "$state/ca:/home/mitmproxy/.mitmproxy" \
     -v "$state/logs:/logs" \
-    -v "$here/addon.py:/mock/addon.py:ro" \
+    -v "$here:/mock/src:ro" \
     -v "$state/manifest.json:/mock/manifest.json:ro" \
     -v "$state/catalog.json:/mock/catalog.json:ro" \
     mitmproxy/mitmproxy:12 \
@@ -34,10 +34,12 @@ docker run -d --name hog-mock \
         --mode regular@18080 --mode regular@18081 --mode regular@18082 --mode regular@18083 \
         --allow-hosts '^(us|eu)(\.i)?\.posthog\.com(:443)?$' \
         --allow-hosts '^releases\.posthog\.com(:443)?$' \
-        -s /mock/addon.py >/dev/null
+        -s /mock/src/addon.py >/dev/null
 
 # connection_strategy=lazy: mitmproxy reaches the real host only for a request the addon passes through,
 # so a run doesn't depend on PostHog being reachable.
+# The addon's folder is mounted rather than the file: a formatter or git rewrites the file as a new inode,
+# and a single-file mount would keep the old one, leaving mitmproxy to pass every request to the real PostHog.
 
 # mitmproxy writes its CA on first start.
 for _ in 1 2 3 4 5 6 7 8 9 10; do
