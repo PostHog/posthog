@@ -131,6 +131,7 @@ class TestDirectSQLQuoting(SimpleTestCase):
             ("interleaved", lambda depth: "SELECT 17 + " + "(END " * depth + "17" + ")" * depth),
             ("wrong_kind", lambda depth: "SELECT 17 + " + "(]" * depth + "17" + ")" * depth),
             ("qualified_end", lambda depth: "SELECT " + "CASE WHEN t.end THEN " * depth + "17" + " END" * depth),
+            ("begin_blocks", lambda depth: "SELECT 17 " + "BEGIN " * depth + "17" + " END" * depth),
         ]
     )
     def test_unmatched_closers_do_not_raise_the_nesting_allowance(

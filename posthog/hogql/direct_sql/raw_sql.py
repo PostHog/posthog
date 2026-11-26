@@ -96,13 +96,14 @@ def _ensure_nesting_within_limit(lexed: list["DialectToken"]) -> None:
         TokenType.L_BRACKET: TokenType.R_BRACKET,
         TokenType.L_BRACE: TokenType.R_BRACE,
         TokenType.CASE: TokenType.END,
+        TokenType.BEGIN: TokenType.END,
     }
     open_blocks: list[TokenType] = []
     for index, token in enumerate(lexed):
         is_qualified = (index > 0 and lexed[index - 1].token_type == TokenType.DOT) or (
             index + 1 < len(lexed) and lexed[index + 1].token_type == TokenType.DOT
         )
-        if is_qualified and token.token_type in {TokenType.CASE, TokenType.END}:
+        if is_qualified and token.token_type in {TokenType.CASE, TokenType.BEGIN, TokenType.END}:
             # _guard_tokens turns qualified keywords into names, so sqlparse does not nest on them.
             continue
         if token.token_type in closer_for:
