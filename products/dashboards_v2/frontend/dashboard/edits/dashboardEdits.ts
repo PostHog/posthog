@@ -147,7 +147,7 @@ function bottomPlace(grid: { tiles: Tile[]; cols: number }, w: number, h: number
     return { x: 0, y: bottomOf(grid.tiles.map((other) => other.place)), w: Math.min(w, grid.cols), h }
 }
 
-// A new config can need a bigger tile, such as a stat switched to a line chart.
+// A new config can need a bigger tile, such as a metric switched to a line chart.
 function withConfig(tile: Tile, config: unknown, sizeOf: SizeOf): Tile {
     if (isSection(tile)) {
         return tile

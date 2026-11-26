@@ -16,8 +16,6 @@ import {
 import { GridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 
-import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
-
 import {
     GRID,
     type Tile,
@@ -28,6 +26,7 @@ import {
     panelSize,
 } from '../dashboard/document/dashboardTypes'
 import { type SizeOf } from '../panels/core/panelSpec'
+import { useDragAutoScroll } from './drag/dragAutoScroll'
 import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './drag/dropTargets'
 import { useGridDrag } from './drag/gridDrag'
 import { endResizeFeedback, resizeHandleOf, showResizeFeedback } from './drag/resizeFeedback'
