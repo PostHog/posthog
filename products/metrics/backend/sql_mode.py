@@ -29,7 +29,7 @@ from posthog.hogql.database.schema.metrics import (
     MetricSeriesTable,
     MetricsTable,
 )
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
@@ -104,8 +104,12 @@ def _assert_reads_only_metrics_tables(team: Team, query: ast.SelectQuery | ast.S
     context = HogQLContext(
         team_id=team.pk, team=team, database=Database.create_for(team=team), enable_select_queries=True
     )
+    try:
+        resolved = resolve_types(query, context, dialect="clickhouse")
+    except ResolutionError as e:
+        raise ExposedHogQLError(str(e), start=e.start, end=e.end) from e
     collector = _TableCollector()
-    collector.visit(resolve_types(query, context, dialect="clickhouse"))
+    collector.visit(resolved)
     if collector.other_tables:
         raise ExposedHogQLError(
             f"A SQL metrics insight can only read the metrics tables "
