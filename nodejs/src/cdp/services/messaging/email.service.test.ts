@@ -889,6 +889,7 @@ describe('EmailService', () => {
                     ses.failInTurn(firstAnswer, tooManyRequests)
                     service.sesTransport = sesTransportFor(ses, { retryStrategy: oneRetryAfter(0) })
                     const before = await metricValue('cdp_ses_send_results_total', { result: 'may_have_sent' })
+                    const throttledBefore = await metricValue('cdp_ses_send_results_total', { result: 'throttled' })
 
                     const result = await service.executeSendEmail(invocation)
 
@@ -899,6 +900,9 @@ describe('EmailService', () => {
                         failed: result.metrics.map((metric) => metric.metric_name),
                         counted:
                             (await metricValue('cdp_ses_send_results_total', { result: 'may_have_sent' })) - before,
+                        countedThrottled:
+                            (await metricValue('cdp_ses_send_results_total', { result: 'throttled' })) -
+                            throttledBefore,
                         sent: ses.sent.length,
                     }).toEqual({
                         finished: true,
@@ -906,6 +910,7 @@ describe('EmailService', () => {
                         error: 'Failed to send email via SES: SES throttled a retry after an earlier attempt that may have sent the email, so it is not sent again.',
                         failed: ['email_failed'],
                         counted: 1,
+                        countedThrottled: 0,
                         sent: 1,
                     })
                 }
@@ -3080,6 +3085,16 @@ describe('EmailService', () => {
                     (emailService: EmailService) => {
                         emailService.sesTransport = sesTransportFor(
                             { endpoint: 'http://127.0.0.1:1' },
+                            { retryStrategy: oneRetryAfter(2_000) }
+                        )
+                    },
+                    1,
+                ],
+                [
+                    'the SES host does not resolve and the SDK is still backing off',
+                    (emailService: EmailService) => {
+                        emailService.sesTransport = sesTransportFor(
+                            { endpoint: 'http://ses.invalid' },
                             { retryStrategy: oneRetryAfter(2_000) }
                         )
                     },

@@ -45,7 +45,7 @@ const WITH_FILES_LABEL = { plain: 'false', files: 'true' } satisfies Record<Send
 
 const MAY_HAVE_SENT = {
     before_deadline:
-        'SES did not answer before the send deadline. It may have sent the email, so it is not sent again.',
+        'SES did not confirm the email before the send deadline. It may have sent it, so it is not sent again.',
     throttled: 'SES throttled a retry after an earlier attempt that may have sent the email, so it is not sent again.',
 } satisfies Record<SesSendOutcomeOf<'not_sent'>['reason'], string>
 
