@@ -39,6 +39,7 @@ import {
     ExperimentMetricGoal,
     ExperimentMetricMathType,
     FeatureFlagBasicType,
+    FeatureFlagRulesV2ExperimentRule,
     FeatureFlagType,
     FunnelConversionWindowTimeUnit,
     MultivariateFlagVariant,
@@ -53,6 +54,7 @@ import type {
     ExperimentFeatureFlagInputApi,
     ExperimentToSavedMetricApi,
 } from 'products/experiments/frontend/generated/api.schemas'
+import { isRulesV2FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 
 import { EXPOSURE_DEFAULT_EVENT, resolvedExposureEvent } from './exposureContract'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
@@ -106,13 +108,64 @@ export function getExperimentVariants(experiment: Partial<Experiment> | null | u
     )
 }
 
+export function getFlagExperimentRules(
+    flag: FeatureFlagBasicType | FeatureFlagType | null | undefined
+): FeatureFlagRulesV2ExperimentRule[] {
+    const filters = flag?.filters
+    if (!filters || !isRulesV2FeatureFlagConfig(filters)) {
+        return []
+    }
+    return filters.rules.filter((rule): rule is FeatureFlagRulesV2ExperimentRule => rule.rule_type === 'experiment')
+}
+
+// Mirrors experiment_eligibility_error on the backend
+export function experimentRuleIneligibleReason(rule: FeatureFlagRulesV2ExperimentRule): string | null {
+    if (rule.variants.length < 2) {
+        return 'This rule needs at least 2 variants.'
+    }
+    if (rule.variants.length > MAX_EXPERIMENT_VARIANTS) {
+        return `This rule can have at most ${MAX_EXPERIMENT_VARIANTS} variants.`
+    }
+    return null
+}
+
+/** The rule `ruleId` names, else the first experiment rule that can back an experiment. */
+export function getFlagExperimentRule(
+    flag: FeatureFlagBasicType | FeatureFlagType | null | undefined,
+    ruleId?: string | null
+): FeatureFlagRulesV2ExperimentRule | null {
+    const rules = getFlagExperimentRules(flag)
+    if (ruleId) {
+        return rules.find((rule) => rule.id === ruleId) ?? null
+    }
+    return rules.find((rule) => experimentRuleIneligibleReason(rule) === null) ?? null
+}
+
 /**
- * Variants for a standalone feature flag (no experiment in hand). Reads the flag's saved config only.
+ * Variants for a standalone feature flag (no experiment in hand). Reads the flag's saved config only. For a flag with
+ * rules, the variants of the rule `getFlagExperimentRule` picks.
  */
 export function getFlagVariants(
-    flag: FeatureFlagBasicType | FeatureFlagType | null | undefined
+    flag: FeatureFlagBasicType | FeatureFlagType | null | undefined,
+    ruleId?: string | null
 ): MultivariateFlagVariant[] {
+    if (flag?.filters && isRulesV2FeatureFlagConfig(flag.filters)) {
+        const rule = getFlagExperimentRule(flag, ruleId)
+        return rule?.variants.map(({ key, weight }) => ({ key, rollout_percentage: weight })) ?? []
+    }
     return flag?.filters?.multivariate?.variants ?? []
+}
+
+export function linkedFlagConfig(
+    flag: FeatureFlagType,
+    ruleId?: string | null
+): { feature_flag_key: string; variants: MultivariateFlagVariant[]; feature_flag_rule_id: string | null } {
+    const rule = getFlagExperimentRule(flag, ruleId)
+    return {
+        feature_flag_key: flag.key,
+        variants: getFlagVariants(flag, rule?.id),
+        feature_flag_rule_id: rule?.id ?? null,
+    }
 }
 
 /**
@@ -375,8 +428,14 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
     return Array.from(eventNames)
 }
 
-// Mirrors the backend eligibility rule (experiment_eligibility_error): multivariate with 2-20 variants
+// Mirrors the backend eligibility rule (FeatureFlag.is_eligible_for_experiment)
 export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
+    if (isRulesV2FeatureFlagConfig(featureFlag.filters)) {
+        if (!getFlagExperimentRule(featureFlag)) {
+            throw new Error(`Feature flag must have an experiment rule with 2 to ${MAX_EXPERIMENT_VARIANTS} variants.`)
+        }
+        return true
+    }
     const variants = getFlagVariants(featureFlag)
     if (variants.length < 2) {
         throw new Error('Feature flag must have at least 2 variants (a baseline and at least one test variant).')

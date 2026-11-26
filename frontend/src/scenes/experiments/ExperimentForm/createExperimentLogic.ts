@@ -137,12 +137,14 @@ export interface createExperimentLogicActions {
     setFeatureFlagConfig: (config: {
         ensure_experience_continuity?: boolean
         feature_flag_key?: string
+        feature_flag_rule_id?: string | null
         rollout_percentage?: number
         variants?: MultivariateFlagVariant[]
     }) => {
         config: {
             ensure_experience_continuity?: boolean
             feature_flag_key?: string
+            feature_flag_rule_id?: string | null
             rollout_percentage?: number
             variants?: MultivariateFlagVariant[]
         }
@@ -214,6 +216,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         setCreateReplayVisionScanner: (enabled: boolean) => ({ enabled }),
         setFeatureFlagConfig: (config: {
             feature_flag_key?: string
+            // Null leaves the field out of the create request, as for every flag without rules
+            feature_flag_rule_id?: string | null
             variants?: MultivariateFlagVariant[]
             rollout_percentage?: number
             ensure_experience_continuity?: boolean
@@ -264,6 +268,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         ...state,
                         ...(config.feature_flag_key !== undefined && {
                             feature_flag_key: config.feature_flag_key,
+                        }),
+                        ...(config.feature_flag_rule_id !== undefined && {
+                            feature_flag_rule_id: config.feature_flag_rule_id ?? undefined,
                         }),
                         feature_flag_config: {
                             ...currentConfig,

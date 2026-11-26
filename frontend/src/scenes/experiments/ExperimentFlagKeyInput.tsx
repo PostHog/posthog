@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { Experiment, FeatureFlagType } from '~/types'
 
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 
 import { featureFlagEligibleForExperiment } from './utils'
 
@@ -165,6 +166,11 @@ export function ExperimentFlagKeyInput({
                                         featureFlagEligibleForExperiment(flag)
                                     } catch (error) {
                                         disabledReason = (error as Error).message
+                                    }
+                                    // A copy keeps the source experiment's variants, so it can't run on a rule
+                                    if (!disabledReason && !isV1FeatureFlagConfig(flag.filters)) {
+                                        disabledReason =
+                                            "An experiment can't be copied onto a feature flag with rules yet."
                                     }
                                     return (
                                         <LemonButton

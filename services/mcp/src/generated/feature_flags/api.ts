@@ -106,7 +106,7 @@ export const FeatureFlagsListQueryParams = () => zod.object({
         .enum(['true'])
         .optional()
         .describe(
-            "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored."
+            "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants, or, for a flag with rules, an experiment rule with 2-20 variants. Any other value is ignored."
         ),
     evaluation_runtime: zod
         .enum(['all', 'client', 'server'])

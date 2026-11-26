@@ -195,6 +195,35 @@ class TestV2RowReads(APIBaseTest):
         assert filters_by_key["v2-flag"] == V2_DOCUMENT
         assert filters_by_key["v1-flag"]["groups"] == [{"properties": [], "rollout_percentage": 100}]
 
+    def test_experiment_eligible_list_includes_a_flag_with_an_experiment_rule(self) -> None:
+        experiment_rule = {
+            "id": "0193a1b2-0000-7000-8000-000000000001",
+            "rule_type": "experiment",
+            "targeting": {"properties": []},
+            "paused": False,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "seed",
+            "variants": [
+                {"key": "control", "weight": 50, "value": False},
+                {"key": "test", "weight": 50, "value": True},
+            ],
+        }
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="v2-experiment-flag",
+            created_by=self.user,
+            filters={**V2_DOCUMENT, "rules": [experiment_rule]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?eligible_for_experiment=true")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(flag["key"], flag["is_eligible_for_experiment"]) for flag in response.json()["results"]] == [
+            ("v2-experiment-flag", True)
+        ]
+
     def test_activity_and_version_history_read_the_v2_row(self) -> None:
         activity = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{self.v2_flag.id}/activity/")
         assert activity.status_code == status.HTTP_200_OK, activity.json()

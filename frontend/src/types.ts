@@ -5139,6 +5139,8 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
+    /** The experiment rule this experiment runs on, when its flag has rules. Set on create only. */
+    feature_flag_rule_id?: string | null
     /**
      * Draft flag config for an unsaved experiment, in the flag's own input shape. Client-only:
      * `toExperimentWritePayload` extracts it into the `feature_flag` write field and strips it.

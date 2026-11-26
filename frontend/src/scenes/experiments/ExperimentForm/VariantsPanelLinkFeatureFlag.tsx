@@ -4,40 +4,68 @@ import { IconX } from '@posthog/icons'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import type { FeatureFlagType } from '~/types'
+import type { FeatureFlagRulesV2ExperimentRule, FeatureFlagType } from '~/types'
 
-import { getFlagVariants } from '../utils'
+import { isRulesV2FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+
+import {
+    experimentRuleIneligibleReason,
+    getFlagExperimentRule,
+    getFlagExperimentRules,
+    getFlagVariants,
+} from '../utils'
 
 interface VariantsPanelLinkFeatureFlagProps {
     linkedFeatureFlag: FeatureFlagType | null
     setShowFeatureFlagSelector: () => void
     disabled?: boolean
     onRemove?: () => void
+    selectedRuleId?: string | null
+    onSelectRule?: (ruleId: string) => void
 }
 
-const getTargetingSummary = (flag: FeatureFlagType): string[] => {
+const usersMatching = (properties: unknown[] | undefined): string =>
+    properties?.length
+        ? `users matching ${properties.length} ${properties.length === 1 ? 'condition' : 'conditions'}`
+        : 'all users'
+
+const getTargetingSummary = (flag: FeatureFlagType, rule: FeatureFlagRulesV2ExperimentRule | null): string[] => {
+    if (rule) {
+        return [`${rule.rollout_percentage}% of ${usersMatching(rule.targeting.properties)}`]
+    }
     if (!flag.filters.groups || flag.filters.groups.length === 0) {
         return ['All users']
     }
 
     return flag.filters.groups.map((group) => {
         const rollout = group.rollout_percentage != null ? `${group.rollout_percentage}% of ` : ''
-        const users = group.properties?.length
-            ? `users matching ${group.properties.length} ${group.properties.length === 1 ? 'condition' : 'conditions'}`
-            : 'all users'
         const variant = group.variant ? ` → variant "${group.variant}"` : ''
 
-        return `${rollout}${users}${variant}`
+        return `${rollout}${usersMatching(group.properties)}${variant}`
     })
 }
 
-const TargetingSummary = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {
+// Rules are numbered by their position in the flag, as on the flag's page
+const ruleLabel = (flag: FeatureFlagType, rule: FeatureFlagRulesV2ExperimentRule): string => {
+    const position = isRulesV2FeatureFlagConfig(flag.filters) ? flag.filters.rules.indexOf(rule) + 1 : 0
+    return rule.description ? `Rule ${position}: ${rule.description}` : `Rule ${position}`
+}
+
+const TargetingSummary = ({
+    flag,
+    rule,
+}: {
+    flag: FeatureFlagType
+    rule: FeatureFlagRulesV2ExperimentRule | null
+}): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
-    const conditions = getTargetingSummary(flag)
+    const conditions = getTargetingSummary(flag, rule)
     const hasMultipleConditions = conditions.length > 2
 
     const displayConditions = expanded ? conditions : conditions.slice(0, 2)
@@ -75,6 +103,8 @@ export const VariantsPanelLinkFeatureFlag = ({
     setShowFeatureFlagSelector,
     disabled = false,
     onRemove,
+    selectedRuleId,
+    onSelectRule,
 }: VariantsPanelLinkFeatureFlagProps): JSX.Element => {
     if (!linkedFeatureFlag) {
         if (disabled) {
@@ -100,7 +130,9 @@ export const VariantsPanelLinkFeatureFlag = ({
         )
     }
 
-    const variants = getFlagVariants(linkedFeatureFlag)
+    const experimentRules = getFlagExperimentRules(linkedFeatureFlag)
+    const selectedRule = getFlagExperimentRule(linkedFeatureFlag, selectedRuleId)
+    const variants = getFlagVariants(linkedFeatureFlag, selectedRule?.id)
 
     return (
         <div>
@@ -149,6 +181,33 @@ export const VariantsPanelLinkFeatureFlag = ({
                     <div className="text-sm text-muted-alt -mt-2 mb-3">{linkedFeatureFlag.name}</div>
                 )}
 
+                {experimentRules.length > 0 && (
+                    <LemonField.Pure
+                        label="Experiment rule"
+                        info="The experiment counts the exposures of this rule of the flag."
+                        htmlFor="experiment-linked-flag-rule"
+                    >
+                        <LemonSelect
+                            id="experiment-linked-flag-rule"
+                            size="small"
+                            value={selectedRule?.id ?? null}
+                            onChange={(ruleId) => ruleId && onSelectRule?.(ruleId)}
+                            options={experimentRules.map((rule) => ({
+                                value: rule.id,
+                                label: ruleLabel(linkedFeatureFlag, rule),
+                                disabledReason: experimentRuleIneligibleReason(rule) ?? undefined,
+                            }))}
+                            placeholder="Select an experiment rule"
+                            disabledReason={
+                                disabled || !onSelectRule
+                                    ? 'You cannot change the rule when editing an experiment.'
+                                    : undefined
+                            }
+                            data-attr="experiment-linked-flag-rule"
+                        />
+                    </LemonField.Pure>
+                )}
+
                 <div className="flex gap-10">
                     {/* Variants */}
                     <div className="space-y-2">
@@ -164,7 +223,7 @@ export const VariantsPanelLinkFeatureFlag = ({
 
                     {/* Targeting */}
                     <div className="flex-1">
-                        <TargetingSummary flag={linkedFeatureFlag} />
+                        <TargetingSummary flag={linkedFeatureFlag} rule={selectedRule} />
                     </div>
                 </div>
             </div>

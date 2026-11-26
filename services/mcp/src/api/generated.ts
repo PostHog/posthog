@@ -55547,7 +55547,7 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
       readonly is_used_in_replay_settings: boolean;
-      /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
+      /** Whether this flag can back an experiment: multivariate with 2 to 20 variants, or, for a flag with rules, an experiment rule with 2 to 20 variants. */
       readonly is_eligible_for_experiment: boolean;
     }
 
@@ -146358,7 +146358,7 @@ export namespace Schemas {
      */
     deleted?: FeatureFlagsListDeleted;
     /**
-     * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
+     * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants, or, for a flag with rules, an experiment rule with 2-20 variants. Any other value is ignored.
      */
     eligible_for_experiment?: FeatureFlagsListEligibleForExperiment;
     /**

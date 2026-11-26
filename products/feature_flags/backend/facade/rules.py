@@ -95,6 +95,28 @@ def experiment_rule_ids(current_filters: Mapping[str, Any]) -> list[str]:
     return [rule_id for rule_id in rule_ids if isinstance(rule_id, str)]
 
 
+def experiment_rule_variant_counts(current_filters: Mapping[str, Any]) -> list[int]:
+    """The number of variants of each experiment rule in a config version 2 document, in evaluation order.
+
+    A rule whose variants are not a list counts as none. Raises ``ConfigFormatError`` for any other
+    format and ``ExperimentRuleError`` for a document without a list of rules.
+    """
+    return [
+        len(variants) if isinstance(variants := rule.get("variants"), list) else 0
+        for rule in _v2_rules(current_filters)
+        if rule.get("rule_type") == EXPERIMENT_RULE_TYPE
+    ]
+
+
+def experiment_rule_variant_count_jsonpath(min_variants: int, max_variants: int) -> str:
+    """A SQL/JSON path that matches a config version 2 document with an experiment rule of
+    ``min_variants`` to ``max_variants`` variants. ``experiment_rule_variant_counts`` is its Python twin."""
+    return (
+        f'$.rules[*] ? (@.rule_type == "{EXPERIMENT_RULE_TYPE}" '
+        f"&& @.variants.size() >= {int(min_variants)} && @.variants.size() <= {int(max_variants)})"
+    )
+
+
 def experiment_rule_snapshot(
     current_filters: Mapping[str, Any], rule_id: str, *, flag_id: int, flag_key: str, flag_version: int | None
 ) -> dict[str, Any]:

@@ -851,6 +851,180 @@ describe('experimentWizardLogic', () => {
         })
     })
 
+    describe('a linked flag with rules', () => {
+        let logic: ReturnType<typeof experimentWizardLogic.build>
+        let createLogic: ReturnType<typeof createExperimentLogic.build>
+        let capturedPayload: any
+
+        const experimentRule = (id: string, keys: [string, string], description?: string): any => ({
+            id,
+            rule_type: 'experiment',
+            description,
+            targeting: { properties: [] },
+            rollout_percentage: id === 'rule-b' ? 30 : 100,
+            on_rollout_miss: 'continue',
+            assignment_algorithm: 'sha1_60_v1',
+            seed: `seed-${id}`,
+            paused: false,
+            variants: [
+                { key: keys[0], weight: 50, value: false },
+                { key: keys[1], weight: 50, value: true },
+            ],
+        })
+        const flagWithRules = {
+            ...mockEligibleFlags[0],
+            id: 30,
+            key: 'flag-with-rules',
+            filters: {
+                version: 2,
+                return_type: 'boolean',
+                default_value: false,
+                rules: [
+                    { id: 'release', rule_type: 'targeted_release', targeting: { properties: [] }, value: true },
+                    experimentRule('rule-a', ['control', 'test']),
+                    experimentRule('rule-b', ['old-checkout', 'new-checkout'], 'Checkout test'),
+                ],
+            },
+        } as FeatureFlagType
+
+        beforeEach(() => {
+            localStorage.clear()
+            sessionStorage.clear()
+            capturedPayload = null
+
+            useMocks({
+                get: {
+                    ...apiMocks.get,
+                    '/api/projects/:team_id/feature_flags/': () => [200, { results: [flagWithRules], count: 1 }],
+                },
+                post: {
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/`]: async ({ request }) => {
+                        capturedPayload = (await request.json()) as Record<string, any>
+                        return [
+                            200,
+                            {
+                                ...NEW_EXPERIMENT,
+                                id: 43,
+                                name: capturedPayload.name,
+                                feature_flag_key: capturedPayload.feature_flag_key,
+                                feature_flag: { id: 30, key: capturedPayload.feature_flag_key },
+                            },
+                        ]
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/add_product_intent/': () => [200, {}],
+                },
+            })
+            initKeaTests()
+
+            featureFlagsLogic.mount()
+            experimentsLogic.mount()
+
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+
+            logic = experimentWizardLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            cleanup()
+            logic?.unmount()
+            createLogic?.unmount()
+            experimentsLogic.unmount()
+            featureFlagsLogic.unmount()
+        })
+
+        it('saves the experiment on the experiment rule picked in the About step', async () => {
+            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            vpLogic.actions.validateFeatureFlagKeySuccess({
+                valid: false,
+                error: 'A feature flag with this key already exists.',
+                key: 'flag-with-rules',
+                existingFlag: flagWithRules,
+            })
+            await expectLogic(logic).toMatchValues({
+                featureFlagKeyValidation: partial({ existingFlag: partial({ id: 30 }) }),
+            })
+
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+            await userEvent.click(await screen.findByText('Use this flag'))
+
+            expect(await screen.findByText('Rule 2')).toBeInTheDocument()
+            expect(logic.values.experiment.feature_flag_rule_id).toEqual('rule-a')
+
+            await userEvent.click(screen.getByText('Rule 2'))
+            await userEvent.click(await screen.findByText('Rule 3: Checkout test'))
+
+            await expectLogic(logic).toMatchValues({
+                experiment: partial({
+                    feature_flag_key: 'flag-with-rules',
+                    feature_flag_rule_id: 'rule-b',
+                    feature_flag_config: partial({
+                        filters: partial({
+                            multivariate: {
+                                variants: [
+                                    partial({ key: 'old-checkout', rollout_percentage: 50 }),
+                                    partial({ key: 'new-checkout', rollout_percentage: 50 }),
+                                ],
+                            },
+                        }),
+                    }),
+                }),
+            })
+
+            createLogic.actions.setExperimentValue('name', 'Checkout on a rule')
+            logic.actions.saveExperiment()
+            await waitFor(() => {
+                expect(capturedPayload).not.toBeNull()
+            })
+
+            expect(capturedPayload).toMatchObject({
+                name: 'Checkout on a rule',
+                feature_flag_key: 'flag-with-rules',
+                feature_flag_rule_id: 'rule-b',
+            })
+            // The flag exists, so the experiment links to it and sends no flag config
+            expect(capturedPayload).not.toHaveProperty('feature_flag')
+        })
+
+        it('shows the rollout and split of the picked rule in the Variants step', () => {
+            logic.actions.setLinkedFeatureFlag(flagWithRules)
+            logic.actions.setFeatureFlagConfig({ feature_flag_key: 'flag-with-rules', feature_flag_rule_id: 'rule-b' })
+
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <VariantsStep />
+                </BindLogic>
+            )
+
+            expect(screen.getByText('old-checkout')).toBeInTheDocument()
+            expect(screen.getByText('new-checkout')).toBeInTheDocument()
+            expect(screen.getByText('30%')).toBeInTheDocument()
+        })
+
+        it('removing the linked flag clears the rule', async () => {
+            logic.actions.setLinkedFeatureFlag(flagWithRules)
+            logic.actions.setFeatureFlagConfig({ feature_flag_key: 'flag-with-rules', feature_flag_rule_id: 'rule-b' })
+
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+            await userEvent.click(screen.getByLabelText('Remove linked flag'))
+
+            expect(logic.values.linkedFeatureFlag).toBeNull()
+            expect(logic.values.experiment.feature_flag_key).toEqual('')
+            expect(logic.values.experiment.feature_flag_rule_id).toBeUndefined()
+        })
+    })
+
     describe('VariantsStep with linked feature flag', () => {
         let logic: ReturnType<typeof experimentWizardLogic.build>
         let createLogic: ReturnType<typeof createExperimentLogic.build>

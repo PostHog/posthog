@@ -18,6 +18,8 @@ import {
     Experiment,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
+    FeatureFlagRulesV2ExperimentRule,
+    FeatureFlagRulesV2Rule,
     FeatureFlagType,
     FeatureFlagWithV1Config,
     PropertyFilterType,
@@ -35,12 +37,14 @@ import {
     getBaselineVariantKey,
     getDisplayOrderedIndices,
     getEventCountQuery,
+    getFlagVariants,
     getFunnelDropoffReason,
     getMetricIncompleteReason,
     getSessionLinkabilityEventNames,
     isEvenlyDistributed,
     isLegacyExperiment,
     isLegacyExperimentQuery,
+    linkedFlagConfig,
     metricResults,
     percentageDistribution,
     seriesToExposureConfig,
@@ -366,6 +370,92 @@ describe('checkFeatureFlagEligibility', () => {
     })
     it('returns true for a feature flag with control not as the first variant', () => {
         expect(featureFlagEligibleForExperiment(withVariants(['foobar', 'control']))).toEqual(true)
+    })
+
+    describe('a flag with rules', () => {
+        const experimentRule = (
+            id: string,
+            variantKeys: string[],
+            description?: string
+        ): FeatureFlagRulesV2ExperimentRule => ({
+            id,
+            rule_type: 'experiment',
+            description,
+            targeting: { properties: [] },
+            rollout_percentage: 80,
+            on_rollout_miss: 'continue',
+            assignment_algorithm: 'sha1_60_v1',
+            seed: `seed-${id}`,
+            paused: false,
+            variants: variantKeys.map((key, index) => ({ key, weight: index === 0 ? 40 : 60, value: index })),
+        })
+        const release: FeatureFlagRulesV2Rule = {
+            id: 'release',
+            rule_type: 'targeted_release',
+            targeting: { properties: [] },
+            value: 1,
+        }
+        const withRules = (...rules: FeatureFlagRulesV2Rule[]): FeatureFlagType => ({
+            ...baseFeatureFlag,
+            filters: { version: 2, return_type: 'number', default_value: 0, rules },
+        })
+
+        it.each([
+            ['an experiment rule with 2 variants', withRules(release, experimentRule('a', ['control', 'test']))],
+            [
+                'one eligible experiment rule among others',
+                withRules(experimentRule('a', ['control']), experimentRule('b', ['control', 'test'])),
+            ],
+        ])('is eligible with %s', (_, flag) => {
+            expect(featureFlagEligibleForExperiment(flag)).toEqual(true)
+        })
+
+        it.each([
+            ['no experiment rule', withRules(release)],
+            ['only an experiment rule with 1 variant', withRules(experimentRule('a', ['control']))],
+        ])('is not eligible with %s', (_, flag) => {
+            expect(() => featureFlagEligibleForExperiment(flag)).toThrow(
+                'Feature flag must have an experiment rule with 2 to 20 variants.'
+            )
+        })
+
+        it('reads variants from the named rule, else from the first eligible rule', () => {
+            const flag = withRules(
+                release,
+                experimentRule('single', ['only']),
+                experimentRule('a', ['control', 'test']),
+                experimentRule('b', ['old', 'new'])
+            )
+
+            expect(getFlagVariants(flag, 'b')).toEqual([
+                { key: 'old', rollout_percentage: 40 },
+                { key: 'new', rollout_percentage: 60 },
+            ])
+            expect(getFlagVariants(flag).map(({ key }) => key)).toEqual(['control', 'test'])
+            expect(getFlagVariants(flag, 'missing')).toEqual([])
+        })
+
+        it('links the experiment rule the experiment runs on, and no rule for a flag without rules', () => {
+            const flag = withRules(experimentRule('a', ['control', 'test']), experimentRule('b', ['old', 'new']))
+
+            expect(linkedFlagConfig(flag, 'b')).toEqual({
+                feature_flag_key: 'test',
+                variants: [
+                    { key: 'old', rollout_percentage: 40 },
+                    { key: 'new', rollout_percentage: 60 },
+                ],
+                feature_flag_rule_id: 'b',
+            })
+            expect(linkedFlagConfig(flag).feature_flag_rule_id).toEqual('a')
+            expect(linkedFlagConfig(withVariants(['control', 'test']))).toEqual({
+                feature_flag_key: 'test',
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+                feature_flag_rule_id: null,
+            })
+        })
     })
 })
 

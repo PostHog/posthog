@@ -15,7 +15,7 @@ import { SelectExistingFeatureFlagModal } from 'products/experiments/frontend/mo
 import { selectExistingFeatureFlagModalLogic } from 'products/experiments/frontend/modals/SelectExistingFeatureFlagModal/selectExistingFeatureFlagModalLogic'
 
 import { VariantsPanelLinkFeatureFlag } from '../../ExperimentForm/VariantsPanelLinkFeatureFlag'
-import { getFlagVariants } from '../../utils'
+import { linkedFlagConfig } from '../../utils'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 function RequiredMark(): JSX.Element {
@@ -64,10 +64,7 @@ export function AboutStep(): JSX.Element {
     const linkExistingFlag = (flag: FeatureFlagType): void => {
         setLinkedFeatureFlag(flag)
         clearFeatureFlagKeyValidation()
-        setFeatureFlagConfig({
-            feature_flag_key: flag.key,
-            variants: getFlagVariants(flag),
-        })
+        setFeatureFlagConfig(linkedFlagConfig(flag))
     }
 
     return (
@@ -125,9 +122,11 @@ export function AboutStep(): JSX.Element {
                 <VariantsPanelLinkFeatureFlag
                     linkedFeatureFlag={linkedFeatureFlag}
                     setShowFeatureFlagSelector={openSelectExistingFeatureFlagModal}
+                    selectedRuleId={experiment.feature_flag_rule_id}
+                    onSelectRule={(ruleId) => setFeatureFlagConfig(linkedFlagConfig(linkedFeatureFlag, ruleId))}
                     onRemove={() => {
                         setLinkedFeatureFlag(null)
-                        setExperimentValue('feature_flag_key', '')
+                        setFeatureFlagConfig({ feature_flag_key: '', feature_flag_rule_id: null })
                         clearFeatureFlagKeyValidation()
                     }}
                 />
