@@ -110,8 +110,9 @@ function statusOf(day: number, progress: AdventProgress, today: number): Pick<Ad
         : { status: 'locked', lockReason: 'order' }
 }
 
-function laneOf(door: AdventDoor): string | null {
-    return door.id.split('-')[2] ?? null
+function onOneLane(source: AdventDoor | null, target: AdventDoor): boolean {
+    const [from, to] = [source?.id.split('-')[2], target.id.split('-')[2]]
+    return !from || !to || from === to
 }
 
 function trailPoint(day: number): AdventPoint & { row: number } {
@@ -187,11 +188,7 @@ function linksInto(current: AdventDoor[], previous: AdventDoor[], trigger: Adven
     const sources = previous.length ? previous : [null]
     return current.flatMap((target) =>
         sources
-            .filter((source) => {
-                const sourceLane = source ? laneOf(source) : null
-                const targetLane = laneOf(target)
-                return !sourceLane || !targetLane || sourceLane === targetLane
-            })
+            .filter((source) => onOneLane(source, target))
             .map(
                 (source): AdventLink => ({
                     id: `${source?.id ?? ADVENT_TRIGGER_ID}>${target.id}`,

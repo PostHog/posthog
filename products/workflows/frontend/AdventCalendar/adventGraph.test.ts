@@ -9,12 +9,16 @@ function graphOf(progress: AdventProgress, today: number): ReturnType<typeof bui
 }
 
 describe('buildAdventGraph', () => {
-    it('shows both lanes after a question until it is answered', () => {
+    it('shows both lanes after a question until it is answered, each linked only along itself', () => {
         const graph = graphOf({ opened: [1], answers: {} }, 4)
 
         expect(graph.doors.filter((door) => door.day === 3).map((door) => door.id)).toEqual([
             'door-3-upper',
             'door-3-lower',
+        ])
+        expect(graph.links.filter((link) => link.to.startsWith('door-4')).map((link) => link.id)).toEqual([
+            'door-3-upper>door-4-upper',
+            'door-3-lower>door-4-lower',
         ])
     })
 
