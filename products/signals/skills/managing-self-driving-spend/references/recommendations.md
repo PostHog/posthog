@@ -14,7 +14,6 @@ Estimate a month as `(5 * weekday_average + 2 * weekend_average) / 7 * days_in_m
 If the sample has no weekend day, use the average of all days and say that the figure can run high.
 Scale each item's period spend by the same ratio, so the items and the total agree.
 Label the result as an estimate, not an invoice forecast, and do not double-count overlapping controls.
-Receipts are priced at the standard service tier from about 25 November 2026. When the sample spans that date, use only the days after it, or say that the estimate mixes two prices.
 On a project in a trial, the trial's receipts are exempt, so non-exempt usage can be near zero. Estimate from all recorded usage instead, and say that it shows what the project spends once the trial ends.
 
 ## Judge yield

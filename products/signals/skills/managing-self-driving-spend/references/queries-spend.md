@@ -13,9 +13,6 @@ FROM system.signal_spend
 WHERE finalized_at IS NOT NULL
 ```
 
-Daily receipts before about 25 November 2026 were priced at the service tier that served each call, and later ones at the standard tier.
-A step in "Spend by day" at that date can be the price change, not more work. Compare the run counts on both sides before you call it usage.
-
 ## Spend by day
 
 ```sql

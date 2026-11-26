@@ -19,8 +19,6 @@ Receipts expire three calendar months after they are created, so the tool reject
 Use this month or one of the two months before it.
 Show amounts as AI credits, with the USD value next to them: multiply decimal credits by the returned `pricing.usd_per_credit`.
 Recorded usage includes exempt work and is not an invoice; use `posthog:billing-limits-get` for the billing spend and limit.
-Receipts are priced at the standard service tier of each model call, whichever tier served it.
-Receipts from before that change could be lower for the same work, so a step up in daily spend around 25 November 2026 can be pricing, not more usage.
 On a large project these tools can return more than fits in your context. If yours saves the output to a file, parse the file with a script, and keep the fields you need.
 
 ## Workflow
