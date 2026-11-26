@@ -6102,10 +6102,6 @@ export type ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows = { [key: 
 export type ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants = { [key: string]: number } | null
 
 export interface ExperimentWarehouseNativeRowsLeftOutApi {
-    /** Exposure rows after the end of the experiment, or after now while it runs. */
-    after_window?: number | null
-    /** Exposure rows before the start of the experiment. */
-    before_window?: number | null
     /** Exposure rows with an empty entity_id. */
     empty_id?: number | null
     /** Exposed entities with no row of the metric query that counted, by variant. */
