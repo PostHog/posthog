@@ -30,6 +30,7 @@ from products.metrics.backend.metric_samples_query_runner import build_metric_qu
 from products.metrics.backend.models import MetricPrecomputedChunk, MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import labels_of
 from products.metrics.backend.precompute.gate import precompute_enabled
+from products.metrics.backend.precompute.jobs import index_team_filled_days
 from products.metrics.backend.precompute.store import (
     HOUR,
     MAX_ENTRIES_PER_CHUNK,
@@ -384,6 +385,7 @@ def fill_precomputed_metrics(
                     pending.remove(precomputed_metric)
                 if time.monotonic() >= deadline:
                     break
+        index_team_filled_days(team, FINAL_AFTER)
     finally:
         cache.delete(lock_key)
 
