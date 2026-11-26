@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -18,6 +18,7 @@ from products.conversations.backend.temporal.coordinator import (
     _child_workflow_id,
     _collect_eligible,
     _is_master_flag_enabled,
+    customer_reply_rerun_key,
     support_collect_eligible_tickets_activity,
 )
 
@@ -396,6 +397,64 @@ class TestChildWorkflowId:
     def test_later_rounds_are_suffixed(self):
         assert _child_workflow_id("abc", 1) == "support-reply-abc-r1"
 
+    def test_customer_reply_run_has_its_own_id(self):
+        assert _child_workflow_id("abc", rerun_key="1700000000") == "support-reply-abc-c1700000000"
+
+    def test_follow_up_to_a_customer_reply_run_does_not_reuse_the_plain_round_id(self):
+        assert _child_workflow_id("abc", 1, "1700000000") == "support-reply-abc-c1700000000-r1"
+
+
+def _at(hour: int, minute: int = 0, second: int = 0) -> datetime:
+    return datetime(2026, 11, 26, hour, minute, second, tzinfo=UTC)
+
+
+_RUN_AT_TEN = {"status": "done", "started_at": _at(10).isoformat()}
+_ELEVEN_KEY = str(int(_at(11).timestamp()))
+
+
+class TestCustomerReplyRerunKey:
+    @parameterized.expand(
+        [
+            ("message_after_the_run", _RUN_AT_TEN, _at(11), None, False, _ELEVEN_KEY),
+            ("message_before_the_run", _RUN_AT_TEN, _at(9, 30), None, False, None),
+            ("no_customer_message", _RUN_AT_TEN, None, None, False, None),
+            ("run_still_in_progress", {**_RUN_AT_TEN, "status": "in_progress"}, _at(11), None, False, None),
+            ("no_previous_run", {"status": "done"}, _at(11), None, False, None),
+            ("teammate_replied", _RUN_AT_TEN, _at(11), _at(10, 30), False, None),
+            ("teammate_opened_the_ticket", _RUN_AT_TEN, _at(11), _at(8), False, _ELEVEN_KEY),
+            ("message_still_settling", _RUN_AT_TEN, _at(11, 59, 30), None, False, None),
+            (
+                "settle_exempt_channel",
+                _RUN_AT_TEN,
+                _at(11, 59, 30),
+                None,
+                True,
+                str(int(_at(11, 59, 30).timestamp())),
+            ),
+            ("run_limit_reached", {**_RUN_AT_TEN, "rerun_keys": ["1", "2", "3"]}, _at(11), None, False, None),
+            ("input_was_blocked", {**_RUN_AT_TEN, "result": "blocked_unsafe"}, _at(11), None, False, None),
+            ("reply_was_blocked", {**_RUN_AT_TEN, "result": "blocked_unsafe_reply"}, _at(11), None, False, None),
+            (
+                "retry_of_a_counted_message",
+                {**_RUN_AT_TEN, "rerun_keys": ["1", "2", _ELEVEN_KEY]},
+                _at(11),
+                None,
+                False,
+                _ELEVEN_KEY,
+            ),
+        ]
+    )
+    def test_decides_when_a_run_is_due(self, _name, triage, last_customer, last_human, settle_exempt, expected):
+        key = customer_reply_rerun_key(
+            triage=triage,
+            last_customer=last_customer,
+            first_customer=_at(9),
+            last_human=last_human,
+            settle_cutoff=_at(11, 59),
+            settle_exempt=settle_exempt,
+        )
+        assert key == expected
+
 
 class TestCollectEligibleAwaitingClarification:
     def _team_and_ticket(self, *, status: str = "pending", awaiting: bool = True):
@@ -568,6 +627,84 @@ class TestCollectEligibleAwaitingClarification:
         assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_eligible else [])
         ticket.refresh_from_db()
         assert ticket.ai_triage.get("result") == expected_result
+
+    @parameterized.expand(
+        [
+            ("until_team_reply", "until_team_reply", True),
+            ("first_message", "first_message", False),
+            ("setting_absent", None, False),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_later_customer_message_starts_a_run_only_in_until_team_reply_mode(
+        self, _name, rerun_mode, expected_eligible, mock_master_flag
+    ):
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        team, ticket = self._team_and_ticket(status="open", awaiting=False)
+        team.conversations_settings = {
+            "ai_suggestions_enabled": True,
+            **({"ai_rerun_mode": rerun_mode} if rerun_mode else {}),
+        }
+        team.save()
+        run_started = timezone.now() - timedelta(minutes=6)
+        TicketModel.objects.filter(id=ticket.id).update(
+            ai_triage={"status": "done", "result": "suggested", "started_at": run_started.isoformat()}
+        )
+        ticket.refresh_from_db()
+        self._comments(team, ticket, [("customer", 8), ("AI", 5, True), ("customer", 3)])
+
+        result = _collect_eligible()
+
+        assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_eligible else [])
+        ticket.refresh_from_db()
+        if expected_eligible:
+            assert result[0].rerun_key
+            assert ticket.ai_triage["rerun_keys"] == [result[0].rerun_key]
+        else:
+            assert "rerun_keys" not in ticket.ai_triage
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_failed_first_run_stays_on_the_first_draft_path_in_until_team_reply_mode(self, mock_master_flag):
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        team, ticket = self._team_and_ticket(status="open", awaiting=False)
+        team.conversations_settings = {"ai_suggestions_enabled": True, "ai_rerun_mode": "until_team_reply"}
+        team.save()
+        TicketModel.objects.filter(id=ticket.id).update(
+            ai_triage={"status": "in_progress", "started_at": (timezone.now() - timedelta(minutes=6)).isoformat()}
+        )
+        ticket.refresh_from_db()
+        self._comments(team, ticket, [("customer", 4)])
+
+        result = _collect_eligible()
+
+        assert [(t.ticket_id, t.rerun_key) for t in result] == [(str(ticket.id), "")]
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_follow_up_to_a_question_from_a_customer_reply_run_carries_its_key(self, mock_master_flag):
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        team, ticket = self._team_and_ticket()
+        TicketModel.objects.filter(id=ticket.id).update(
+            ai_triage={
+                "status": "awaiting_clarification",
+                "clarification_rounds": 1,
+                "trigger": "customer_reply",
+                "rerun_keys": ["1700000000"],
+            }
+        )
+        ticket.refresh_from_db()
+        self._comments(team, ticket, [("customer", 8), ("AI", 5), ("customer", 3)])
+
+        result = _collect_eligible()
+
+        assert [(t.ticket_id, t.clarification_round, t.rerun_key) for t in result] == [
+            (str(ticket.id), 1, "1700000000")
+        ]
 
     @parameterized.expand(
         [
@@ -771,3 +908,29 @@ class TestCoordinatorWorkflow:
 
         assert result.started_count == 1
         assert result.skipped_count == 0
+
+    @pytest.mark.asyncio
+    @patch(f"{COORD_MODULE}._collect_eligible")
+    async def test_customer_reply_run_uses_its_own_child_id(self, mock_collect):
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        mock_collect.return_value = [EligibleTicket(team_id=1, ticket_id="t1", rerun_key="1700000000")]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[SupportReplyCoordinatorWorkflow, _StubChildWorkflow],
+                activities=[support_collect_eligible_tickets_activity],
+            ):
+                result = await env.client.execute_workflow(
+                    SupportReplyCoordinatorWorkflow.run,
+                    CoordinatorInput(),
+                    id="test-coordinator-customer-reply-id",
+                    task_queue="test-queue",
+                )
+                desc = await env.client.get_workflow_handle("support-reply-t1-c1700000000").describe()
+                assert desc.id == "support-reply-t1-c1700000000"
+
+        assert result.started_count == 1

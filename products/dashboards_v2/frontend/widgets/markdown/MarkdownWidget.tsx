@@ -26,7 +26,7 @@ import {
     createInlineMarkdownSlashCommandsExtension,
 } from 'lib/components/MarkdownEditor/inline/inlineMarkdownSlashCommands'
 
-import type { WidgetComponentProps } from '../widgetDefinition'
+import type { WidgetComponentProps } from '../core/widgetDefinition'
 import { MARKDOWN_EXTENSIONS, markdownContent, serializeMarkdown } from './markdownContent'
 import type { MarkdownConfig } from './markdownSpec'
 

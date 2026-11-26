@@ -546,6 +546,8 @@ class TransactionalEmailImpact:
     window_days: int
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None
+    sessions: int | None
+    link_tagging_enabled: bool
 
 
 class CodeEmailSourceOrigin(LabeledStrEnum):

@@ -119,13 +119,14 @@ class TestDataDeletionRequestAPI(APIBaseTest):
         assert DataDeletionRequest.objects.filter(team_id=self.team.id).count() == 0
         compile_query.assert_not_called()
 
-    def test_list_and_detail_do_not_expose_other_projects(self, _feature_flag) -> None:
+    def test_list_and_detail_do_not_expose_other_projects_or_the_staff_count(self, _feature_flag) -> None:
         other_team = Team.objects.create(organization=self.organization)
         visible = DataDeletionRequest.objects.create(
             team_id=self.team.id,
             request_type=RequestType.HOGQL_EVENT_REMOVAL,
             execution_mode=ExecutionMode.DEFERRED,
             hogql_query="SELECT uuid FROM events",
+            count=42,
         )
         hidden = DataDeletionRequest.objects.create(
             team_id=other_team.id,
@@ -139,6 +140,7 @@ class TestDataDeletionRequestAPI(APIBaseTest):
 
         assert listing.status_code == status.HTTP_200_OK
         assert [item["id"] for item in listing.json()["results"]] == [str(visible.id)]
+        assert "count" not in listing.json()["results"][0]
         assert hidden_detail.status_code == status.HTTP_404_NOT_FOUND
 
     def test_preview_rejects_non_object_variables(self, _feature_flag) -> None:

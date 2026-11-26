@@ -225,13 +225,19 @@ def _nodes_read_without_exposure_copy(experiment: ExperimentModel) -> list[dict[
 
 
 def get_experiment_health(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
+    *,
+    team_id: int,
+    experiment_id: int,
+    reader_access: ExperimentHealthReaderAccess,
+    user: User | None,
+    at_launch: bool = False,
 ) -> ExperimentHealth:
     """The findings and the result of each health check that reads the experiment, its flag, its linked metrics,
     and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows, and the
-    flag's settings that decide the variant. The metric queries compile with `user`'s warehouse access."""
+    flag's settings that decide the variant. The metric queries compile with `user`'s warehouse access. With
+    `at_launch`, a draft's checks that run only after launch run as if it launched now."""
     return evaluate_experiment_health(
-        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
+        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user, at_launch=at_launch
     )
 
 
@@ -582,16 +588,28 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
     dispatch.start_metrics_recalculation_workflow(recalculation_id, team_id=team_id, organization_id=organization_id)
 
 
+def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: int) -> None:
+    """Start the timeseries backfill workflow for a row that ``request_timeseries_recalculation`` created.
+
+    When the start fails, the row is marked failed, and the exception propagates.
+    """
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
+        admission,
+    )
+
+    admission.start_timeseries_recalculation_workflow(recalculation_id, team_id=team_id)
+
+
 def request_metrics_recalculation(
     *, team_id: int, experiment_id: int, user_id: int, trigger: str
 ) -> RequestedRecalculation:
-    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
-        recalculation,
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
+        admission,
     )
 
     experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
     user = User.objects.get(id=user_id)
-    payload = recalculation.request_recalculation(experiment, user, trigger)
+    payload = admission.request_recalculation(experiment, user, trigger)
     return RequestedRecalculation(**_run_summary_fields(payload), is_existing=payload["is_existing"])
 
 
@@ -600,14 +618,16 @@ def get_latest_recalculation(*, team_id: int, experiment_id: int, user_id: int |
 
     Raises WarehouseNativeResultAccessDenied when the reader may not read the stored results.
     """
-    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
-        recalculation,
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
+        admission,
+        payloads,
+        runs,
     )
 
     experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
     _check_warehouse_native_result_access(experiment, user_id)
-    active = recalculation.get_active_recalculation(experiment)
-    latest = recalculation.get_latest_recalculation(experiment)
+    active = runs.get_active_recalculation(experiment)
+    latest = runs.get_latest_recalculation(experiment)
     payload: dict[str, Any] | None
     if latest is not None:
         payload = _recalculation_run_payload(latest)
@@ -616,7 +636,7 @@ def get_latest_recalculation(*, team_id: int, experiment_id: int, user_id: int |
         # placeholder so the user sees results immediately, even while a first run is active (its pending
         # payload would blank them out); an active run still rides along for polling. Pure read, no
         # workflow start.
-        payload = recalculation.build_timeseries_cold_start_payload(experiment)
+        payload = payloads.build_timeseries_cold_start_payload(experiment)
         if payload is None and active is not None:
             payload = _recalculation_run_payload(active)
 
@@ -627,7 +647,7 @@ def get_latest_recalculation(*, team_id: int, experiment_id: int, user_id: int |
         **{field.name: getattr(run, field.name) for field in dataclasses.fields(run)},
         active_run=ActiveRecalculationRun(id=str(active.id), status=active.status) if active is not None else None,
         result_source=payload.get("result_source", "recalculation"),
-        exceeds_recalculation_age_limit=recalculation.exceeds_recalculation_age_limit(experiment),
+        exceeds_recalculation_age_limit=admission.exceeds_recalculation_age_limit(experiment),
     )
 
 
@@ -635,13 +655,13 @@ def get_recalculation_run(
     *, team_id: int, experiment_id: int, recalculation_id: str, user_id: int | None
 ) -> RecalculationRun | None:
     """Raises WarehouseNativeResultAccessDenied when the reader may not read the stored results."""
-    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
-        recalculation,
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
+        runs,
     )
 
     experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
     _check_warehouse_native_result_access(experiment, user_id)
-    recalc = recalculation.get_recalculation_by_id(experiment, recalculation_id)
+    recalc = runs.get_recalculation_by_id(experiment, recalculation_id)
     return None if recalc is None else _recalculation_run(_recalculation_run_payload(recalc))
 
 
@@ -659,11 +679,11 @@ def _check_warehouse_native_result_access(experiment: ExperimentModel, user_id: 
 
 
 def _recalculation_run_payload(recalc: ExperimentMetricsRecalculation) -> dict[str, Any]:
-    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
-        recalculation,
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
+        payloads,
     )
 
-    return recalculation.build_job_payload(recalc, include_results=True, include_live_progress=True)
+    return payloads.build_job_payload(recalc, include_results=True, include_live_progress=True)
 
 
 def _run_summary_fields(payload: dict[str, Any]) -> dict[str, Any]:

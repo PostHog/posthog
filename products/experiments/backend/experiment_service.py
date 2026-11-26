@@ -71,7 +71,7 @@ from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentVersionConflict
-from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
+from products.experiments.backend.facade.enums import FEATURE_FLAG_CONFIG_KEYS, LEGACY_METRIC_KINDS
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.flag_ownership import assert_experiment_deletable, assert_experiment_restorable
@@ -587,7 +587,7 @@ def _scalar_merge_view(field: str, value: Any) -> Any:
     """The value of one scalar payload field as compared for concurrency resolution.
 
     ``parameters`` needs shape normalization on top of value canonicalization: reads project
-    the linked flag's config into it (``ExperimentBaseSerializer._project_feature_flag_config``)
+    the linked flag's config into it (``projected_parameters`` in ``logic/experiments.py``)
     while writes strip that config before storage, so a client-echoed base only matches the
     stored column when all sides are compared flag-stripped, with empty and null collapsed.
     ``running_time_calculation`` is compared with its machine-recomputed estimate keys
@@ -597,7 +597,7 @@ def _scalar_merge_view(field: str, value: Any) -> Any:
         if value is None:
             return {}
         if isinstance(value, dict):
-            value = ExperimentService._strip_feature_flag_config(value)
+            value = ExperimentService.strip_feature_flag_config(value)
     if field == "running_time_calculation":
         if value is None:
             return {}
@@ -967,31 +967,17 @@ class ExperimentService:
             return stats_config
         return {**(stats_config or {}), "baseline_variant_key": baseline}
 
-    # Feature-flag config keys that historically lived on the deprecated `parameters` surface but
-    # belong on the linked FeatureFlag (the source of truth). A legacy caller still sending them in
-    # `parameters` input has them copied into the `feature_flag` config path (see
-    # ExperimentSerializer._deprecated_parameters_as_feature_flag_config) and stripped from the
-    # stored column; reads still project the flag's current config back into `parameters` for
-    # backward compatibility.
-    FEATURE_FLAG_CONFIG_KEYS = (
-        "feature_flag_variants",
-        "rollout_percentage",
-        "aggregation_group_type_index",
-        "feature_flag_payloads",
-        "ensure_experience_continuity",
-    )
-
-    @classmethod
-    def _strip_feature_flag_config(cls, parameters: dict | None) -> dict | None:
+    @staticmethod
+    def strip_feature_flag_config(parameters: dict | None) -> dict | None:
         """Return ``parameters`` without the feature-flag config keys, so they are not stored in the
         deprecated column. Callers consume those keys earlier to build/sync the flag; reads
         re-derive them from it. Returns a new dict, leaving the caller's input untouched."""
         if not parameters:
             return parameters
-        return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
+        return {k: v for k, v in parameters.items() if k not in FEATURE_FLAG_CONFIG_KEYS}
 
-    @classmethod
-    def _feature_flag_config_from_parameters(cls, parameters: dict | None) -> dict | None:
+    @staticmethod
+    def feature_flag_config_from_parameters(parameters: dict | None) -> dict | None:
         """Translate deprecated ``parameters`` flag-config keys into a ``feature_flag`` config object
         (the flag's native write shape), or ``None`` when ``parameters`` carries no flag config.
 
@@ -1002,7 +988,7 @@ class ExperimentService:
         the HTTP path this returns ``None`` and the explicit ``feature_flag`` config is used instead."""
         if not parameters:
             return None
-        flag_config = {key: parameters[key] for key in cls.FEATURE_FLAG_CONFIG_KEYS if key in parameters}
+        flag_config = {key: parameters[key] for key in FEATURE_FLAG_CONFIG_KEYS if key in parameters}
         if not flag_config:
             return None
         filters: dict[str, Any] = {}
@@ -2614,7 +2600,7 @@ class ExperimentService:
 
         Runs a synchronous scan of the experiment's exposure events, honoring
         ``exposure_criteria`` (custom exposure event or action plus its property filters) and the
-        $experiment_exposure rollout resolution via the same helpers the metrics pipeline uses,
+        resolved default exposure event via the same helpers the metrics pipeline uses,
         and requiring the exposure to have landed a variant — so the snapshot is the analyzed
         population, not everyone who fired the event.
         Capped at FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS and returning at most
@@ -3835,7 +3821,7 @@ class ExperimentService:
         # silently dropped (and the gate bypassed). No double-write on the HTTP path: the serializer
         # strips these keys from `parameters` and passes an explicit `feature_flag_config`.
         if feature_flag_config is None:
-            derived_flag_config = self._feature_flag_config_from_parameters(update_data.get("parameters"))
+            derived_flag_config = self.feature_flag_config_from_parameters(update_data.get("parameters"))
             if derived_flag_config is not None:
                 feature_flag_config = derived_flag_config
                 deprecated_flag_config_changed = True
@@ -4067,7 +4053,7 @@ class ExperimentService:
             # Feature-flag config was already synced to the flag above; strip it so it is not mirrored
             # into the deprecated `parameters` column. Reads re-derive it from the flag.
             if update_data.get("parameters") is not None:
-                update_data["parameters"] = self._strip_feature_flag_config(update_data["parameters"])
+                update_data["parameters"] = self.strip_feature_flag_config(update_data["parameters"])
             for attr, value in update_data.items():
                 setattr(experiment, attr, value)
             experiment.save()

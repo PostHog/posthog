@@ -195,7 +195,6 @@ class TestVercelWebhooks(VercelTestBase):
             "user_mappings": {"vercel_user_1": self.user.pk},
             "account": old_account,
         }
-        self.installation.sensitive_config = {"credentials": {"access_token": "long_lived", "token_type": "Bearer"}}
         self.installation.save()
         new_owner = self._create_user("new-owner@example.com")
         both_mappings = {"vercel_user_1": self.user.pk, "vercel_user_2": new_owner.pk}

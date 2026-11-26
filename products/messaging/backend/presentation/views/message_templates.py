@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
 from types import MappingProxyType, SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
-from uuid import UUID
 
 from django.core.exceptions import (
     RequestDataTooBig,
@@ -38,7 +37,6 @@ from rest_framework.response import Response
 
 from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.fields import OmittableBooleanField
-from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -47,8 +45,6 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyU
 from posthog.event_usage import get_event_source, get_mcp_properties, groups, report_user_action, sanitize_header_value
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
-from posthog.models.file_system.constants import resolved_workflows_list_v2
-from posthog.models.file_system.file_system_mixin import file_system_sync
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.tag import tagify
 from posthog.permissions import (
@@ -76,12 +72,10 @@ from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateBasicRow,
     MessageTemplateMissing,
-    MessageTemplatePlacement,
     MessageTemplateRow,
     create_template,
     edit_template_content,
     get_template,
-    get_template_placement,
     list_basic_templates,
     list_templates,
     save_template_draft,
@@ -411,12 +405,6 @@ _MAX_TAG_LENGTH = 255  # Tag.name column limit.
 
 
 class MessageTemplateSerializer(serializers.Serializer):
-    _create_in_folder = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        write_only=True,
-        help_text="Project folder for the new email template.",
-    )
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(max_length=400, help_text="Human-readable template name shown in the library.")
     description = serializers.CharField(
@@ -476,9 +464,6 @@ class MessageTemplateSerializer(serializers.Serializer):
         read_only=True, help_text="Whether the template has unpublished edits in `draft_content`."
     )
 
-    def validate__create_in_folder(self, value: str) -> str:
-        return validate_file_system_path(value) if value else value
-
     def validate_tags(self, tags: list[str]) -> list[str]:
         # The stored name is the tagified one, and lowercasing can lengthen a string: "\u0130" becomes two
         # code points. Checking the submitted length alone lets an over-long name reach Tag.name.
@@ -492,9 +477,6 @@ class MessageTemplateSerializer(serializers.Serializer):
         return value
 
     def validate(self, data: Any) -> Any:
-        validate_file_system_placement(
-            data.get("_create_in_folder"), data.get("name", self.instance.name if self.instance else None)
-        )
         template_type = data.get("type", self.instance.type if self.instance else None)
         push = data.get("content", {}).get("push") if data.get("content") else None
         # Only published content needs a title and body. A draft may still be missing them.
@@ -539,13 +521,6 @@ class MessageTemplateSerializer(serializers.Serializer):
                     {"content": {"email": {"design": f"Rendering the design to HTML failed: {e}"}}}
                 )
         return data
-
-
-class MessageTemplatePlacementSerializer(serializers.Serializer):
-    path = serializers.CharField(
-        allow_null=True,
-        help_text="Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.",
-    )
 
 
 class MessageTemplateBasicSerializer(MessageTemplateSerializer):
@@ -1428,29 +1403,6 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         if not permission.has_permission(self.request, cast("APIView", self)):
             raise exceptions.PermissionDenied(permission.message)
 
-    def _writes_template_files(self, fields: dict[str, Any], template_id: UUID | None = None) -> bool:
-        """Whether this request's save may write the template's file in the project tree.
-
-        A template file needs editor access to the workflow resource, the same access the file API asks
-        for, because the action check also passes with an editor grant to one unrelated workflow. A caller
-        without it still saves the template, inside `file_system_sync(False)`, so the file keeps its name,
-        folder and existence. Filing into a folder and deleting a filed template can't save without
-        changing the file, so the caller is refused those. An update calls this while it holds the template
-        row lock, and the file API takes that lock before it files a template, so the placement read here
-        is current.
-        """
-        if is_authenticated_via_project_secret_api_key(self.request) or not self.user_access_control:
-            return True
-        if self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
-            return True
-        if "_create_in_folder" in fields or (
-            fields.get("deleted") and template_id and get_template_placement(self.team_id, template_id).path
-        ):
-            raise exceptions.PermissionDenied(
-                "You need editor access to workflows to file this template. Ask a project admin to grant it."
-            )
-        return False
-
     def _require_workflow_create(self) -> None:
         if is_authenticated_via_project_secret_api_key(self.request):
             return
@@ -1556,12 +1508,10 @@ class MessageTemplatesViewSet(
             return transactional_email_throttles(self.team_id)
         return super().get_throttles()
 
-    def read_object(self) -> MessageTemplateRow | MessageTemplatePlacement | None:
+    def read_object(self) -> MessageTemplateRow | None:
         # Team scoping happens in the facade lookup, because the view has no queryset to filter.
         # DRF's detail OPTIONS metadata also calls get_object(), so the lookup must live here.
         try:
-            if self.action == "placement":
-                return get_template_placement(self.team_id, self.kwargs["pk"])
             # A send never reads the tags, so it skips their queries.
             return get_template(self.team_id, self.kwargs["pk"], with_tags=self.action != "send")
         except MessageTemplateMissing:
@@ -1614,9 +1564,7 @@ class MessageTemplatesViewSet(
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        writes_files = self._writes_template_files(serializer.validated_data)
-        with self._resolve_files_flag(serializer.validated_data, request.user.id), file_system_sync(writes_files):
-            template = create_template(self.team_id, request.user.id, serializer.validated_data)
+        template = create_template(self.team_id, request.user.id, serializer.validated_data)
         # report_user_action injects source and MCP-client properties from the request, so a create from the
         # visual editor and one from the agent count in the same metric. Capture must never break the request.
         try:
@@ -1663,31 +1611,21 @@ class MessageTemplatesViewSet(
             fields["draft_content"] = None
         # Sends use the workflow's copy, so the template and its new workflow version are saved together,
         # under a row lock that keeps a concurrent make_transactional from slipping in between.
-        with self._resolve_files_flag(fields, template.created_by_id), transaction.atomic():
+        with transaction.atomic():
             hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
-            writes_files = self._writes_template_files(fields, template.id)
             if hog_flow_id:
                 self._require_workflow_editor(hog_flow_id)
                 try:
                     check_transactional_update(template.id, self.team_id, fields)
                 except TransactionalEmailError as e:
                     raise TransactionalEmailRejected(e) from None
-            with file_system_sync(writes_files):
-                updated = update_template(self.team_id, template.id, fields)
-                if hog_flow_id and not updated.deleted:
-                    self._sync_transactional_workflow(template.id)
+            updated = update_template(self.team_id, template.id, fields)
             if hog_flow_id and not updated.deleted:
+                self._sync_transactional_workflow(template.id)
                 # The sync unlinks the template when its workflow was deleted.
                 updated = get_template(self.team_id, template.id)
         self._emit_resource_edited(updated)
         return Response(self._serialize(updated))
-
-    def _resolve_files_flag(self, fields: dict[str, Any], created_by_id: int | None) -> AbstractContextManager[None]:
-        # Filing into a requested folder asks the flag service, so it has to answer before the save locks the template.
-        if "_create_in_folder" not in fields or created_by_id is None:
-            return nullcontext()
-        creator = User.objects.filter(pk=created_by_id).first()
-        return resolved_workflows_list_v2(self.team, [creator] if creator else [])
 
     def _sync_transactional_workflow(self, template_id: Any) -> None:
         # Raising rolls back the template save, so the template and its workflow never disagree.
@@ -1715,21 +1653,6 @@ class MessageTemplatesViewSet(
             )
         except Exception as e:
             logger.warning("Failed to publish message template edited event", error=str(e))
-
-    @extend_schema(
-        responses={200: MessageTemplatePlacementSerializer},
-        description="Read where the template sits in the project tree, so an undo of its delete can put it back.",
-    )
-    @action(detail=True, methods=["GET"], pagination_class=None, required_scopes=["hog_flow:read"])
-    def placement(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # The action check passes with a grant to any one workflow, and template files follow the access
-        # to the whole workflow resource, so the placement asks for that before it reads the template.
-        if self.user_access_control and not self.user_access_control.check_access_level_for_resource(
-            "hog_flow", required_level="viewer"
-        ):
-            raise NotFound()
-        placement = self.get_object()
-        return Response(MessageTemplatePlacementSerializer({"path": placement.path}).data)
 
     @extend_schema(
         request=DesignPatchSerializer, responses={200: MessageTemplateSerializer}, parameters=[TEMPLATE_ID_PARAMETER]
@@ -1780,11 +1703,9 @@ class MessageTemplatesViewSet(
             hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
             if hog_flow_id:
                 self._require_workflow_editor(hog_flow_id)
-            with file_system_sync(self._writes_template_files({}, template.id)):
-                locked = edit_template_content(self.team_id, template.id, apply_operations)
-                if hog_flow_id:
-                    self._sync_transactional_workflow(template.id)
+            locked = edit_template_content(self.team_id, template.id, apply_operations)
             if hog_flow_id:
+                self._sync_transactional_workflow(template.id)
                 # The sync unlinks the template when its workflow was deleted.
                 locked = get_template(self.team_id, template.id)
 

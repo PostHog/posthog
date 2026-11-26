@@ -28,7 +28,7 @@ A suggestion becomes a draft only when a person approves it, and reaches anyone 
 That gate is the product; your job is to make what lands in front of them worth reading.
 
 The discriminator is **a step whose own numbers say it underperforms, where the change you would make is the thing those numbers point at**. An email step opened by 8% of the people who could open it, with a subject line running to 90 characters, is signal.
-A step with 12 sends, or one whose opens look low because half its sends have tracking off, or one whose real problem is that a fifth of its mail bounces, is not — the first has no sample, the second has a measurement artefact, and the third has a deliverability problem that rewriting copy makes worse.
+A step with 12 sends, or one whose opens look low because half its sends have tracking off, or one whose real problem is that a fifth of its mail bounces, is not — the first has no sample, the second has a measurement artefact unless its conversion rate says otherwise, and the third has a deliverability problem that rewriting copy makes worse.
 
 You produce **at most one suggestion per workflow per run**. A queue of five suggestions for one workflow is a queue nobody reads.
 
@@ -99,7 +99,7 @@ So end the read before now, and check the version's age before you trust it:
 
 Per-version reads are what make this checkable: `workflows-version-stats` with `version=<n>` returns only what that version sent, so a version published two weeks ago is a settled cohort even though the workflow as a whole is still sending.
 
-**Conversion is a slower read, of the whole workflow.** It only applies to a workflow with a conversion goal, and a suggestion aimed at it without one is refused.
+**Conversion is a slower read, of the whole workflow.** Read it for every workflow with a goal, also when every send is untracked: conversion does not depend on email tracking. It only applies to a workflow with a conversion goal, and a suggestion aimed at it without one is refused.
 Read `workflows-version-stats` with `version=<n>`, `breakdown_by=name` and no `instance_id`, because a conversion belongs to the run rather than to a step.
 Divide `conversion_by_start` by `triggered`, and never use `conversion`: that one is filed when the conversion happens, while `conversion_by_start` is filed under the hour the run started, so only it compares the same runs as `triggered`.
 
@@ -110,7 +110,7 @@ Divide `conversion_by_start` by `triggered`, and never use `conversion`: that on
 - A run that was in flight when a new version went live can count its start and its conversion under different versions. Do not read a small move right after a publish as a result.
 
 **Zero opens on healthy sends is a measurement gap, not a bad subject line.** Engagement splits by version only for sends made after the versioned tracking code shipped, and you cannot check that date from here.
-So treat it as unreadable rather than bad: write `noise:<workflow>:<step>` to the scratchpad with the counts you saw and move on.
+So treat opens as unreadable rather than bad: read the workflow's conversion rate when it has a goal, and otherwise write `noise:<workflow>:<step>` to the scratchpad with the counts you saw and move on.
 If a later run sees opens on that step, the gap has closed and the numbers are usable.
 
 ### Profile shape
@@ -118,12 +118,13 @@ If a later run sees opens on that step, the gap has closed and the numbers are u
 | Pattern                                                                         | What it usually means                                                                    |
 | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | Open rate under 20% on ≥ 20 tracked sends, long subject                         | Copy problem — the case this scout exists for                                            |
-| Open rate looks terrible, `email_untracked` is most of `email_sent`             | Measurement artefact. Say so in a report; do not propose copy                            |
+| Open rate looks terrible, `email_untracked` is most of `email_sent`             | Measurement artefact for opens and clicks. Read conversion when the workflow has a goal  |
 | Bounce rate above ~2%, or any complaint rate above ~0.1%                        | Deliverability, not copy. A better subject sends more mail to spam folders faster        |
 | Zero opens, zero clicks, healthy sends, version older than the tracking rollout | Blind spot, not a finding                                                                |
-| Fewer than 20 tracked sends                                                     | No sample. Remember it, do not file it                                                   |
+| Fewer than 20 tracked sends                                                     | No sample for opens or clicks. Read conversion when the workflow has a goal              |
 | Open rate healthy, click rate near zero                                         | The body or the call to action, not the subject. Only suggest if you can name the change |
 | Opens and clicks healthy, conversion rate low on ≥ 20 settled runs              | The email does not lead to the goal. Aim at conversion only if you can name the change   |
+| Opens unreadable, conversion rate low on ≥ 20 settled runs and ≥ 20 sends       | Conversion is the only reading. Aim at it only if the step's own content shows why       |
 | Fewer than 20 settled runs                                                      | No conversion sample. Read the email metrics instead                                     |
 
 ### Decide
@@ -131,7 +132,9 @@ If a later run sees opens on that step, the gap has closed and the numbers are u
 File a suggestion through `workflows-suggest` when, and only when, all of these hold:
 
 - No suggestion for this workflow is still waiting on a person, and none was applied to the step you are reading.
-- The step clears the sample floor: at least 20 tracked sends in the window you read, and the version has been sending for at least 48 hours so its opens have had time to arrive.
+- The step clears the sample floor for the metric you aim at, and the version has been sending for at least 48 hours.
+  Opens and clicks need at least 20 tracked sends in the window you read.
+  Conversion needs at least 20 settled runs and at least 20 sends of this step, tracked or not, both read over the same conversion `window`.
 - The counter-metrics are not the story.
   If bounces or complaints are elevated, that is the finding, and it belongs in a report rather than in a copy change.
 - You can state the change as a concrete edit, not advice.
@@ -147,7 +150,7 @@ File a suggestion through `workflows-suggest` when, and only when, all of these 
 Send the version you read as `base_version`, and in `actions` only the steps you change, each carrying its `id` and only the fields you change: a new subject line is `{"id": "<step>", "config": {"inputs": {"email": {"value": {"subject": "..."}}}}}` and nothing more.
 Everything you leave out stays as it is, in the step and in the rest of the workflow, so a step someone edits while your suggestion waits is not reverted by approving it.
 Approving is refused only when someone moved one of the very fields you change, and to something other than what you proposed, and then the suggestion is genuinely stale.
-Carry evidence that a person can judge without re-deriving it: the metric, its current value, the target, the window, `n` (the tracked sends behind the rate, or the settled runs for conversion), the click rate over that same denominator, and the counter-metrics with their own denominators.
+Carry evidence that a person can judge without re-deriving it: the metric, its current value, the target, the window, `n` (the tracked sends behind the rate, or the settled runs for conversion), the click rate over the tracked sends when there are any, and the counter-metrics with their own denominators.
 A subject line that lifts opens without lifting clicks moved attention, not behaviour, and whoever reads the outcome later should be able to see that.
 A rate without `n` is refused at create, and rightly.
 
@@ -158,6 +161,7 @@ Never name your own mechanics: not the scout, not your review target or sample f
 "Opens are 8% on 210 sends. The subject does not say what the email offers. Naming the offer lets people see why to open it." is the whole rationale.
 
 A suggestion aimed at conversion sends `"metric": "conversion_by_start"`, with `n` as the settled runs behind the rate and `window` as the interval you read. Never change `conversion` in the same suggestion, because the two versions would then measure different goals. Still name the email step in `step_id`, so the guardrails read that step.
+When the step has no tracked sends, leave `click_through` out and say in the rationale that opens and clicks are not tracked.
 
 The panel reads your evidence back by name, and the API refuses anything it cannot read, so send these keys:
 

@@ -26,6 +26,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     apply_resolutions,
     brands_from_site_urls,
     dedupe_account_agnostic_rules,
+    hidden_search_spend,
     recommend,
 )
 from products.marketing_analytics.backend.hogql_queries.recommendation_identity import validate_identity
@@ -906,7 +907,9 @@ class TestMarketingRecommendations(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("every_word_converts_cheaply", "funnel analysis", "Search"),
+            ("variant_of_a_search_that_converts_cheaply", "funnel tracking tool", "Search"),
+            ("adds_a_word_that_converts_only_in_another_search", "funnel tracking session", None),
+            ("goes_to_the_campaign_of_the_search_it_varies", "llm tracking tool", "Replay"),
             ("one_word_never_converted", "funnel spy", None),
             ("only_generic_words", "free online tool", None),
             ("single_word_that_converts", "funnel", None),
@@ -946,7 +949,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("already_a_keyword", "funnel analysis", None, None, "funnel analysis"),
         ]
     )
-    def test_keyword_gap_takes_queries_whose_words_convert_or_that_rank_on_a_landing_page(
+    def test_keyword_gap_takes_variants_of_converting_searches_or_queries_that_rank_on_a_landing_page(
         self,
         _name: str,
         query: str,
@@ -972,6 +975,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             _term("analysis software", "c1", cost=100, conversions=10),
             _term("spy", "c1", cost=1000, conversions=1),
             _term("session replay", "c2", cost=100, conversions=10),
+            _term("llm tracking", "c2", cost=10, conversions=1),
         )
         organic = tuple(OrganicQueryStats(query=f"filler {i}", clicks=1, impressions=1, position=50) for i in range(30))
         organic += (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
@@ -1005,6 +1009,22 @@ class TestMarketingRecommendations(SimpleTestCase):
             assert query not in gaps
         else:
             assert gaps[query] == (expected_campaign, "", "")
+
+    def test_keyword_gap_cites_the_closest_variant_from_its_campaign(self) -> None:
+        campaigns = (_campaign(id="c2", name="Replay"), _campaign())
+        terms = (
+            _term("tracking for llms", "c2", cost=50, conversions=5),
+            _term("llm tracking", "c2", cost=10, conversions=1),
+            _term("an llm tracking tool", "c1", cost=5, conversions=0.5),
+        )
+        organic = (OrganicQueryStats(query="llm tracking tool", clicks=1, impressions=5000, position=25),)
+
+        gap = next(rec for rec in recommend(_inputs(campaigns, terms, organic)) if rec.rule == "keyword_gap")
+
+        assert (gap.campaign, gap.reason.split("not bought. ")[1]) == (
+            "Replay",
+            'It is a variant of the search "llm tracking", which converts at or below its CPA benchmark.',
+        )
 
     @parameterized.expand(
         [
@@ -1514,3 +1534,35 @@ class TestMarketingRecommendations(SimpleTestCase):
         if expected:
             assert [step.copyValue for step in rows[0].steps or [] if step.copyValue] == ["utm_term={keyword}"]
             assert [step.linkText for step in rows[0].steps or []] == ["Account settings", None, "Campaigns"]
+
+
+class TestHiddenSearchSpend(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "names_campaigns_by_hidden_spend",
+                [("Brand", "SEARCH", 2000, 1500), ("Generic", "SEARCH", 1000, 400), ("Docs", "SEARCH", 1000, 900)],
+                "Some spend has no search term in Google Ads, usually because Google hides search terms with few "
+                "searches for privacy, so savings from search terms can be higher than shown. "
+                "Spend without a search term: Generic $600 (60% of the campaign), Brand $500 (25% of the campaign).",
+            ),
+            (
+                "lists_three_campaigns_at_most",
+                [(f"Campaign {i}", "SEARCH", 1000 + i, 0) for i in range(1, 5)],
+                "Some spend has no search term in Google Ads, usually because Google hides search terms with few "
+                "searches for privacy, so savings from search terms can be higher than shown. "
+                "Spend without a search term: Campaign 4 $1,004 (100% of the campaign), "
+                "Campaign 3 $1,003 (100% of the campaign), Campaign 2 $1,002 (100% of the campaign) "
+                "and 1 more campaign.",
+            ),
+            ("performance_max_has_no_search_term_cost", [("PMax", "PERFORMANCE_MAX", 1000, 0)], None),
+            ("too_small_for_the_account", [("Generic", "SEARCH", 100000, 100000), ("Tiny", "SEARCH", 500, 0)], None),
+        ]
+    )
+    def test_reports_campaigns_with_a_large_hidden_share(
+        self, _name: str, rows: list[tuple[str, str, float, float]], expected: str | None
+    ) -> None:
+        campaigns = [_campaign(id=name, name=name, channel_type=channel, cost=cost) for name, channel, cost, _ in rows]
+        term_cost = {name: cost for name, _, _, cost in rows}
+
+        assert hidden_search_spend(campaigns, term_cost, "USD") == expected
