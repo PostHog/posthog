@@ -2,7 +2,7 @@ import './AdventCalendar.scss'
 
 import { ReactFlowProvider } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useCallback } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -13,6 +13,7 @@ import { ADVENT_DOOR_SIZE, AdventDoor, adventDoorGround, adventHogSize } from '.
 import { adventPaletteStyle } from './adventPalette'
 import { AdventPictureBackdrop } from './AdventPictureBackdrop'
 import { useAdventCard } from './useAdventCard'
+import { useAdventEscape } from './useAdventEscape'
 import { useAdventReveal } from './useAdventReveal'
 import { AdventStageFit, useAdventStageFit } from './useAdventStageFit'
 
@@ -30,31 +31,18 @@ export function AdventStage(): JSX.Element {
     const { activateDoor, answerDoor, clearSelection, finishReveal, clickTip } = useActions(adventCalendarLogic)
     const fit = useAdventStageFit()
     const { ref, zoom, box, stage } = fit
-    const reveal = useAdventReveal(revealingDoor?.id ?? null, finishReveal)
-    const card = useAdventCard(selectedDoor?.id ?? null, !revealingDoor)
+    const revealingDoorId = revealingDoor?.id ?? null
+    const selectedDoorId = selectedDoor?.id ?? null
+    const reveal = useAdventReveal(revealingDoorId, finishReveal)
+    const card = useAdventCard(selectedDoorId, !revealingDoor)
     const cardDoor = revealingDoor ? null : (graph.doors.find((door) => door.id === card.doorId) ?? null)
     const { clearHover } = card
 
-    const dismiss = (): void => {
+    const dismiss = useCallback((): void => {
         clearSelection()
         clearHover()
-    }
-
-    useEffect(() => {
-        const onKeyDown = (event: KeyboardEvent): void => {
-            if (event.key !== 'Escape') {
-                return
-            }
-            if (revealingDoor) {
-                finishReveal()
-            } else {
-                clearSelection()
-                clearHover()
-            }
-        }
-        window.addEventListener('keydown', onKeyDown)
-        return () => window.removeEventListener('keydown', onKeyDown)
-    }, [revealingDoor, finishReveal, clearSelection, clearHover])
+    }, [clearSelection, clearHover])
+    useAdventEscape(!!revealingDoor, finishReveal, dismiss)
 
     return (
         <div
@@ -74,8 +62,8 @@ export function AdventStage(): JSX.Element {
                                 graph={graph}
                                 viewport={{ x: box.left, y: box.top, zoom }}
                                 today={today}
-                                selectedDoorId={selectedDoor?.id ?? null}
-                                openingDoorId={revealingDoor?.id ?? null}
+                                selectedDoorId={selectedDoorId}
+                                openingDoorId={revealingDoorId}
                                 onActivateDoor={activateDoor}
                                 onEnterDoor={card.onEnterDoor}
                                 onLeaveDoor={card.onLeaveDoor}
