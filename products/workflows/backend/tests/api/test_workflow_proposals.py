@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -55,6 +57,24 @@ def _conversion_evidence(**overrides: Any) -> dict:
     end = timezone.now().astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=8)
     window = f"{(end - timedelta(days=1)).isoformat()}/{end.isoformat()}"
     return {**CONVERSION_EVIDENCE, "window": window, **overrides}
+
+
+@contextmanager
+def _filed_sample(runs: int = 25, sends: int = 25) -> Iterator[None]:
+    # Every send untracked, because conversion is read whether or not the email records opens.
+    with (
+        patch(
+            "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
+            return_value=AppMetricsTotalsResponse(totals={"email_sent": sends, "email_untracked": sends}),
+        ),
+        patch(
+            "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals_by_source",
+            side_effect=lambda **kwargs: {
+                source: {"conversion_by_start": 1, "triggered": runs} for source in kwargs["app_source_ids"]
+            },
+        ),
+    ):
+        yield
 
 
 def _trigger_action() -> dict:
@@ -1556,7 +1576,8 @@ class TestWorkflowProposals(APIBaseTest):
 
     def test_a_conversion_outcome_divides_settled_workflow_runs_while_email_metrics_keep_the_step(self):
         flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
-        proposal = self._propose(flow_id, step_id="email_1", evidence=_conversion_evidence())
+        with _filed_sample():
+            proposal = self._propose(flow_id, step_id="email_1", evidence=_conversion_evidence())
         self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
         self._publish(flow_id)
 
@@ -1603,7 +1624,8 @@ class TestWorkflowProposals(APIBaseTest):
         self, _name: str, first_version: dict, first_trigger: str, first_read_from: datetime | None
     ) -> None:
         flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
-        proposal = self._propose(flow_id, step_id="email_1", evidence=_conversion_evidence())
+        with _filed_sample():
+            proposal = self._propose(flow_id, step_id="email_1", evidence=_conversion_evidence())
         self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
         self._publish(flow_id)
         with team_scope(self.team.id):
@@ -1690,7 +1712,7 @@ class TestWorkflowProposals(APIBaseTest):
             HogFlowRevision.objects.filter(hog_flow_id=flow_id, version=1).update(
                 content={"conversion": CONVERSION_GOAL, "trigger": {"type": "webhook"}}
             )
-        with time_machine.travel("2026-12-10T10:30:00Z", tick=False):
+        with time_machine.travel("2026-12-10T10:30:00Z", tick=False), _filed_sample():
             refused = self._post_conversion_proposal(
                 flow_id, _conversion_evidence(window="2026-11-27T23:00:00Z/2026-11-30T00:00:00Z")
             )
@@ -1701,6 +1723,42 @@ class TestWorkflowProposals(APIBaseTest):
         assert "starting at or after 2026-11-28T00:00:00Z" in refused.json()["detail"]
         assert accepted.status_code == 201, accepted.json()
 
+    @parameterized.expand(
+        [
+            ("too_few_settled_runs", 19, 25, "email_1", "20 settled runs in the window. PostHog counts 19"),
+            ("too_few_sends_of_the_email_step", 25, 19, "email_1", "20 sends of this email step"),
+            ("untracked_sends_still_count", 20, 20, "email_1", None),
+            ("no_step_named", 20, 0, None, None),
+            ("a_step_that_sends_no_email", 20, 0, "action_1", None),
+        ]
+    )
+    def test_a_conversion_suggestion_needs_a_sample_posthog_can_count(
+        self, _name: str, runs: int, sends: int, step_id: str | None, refusal: str | None
+    ) -> None:
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        with _filed_sample(runs=runs, sends=sends):
+            response = self._post_conversion_proposal(flow_id, _conversion_evidence(), step_id=step_id)
+        assert response.status_code == (400 if refusal else 201), response.json()
+        if refusal:
+            assert response.json()["attr"] == "evidence"
+            assert refusal in response.json()["detail"]
+
+    def test_a_conversion_suggestion_is_filed_unverified_when_posthog_cannot_read_its_sample(self) -> None:
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        with (
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
+                side_effect=RuntimeError("ClickHouse is down"),
+            ),
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals_by_source",
+                side_effect=RuntimeError("ClickHouse is down"),
+            ),
+        ):
+            response = self._post_conversion_proposal(flow_id, _conversion_evidence(), step_id="email_1")
+        assert response.status_code == 201, response.json()
+        assert "measured" not in response.json()["evidence"]
+
     def test_a_suggestion_cannot_aim_at_conversion_on_a_base_version_that_had_no_goal(self) -> None:
         flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
         with team_scope(self.team.id):
@@ -1709,7 +1767,9 @@ class TestWorkflowProposals(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "no conversion goal" in response.json()["detail"]
 
-    def _post_conversion_proposal(self, flow_id: str, evidence: dict, change: dict | None = None) -> Any:
+    def _post_conversion_proposal(
+        self, flow_id: str, evidence: dict, change: dict | None = None, step_id: str | None = None
+    ) -> Any:
         return self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
             {
@@ -1721,6 +1781,7 @@ class TestWorkflowProposals(APIBaseTest):
                 },
                 "base_version": 1,
                 "evidence": evidence,
+                **({"step_id": step_id} if step_id else {}),
             },
             format="json",
             headers={"authorization": f"Bearer {self.producer_key}"},

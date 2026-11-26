@@ -273,6 +273,7 @@ from products.workflows.backend.facade.proposals import (
     approve_proposal,
     as_the_serializer_stores_it,
     conversion_evidence_error,
+    conversion_sample_error,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -7274,6 +7275,16 @@ class HogFlowViewSet(
         if conversion_error:
             raise exceptions.ValidationError({"evidence": conversion_error})
         measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
+        sample_error = conversion_sample_error(
+            hog_flow_id=instance.id,
+            live=snapshot_flow_content(instance),
+            base_version=params["base_version"],
+            step_id=step_id,
+            evidence=evidence,
+            measured=measured,
+        )
+        if sample_error:
+            raise exceptions.ValidationError({"evidence": sample_error})
         if measured is not None:
             evidence["measured"] = measured
 
