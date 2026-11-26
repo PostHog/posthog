@@ -194,11 +194,7 @@ _ZWSP = "​"
 
 
 def _defang_match(match: "re.Match[str]") -> str:
-    return _break_separators(match.group(0))
-
-
-def _break_separators(value: str) -> str:
-    return value.replace(".", f".{_ZWSP}").replace(":", f":{_ZWSP}")
+    return match.group(0).replace(".", f".{_ZWSP}").replace(":", f":{_ZWSP}")
 
 
 def sanitize_email_string(value: str) -> str:
@@ -221,40 +217,18 @@ def sanitize_email_string(value: str) -> str:
     mail-client auto-linkers scan for. The recipient still reads `evil.com`
     (the ZWSP is invisible) but the link is no longer clickable.
     """
-    return _defang(html.escape(_clean(value)))
+    normalized = unicodedata.normalize("NFKC", value)
+    cleaned = _INVISIBLE_CHAR_RE.sub("", normalized)
+    return defang_urls(html.escape(cleaned))
 
 
-def sanitize_email_fragment(value: str) -> str:
-    """`sanitize_email_string` for one piece of rendered markup, such as a markdown text node. A domain can span two
-    pieces (`**evil**.com`), where neither looks like a URL, so every `.` and `:` is broken."""
-    return _break_separators(html.escape(_clean_fragment(value)))
-
-
-def defang_text(value: str) -> str:
-    """`sanitize_email_fragment` without the HTML-escaping, for plain-text surfaces such as a Slack header."""
-    return _break_separators(_clean_fragment(value))
-
-
-def _clean(value: str) -> str:
-    return _INVISIBLE_CHAR_RE.sub("", unicodedata.normalize("NFKC", value))
-
-
-# Fullwidth and small forms read as ASCII markup or separators (`＜`, `．`). Full NFKC would also fold superscripts
-# and fractions, so `10³` would read as `103` in prose.
-_LOOKALIKES = {
-    code: unicodedata.normalize("NFKC", chr(code)) for code in [*range(0xFF01, 0xFF5F), *range(0xFE50, 0xFE6C)]
-}
-
-
-def _clean_fragment(value: str) -> str:
-    return _INVISIBLE_CHAR_RE.sub("", value.translate(_LOOKALIKES))
-
-
-def _defang(value: str) -> str:
+def defang_urls(value: str) -> str:
+    """Step 4 of `sanitize_email_string` alone, for text that is already HTML-escaped or is not HTML."""
     # No `.` or `:` means neither regex can match — skip the two passes.
     if "." not in value and ":" not in value:
         return value
-    return _BARE_DOMAIN_RE.sub(_defang_match, _URL_SCHEME_RE.sub(_defang_match, value))
+    defanged = _URL_SCHEME_RE.sub(_defang_match, value)
+    return _BARE_DOMAIN_RE.sub(_defang_match, defanged)
 
 
 _ASCII_UPPER_TO_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)

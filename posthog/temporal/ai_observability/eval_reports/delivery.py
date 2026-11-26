@@ -6,6 +6,7 @@ email HTML body and Slack Block Kit payloads from that shape.
 """
 
 import re
+import html
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import quote, urlencode
@@ -17,7 +18,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
-from posthog.helpers.email_utils import defang_text, sanitize_email_fragment
+from posthog.helpers.email_utils import defang_urls
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
@@ -64,7 +65,7 @@ class _CitationLinksMarkdownIt(MarkdownIt):
 
 
 def _defang(token: Token) -> str:
-    return sanitize_email_fragment(token.content)
+    return defang_urls(html.escape(token.content))
 
 
 _slack_converter = SlackMarkdownConverter()
@@ -336,7 +337,7 @@ def _render_section_html(title: str, content: str, project_id: int, citation_map
     content = _write_markdown_citation_links(*_strip_section(title, content, citation_map), project_id, citation_map)
     md = _CitationLinksMarkdownIt({_make_citation_link(project_id, link) for link in citation_map.values()})
     html_content = _inline_email_styles(md.render(content))
-    return f"<h2>{sanitize_email_fragment(title)}</h2>\n{html_content}\n"
+    return f"<h2>{defang_urls(html.escape(title))}</h2>\n{html_content}\n"
 
 
 def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
@@ -345,15 +346,14 @@ def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_m
     content = content.replace("&", "&amp;")
     # Whatever syntax the agent used, a live `<!channel>` or `<url|label>` needs a `<`, so every `<` left
     # after conversion is escaped and only citation links are written back.
-    # Slack auto-links domain-shaped text too, so it is defanged first. Defanging folds `＜` to `<`, so the escape comes
-    # after it.
-    mrkdwn_content = defang_text(_slack_converter.convert(content)).replace("<", "&lt;")
+    # Slack auto-links domain-shaped text too, so it is defanged.
+    mrkdwn_content = defang_urls(_slack_converter.convert(content)).replace("<", "&lt;")
     for placeholder, cited_id in placeholders.items():
         link = citation_map[cited_id]
         mrkdwn_content = mrkdwn_content.replace(
             placeholder, f"<{_make_citation_link(project_id, link)}|{_citation_link_label(cited_id, link)}>"
         )
-    return f"*{escape_slack_mrkdwn(defang_text(strip_external_links_markdown(title[:_MAX_SECTION_CHARS], keep_links=False)))}*\n{mrkdwn_content}"
+    return f"*{escape_slack_mrkdwn(defang_urls(strip_external_links_markdown(title[:_MAX_SECTION_CHARS], keep_links=False)))}*\n{mrkdwn_content}"
 
 
 def _report_url(project_id: int, evaluation_id: str, report_run_id: str) -> str:
@@ -476,8 +476,8 @@ def deliver_slack_report(
     failures: list[SlackDeliveryFailure] = []
 
     # Slack auto-links URLs even in the plain-text header, so the evaluation name and title are defanged.
-    name = defang_text(evaluation_name)
-    header_text = f"{name}: {defang_text(content.title)}" if content.title else f"Evaluation report: {name}"
+    name = defang_urls(evaluation_name)
+    header_text = f"{name}: {defang_urls(content.title)}" if content.title else f"Evaluation report: {name}"
     # Slack header blocks are limited to 150 chars, enforce that here.
     if len(header_text) > 150:
         header_text = header_text[:147] + "..."

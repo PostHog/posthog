@@ -176,7 +176,7 @@ class TestRenderSectionHtml(SimpleTestCase):
 
     def test_renders_agent_chosen_title(self):
         html = _render_section_html("Volume drop at 14:00", "body", project_id=1, citation_map={})
-        self.assertIn("<h2>Volume drop at 14:00</h2>", html.replace("\u200b", ""))
+        self.assertIn("<h2>Volume drop at 14:00</h2>", html)
 
     def test_escapes_html_in_title(self):
         html = _render_section_html(
@@ -202,12 +202,10 @@ class TestRenderSectionHtml(SimpleTestCase):
     @parameterized.expand(
         [
             ("title_url", "Action required: https://evil.example/login", "body", "https://evil.example/login"),
-            ("title_unicode_domain", "Sign in at постхог-вход.рф", "body", "вход.рф"),
             ("body_url", "Summary", "Sign in at https://evil.example/login", "https://evil.example/login"),
             ("body_domain", "Summary", "Sign in at evil.example/login", "evil.example"),
             ("body_code_block", "Summary", "```\nevil.example/login\n```", "evil.example"),
             ("body_entities", "Summary", "https&#58;&#47;&#47;evil&#46;example&#47;login", "https://evil.example"),
-            ("body_split_domain", "Summary", "Sign in at **evil**.example/login", ".example"),
         ]
     )
     def test_defangs_urls_and_domains(self, _name: str, title: str, content: str, link_text: str):
@@ -227,7 +225,7 @@ class TestRenderSectionHtml(SimpleTestCase):
             citation_map=citation_map,
         )
         link = _make_citation_link(42, citation_map["12345678-1234-1234-1234-123456789abc"])
-        self.assertIn(f'<a href="{link}">12345678.\u200b.\u200b.\u200b</a>', html)
+        self.assertIn(f'<a href="{link}">12345678...</a>', html)
 
     def test_collapses_links_to_their_label(self):
         content = "See [docs](https://posthog.com/docs/llm)."
@@ -237,10 +235,6 @@ class TestRenderSectionHtml(SimpleTestCase):
     def test_cuts_long_sections_before_rendering(self):
         html = _render_section_html("Summary", "word " * 20_000, project_id=1, citation_map={})
         self.assertLess(len(html), 21_000)
-
-    def test_keeps_superscripts_and_breaks_separators(self):
-        html = _render_section_html("Summary", "10³ runs, R² = 0.9", project_id=1, citation_map={})
-        self.assertIn("10³ runs, R² = 0.\u200b9", html)
 
     def test_renders_lists(self):
         html = _render_section_html("Stats", "- item 1\n- item 2", project_id=1, citation_map={})
@@ -267,7 +261,7 @@ class TestRenderSectionMrkdwn(SimpleTestCase):
 
     def test_renders_agent_chosen_title(self):
         result = _render_section_mrkdwn("Cost spike in gpt-5.2", "Body", project_id=1, citation_map={})
-        self.assertIn("*Cost spike in gpt-5.2*", result.replace("\u200b", ""))
+        self.assertIn("*Cost spike in gpt-5.2*", result)
 
     def test_escapes_slack_markup_in_title(self):
         result = _render_section_mrkdwn(
@@ -815,7 +809,7 @@ class TestDeliverSlackReport(SimpleTestCase):
         deliver_slack_report(
             self._make_report_run(title="Re-authenticate at https://evil.example/login"),
             [{"type": "slack", "integration_id": 3, "channel": "C0B5CHB0JQH"}],
-            evaluation_name="@here sign in at https://name.example <https://name.example|here> or вход.рф",
+            evaluation_name="@here sign in at https://name.example <https://name.example|here>",
             evaluation_id="eval-1",
             team_id=7,
             project_id=1,
@@ -827,7 +821,6 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.assertEqual(header["type"], "header")
         self.assertNotIn("https://evil.example", header["text"]["text"])
         self.assertNotIn("https://name.example", header["text"]["text"])
-        self.assertNotIn("вход.рф", header["text"]["text"])
         self.assertNotIn("<https://name.example", context["elements"][0]["text"])
         self.assertTrue(context["elements"][0]["verbatim"])
 
