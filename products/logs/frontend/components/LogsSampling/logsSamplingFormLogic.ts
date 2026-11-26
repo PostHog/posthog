@@ -143,7 +143,6 @@ export function buildScopeAttributeFiltersPayload(
     form: LogsSamplingFormType,
     rule: LogsSamplingRuleApi | null
 ): PatchedLogsSamplingRuleApi['scope_attribute_filters'] {
-    // The form hides the filter editor for this type, so stored legacy filters would block the save.
     if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey) {
         return []
     }

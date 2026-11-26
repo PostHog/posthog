@@ -147,7 +147,6 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             if attrs.get("source") != LogsExclusionRule.RecordSource.LOGS:
                 raise ValidationError({"rule_type": "require_secret_key rules are only supported for logs."})
 
-            # A PATCH keeps omitted fields, so check the stored values too.
             def effective(field: str) -> Any:
                 if field in attrs or self.instance is None:
                     return attrs.get(field)
