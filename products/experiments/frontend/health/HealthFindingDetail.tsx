@@ -53,7 +53,7 @@ export function HealthFindingDetail({
                     }}
                 />
             )}
-            {check && <HealthCheckReadSection check={check} units={units} exposures={exposures} />}
+            {check && <HealthCheckReadSection check={check} units={units} exposures={exposures} finding={finding} />}
             {check && <HealthCheckRuleSection check={check} units={units} checkedAt={checkedAt} />}
         </div>
     )

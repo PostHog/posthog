@@ -3,9 +3,12 @@ import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-ge
 import { healthCheckRowsTable, healthDetectableEffects } from './healthCheckRows'
 import { HealthCheckRowsTable } from './HealthCheckRowsTable'
 import { type HealthReading, healthCheckReadings, healthExposureSplit } from './healthCheckValues'
+import { HealthDailyExposuresChart } from './HealthDailyExposuresChart'
+import { HealthDailyShareChart } from './HealthDailyShareChart'
 import { HealthDetectableEffectLine } from './HealthDetectableEffectLine'
 import { HealthExposureSplitTable } from './HealthExposureSplitTable'
 import type { HealthPanelCheck } from './healthPanelChecks'
+import type { HealthPanelFinding } from './healthPanelFindings'
 import { HealthPanelSection } from './HealthPanelSection'
 import { HealthReadingList } from './HealthReadingList'
 
@@ -16,10 +19,13 @@ export function HealthCheckReadSection({
     check,
     units,
     exposures,
+    finding,
 }: {
     check: HealthPanelCheck
     units: string
     exposures: ExperimentExposureQueryResponse | null
+    /** The finding the check reported. The exposure checks then chart what they read by day. */
+    finding?: HealthPanelFinding
 }): JSX.Element | null {
     const table = healthCheckRowsTable(check, units)
     // An exposure answer cached before the server added the values keeps the layout without them.
@@ -34,8 +40,21 @@ export function HealthCheckReadSection({
         ...(countedFrom ? [{ label: 'Exposures counted from', time: countedFrom, asDate: true }] : []),
     ]
 
+    const startedOn = finding?.evidence.mismatch_started_on
+
     return (
         <HealthPanelSection title="What it read">
+            {finding && check.key === 'srm' && (
+                <HealthDailyShareChart
+                    exposures={exposures}
+                    startedOn={typeof startedOn === 'string' ? startedOn : null}
+                    showsPlan={finding.subcode !== 'split_changed'}
+                    units={units}
+                />
+            )}
+            {finding && check.key === 'split_changed_mid_run' && (
+                <HealthDailyExposuresChart check={check} exposures={exposures} units={units} />
+            )}
             {split && <HealthExposureSplitTable rows={split} units={units} />}
             {readings.length > 0 && <HealthReadingList readings={readings} />}
             {table && <HealthCheckRowsTable table={table} />}
