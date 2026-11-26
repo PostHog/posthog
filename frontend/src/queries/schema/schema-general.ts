@@ -9457,6 +9457,7 @@ export type MarketingAnalyticsRecommendationsDataGapKind =
     | 'posthog_conversion_goals_unusable'
     | 'posthog_campaigns_unmatched'
     | 'posthog_conversions_failed'
+    | 'hidden_search_spend'
 
 export interface MarketingAnalyticsRecommendationsDataGap {
     kind: MarketingAnalyticsRecommendationsDataGapKind
