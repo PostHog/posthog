@@ -266,52 +266,86 @@ describe('MessageTemplate', () => {
     })
 
     it.each([
-        ['a library template', urls.workflowsLibraryTemplate(TEMPLATE_ID), ORDER_RECEIPT, 'menu', 'menu'],
+        ['a library template', urls.workflowsLibraryTemplate(TEMPLATE_ID), ORDER_RECEIPT, '', 'menu'],
         ['a transactional email', urls.transactionalTemplate(TEMPLATE_ID), PASSWORD_RESET_WITH_DRAFT, 'row', 'row'],
         [
             'a transactional email under workflows',
             urls.workflowsLibraryTemplate(TEMPLATE_ID),
             PASSWORD_RESET_WITH_DRAFT,
-            'menu',
+            '',
             'row',
         ],
-    ])('places the tags of %s while it loads and after', async (_, url, template, whileLoading, loadedPlace) => {
-        let answer: () => void = () => {}
-        const loaded = new Promise<void>((resolve) => (answer = resolve))
-        useMocks({
-            get: {
-                '/api/environments/:team_id/messaging_templates/:id/': async () => {
-                    await loaded
-                    return [200, template]
+        [
+            'a library template without transactional emails',
+            urls.workflowsLibraryTemplate(TEMPLATE_ID),
+            ORDER_RECEIPT,
+            'menu',
+            'menu',
+            { [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: false },
+        ],
+    ])(
+        'places the tags of %s while it loads and after',
+        async (_, url, template, whileLoading, loadedPlace, flags: Record<string, boolean> = {}) => {
+            let answer: () => void = () => {}
+            const loaded = new Promise<void>((resolve) => (answer = resolve))
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async () => {
+                        await loaded
+                        return [200, template]
+                    },
                 },
-            },
-        })
-        const tagsPlace = (): string =>
-            [
-                document.querySelector('[data-attr="message-template-tags-button"]') && 'row',
-                document.querySelector('[data-attr="message-template-menubar-metadata"]') && 'menu',
-            ]
-                .filter(Boolean)
-                .join()
-        const rendered = renderAs(AccessControlLevel.Editor, template.name, {
-            [FEATURE_FLAGS.SCENE_MENU_BAR]: true,
-        })
-        act(() => router.actions.push(url))
-        await waitFor(() => expect(tagsPlace()).toBe(whileLoading))
-        // Tags edited before the saved ones arrive would replace them.
-        if (whileLoading === 'row') {
-            expect(screen.queryByText('Click to add tags')).not.toBeInTheDocument()
-        } else {
-            fireEvent.click(screen.getByText('Metadata'))
-            await waitFor(() =>
-                expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeInTheDocument()
-            )
-            expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeDisabled()
-        }
+            })
+            const tagsPlace = (): string =>
+                [
+                    document.querySelector('[data-attr="message-template-tags-button"]') && 'row',
+                    document.querySelector('[data-attr="message-template-menubar-metadata"]') && 'menu',
+                ]
+                    .filter(Boolean)
+                    .join()
+            const rendered = renderAs(AccessControlLevel.Editor, template.name, {
+                [FEATURE_FLAGS.SCENE_MENU_BAR]: true,
+                ...flags,
+            })
+            act(() => router.actions.push(url))
+            await waitFor(() => expect(tagsPlace()).toBe(whileLoading))
+            // Tags edited before the saved ones arrive would replace them.
+            if (whileLoading === 'row') {
+                expect(screen.queryByText('Click to add tags')).not.toBeInTheDocument()
+            } else if (whileLoading === 'menu') {
+                fireEvent.click(screen.getByText('Metadata'))
+                await waitFor(() =>
+                    expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeInTheDocument()
+                )
+                expect(document.querySelector('[data-attr="message-template-tags-input"]')).toBeDisabled()
+            }
 
-        answer()
-        await rendered
-        await waitFor(() => expect(tagsPlace()).toBe(loadedPlace))
+            answer()
+            await rendered
+            await waitFor(() => expect(tagsPlace()).toBe(loadedPlace))
+        }
+    )
+
+    it('takes a tag that did not save out of the row being edited', async () => {
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': { ...ORDER_RECEIPT, tags: ['old'] } },
+            patch: { '/api/environments/:team_id/messaging_templates/:id/': () => [500, { detail: 'Boom' }] },
+        })
+        await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name)
+        fireEvent.click(await screen.findByText('old'))
+        const input = await waitFor(() => {
+            const found = document.querySelector<HTMLInputElement>(
+                'input[data-attr="message-template-new-tag-input"], [data-attr="message-template-new-tag-input"] input'
+            )
+            expect(found).not.toBeNull()
+            return found as HTMLInputElement
+        })
+        fireEvent.change(input, { target: { value: 'new-tag' } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+        await waitFor(() => expect(messageTemplateLogic({ id: TEMPLATE_ID }).values.failedTagSaves).toBe(1))
+
+        expect(screen.queryByText('new-tag')).not.toBeInTheDocument()
+        expect(screen.getByText('old')).toBeInTheDocument()
     })
 
     it('keeps the open editor while it saves', async () => {

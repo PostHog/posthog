@@ -5,7 +5,9 @@ from uuid import UUID, uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -13,12 +15,16 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
+from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework.test import APIClient
 
 from posthog.models import Team
+from posthog.redis import TEST_clear_clients
 from posthog.test.authentication_checks import covers_authentication
+from posthog.token_bucket import TEST_reset_scripts
 
 from products.tasks.backend.logic.services.agent_egress import AgentEgressRegistry
+from products.tasks.backend.logic.services.agent_egress_git import AgentEgressGitGrants, GitReadCredential
 from products.tasks.backend.logic.services.connection_token import (
     AGENT_EGRESS_AUDIENCE,
     AGENT_EGRESS_ISSUER,
@@ -29,19 +35,32 @@ from products.tasks.backend.presentation.views.agent_egress import (
     AGENT_EGRESS_REGISTRY_PURPOSE,
     AgentEgressRegistryAuthentication,
 )
+from products.tasks.backend.presentation.views.agent_egress_git import (
+    AGENT_EGRESS_CREDENTIALS_PURPOSE,
+    AgentEgressCredentialsAuthentication,
+)
 
 CAPABILITY_CONTRACT = json.loads(
     (Path(__file__).parents[2] / "services/egress-proxy/internal/identity/testdata/python-capability.json").read_text()
 )
+GIT_GRANT_CONTRACT = json.loads(
+    (Path(__file__).parents[2] / "services/egress-proxy/internal/gitread/testdata/grant.json").read_text()
+)
 
 
 @override_settings(
-    AGENT_EGRESS_REGION="test-region", AGENT_EGRESS_REGISTRY_JWT_SECRETS=["test-egress-registry-key-000000000000"]
+    AGENT_EGRESS_REGION="test-region",
+    AGENT_EGRESS_REGISTRY_JWT_SECRETS=["test-egress-registry-key-000000000000"],
+    AGENT_EGRESS_CREDENTIALS_JWT_SECRETS=["test-egress-credentials-key-0000000000"],
 )
 @time_machine.travel(CAPABILITY_CONTRACT["now"], tick=False)
 class TestAgentEgressRegistrationAPI(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        TEST_clear_clients()
+        TEST_reset_scripts()
+        self.addCleanup(TEST_clear_clients)
+        self.addCleanup(TEST_reset_scripts)
         registration = CAPABILITY_CONTRACT["registration"]
         self.client = APIClient()
         task = Task.objects.create(team=self.team, title="Synthetic egress task", created_by=self.user)
@@ -80,6 +99,169 @@ class TestAgentEgressRegistrationAPI(BaseTest):
         if claims.get("iat") is None:
             del claims["iat"]
         return {"Authorization": f"Bearer {AGENT_EGRESS_REGISTRY_PURPOSE.mint(claims)}"}
+
+    def _git_headers(self, **overrides: object) -> dict[str, str]:
+        return {
+            "Authorization": "Bearer "
+            + AGENT_EGRESS_CREDENTIALS_PURPOSE.mint(
+                {
+                    "team_id": self.team.id,
+                    "sub": str(self.task_run.id),
+                    "execution_id": str(self.execution_id),
+                    "region": "test-region",
+                    "operation": "git_read_grant",
+                    "repository": GIT_GRANT_CONTRACT["repository"],
+                    "iat": int(timezone.now().timestamp()),
+                    **overrides,
+                }
+            )
+        }
+
+    def _publish_git_grant(self) -> None:
+        AgentEgressGitGrants(region="test-region").publish(
+            team_id=self.team.id,
+            run_id=self.task_run.id,
+            execution_id=self.execution_id,
+            credential=GitReadCredential(
+                repository=GIT_GRANT_CONTRACT["repository"],
+                token=GIT_GRANT_CONTRACT["token"],
+                expires_at=GIT_GRANT_CONTRACT["expires_at"],
+            ),
+            version=UUID(GIT_GRANT_CONTRACT["credential_version"]),
+            previous_version=None,
+        )
+
+    @covers_authentication(AgentEgressCredentialsAuthentication)
+    def test_git_grant_matches_go_contract_and_stays_out_of_registration_lookup(self) -> None:
+        self._publish_git_grant()
+        response = self.client.get(
+            self.url + "/git_read_grant/",
+            headers=self._git_headers(),
+            secure=True,
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertEqual(
+            response.json(),
+            {
+                **GIT_GRANT_CONTRACT,
+                "registration": {
+                    **GIT_GRANT_CONTRACT["registration"],
+                    "team_id": self.team.id,
+                    "actor_id": self.user.id,
+                },
+            },
+        )
+        metadata = self.client.get(self.url, headers=self._headers()).json()
+        self.assertNotIn(GIT_GRANT_CONTRACT["token"], str(metadata))
+        self.registry.revoke(team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id)
+        self.assertEqual(
+            self.client.get(
+                self.url + "/git_read_grant/",
+                headers=self._git_headers(),
+                secure=True,
+            ).status_code,
+            404,
+        )
+
+    @parameterized.expand(
+        [
+            ("sub", "00000000-0000-0000-0000-000000000001", 403),
+            ("execution_id", "00000000-0000-0000-0000-000000000002", 403),
+            ("region", "other-region", 403),
+            ("operation", "lookup", 403),
+            ("repository", "example/other", 404),
+            ("repository", None, 403),
+            ("iat", None, 401),
+            ("iat", 0, 403),
+        ]
+    )
+    def test_git_grant_auth_pins_scope(self, claim: str, value: object, expected: int) -> None:
+        self._publish_git_grant()
+        response = self.client.get(
+            self.url + "/git_read_grant/",
+            headers=self._git_headers(**{claim: value}),
+            secure=True,
+        )
+        self.assertEqual(response.status_code, expected)
+        self.assertNotIn(GIT_GRANT_CONTRACT["token"], response.content.decode())
+
+    def test_git_grant_requires_separate_key_https_and_available_registry(self) -> None:
+        self._publish_git_grant()
+        url = self.url + "/git_read_grant/"
+        self.assertEqual(self.client.get(url, headers=self._headers(), secure=True).status_code, 401)
+        self.assertEqual(self.client.get(url, headers=self._git_headers()).status_code, 503)
+        self.assertEqual(
+            self.client.get(url, headers=self._git_headers(team_id=self.team.id + 1), secure=True).status_code, 401
+        )
+        with self.settings(AGENT_EGRESS_CREDENTIALS_JWT_SECRETS=[]):
+            self.assertEqual(self.client.get(url, headers=self._headers(), secure=True).status_code, 401)
+        with (
+            patch(
+                "products.tasks.backend.logic.services.agent_egress_git.AgentEgressRegistry.lookup",
+                side_effect=OperationalError(GIT_GRANT_CONTRACT["token"]),
+            ),
+            self.assertLogs("products.tasks.backend.presentation.views.agent_egress_git", level="WARNING") as logs,
+        ):
+            response = self.client.get(url, headers=self._git_headers(), secure=True)
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        record = logs.records[0]
+        self.assertEqual(record.getMessage(), "agent_egress_git_grant_unavailable")
+        self.assertEqual(
+            {key: record.__dict__[key] for key in ("error_type", "team_id", "run_id", "execution_id")},
+            {
+                "error_type": "OperationalError",
+                "team_id": self.team.id,
+                "run_id": str(self.task_run.id),
+                "execution_id": str(self.execution_id),
+            },
+        )
+        self.assertIsNone(record.exc_info)
+        self.assertNotIn(GIT_GRANT_CONTRACT["token"], repr(record.__dict__))
+
+    def test_git_grant_budget_survives_token_rotation_and_isolates_executions_and_teams(self) -> None:
+        self._publish_git_grant()
+        url = self.url + "/git_read_grant/"
+        headers = self._git_headers()
+        for _ in range(60):
+            self.assertEqual(self.client.get(url, headers=headers, secure=True).status_code, 200)
+
+        for request_headers in (headers, self._git_headers(jti=str(uuid4()))):
+            response = self.client.get(url, headers=request_headers, secure=True)
+            self.assertEqual(response.status_code, 429)
+            self.assertEqual(response["Retry-After"], "6")
+            self.assertEqual(response["Cache-Control"], "no-store")
+            self.assertNotIn(GIT_GRANT_CONTRACT["token"], response.content.decode())
+
+        other_execution = str(uuid4())
+        response = self.client.get(
+            url.replace(str(self.execution_id), other_execution),
+            headers=self._git_headers(execution_id=other_execution),
+            secure=True,
+        )
+        self.assertEqual(response.status_code, 404)
+        other_team = Team.objects.create(organization=self.organization)
+        response = self.client.get(
+            url.replace(f"/projects/{self.team.id}/", f"/projects/{other_team.id}/"),
+            headers=self._git_headers(team_id=other_team.id),
+            secure=True,
+        )
+        self.assertEqual(response.status_code, 404)
+
+        with time_machine.travel(timezone.now() + timedelta(seconds=6), tick=False):
+            self.assertEqual(self.client.get(url, headers=headers, secure=True).status_code, 200)
+            self.assertEqual(self.client.get(url, headers=headers, secure=True).status_code, 429)
+
+    def test_git_grant_denies_lookup_when_rate_limit_store_is_unavailable(self) -> None:
+        self._publish_git_grant()
+        broken = MagicMock()
+        broken.register_script.return_value.side_effect = RedisConnectionError("unavailable")
+        with patch("posthog.token_bucket.get_client", return_value=broken):
+            response = self.client.get(self.url + "/git_read_grant/", headers=self._git_headers(), secure=True)
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertNotIn(GIT_GRANT_CONTRACT["token"], response.content.decode())
 
     @covers_authentication(AgentEgressRegistryAuthentication)
     def test_lookup_returns_only_current_registration(self) -> None:
@@ -150,6 +332,26 @@ class TestAgentEgressRegistrationAPI(BaseTest):
         self.assertEqual(response.json()["team_id"], child.id)
         self.assertEqual(registration.team_id, child.id)
 
+        AgentEgressGitGrants(region="test-region").publish(
+            team_id=child.id,
+            run_id=task_run.id,
+            execution_id=execution_id,
+            credential=GitReadCredential(
+                repository=GIT_GRANT_CONTRACT["repository"],
+                token=GIT_GRANT_CONTRACT["token"],
+                expires_at=GIT_GRANT_CONTRACT["expires_at"],
+            ),
+            version=uuid4(),
+            previous_version=None,
+        )
+        response = self.client.get(
+            url + "/git_read_grant/",
+            headers=self._git_headers(team_id=child.id, sub=str(task_run.id), execution_id=str(execution_id)),
+            secure=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["registration"]["team_id"], child.id)
+
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         pem = key.private_bytes(
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
@@ -174,6 +376,13 @@ class TestAgentEgressRegistrationAPI(BaseTest):
             response = self.client.get(
                 denied_url,
                 headers=self._headers(team_id=denied_team.id, sub=str(task_run.id), execution_id=str(execution_id)),
+            )
+            self.assertEqual(response.status_code, 404)
+
+            response = self.client.get(
+                denied_url + "/git_read_grant/",
+                headers=self._git_headers(team_id=denied_team.id, sub=str(task_run.id), execution_id=str(execution_id)),
+                secure=True,
             )
             self.assertEqual(response.status_code, 404)
 

@@ -40,6 +40,13 @@ export const initDurationSeconds = new Histogram({
     buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
 })
 
+export const initStepDurationSeconds = new Histogram({
+    name: 'mcp_init_step_duration_seconds',
+    help: 'Session init time by state-resolution step. Steps that run concurrently overlap.',
+    labelNames: ['step'] as const,
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 3],
+})
+
 export const shuttingDown = new Gauge({
     name: 'mcp_shutting_down',
     help: 'Set to 1 when the pod is draining for shutdown.',

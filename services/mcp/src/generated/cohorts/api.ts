@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -380,6 +380,26 @@ export const CohortsAddPersonsToStaticCohortPartialUpdateBody = () => zod.object
         .optional()
         .describe(
             'Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.'
+        ),
+})
+
+/**
+ * Turn realtime on or off for a cohort. Turning it on also turns it on for every realtime cohort it includes as criteria, and PostHog prepares them from past events before feature flags can target them. Turning it on for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again.
+ */
+export const CohortsRealtimeCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this cohort.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CohortsRealtimeCreateBody = () => zod.object({
+    enabled: zod
+        .boolean()
+        .describe(
+            "True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. True for a cohort that is already on, and that nothing is preparing, asks PostHog to prepare it again. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort."
         ),
 })
 

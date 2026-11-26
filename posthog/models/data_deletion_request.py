@@ -1078,7 +1078,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         query_type="data_deletion_request_verify_queued",
     ):
         for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
-            if not target.may_hold_any_of(events):
+            if target.derived_from_events or not target.may_hold_any_of(events):
                 continue
             try:
                 predicate, params = event_removal_where(request, target)

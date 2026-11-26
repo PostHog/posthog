@@ -2,16 +2,14 @@
 events don't carry the flag count too.
 
 Most server SDKs send no `$feature/<key>` on their events, only a flag call when the value changes. With minimal flag
-calls on, even the call doesn't carry it. The counts of `flag_windows/exposure.py` and `flag_windows/errors.py` read
-only what each event carries, so they leave out the people of a flag that only a backend evaluates.
+calls on, even the call doesn't carry it. The counts of `flag_windows/exposure.py` read only what each event carries, so
+they leave out the people of a flag that only a backend evaluates.
 
 A person has, at any event, the value of their latest `$feature/<key>` or flag call at or before it. The exposure and
 the errors use that same rule in one query, so that a person with an error under a value always counts in the exposure
-under it, and the two counts fail together when the query runs out of time or memory.
+under it, and the two counts fail together when the query runs out of time or memory. `flag_windows/query.py` holds the
+counting rules that the window queries share.
 
-- A person who had an exposed value counts only as exposed, also for the time before it. Most of the people that an edit
-  moves have the old value for seconds, with no time to hit an error. As unexposed people they would lower that error
-  rate, and a healthy rollout would look like a regression. So the unexposed people never had an exposed value.
 - A flag call is read from `LOOKBACK` before the range, also from before the edit, because an SDK sends no new call
   while the value stays the same. A call of the flag counts as an event of the person, so that a service that sends
   only calls and errors has exposure. `$feature/<key>` is read only from the range start and the edit on, because
@@ -58,6 +56,7 @@ from products.feature_flags.backend.flag_windows.query import (
     BucketCounts,
     BucketRange,
     FlagRead,
+    SplitCounts,
     WatchedEdit,
     actor_of,
     check_edit_ids,
@@ -65,6 +64,8 @@ from products.feature_flags.backend.flag_windows.query import (
     edits_by_actor,
     read_flag,
     run_bucket_query,
+    split_columns,
+    split_counts,
 )
 
 logger = structlog.get_logger(__name__)
@@ -77,25 +78,11 @@ IN_BUCKETS_SO_FAR = "OVER (PARTITION BY actor ORDER BY bucket ROWS BETWEEN UNBOU
 
 
 @frozen
-class LastValueCounts:
-    # The people (or groups) with an event and a value.
-    with_flag: int
-    # With an exposed value at one of their events.
-    exposed: int
-    # The rest of `with_flag`.
-    unexposed: int
-    # With an error under an exposed value.
-    exposed_with_errors: int
-    # The unexposed people with an error.
-    unexposed_with_errors: int
-
-
-@frozen
 class LastValueBucket:
     start: datetime
-    in_bucket: LastValueCounts
+    in_bucket: SplitCounts
     # From the edit, or from the range start when it is later, to the end of this bucket. Each person counts once.
-    since_edit: LastValueCounts
+    since_edit: SplitCounts
 
 
 def last_values_by_bucket(
@@ -135,23 +122,10 @@ def last_values_by_bucket(
 
 def _buckets(rows: Sequence[BucketCounts]) -> list[LastValueBucket]:
     buckets = [
-        LastValueBucket(start=row.start, in_bucket=_counts(row.in_bucket), since_edit=_counts(row.since_edit))
+        LastValueBucket(start=row.start, in_bucket=split_counts(row.in_bucket), since_edit=split_counts(row.since_edit))
         for row in rows
     ]
     return [bucket for bucket in buckets if bucket.in_bucket.with_flag]
-
-
-def _counts(values: Sequence[int]) -> LastValueCounts:
-    with_flag, exposed, exposed_with_errors, exposed_or_with_errors = values
-    # The counts are separate `uniq` estimates, so a part can come out above the whole.
-    unexposed = max(0, with_flag - exposed)
-    return LastValueCounts(
-        with_flag=with_flag,
-        exposed=exposed,
-        unexposed=unexposed,
-        exposed_with_errors=exposed_with_errors,
-        unexposed_with_errors=min(unexposed, max(0, exposed_or_with_errors - exposed)),
-    )
 
 
 @frozen
@@ -326,19 +300,19 @@ class _EditColumns:
                     *[self._had_at(value, moment) for moment in ("first_error", "last_error")],
                 ]
             )
+        counts = split_columns(
+            ast.Field(chain=["actor"]),
+            with_flag=ast.Or(exprs=list(had_value.values())),
+            exposed=had_value["exposed"],
+            exposed_error=had_error["exposed"],
+            unexposed_error=had_error["unexposed"],
+        )
         return [
             ast.Alias(
-                alias=f"{name}{self.index}",
+                alias=f"people{self.index}_{position}",
                 expr=parse_expr("uniqState(if({count}, actor, NULL))", placeholders={"count": count}),
             )
-            for name, count in (
-                ("people_with_flag", ast.Or(exprs=list(had_value.values()))),
-                ("people_exposed", had_value["exposed"]),
-                ("people_exposed_with_errors", had_error["exposed"]),
-                # Without the exposed people, these are the people with errors who never had an exposed value. A state
-                # of one bucket can't leave out the people who are exposed in another.
-                ("people_exposed_or_with_errors", ast.Or(exprs=[had_value["exposed"], had_error["unexposed"]])),
-            )
+            for position, count in enumerate(counts)
         ]
 
 

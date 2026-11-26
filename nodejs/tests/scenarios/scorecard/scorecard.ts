@@ -37,7 +37,7 @@ function invariantProperties(result: RunVerdict): Record<string, Property> {
 
 function measurementProperties(result: RunVerdict): Record<string, Property> {
     return Object.fromEntries(
-        result.measurements.flatMap(({ name, key, value, incomplete, censored }) => {
+        result.measurements.flatMap(({ name, key, value, incomplete, censored, unmeasured }) => {
             const property = ['m', name, key]
                 .filter((part) => part !== undefined)
                 .join('_')
@@ -46,6 +46,7 @@ function measurementProperties(result: RunVerdict): Record<string, Property> {
                 [property, value],
                 ...(incomplete ? [[`${property}_incomplete`, true]] : []),
                 ...(censored ? [[`${property}_censored`, true]] : []),
+                ...(unmeasured ? [[`${property}_unmeasured`, unmeasured]] : []),
             ]
         })
     )
@@ -152,7 +153,7 @@ const pairProperties = ({
 
 export function scorecardOf(
     result: RunVerdict,
-    { card, profile }: LoadedCard,
+    { card, profile, admission }: LoadedCard,
     provenance: Provenance,
     pair?: ScorecardPair
 ): ScorecardProperties {
@@ -175,6 +176,8 @@ export function scorecardOf(
         profile_name: profile.name,
         profile_hash: result.profileHash,
         topology_hash: result.topologyHash ?? null,
+        config_hash: result.configHash ?? null,
+        service_versions: result.services ?? null,
         head_sha: provenance.headSha,
         head_dirty: provenance.headDirty,
         origin: result.origin,
@@ -188,6 +191,7 @@ export function scorecardOf(
         seed: card.seed,
         status: result.status,
         status_reason: result.statusReason,
+        ...(result.stopped && { stopped_phase: result.stopped.phase, stopped_stack: result.stopped.stack }),
         started_at: result.startedAt,
         ended_at: result.endedAt,
         duration_s: (Date.parse(result.endedAt) - Date.parse(result.startedAt)) / 1000,
@@ -202,6 +206,7 @@ export function scorecardOf(
         ...(card.drive.stopOnBreak === true ? rampProperties(result, { card }) : {}),
         ...(pair && pairProperties(pair)),
         admissions: result.admissions,
+        load_targets: admission.load?.derived.map(({ rate, from, share }) => ({ rate, from, share })) ?? null,
         bars: result.bars,
         valve_timeline: result.timeline,
         role_restarts: result.restarts ?? [],

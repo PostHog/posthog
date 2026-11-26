@@ -35,7 +35,6 @@ type EventPropertyTabKey =
     | 'raw'
     | 'conversation'
     | 'evaluation'
-    | 'tag'
     | 'exception_properties'
     | 'error_display'
     | 'debug_properties'
@@ -57,7 +56,6 @@ export const EventPropertyTabs = ({
     const isAIGenerationEvent = event.event === '$ai_generation'
     const isAIConversationEvent = isAIGenerationEvent || event.event === '$ai_span' || event.event === '$ai_trace'
     const isAIEvaluationEvent = event.event === '$ai_evaluation'
-    const isAITagEvent = event.event === '$ai_tag'
 
     const isErrorEvent = event.event === '$exception'
     const hasSurveyResponse = isSurveyResponseEvent(event.event, event.properties || {})
@@ -72,15 +70,13 @@ export const EventPropertyTabs = ({
             ? 'conversation'
             : isAIEvaluationEvent
               ? 'evaluation'
-              : isAITagEvent
-                ? 'tag'
-                : isErrorEvent
-                  ? 'error_display'
-                  : hasSurveyResponse
-                    ? 'survey_response'
-                    : isMcpEvent
-                      ? 'mcp'
-                      : 'properties'
+              : isErrorEvent
+                ? 'error_display'
+                : hasSurveyResponse
+                  ? 'survey_response'
+                  : isMcpEvent
+                    ? 'mcp'
+                    : 'properties'
     )
 
     const promotedKeys = isKeyOf(event.event, POSTHOG_EVENT_PROMOTED_PROPERTIES)
@@ -144,13 +140,6 @@ export const EventPropertyTabs = ({
                   key: 'evaluation',
                   label: 'Evaluation',
                   content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'evaluation' }),
-              }
-            : null,
-        isAITagEvent
-            ? {
-                  key: 'tag',
-                  label: 'Tag',
-                  content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'tag' }),
               }
             : null,
         {

@@ -60,7 +60,7 @@ A sending rate limit removes that risk when it is slow enough, so it raises the 
 
 The blast radius preview takes the rate limit as `email_sending_rate_limit` and returns `rate_limited`: the fastest qualifying hourly rate, the day limit, and the cap at that rate.
 The broadcast wizard uses it to suggest a qualifying rate, with a one-click button on the recipients, schedule, and review steps.
-The reputation endpoint returns the largest rate-limited batch as `rate_limited_max_batch_audience`, which the Reputation tab shows under the batch cap.
+The reputation endpoint returns the largest rate-limited batch as `rate_limited_max_batch_audience`, which the Reputation tab shows in the tooltip of the batch cap.
 Batch dispatch reads the rate limit stored on the workflow.
 The worker paces each send with the workflow's live rate limit.
 So while a batch that a rate limit raised still has runs in the worker's queue, the API rejects any change to that rate limit. When the worker cannot report the count, the API rejects the change.

@@ -484,6 +484,8 @@ def _resolve_sandbox_github_token(
     one only after the create-time Desktop gate passed. So a repo-less run with no integration
     stays credential-less, and an entitled discussion can clone a private repository and push.
     """
+    if ctx.agent_egress_git_reads or (ctx.state or {}).get("agent_egress_git_reads"):
+        return ""
     if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
         TaskRun.update_state_atomic(ctx.run_id, updates={"github_read_access_available": bool(github_token)})
@@ -641,7 +643,7 @@ def _sandbox_image_kind(image_source: str, custom_image_name: str | None) -> str
 def _build_environment_variables(
     ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str, gitlab_token: str = ""
 ) -> dict[str, str]:
-    environment_variables = {
+    environment_variables: dict[str, str] = {
         "POSTHOG_PERSONAL_API_KEY": access_token,
         "POSTHOG_API_URL": get_sandbox_api_url(),
         "POSTHOG_PROJECT_ID": str(ctx.team_id),
@@ -668,7 +670,10 @@ def _build_environment_variables(
                     f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
                 )
 
-    if github_token:
+    if ctx.agent_egress_git_reads or (ctx.state or {}).get("agent_egress_git_reads") is True:
+        environment_variables.pop("GITHUB_TOKEN", None)
+        environment_variables.pop("GH_TOKEN", None)
+    elif github_token:
         environment_variables["GITHUB_TOKEN"] = github_token
         environment_variables["GH_TOKEN"] = github_token
     if gitlab_token:
@@ -1605,6 +1610,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
     before it resolves or applies credentials for this run.
     """
     ctx = input.context
+
+    if ctx.agent_egress_git_reads or (ctx.state or {}).get("agent_egress_git_reads") is True:
+        raise ValueError("Git egress does not support snapshot resume")
 
     with log_activity_execution(
         "inject_fresh_tokens_on_resume",
