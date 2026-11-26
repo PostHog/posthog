@@ -95,8 +95,10 @@ def _triggers_only_on_support_events(actions: list[dict[str, Any]]) -> bool:
         return False
     config = trigger.get("config") or {}
     filters = config.get("filters") if isinstance(config, dict) else None
-    events = filters.get("events") if isinstance(filters, dict) else None
     # A lenient draft can store any value here.
+    if not isinstance(filters, dict):
+        return False
+    events = filters.get("events")
     if not isinstance(events, list) or not events or filters.get("actions"):
         return False
     if not all(isinstance(event, dict) for event in events):

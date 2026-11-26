@@ -4391,11 +4391,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if (
             origin_product
             and is_transactional_origin(origin_product)
-            and (stored is None or keeps_transactional_shape(origin_product, stored.actions or [], stored.edges or []))
+            and (
+                stored is None
+                or keeps_transactional_shape(origin_product, _steps(stored.actions), _steps(stored.edges))
+            )
         ):
-            actions = data.get("actions", stored.actions if stored else [])
-            edges = data.get("edges", stored.edges if stored else [])
-            if not keeps_transactional_shape(origin_product, actions or [], edges or []):
+            actions = _steps(data["actions"]) if "actions" in data else _steps(stored.actions if stored else None)
+            edges = _steps(data["edges"]) if "edges" in data else _steps(stored.edges if stored else None)
+            if not keeps_transactional_shape(origin_product, actions, edges):
                 raise serializers.ValidationError(
                     {
                         "actions": "This workflow runs a transactional send, so its steps can't change. "
@@ -4404,16 +4407,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 )
             self._refuse_marketing_category_on_transactional_step(actions)
             return
-        actions = data.get("actions")
-        if not isinstance(actions, list):
+        if "actions" not in data:
             return
+        submitted = _steps(data["actions"])
         # Only the live steps count as existing: a staged draft can hold an approved suggestion nobody checked.
-        live_steps = (stored.actions or []) if stored else []
-        if reserved := sorted(set(reserved_step_ids(actions)) - set(reserved_step_ids(live_steps))):
+        live_steps = _steps(stored.actions) if stored else []
+        if reserved := sorted(set(reserved_step_ids(submitted)) - set(reserved_step_ids(live_steps))):
             raise serializers.ValidationError(
                 {"actions": f"The step id '{reserved[0]}' is reserved for transactional sends. Use another id."}
             )
-        if added := added_transactional_email_steps(actions, live_steps):
+        if added := added_transactional_email_steps(submitted, live_steps):
             raise serializers.ValidationError(
                 {
                     "actions": f"Email steps in workflows can't be transactional. Choose a marketing category for "
@@ -4678,6 +4681,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                         event_config["filters"] = event_serializer.validated_data
 
         return data
+
+
+def _steps(value: Any) -> list[dict[str, Any]]:
+    return value if isinstance(value, list) else []
 
 
 class HogFlowUpdateSerializer(HogFlowSerializer):
