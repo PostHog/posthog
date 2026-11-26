@@ -7,6 +7,7 @@ import type { TruthRecord } from '../provider-edge'
 import type { ValveTimelineEntry } from '../valves/valves'
 import type { JournalEntry } from './judge'
 import {
+    DriveWindow,
     HostSample,
     MeasureEvidence,
     Measurement,
@@ -120,8 +121,8 @@ const BACKED_UP = { due: 50, oldestDueSeconds: 30 }
 
 type Read = typeof QUIET | 'failed' | 'missed'
 
-const probedQueue = (lag: (second: number) => Read): QueueSample[] =>
-    everySecondOf(0, 1500, 5).flatMap((second): QueueSample[] => {
+const probedQueue = (lag: (second: number) => Read, step = 5): QueueSample[] =>
+    everySecondOf(0, 1500, step).flatMap((second): QueueSample[] => {
         const read = lag(second)
         return read === 'missed'
             ? []
@@ -179,9 +180,13 @@ describe('measurements', () => {
         ])
     })
 
-    it('keeps the largest resident set of each role across its replicas', () => {
-        const samples = [sample(0, -60, 1, 300), sample(5, -60, 1, 900, 1), sample(10, 7, 1, 200)]
-
+    it.each([
+        ['a few scrapes', [sample(0, -60, 1, 300), sample(5, -60, 1, 900, 1), sample(10, 7, 1, 200)]],
+        [
+            'more scrapes than one call takes arguments',
+            Array.from({ length: 200_000 }, (_, i) => sample(i * 5, -60, 1, i === 1234 ? 900 : 300)),
+        ],
+    ])('keeps the largest resident set of each role across its replicas over %s', (_story, samples) => {
         expect(measure([{ name: 'role_rss_max_bytes', params: {} }], evidence({ samples }))).toEqual([
             { name: 'role_rss_max_bytes', key: ROLE, value: 900, unit: 'bytes' },
         ])
@@ -551,6 +556,17 @@ describe('measurements', () => {
         )
     })
 
+    it('peaks the oldest due age over more reads than one call takes arguments', () => {
+        const queue = probedQueue((second) => (between(720, 760)(second) ? BACKED_UP : QUIET), 0.002)
+
+        expect(
+            measure(
+                [{ name: 'queue_lag_peak_seconds', params: {} }],
+                evidence({ queue, drive: DRIVE, timeline: [VALVE] })
+            )
+        ).toEqual([{ name: 'queue_lag_peak_seconds', unit: 's', value: 30 }])
+    })
+
     const errors = (
         atSecond: number,
         startedAtS: number,
@@ -633,7 +649,7 @@ describe('measurements', () => {
         expect(janitorResetsOf({ samples, sampledFrom: FROM })).toBe(resets)
     })
 
-    it.each<[string, ValveTimelineEntry[], ReturnType<typeof phasesOf>]>([
+    it.each<[string, ValveTimelineEntry[], ReturnType<typeof phasesOf>, DriveWindow?]>([
         [
             'spans the valve phase from the earliest applied valve to the last release, whatever the timeline order',
             [
@@ -674,8 +690,30 @@ describe('measurements', () => {
             [{ ...VALVE, intentAt: isoAt(1600), releasedAt: isoAt(1700) }],
             { baseline: { from: atS(0), to: atS(1500) } },
         ],
-    ])('%s', (_story, timeline, phases) => {
-        expect(phasesOf(DRIVE, timeline)).toEqual(phases)
+        [
+            'starts the baseline once the drive has warmed up, and ends it at the valve intent',
+            [VALVE],
+            {
+                baseline: { from: atS(160), to: atS(700) },
+                valve: { from: atS(700), to: atS(1100) },
+                failback: { from: atS(1100), to: atS(1500) },
+            },
+            { ...DRIVE, warmedAt: atS(160) },
+        ],
+        [
+            'reads the drive after its warm-up as baseline when no valve applied, as in the paired control',
+            [],
+            { baseline: { from: atS(160), to: atS(1500) } },
+            { ...DRIVE, warmedAt: atS(160) },
+        ],
+        [
+            'reads no baseline when the drive ended before it warmed up',
+            [],
+            { baseline: { from: atS(1500), to: atS(1500) } },
+            { ...DRIVE, warmedAt: atS(1600) },
+        ],
+    ])('%s', (_story, timeline, phases, drive = DRIVE) => {
+        expect(phasesOf(drive, timeline)).toEqual(phases)
     })
 
     it('rates the baseline claims per queue, new jobs and host CPU up to the valve intent, and claims per step', () => {
