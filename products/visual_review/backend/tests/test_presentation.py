@@ -32,6 +32,7 @@ from products.visual_review.backend.facade.enums import (
 )
 from products.visual_review.backend.logic import artifact_store, ci_status, errors, github_api, quarantine, runs
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
+from products.visual_review.backend.presentation.serializers import FinalizeConflictSerializer
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
@@ -602,6 +603,38 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["run"]["approved"])
+
+    def test_finalize_conflict_bodies_match_the_declared_conflict_schema(self):
+        run_ids = []
+        for commit_sha in ("abc123", "def456"):
+            create_result = api.create_run(
+                CreateRunInput(
+                    repo_id=self.vr_project.id,
+                    run_type=RunType.STORYBOOK,
+                    commit_sha=commit_sha,
+                    branch="feature/stale",
+                    snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                    baseline_hashes={"Button": "new_hash"},
+                ),
+                team_id=self.team.id,
+            )
+            with (
+                patch(
+                    "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
+                    return_value=({"Button": "new_hash"}, 0),
+                ),
+                patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+            ):
+                runs.complete_run(create_result.run_id)
+            run_ids.append(create_result.run_id)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{run_ids[0]}/finalize/", {}, format="json"
+        )
+
+        self.assertEqual((response.status_code, response.json()["code"]), (status.HTTP_409_CONFLICT, "stale_run"))
+        declared = FinalizeConflictSerializer(data=response.json())
+        self.assertTrue(declared.is_valid(), declared.errors)
 
     @parameterized.expand(
         [

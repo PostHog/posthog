@@ -801,6 +801,34 @@ class ErrorDetailSerializer(serializers.Serializer):
     )
 
 
+class FinalizeConflictSerializer(ErrorDetailSerializer):
+    """Every 409 of finalize. `code` says which one, and only its own fields are present."""
+
+    rejected = RejectedSnapshotDetailSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "With `not_fully_resolved`: every rejected snapshot. It clears with a new picture, the rejecter's "
+            'undo, or a person\'s explicit override ("accept anyway"). An agent can never clear it.'
+        ),
+    )
+    needs_review = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="With `not_fully_resolved`: every snapshot that still needs a decision.",
+    )
+    head_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="With `stale_run`: the pull request's newest run, which is the one to finalize, when known.",
+    )
+    head_commit_sha = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="With `stale_run`: the commit of that newest run, when known.",
+    )
+
+
 class DecisionRefusalSerializer(serializers.Serializer):
     identifier = serializers.CharField(help_text="The refused snapshot. Empty when the whole call was refused.")
     code = serializers.CharField(help_text="Why it was refused, such as `hash_mismatch` or `decided_by_person`.")

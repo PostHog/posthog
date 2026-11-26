@@ -62,6 +62,7 @@ from .serializers import (
     DecisionErrorSerializer,
     DecisionResultSerializer,
     ErrorDetailSerializer,
+    FinalizeConflictSerializer,
     FinalizeResultSerializer,
     FinalizeRunInputSerializer,
     FlakinessOverviewSerializer,
@@ -979,8 +980,12 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=FinalizeResultSerializer),
             409: OpenApiResponse(
-                response=NotFullyResolvedDetailSerializer,
-                description="`not_fully_resolved` lists every rejected snapshot and every snapshot that needs review",
+                response=FinalizeConflictSerializer,
+                description=(
+                    "`not_fully_resolved` lists every rejected snapshot and every snapshot that needs review. "
+                    "`stale_run` names the newest run of the pull request. `sha_mismatch` means the pull "
+                    "request's head moved past the run."
+                ),
             ),
         },
     )

@@ -781,11 +781,25 @@ export interface RejectedSnapshotDetailApi {
     reason: string
 }
 
-export interface NotFullyResolvedDetailApi {
-    /** Every rejected snapshot. It clears with a new picture, the rejecter's undo, or a person's explicit override ("accept anyway"). An agent can never clear it. */
-    rejected: RejectedSnapshotDetailApi[]
-    /** Every snapshot that still needs a decision. */
-    needs_review: string[]
+/**
+ * Every 409 of finalize. `code` says which one, and only its own fields are present.
+ */
+export interface FinalizeConflictApi {
+    /** What went wrong and what to do next. */
+    detail: string
+    /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+    code?: string
+    /** With `not_fully_resolved`: every rejected snapshot. It clears with a new picture, the rejecter's undo, or a person's explicit override ("accept anyway"). An agent can never clear it. */
+    rejected?: RejectedSnapshotDetailApi[]
+    /** With `not_fully_resolved`: every snapshot that still needs a decision. */
+    needs_review?: string[]
+    /**
+     * With `stale_run`: the pull request's newest run, which is the one to finalize, when known.
+     * @nullable
+     */
+    head_run_id?: string | null
+    /** With `stale_run`: the commit of that newest run, when known. */
+    head_commit_sha?: string
 }
 
 export interface LiftOnMergeInputApi {
