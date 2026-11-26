@@ -66,6 +66,7 @@ _AUDIENCE_ID = "cio_audience"
 _CHOOSE_SENDER = "Choose the email sender."
 _TRIGGER_CUSTOMER = re.compile(r"(?<![\w.])trigger\.customer\b")
 _PROFILE_READ = re.compile(r"(?<![\w.])customer[.\[]")
+_NAMED_ADDRESS = re.compile(r"(.*?)\s*<([^<>]+)>", re.DOTALL)
 STATIC_SEGMENT_TYPES = frozenset({"static", "manual"})
 _SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
 _CHANNEL_NAMES = {
@@ -1089,6 +1090,7 @@ def translate_transactional_email(
     sender = email["from"]
     # The importer sends from the project's default sender when Customer.io names none.
     notes = [note.message for note in builder.notes if note.message != _CHOOSE_SENDER]
+    seen = len(builder.notes)
     source = " ".join(str(message.get(part) or "") for part in ("subject", "preheader_text", "body", "body_plain"))
     if _TRIGGER_CUSTOMER.search(source) and _PROFILE_READ.search(source):
         notes.append(
@@ -1101,30 +1103,34 @@ def translate_transactional_email(
                 f"Customer.io also sends this email to {key.upper()} {email[key]}. A transactional email has one "
                 "recipient, so that was left out."
             )
-    templated = [
-        label
-        for key, label in (("from", "sender"), ("reply_to", "reply-to address"))
-        if "{{" in str(message.get(key) or "")
-    ]
-    if templated:
+    from_name = str(sender.get("name") or "")
+    reply_to = str(email["replyTo"] or "")
+    raw_reply_to = str(message.get("reply_to") or "")
+    if "{{" in raw_reply_to:
+        reply_to = builder._liquid(raw_reply_to, step, "reply-to address")
+    named = _NAMED_ADDRESS.fullmatch(str(message.get("from") or "").strip())
+    if named and "{{" in named.group(1):
+        from_name = builder._liquid(named.group(1).strip().strip('"'), step, "sender name")
+    if "{{" in (named.group(2) if named else str(message.get("from") or "")):
         notes.append(
-            f"Customer.io fills the {' and '.join(templated)} of this email with Liquid, which PostHog can't carry "
-            "over. Set them on the template."
+            "Customer.io picks this email's sender address with Liquid. A transactional email sends from one "
+            "verified sender, so check the sender on the template."
         )
+    notes.extend(note.message for note in builder.notes[seen:] if note.message != _CHOOSE_SENDER)
     if images.asset_urls(email["html"]):
         notes.append(
             "This email shows images stored by Customer.io, which stop loading when you close your Customer.io "
             "account. Upload them in the template editor and replace them."
         )
-    texts = [email["subject"], email["preheader"], email["html"], email.get("text") or ""]
+    texts = [email["subject"], email["preheader"], email["html"], email.get("text") or "", from_name, reply_to]
     return TranslatedTransactionalEmail(
         subject=email["subject"],
         preheader=email["preheader"],
         html=email["html"],
         text=email.get("text") or "",
-        reply_to=email["replyTo"],
+        reply_to=reply_to,
         from_integration_id=sender.get("integrationId"),
-        from_name=sender.get("name") or "",
+        from_name=from_name,
         notes=tuple(notes),
         variables=_variable_names(texts, _VARIABLE),
         customer_attributes=_variable_names(texts, _CUSTOMER_ATTRIBUTE),

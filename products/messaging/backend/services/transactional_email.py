@@ -429,6 +429,7 @@ def _content(template: MessageTemplate) -> TransactionalEmailContent:
         from_email=sender.get("email") or "",
         from_name=sender.get("name") or "",
         reply_to=email.get("replyTo") or "",
+        click_tracking_enabled=template.click_tracking_enabled,
     )
 
 

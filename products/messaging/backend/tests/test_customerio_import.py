@@ -29,6 +29,7 @@ from products.messaging.backend.provider_imports.base import (
 from products.messaging.backend.services import customerio_exports
 from products.messaging.backend.tests.customerio_fake_server import KEY, NO_EXPORT_KEY, FakeCustomerIO, person
 from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
+from products.workflows.backend.facade.models import HogFlow
 
 CONTACT_RUN = ["categories", "suppressions", "opt_outs", "contacts", "new_people"]
 EXPORTS = "products.messaging.backend.services.customerio_exports"
@@ -363,7 +364,7 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
 PROVIDER_FLAGS_PATH = "products.messaging.backend.facade.provider_imports.feature_enabled_or_false"
 TRANSACTIONAL_MESSAGES = [
     {"id": 1, "name": "All uncategorized email messages", "send_to_unsubscribed": True},
-    {"id": 7, "name": "Password reset", "send_to_unsubscribed": True, "hide_message_body": True},
+    {"id": 7, "name": "Password reset", "send_to_unsubscribed": True, "link_tracking": False},
     {"id": 8, "name": "Subject only", "send_to_unsubscribed": True},
 ]
 TRANSACTIONAL_CONTENTS: dict[str, list[dict[str, Any]]] = {
@@ -374,6 +375,8 @@ TRANSACTIONAL_CONTENTS: dict[str, list[dict[str, Any]]] = {
             "language": "",
             "subject": "Reset your password, {{customer.first_name | default: 'there'}}",
             "preheader_text": "For {{customer['last_name']}}",
+            "from": "{{trigger.brand}} <hello@example.com>",
+            "reply_to": "{{customer.email}}",
             "body": "<html><body>{% for step in trigger.steps %}<p>{{step}}</p>{% endfor %}"
             '<a href="{{trigger.reset_url}}">Reset</a></body></html>',
             "body_plain": "Reset here: {{trigger.reset_url}}",
@@ -443,7 +446,10 @@ class TestCustomerIOTransactionalMessages(APIBaseTest):
         email = reset.content["email"]
         assert reset.transactional_hog_flow_id is not None
         assert templates["customerio-transactional-7-fr"].transactional_hog_flow_id is not None
-        assert reset.sensitive is True
+        email_step = HogFlow.objects.get(team=self.team, id=reset.transactional_hog_flow_id).actions[1]["config"]
+        assert email_step["click_tracking_enabled"] is False
+        assert email["from"]["name"] == "{{variables.brand}}"
+        assert email["replyTo"] == "{{variables.customer.email}}"
         assert email["from"]["integrationId"] == sender.id
         assert email["subject"] == "Reset your password, {{variables.customer.first_name | default: 'there'}}"
         assert "{% for step in variables.steps %}" in email["html"]
@@ -451,7 +457,10 @@ class TestCustomerIOTransactionalMessages(APIBaseTest):
         assert progress["counts"] == {"needs_review": 1, "created": 1, "empty": 1, "failed": 1}
         notes = " ".join(note for item in progress["items"] for note in item["notes"])
         assert "customerio-transactional-7-fr" in notes
-        assert "reads steps and reset_url" in notes and '"customer": {"first_name": ..., "last_name": ...}' in notes
+        assert (
+            "reads steps, reset_url and brand" in notes
+            and '"customer": {"first_name": ..., "last_name": ..., "email": ...}' in notes
+        )
 
         MessageTemplate.objects.filter(id=reset.id).update(name="Edited by the team")
         progress = self._import(api_key=None)

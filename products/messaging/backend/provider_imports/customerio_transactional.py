@@ -203,6 +203,7 @@ def _import_one(
                     "type": "email",
                     "content": {"templating": "liquid", "email": with_editor_design(email)},
                     "sensitive": bool(message.get("hide_message_body")),
+                    "click_tracking_enabled": False if message.get("link_tracking") is False else None,
                     "tags": [IMPORT_TAG],
                 },
             )
@@ -278,11 +279,8 @@ def _message_notes(message: dict[str, Any], content: dict[str, Any], languages: 
         )
     if message.get("queue_drafts"):
         notes.append("Customer.io holds each send as a draft for you to review. PostHog sends it right away.")
-    if message.get("open_tracking") is False or message.get("link_tracking") is False:
-        notes.append(
-            "Customer.io doesn't track opens or link clicks of this message. PostHog tracks both, so turn on Protect "
-            "sensitive data on the template's API tab if its links must keep their full address."
-        )
+    if message.get("open_tracking") is False:
+        notes.append("Customer.io doesn't track opens of this message. PostHog does.")
     return tuple(notes)
 
 

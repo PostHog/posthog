@@ -889,6 +889,8 @@ class TransactionalEmailContent:
     from_email: str = ""
     from_name: str = ""
     reply_to: str = ""
+    # None keeps the default: links are tracked unless the email is sensitive.
+    click_tracking_enabled: bool | None = None
 
 
 @frozen
