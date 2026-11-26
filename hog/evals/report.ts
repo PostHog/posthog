@@ -4,6 +4,9 @@
 //   bun hog/evals/report.ts --session <id>     # the shell commands and the final message of one session
 //   bun hog/evals/report.ts --json > results.json
 import { parseArgs } from 'node:util'
+import { z } from 'zod'
+
+import { parseJsonOrUndefined } from '../src/core/json'
 
 const { values } = parseArgs({
     options: {
@@ -13,11 +16,8 @@ const { values } = parseArgs({
     },
 })
 
-interface Decision {
-    criterionDescription: string
-    passed: boolean
-    feedback: string
-}
+const Decisions = z.array(z.object({ criterionDescription: z.string(), passed: z.boolean(), feedback: z.string() }))
+type Decision = z.infer<typeof Decisions>[number]
 
 interface Session {
     id: string
@@ -47,8 +47,10 @@ async function get<T>(path: string): Promise<T> {
     return (await response.json()) as T
 }
 
-function parsed<T>(value: string | T | null): T | null {
-    return typeof value === 'string' ? (JSON.parse(value) as T) : value
+// StuntHog stores a session's decisions as a JSON string.
+function decisionsOf(session: Session): Decision[] {
+    const { decisions } = session
+    return (typeof decisions === 'string' ? parseJsonOrUndefined(decisions, Decisions) : decisions) ?? []
 }
 
 if (values.session) {
@@ -80,7 +82,7 @@ const latest = [...latestByModel.values()].sort(
 )
 
 const rows = latest.map((session) => {
-    const decisions = parsed<Decision[]>(session.decisions) ?? []
+    const decisions = decisionsOf(session)
     return {
         id: session.id,
         eval: session.eval.title,
