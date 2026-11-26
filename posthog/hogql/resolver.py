@@ -3174,7 +3174,11 @@ class Resolver(CloningVisitor):
             return None
         try:
             database_field = field_type.resolve_database_field(self.context)
-            database_table = field_type.table_type.resolve_database_table(self.context)
+            database_table = (
+                field_type.table_type.resolve_database_table(self.context)
+                if isinstance(field_type.table_type, ast.BaseTableType)
+                else None
+            )
         except Exception:
             return None
         # A direct query runs on the external database, which may accept text with no digits,
