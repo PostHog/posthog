@@ -49,6 +49,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     AlertEventKind,
+    ControlChangeKind,
     DestinationType,
     Grouping,
     GroupingMode,
@@ -1119,9 +1120,18 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         team_id = self._canonical_team_id()
         current = self._readable_configuration(team_id, configuration_id)
         # Checks count every log, so a member who cannot see pipeline logs gets the state changes without the values.
+        # A check from before the last edit may have watched pipeline logs, so it hides its value too.
         hide_values = self._pipeline_logs_hidden(current.source_kind, current.source_config)
         read = platform_api.alert_events(
             team_id=team_id, configuration_id=configuration_id, since=timezone.now() - EVENTS_LOOKBACK, limit=limit
+        )
+        hide_before = (
+            max(
+                (change.occurred_at for change in read.changes.changes if change.kind != ControlChangeKind.RESET),
+                default=None,
+            )
+            if not hide_values and self._pipeline_logs_hidden(current.source_kind, {})
+            else None
         )
         events: list[dict[str, Any]] = [
             *(
@@ -1130,7 +1140,9 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                     "kind": PlatformAlertEventKind.CHECK,
                     "previous_state": check.previous_state,
                     "state": check.state,
-                    "value": None if hide_values else check.value,
+                    "value": None
+                    if hide_values or (hide_before is not None and check.occurred_at < hide_before)
+                    else check.value,
                     "error_message": check.error_message,
                     "grouping_key": check.grouping_key,
                     "condition": check.condition,

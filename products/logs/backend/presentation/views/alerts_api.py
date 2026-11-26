@@ -7,7 +7,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import F, Manager, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import F, Manager, Max, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
@@ -1718,6 +1718,32 @@ class _EventWindow(Sequence[LogsAlertEvent]):
         return self.newest[index]
 
 
+_EDIT_KINDS = {
+    LogsAlertEvent.Kind.ENABLE,
+    LogsAlertEvent.Kind.DISABLE,
+    LogsAlertEvent.Kind.SNOOZE,
+    LogsAlertEvent.Kind.UNSNOOZE,
+    LogsAlertEvent.Kind.THRESHOLD_CHANGE,
+}
+
+
+def _last_edit_at(alert: LogsAlertConfiguration) -> datetime | None:
+    """When a person last changed the alert, from either stack's history. A filter change made together with
+    a toggle or a snooze is recorded as that, so every edit kind counts.
+
+    Raises `PlatformHistoryUnavailable` when ClickHouse fails."""
+    edits = [
+        LogsAlertEvent.objects.filter(alert_id=alert.id, kind__in=_EDIT_KINDS).aggregate(at=Max("created_at"))["at"]
+    ]
+    if alert.platform_owned:
+        changes = _read_platform_history(
+            lambda: platform_control_rows(team_id=alert.team_id, alert_id=alert.id, kinds=_EDIT_KINDS, limit=1)
+        )
+        if changes is not None:
+            edits.extend(row.created_at for row in changes.rows)
+    return max((at for at in edits if at is not None), default=None)
+
+
 def _with_platform_history(
     alert: LogsAlertConfiguration, events: QuerySet[LogsAlertEvent], *, kind: str | None, rows_needed: int
 ) -> QuerySet[LogsAlertEvent] | _EventWindow:
@@ -2271,13 +2297,19 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError({"offset": f"Offset plus limit must be at most {MAX_MERGED_EVENT_ROWS}."})
         history = _with_platform_history(alert, queryset, kind=kind, rows_needed=rows_needed)
         # The checks count every log, so a member who cannot see pipeline logs gets the state changes without
-        # the counts.
+        # the counts. A check from before the last edit may have watched pipeline logs, so it hides its count too.
         (shown,) = _shown_from_copies([alert])
         hide_counts = pipeline_logs_hidden(team_id=alert.team_id, user=request.user, filters=shown.filters or {})
+        hide_before = (
+            _last_edit_at(alert)
+            if not hide_counts and pipeline_logs_hidden(team_id=alert.team_id, user=request.user, filters={})
+            else None
+        )
         page = self.paginate_queryset(history)
-        data = LogsAlertEventSerializer(history if page is None else page, many=True).data
-        if hide_counts:
-            for event in data:
+        rows = list(history if page is None else page)
+        data = LogsAlertEventSerializer(rows, many=True).data
+        for row, event in zip(rows, data):
+            if hide_counts or (hide_before is not None and row.created_at < hide_before):
                 event["result_count"] = None
         return Response(data) if page is None else self.get_paginated_response(data)
 

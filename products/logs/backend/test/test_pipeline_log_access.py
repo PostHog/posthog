@@ -430,16 +430,20 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("logs_restricted_pipeline", "logs", "restricted", _PIPELINE, None),
-            ("logs_restricted_app", "logs", "restricted", _APP, 6),
-            ("logs_granted_pipeline", "logs", "granted", _PIPELINE, 6),
-            ("platform_restricted_pipeline", "platform", "restricted", _PIPELINE, None),
-            ("platform_restricted_app", "platform", "restricted", _APP, 6),
-            ("platform_granted_pipeline", "platform", "granted", _PIPELINE, 6),
+            ("logs_restricted_pipeline", "logs", "restricted", _PIPELINE, False, None),
+            ("logs_restricted_app", "logs", "restricted", _APP, False, 6),
+            ("logs_granted_pipeline", "logs", "granted", _PIPELINE, False, 6),
+            ("logs_restricted_moved_off_pipeline", "logs", "restricted", _PIPELINE, True, None),
+            ("logs_granted_moved_off_pipeline", "logs", "granted", _PIPELINE, True, 6),
+            ("platform_restricted_pipeline", "platform", "restricted", _PIPELINE, False, None),
+            ("platform_restricted_app", "platform", "restricted", _APP, False, 6),
+            ("platform_granted_pipeline", "platform", "granted", _PIPELINE, False, 6),
+            ("platform_restricted_moved_off_pipeline", "platform", "restricted", _PIPELINE, True, None),
+            ("platform_granted_moved_off_pipeline", "platform", "granted", _PIPELINE, True, 6),
         ]
     )
     def test_alert_history_counts_follow_property_access(
-        self, _name: str, api: str, access: PropertyAccess, service: str, expected: int | None
+        self, _name: str, api: str, access: PropertyAccess, service: str, moved_to_app: bool, expected: int | None
     ) -> None:
         filters = {"serviceNames": [service]}
         condition = {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5}
@@ -474,6 +478,16 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
                     value=6,
                 )
                 url = f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/events/"
+            if moved_to_app:
+                app_filters = {"serviceNames": [_APP]}
+                body = (
+                    {"filters": app_filters}
+                    if api == "logs"
+                    else {"source_config": {"filters": app_filters, "condition": condition}}
+                )
+                with self.captureOnCommitCallbacks(execute=True):
+                    edited = self.client.patch(url.removesuffix("events/"), body, format="json")
+                assert edited.status_code == 200, edited.json()
             set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
 
             response = self.client.get(url)
@@ -483,5 +497,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
         events = events["results"] if api == "logs" else events
         count_field = "result_count" if api == "logs" else "value"
         assert [
-            (event["state"] if api == "platform" else event["state_after"], event[count_field]) for event in events
+            (event["state"] if api == "platform" else event["state_after"], event[count_field])
+            for event in events
+            if event["kind"] == "check"
         ] == [("firing", expected)]
