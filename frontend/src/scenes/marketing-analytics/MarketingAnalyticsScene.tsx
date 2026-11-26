@@ -200,7 +200,7 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
 
     const recommendations = featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS] ? (
-        <div className="mb-6">
+        <div className="mb-2">
             <RecommendationsSection />
         </div>
     ) : null
