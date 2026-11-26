@@ -573,7 +573,14 @@ describe('S3AttachmentStore', () => {
             await expect(store.load(1, ended, AbortSignal.timeout(10000))).rejects.toThrow(AttachmentsNotAdmittedError)
         })
 
-        it('refuses a live admission handed to a load outside its send, and loads nothing', async () => {
+        it.each([
+            ['outside any send', (load: () => Promise<unknown>) => load()],
+            [
+                'inside another live send',
+                (load: () => Promise<unknown>) =>
+                    inAdmissionFor([{ sha256: file().sha256, filename: 'b.pdf', sizeBytes: 1 }], () => load()),
+            ],
+        ])('refuses a live admission handed to a load %s, and loads nothing', async (_, loadFrom) => {
             const f = file()
             await uploaded(1, f)
             const files = [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }]
@@ -587,7 +594,7 @@ describe('S3AttachmentStore', () => {
             const live = await handedOut
 
             try {
-                await expect(store.load(1, live, AbortSignal.timeout(10000))).rejects.toThrow(
+                await expect(loadFrom(() => store.load(1, live, AbortSignal.timeout(10000)))).rejects.toThrow(
                     AttachmentsNotAdmittedError
                 )
             } finally {

@@ -20,7 +20,10 @@ const LONGEST_DEFERRAL_MS = 120_000
 export type DeferralReason = 'over_budget' | 'over_heap' | 'at_cap' | 'refused'
 
 declare const mintedByTheRegistry: unique symbol
-export type Admission = { readonly files: readonly EmailAttachmentMetadata[]; readonly [mintedByTheRegistry]: true }
+export type Admission = {
+    readonly files: readonly Readonly<EmailAttachmentMetadata>[]
+    readonly [mintedByTheRegistry]: true
+}
 type UnadmittedReason = 'outside_any_admission' | 'released' | 'other_files'
 
 const sendsInFlight = new Gauge({
@@ -145,7 +148,7 @@ export function requireAdmission(files: readonly EmailAttachmentMetadata[]): Adm
     return admission
 }
 
-export function admittedFiles(admission: Admission): readonly EmailAttachmentMetadata[] {
+export function admittedFiles(admission: Admission): readonly Readonly<EmailAttachmentMetadata>[] {
     if (!liveAdmissions.has(admission)) {
         throw refusedUnadmitted('released')
     }
@@ -243,7 +246,7 @@ export class InFlightRegistry {
         }
         const estimate = estimateSend(fileBytes)
         this.hold(estimate, 1)
-        const admission = { files: admitted } as Admission
+        const admission = Object.freeze({ files: admitted }) as Admission
         liveAdmissions.add(admission)
         const started = sendAdmission.run(admission, () =>
             sendCalls.run(new Set(), async () => {

@@ -48,7 +48,7 @@ export type UploadSlot =
 export type AttachmentRef = Omit<EmailAttachmentMetadata, 'sizeBytes'>
 export type AcceptedForSend = { files: EmailAttachmentMetadata[] }
 export type RefusedForSend = { refusal: 'attachment_not_uploaded'; sha256: Sha256Hex }
-export type LoadedAttachment = { file: EmailAttachmentMetadata; bytes: Uint8Array }
+export type LoadedAttachment = { file: Readonly<EmailAttachmentMetadata>; bytes: Uint8Array }
 
 export class AttachmentStoreUnavailableError extends Error {
     constructor(cause: unknown) {
