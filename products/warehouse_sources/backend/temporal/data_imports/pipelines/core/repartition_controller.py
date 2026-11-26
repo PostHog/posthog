@@ -285,8 +285,7 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
     ]
     if not partition_measurement_holds(measurement, earlier_jobs):
         return False
-    # Last, because the OOM count can read every team's recent OOM events, and job creation runs this
-    # check under a short timeout. A table with recent OOMs rarely gets here: its failed job breaks the chain.
+    # Last: the OOM count can read every team's OOM events, and job creation runs this under a short timeout.
     return (
         schema.is_append
         or ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
@@ -331,8 +330,7 @@ def repartition_activity_has_work(schema: ExternalDataSchema, job: ExternalDataJ
     try:
         return not pre_extraction_measurement_is_redundant(schema, job)
     except Exception:
-        # Job creation runs more queries after this one, so a connection the failed query left
-        # broken must not reach them.
+        # Job creation queries again after this, so drop a connection the failed query left broken.
         close_old_connections()
         return True
 
