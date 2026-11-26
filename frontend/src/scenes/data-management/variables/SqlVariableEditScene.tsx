@@ -84,6 +84,10 @@ export function SqlVariableEditScene(): JSX.Element {
         }
     }
 
+    const unchanged = !isNew && !hasChanges
+    const discardDisabledReason = unchanged ? 'No changes to discard' : undefined
+    const saveDisabledReason = unchanged ? 'No changes to save' : undefined
+
     const title = isNew ? 'New variable' : variableForm.name || 'Edit variable'
     const codeNameFallback = getCodeName(variableForm.name ?? '')
     const referenceCodeName = variableForm.code_name || codeNameFallback
@@ -113,7 +117,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                 <Button
                                     data-attr="discard-variable-changes"
                                     variant="outline"
-                                    disabledReason={!isNew && !hasChanges ? 'No changes to discard' : undefined}
+                                    disabledReason={discardDisabledReason}
                                     onClick={discardChanges}
                                 >
                                     Discard changes
@@ -123,7 +127,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                     variant="primary"
                                     onClick={submitVariableForm}
                                     loading={isVariableFormSubmitting}
-                                    disabledReason={!isNew && !hasChanges ? 'No changes to save' : undefined}
+                                    disabledReason={saveDisabledReason}
                                 >
                                     Save
                                 </Button>
@@ -134,7 +138,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                     data-attr="discard-variable-changes"
                                     type="secondary"
                                     size="small"
-                                    disabledReason={!isNew && !hasChanges ? 'No changes to discard' : undefined}
+                                    disabledReason={discardDisabledReason}
                                     onClick={discardChanges}
                                 >
                                     Discard changes
@@ -145,7 +149,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                     size="small"
                                     onClick={submitVariableForm}
                                     loading={isVariableFormSubmitting}
-                                    disabledReason={!isNew && !hasChanges ? 'No changes to save' : undefined}
+                                    disabledReason={saveDisabledReason}
                                 >
                                     Save
                                 </LemonButton>
