@@ -26,6 +26,27 @@
     }
 
     /*
+     * The selected item takes the brand fill of a checked Checkbox, Radio or
+     * Switch, so a column of groups shows at a glance which item each row has on.
+     * The group scope outranks the outline variant's hover fill, so the item
+     * stays filled under the cursor.
+     */
+    .quill-toggle-group .quill-toggle-group__item:is([aria-pressed='true'], [data-pressed]) {
+        color: var(--primary-foreground);
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+
+    .quill-toggle-group
+        .quill-toggle-group__item:is([aria-pressed='true'], [data-pressed]):not(
+            :disabled,
+            [aria-disabled='true']
+        ):hover {
+        color: var(--primary-foreground);
+        background-color: color-mix(in oklab, var(--primary) 95%, black);
+    }
+
+    /*
      * Only keyboard focus lifts above neighbors. Click focus would keep the
      * item at z-index 10 even after mouse-up; combined with the toggle's
      * translate snap-back, that left a frame where the item's border didn't
