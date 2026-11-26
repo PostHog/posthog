@@ -732,6 +732,7 @@ export const NotebookAppBlockKindEnumApi = {
  * * `auto` - Automatic
  * * `select` - Dropdown
  * * `slider` - Slider
+ * * `table` - Editable table
  */
 export type NotebookAppInputKindEnumApi = (typeof NotebookAppInputKindEnumApi)[keyof typeof NotebookAppInputKindEnumApi]
 
@@ -739,6 +740,7 @@ export const NotebookAppInputKindEnumApi = {
     Auto: 'auto',
     Select: 'select',
     Slider: 'slider',
+    Table: 'table',
 } as const
 
 /**
@@ -803,8 +805,15 @@ export interface NotebookAppBlockApi {
      *
      * * `auto` - Automatic
      * * `select` - Dropdown
-     * * `slider` - Slider */
+     * * `slider` - Slider
+     * * `table` - Editable table */
     input_kind?: NotebookAppInputKindEnumApi
+    /**
+     * Additional list variables displayed alongside the first column of a table input.
+     * @maxItems 9
+     * @items.maxLength 80
+     */
+    table_columns?: string[]
     /**
      * Allowed values for a dropdown.
      * @maxItems 100

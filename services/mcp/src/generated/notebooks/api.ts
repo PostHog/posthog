@@ -128,6 +128,10 @@ export const notebooksPartialUpdateBodyAppDraftOneBlocksItemVariableDefault = ``
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemVariableMax = 80
 
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemInputKindDefault = `auto`
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemTableColumnsItemMax = 80
+
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemTableColumnsMax = 9
+
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemOptionsMax = 100
@@ -169,6 +173,10 @@ export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemVariableDefault 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemVariableMax = 80
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemInputKindDefault = `auto`
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemTableColumnsItemMax = 80
+
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemTableColumnsMax = 9
+
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemOptionsItemMax = 1000
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemOptionsMax = 100
@@ -305,11 +313,22 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                                 .default(notebooksPartialUpdateBodyAppDraftOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'slider'])
-                                .describe('\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider')
+                                .enum(['auto', 'select', 'slider', 'table'])
+                                .describe(
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider\n\* `table` - Editable table'
+                                )
                                 .default(notebooksPartialUpdateBodyAppDraftOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider\n\* `table` - Editable table'
+                                ),
+                            table_columns: zod
+                                .array(
+                                    zod.string().max(notebooksPartialUpdateBodyAppDraftOneBlocksItemTableColumnsItemMax)
+                                )
+                                .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemTableColumnsMax)
+                                .optional()
+                                .describe(
+                                    'Additional list variables displayed alongside the first column of a table input.'
                                 ),
                             options: zod
                                 .array(zod.string().max(notebooksPartialUpdateBodyAppDraftOneBlocksItemOptionsItemMax))
@@ -421,11 +440,24 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                                 .default(notebooksPartialUpdateBodyAppPublishedOneBlocksItemVariableDefault)
                                 .describe('Notebook variable controlled by an input.'),
                             input_kind: zod
-                                .enum(['auto', 'select', 'slider'])
-                                .describe('\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider')
+                                .enum(['auto', 'select', 'slider', 'table'])
+                                .describe(
+                                    '\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider\n\* `table` - Editable table'
+                                )
                                 .default(notebooksPartialUpdateBodyAppPublishedOneBlocksItemInputKindDefault)
                                 .describe(
-                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider'
+                                    'Control used for an input.\n\n\* `auto` - Automatic\n\* `select` - Dropdown\n\* `slider` - Slider\n\* `table` - Editable table'
+                                ),
+                            table_columns: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemTableColumnsItemMax)
+                                )
+                                .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemTableColumnsMax)
+                                .optional()
+                                .describe(
+                                    'Additional list variables displayed alongside the first column of a table input.'
                                 ),
                             options: zod
                                 .array(

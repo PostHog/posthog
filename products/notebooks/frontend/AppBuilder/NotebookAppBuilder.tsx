@@ -71,7 +71,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
         useNotebookLayout,
         undo,
         redo,
-        setInputValue,
+        setInputValues,
         updateCellOutput,
         openSource,
         saveApp,
@@ -394,7 +394,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             onDuplicate={duplicateBlock}
                             onRemove={removeBlock}
                             onSource={openSource}
-                            onInput={setInputValue}
+                            onInput={setInputValues}
                             onCellOutput={updateCellOutput}
                         />
                     </main>

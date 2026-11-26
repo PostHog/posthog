@@ -38,7 +38,12 @@ def plan_viewer_queries(
 
 
 def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariableValue]) -> list[AppViewerQuery]:
-    allowed = {block["variable"] for block in release.layout["blocks"] if block["kind"] == "input"}
+    allowed = {
+        name
+        for block in release.layout["blocks"]
+        if block["kind"] == "input"
+        for name in [block["variable"], *(block.get("table_columns", []) if block.get("input_kind") == "table" else [])]
+    }
     if inputs.keys() - allowed:
         raise ValidationError("Choose a published app input.")
     defaults = build_notebook_variables(release.variables)

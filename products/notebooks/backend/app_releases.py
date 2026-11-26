@@ -97,7 +97,7 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
             markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS, group_anchored_prose=True
         )
     }
-    variables = {variable["name"] for variable in notebook.variables or []}
+    variables = {variable["name"]: variable.get("type") for variable in notebook.variables or []}
     result_ids = {
         block.node_id
         for block in blocks
@@ -113,6 +113,9 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
         name = block.title or block.id
         if block.kind == "input" and block.variable not in variables:
             problems.append(f"{name}: choose an existing notebook variable.")
+        if block.kind == "input" and block.input_kind == "table":
+            if any(variables.get(column) != "list" for column in [block.variable, *block.table_columns]):
+                problems.append(f"{name}: bind each table column to a list variable.")
         if block.kind != "cell":
             continue
         node_id = block.node_id

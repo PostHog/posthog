@@ -40,7 +40,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
     const { layout } = release
     const logic = notebookAppViewerLogic(viewer)
     const { variables, results, publishedResults, refreshFailed: error } = useValues(logic)
-    const { changeInput } = useActions(logic)
+    const { changeInput, changeInputs } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
     const chartInputFilters = Object.fromEntries(
@@ -95,7 +95,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                 editing={false}
                 selectedId={null}
                 canInteract
-                onInput={changeInput}
+                onInput={changeInputs}
                 renderOutput={(cell) =>
                     cell.type === 'component' && cell.tagName === 'SQLV2' ? (
                         <PublishedNotebookQuery

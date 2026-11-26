@@ -38,7 +38,12 @@ export interface ViewerResults {
 
 function exposedVariables(release: NotebookAppReleaseApi): NotebookVariable[] {
     return parseNotebookVariables(release.variables).filter((variable) =>
-        release.layout.blocks.some((block) => block.kind === 'input' && block.variable === variable.name)
+        release.layout.blocks.some(
+            (block) =>
+                block.kind === 'input' &&
+                (block.variable === variable.name ||
+                    (block.input_kind === 'table' && block.table_columns?.includes(variable.name)))
+        )
     )
 }
 
@@ -124,6 +129,7 @@ export interface notebookAppViewerLogicActions {
         name: string
         value: NotebookVariableValue
     }
+    changeInputs: (changes: Record<string, NotebookVariableValue>) => { changes: Record<string, NotebookVariableValue> }
     loadRelease: () => any
     loadReleaseFailure: (
         error: string,
@@ -199,6 +205,7 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
     path((key) => ['products', 'notebooks', 'appBuilder', 'notebookAppViewerLogic', key]),
     actions({
         changeInput: (name: string, value: NotebookVariableValue) => ({ name, value }),
+        changeInputs: (changes: Record<string, NotebookVariableValue>) => ({ changes }),
         setAuto: (auto: boolean) => ({ auto }),
     }),
     loaders(({ props, values, cache }) => ({
@@ -291,9 +298,11 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
             [] as NotebookVariable[],
             {
                 loadReleaseSuccess: (_, { release }) => exposedVariables(release),
-                changeInput: (variables, { name, value }) =>
+                changeInputs: (variables, { changes }) =>
                     variables.map((v) =>
-                        v.name === name ? { ...v, value: coerceNotebookVariableValue(v.type, value) } : v
+                        Object.hasOwn(changes, v.name)
+                            ? { ...v, value: coerceNotebookVariableValue(v.type, changes[v.name]) }
+                            : v
                     ),
             },
         ],
@@ -319,7 +328,8 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
             actions.restore(release)
             posthog.capture('notebook app viewed', { short_id: props.shortId, revision: release.revision })
         },
-        changeInput: () => {
+        changeInput: ({ name, value }) => actions.changeInputs({ [name]: value }),
+        changeInputs: () => {
             if (values.auto) {
                 actions.refresh()
             }

@@ -13,6 +13,7 @@ import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/N
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import { NotebookAppInput } from './NotebookAppInput'
 import { appCellMarkdown } from './notebookAppLayout'
+import { NotebookAppTableInput } from './NotebookAppTableInput'
 
 export function NotebookAppBlock({
     block,
@@ -31,7 +32,7 @@ export function NotebookAppBlock({
     onSource?: (id: string) => void
     variables: NotebookVariable[]
     canInteract: boolean
-    onInput: (name: string, value: NotebookVariableValue) => void
+    onInput: (changes: Record<string, NotebookVariableValue>) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
     renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
 }): JSX.Element {
@@ -46,13 +47,32 @@ export function NotebookAppBlock({
             </div>
         )
     }
+    if (block.kind === 'input' && block.input_kind === 'table') {
+        const names = [block.variable || '', ...(block.table_columns ?? [])]
+        const lists = names.flatMap((name) => {
+            const variable = variables.find((v) => v.name === name && v.type === 'list')
+            return variable ? [{ name, values: Array.isArray(variable.value) ? variable.value : [] }] : []
+        })
+        if (lists.length !== names.length) {
+            return <LemonBanner type="warning">Choose a list variable for every table column.</LemonBanner>
+        }
+        return (
+            <NotebookAppTableInput
+                key={JSON.stringify(lists)}
+                title={block.title || block.variable || 'Table'}
+                columns={lists}
+                disabled={!canInteract}
+                onApply={onInput}
+            />
+        )
+    }
     if (block.kind === 'input') {
         return (
             <NotebookAppInput
                 block={block}
                 variable={variables.find((variable) => variable.name === block.variable)}
                 disabled={!canInteract}
-                onChange={(value) => onInput(block.variable || '', value)}
+                onChange={(value) => onInput({ [block.variable || '']: value })}
             />
         )
     }

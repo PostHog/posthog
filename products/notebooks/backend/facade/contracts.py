@@ -26,6 +26,8 @@ class AppBlockSource:
     variable: str = ""
     node_id: str = ""
     display: str = ""
+    input_kind: str = ""
+    table_columns: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, kw_only=True)

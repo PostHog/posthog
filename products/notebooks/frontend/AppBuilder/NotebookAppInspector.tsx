@@ -155,7 +155,14 @@ export function NotebookAppInspector({
                                 fullWidth
                                 value={block.variable}
                                 options={variables.map((variable) => ({ value: variable.name, label: variable.name }))}
-                                onChange={(variable) => onBlock(block.id, { variable })}
+                                onChange={(variable) =>
+                                    onBlock(
+                                        block.id,
+                                        block.input_kind === 'table'
+                                            ? { variable, input_kind: 'auto', table_columns: [] }
+                                            : { variable }
+                                    )
+                                }
                             />
                             <LemonLabel>Control</LemonLabel>
                             <LemonSelect
@@ -163,6 +170,12 @@ export function NotebookAppInspector({
                                 value={block.input_kind ?? 'auto'}
                                 options={[
                                     { value: 'auto', label: 'Match variable type' },
+                                    {
+                                        value: 'table',
+                                        label: 'Editable table',
+                                        disabledReason:
+                                            variableType !== 'list' ? 'Choose a list variable first' : undefined,
+                                    },
                                     {
                                         value: 'select',
                                         label: variableType === 'list' ? 'Multi-select dropdown' : 'Dropdown',
@@ -174,8 +187,33 @@ export function NotebookAppInspector({
                                             variableType !== 'number' ? 'Select a number variable first' : undefined,
                                     },
                                 ]}
-                                onChange={(input_kind) => onBlock(block.id, { input_kind })}
+                                onChange={(input_kind) => onBlock(block.id, { input_kind, table_columns: undefined })}
                             />
+                            {block.input_kind === 'table' && (
+                                <>
+                                    <LemonLabel>Additional columns</LemonLabel>
+                                    {variables
+                                        .filter((v) => v.type === 'list' && v.name !== block.variable)
+                                        .map((v) => (
+                                            <LemonCheckbox
+                                                key={v.name}
+                                                label={v.name}
+                                                checked={block.table_columns?.includes(v.name) ?? false}
+                                                onChange={(checked) =>
+                                                    onBlock(block.id, {
+                                                        table_columns: checked
+                                                            ? [...(block.table_columns ?? []), v.name]
+                                                            : block.table_columns?.filter((name) => name !== v.name),
+                                                    })
+                                                }
+                                            />
+                                        ))}
+                                    <p className="text-xs text-secondary">
+                                        Each column writes to a list variable. Add list variables in the notebook to
+                                        offer more columns.
+                                    </p>
+                                </>
+                            )}
                             {block.input_kind === 'select' && (
                                 <>
                                     <LemonLabel>Options (one per line)</LemonLabel>

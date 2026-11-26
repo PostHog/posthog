@@ -61,6 +61,7 @@ class NotebookAppInputKind(models.TextChoices):
     AUTO = "auto", "Automatic"
     SELECT = "select", "Dropdown"
     SLIDER = "slider", "Slider"
+    TABLE = "table", "Editable table"
 
 
 class NotebookAppCellDisplay(models.TextChoices):
@@ -85,6 +86,12 @@ class NotebookAppBlockSerializer(serializers.Serializer):
     input_kind = serializers.ChoiceField(
         choices=NotebookAppInputKind.choices, default="auto", help_text="Control used for an input."
     )
+    table_columns = serializers.ListField(
+        child=serializers.CharField(max_length=80),
+        max_length=9,
+        required=False,
+        help_text="Additional list variables displayed alongside the first column of a table input.",
+    )
     options = serializers.ListField(
         child=serializers.CharField(max_length=1000),
         max_length=100,
@@ -107,6 +114,10 @@ class NotebookAppBlockSerializer(serializers.Serializer):
             raise serializers.ValidationError({"node_id": "Choose a notebook cell."})
         if attrs["kind"] == "input" and not attrs["variable"]:
             raise serializers.ValidationError({"variable": "Choose a notebook variable."})
+        if attrs.get("table_columns"):
+            columns = [attrs["variable"], *attrs["table_columns"]]
+            if attrs["kind"] != "input" or attrs["input_kind"] != "table" or len(columns) != len(set(columns)):
+                raise serializers.ValidationError({"table_columns": "Choose distinct list variables for the table."})
         if attrs["min"] >= attrs["max"]:
             raise serializers.ValidationError({"max": "Maximum must be greater than minimum."})
         return attrs
