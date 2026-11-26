@@ -192,6 +192,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "manually_added": "Whether the membership was granted explicitly, not synced from user-group tags.",
         },
     },
+    "rate_limits": {
+        "description": "A rate limit key of the Hatchet tenant, with its limit, its window, and the units left in the current window.",
+        "docs_url": "https://docs.hatchet.run/v1/rate-limits",
+        "columns": {
+            "key": "The key for the rate limit.",
+            "tenantId": "Identifier of the tenant associated with this rate limit.",
+            "limitValue": "The maximum number of units allowed within the window.",
+            "value": "The units left in the current window. It resets to limitValue at each refill.",
+            "window": "The window of time in which the limitValue is enforced.",
+            "lastRefill": "The last time the rate limit was refilled.",
+            "pausedUntil": "When the pause of the rate limit ends, if it is paused. Runs that consume a paused key stay queued until then.",
+        },
+    },
     "logs": {
         "description": "A log line emitted by a Hatchet task.",
         "docs_url": "https://docs.hatchet.run/home/logging",

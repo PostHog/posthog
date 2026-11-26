@@ -11,8 +11,10 @@ import { AccessControlLevel } from '~/types'
 
 /**
  * The dashboard document as JSON. These schemas are the only definition of its shape: the types in `dashboardTypes.ts`
- * are inferred from them, and `validateDashboard` checks documents against them. Objects are strict, so a misspelled
- * field in a hand-written dashboard is reported instead of ignored.
+ * are inferred from them, and `validateDashboard` checks documents against them. Objects accept fields they don't
+ * know, as the boards API does, so a board a newer client saved still opens. Parsing strips those fields, so load the
+ * document as given once it is valid, and the fields survive the next save. `validateDashboard` reports them as
+ * warnings, so a misspelled field in a hand-written dashboard still shows.
  */
 
 /**
@@ -67,9 +69,9 @@ const timePointSchema = z
  * The time range a query runs over. Each end is an expression such as `now-7d` or `now`, or an ISO 8601 time. Keep
  * relative ends relative, because the backend then caches the result under the same key on every reload.
  */
-export const timeRangeSchema = z.strictObject({ from: timePointSchema, to: timePointSchema })
+export const timeRangeSchema = z.object({ from: timePointSchema, to: timePointSchema })
 
-export const tilePlaceSchema = z.strictObject({
+export const tilePlaceSchema = z.object({
     x: z.int().nonnegative(),
     y: z.int().nonnegative(),
     w: z.int().positive(),
@@ -77,13 +79,13 @@ export const tilePlaceSchema = z.strictObject({
 })
 
 /** Which parts of a content tile show. A part that is missing shows. */
-export const contentPanelPartsSchema = z.strictObject({
+export const contentPanelPartsSchema = z.object({
     header: z.boolean().optional(),
     footer: z.boolean().optional(),
 })
 
 /** How a tile looks. A setting that is missing is on. A section has no background to change. */
-export const tileAppearanceSchema = z.strictObject({
+export const tileAppearanceSchema = z.object({
     border: z.boolean().optional(),
     /** Any CSS color. The tile mixes it into its background as a tint, and `transparent` removes the background. */
     backgroundColor: z.string().min(1).optional(),
@@ -93,7 +95,7 @@ export const tileAppearanceSchema = z.strictObject({
  * The fields every content tile has. Everything specific to the panel type, such as a chart's query, sits in
  * `config`, which is checked against the type's own `configSchema`.
  */
-export const contentPanelSchema = z.strictObject({
+export const contentPanelSchema = z.object({
     /** Names the panel type that renders it. The host supplies the types, so this is open, except for `section`. */
     type: z.string().refine((type) => type !== 'section', 'A section needs a title and tiles'),
     title: z.string().optional(),
@@ -110,7 +112,7 @@ export const contentPanelSchema = z.strictObject({
 export const sharedPanelSchema = contentPanelSchema.omit({ parts: true, appearance: true, ref: true })
 
 /** A tile's panel in a saved document when the panel is shared: its key in `panels`, and how this tile shows it. */
-export const panelRefSchema = z.strictObject({
+export const panelRefSchema = z.object({
     ref: z.string().min(1),
     parts: contentPanelPartsSchema.optional(),
     appearance: tileAppearanceSchema.optional(),
@@ -120,7 +122,7 @@ export const panelRefSchema = z.strictObject({
  * A grid inside a tile. Its cells line up with the cells of the grid it sits in: one row for the header, then its
  * own tiles. Its height always fits its tiles, so `place.h` of a section tile is worked out, never chosen.
  */
-export const sectionPanelSchema = z.strictObject({
+export const sectionPanelSchema = z.object({
     type: z.literal('section'),
     title: z.string(),
     collapsed: z.boolean().optional(),
@@ -132,7 +134,7 @@ export const sectionPanelSchema = z.strictObject({
     },
 })
 
-export const tileSchema = z.strictObject({
+export const tileSchema = z.object({
     id: z.string().min(1),
     place: tilePlaceSchema,
     get panel(): z.ZodUnion<[typeof sectionPanelSchema, typeof contentPanelSchema]> {
@@ -140,14 +142,14 @@ export const tileSchema = z.strictObject({
     },
 })
 
-export const gridTabSchema = z.strictObject({
+export const gridTabSchema = z.object({
     id: z.string().min(1),
     title: z.string(),
     tiles: z.array(tileSchema),
 })
 
 /** A tab that goes somewhere else when picked, such as another dashboard or another page, and holds no tiles. */
-export const linkTabSchema = z.strictObject({
+export const linkTabSchema = z.object({
     id: z.string().min(1),
     title: z.string(),
     /** A path in PostHog, such as `/dashboard-v2?tab=errors`, or an http(s) URL. Anything else could run script. */
@@ -165,7 +167,7 @@ export const dashboardTabSchema = z.union([gridTabSchema, linkTabSchema])
  * A filter a person added to the dashboard. `type` names a kind of filter the host supplies, and `config` is that
  * kind's own settings, such as which property it filters on. The value picked is not saved: each viewer picks their own.
  */
-export const dashboardFilterSchema = z.strictObject({
+export const dashboardFilterSchema = z.object({
     id: z.string().min(1),
     type: z.string().min(1),
     label: z.string().optional(),
@@ -174,10 +176,20 @@ export const dashboardFilterSchema = z.strictObject({
 
 export const ONE_GRID_TAB = 'A dashboard needs at least one tab with tiles'
 
-export const dashboardSchema = z.strictObject({
-    version: z.literal(2),
+export const DASHBOARD_SCHEMA_VERSION = 2 as const
+
+export const dashboardSchema = z.object({
+    version: z.literal(DASHBOARD_SCHEMA_VERSION, {
+        error: (issue) =>
+            typeof issue.input === 'number' && issue.input > DASHBOARD_SCHEMA_VERSION
+                ? 'This dashboard was saved by a newer version of PostHog. Refresh the page to open it.'
+                : `A dashboards v2 document has version ${DASHBOARD_SCHEMA_VERSION}`,
+    }),
     title: z.string(),
     description: z.string().optional(),
+    /** Copied out of the document by the boards API, so a list of boards can show and filter them. */
+    tags: z.array(z.string()).optional(),
+    folder: z.string().optional(),
     /** The viewer's access to this dashboard, as v1 dashboards carry it. Missing means the project-wide level. */
     user_access_level: z.enum(AccessControlLevel).optional(),
     /** The time range of every panel that does not set its own. Missing means each panel keeps its own. */

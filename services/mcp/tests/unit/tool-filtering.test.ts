@@ -1150,6 +1150,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-email-activity',
             'scout-trials',
             'scout-scratchpad-discard-mcp',
+            'scout-config-retrieve-mcp',
             'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
