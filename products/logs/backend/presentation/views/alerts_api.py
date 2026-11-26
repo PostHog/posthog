@@ -1155,6 +1155,17 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             elif threshold_changed:
                 apply_outcome(instance, apply_threshold_change(snapshot), kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE)
                 close_reason = IncidentCloseReason.CONFIG_CHANGED
+            if _any_field_changed(instance, validated_data, {"filters"}) and (
+                enabled_change is not None or snooze_data is not _SENTINEL
+            ):
+                # Alert history hides earlier counts from restricted members from the last filter change on.
+                LogsAlertEvent.objects.create(
+                    alert=instance,
+                    kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE,
+                    threshold_breached=False,
+                    state_before=instance.state,
+                    state_after=instance.state,
+                )
             # The edge check inside decides whether a close goes out, so a new branch above that forgets
             # its reason still closes the incident.
             close_incident_on_commit(
@@ -1713,23 +1724,13 @@ class _EventWindow(Sequence[LogsAlertEvent]):
         return self.newest[index]
 
 
-_EDIT_KINDS = {
-    LogsAlertEvent.Kind.ENABLE,
-    LogsAlertEvent.Kind.DISABLE,
-    LogsAlertEvent.Kind.SNOOZE,
-    LogsAlertEvent.Kind.UNSNOOZE,
-    LogsAlertEvent.Kind.THRESHOLD_CHANGE,
-}
-
-
-def _last_edit_at(alert: LogsAlertConfiguration) -> datetime | None:
+def _last_config_change_at(alert: LogsAlertConfiguration) -> datetime | None:
     """Raises `PlatformHistoryUnavailable` when ClickHouse fails."""
-    edits = [
-        LogsAlertEvent.objects.filter(alert_id=alert.id, kind__in=_EDIT_KINDS).aggregate(at=Max("created_at"))["at"]
-    ]
+    kinds = {LogsAlertEvent.Kind.THRESHOLD_CHANGE}
+    edits = [LogsAlertEvent.objects.filter(alert_id=alert.id, kind__in=kinds).aggregate(at=Max("created_at"))["at"]]
     if alert.platform_owned:
         changes = _read_platform_history(
-            lambda: platform_control_rows(team_id=alert.team_id, alert_id=alert.id, kinds=_EDIT_KINDS, limit=1)
+            lambda: platform_control_rows(team_id=alert.team_id, alert_id=alert.id, kinds=kinds, limit=1)
         )
         if changes is not None:
             edits.extend(row.created_at for row in changes.rows)
@@ -2289,11 +2290,11 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError({"offset": f"Offset plus limit must be at most {MAX_MERGED_EVENT_ROWS}."})
         history = _with_platform_history(alert, queryset, kind=kind, rows_needed=rows_needed)
         # The checks count every log, so a member who cannot see pipeline logs gets the state changes without
-        # the counts. A check from before the last edit may have read pipeline logs.
+        # the counts. A check from before the last change to its settings may have read pipeline logs.
         (shown,) = _shown_from_copies([alert])
         hide_counts = pipeline_logs_hidden(team_id=alert.team_id, user=request.user, filters=shown.filters or {})
         hide_before = (
-            _last_edit_at(alert)
+            _last_config_change_at(alert)
             if not hide_counts and pipeline_logs_hidden(team_id=alert.team_id, user=request.user, filters={})
             else None
         )

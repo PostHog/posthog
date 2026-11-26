@@ -421,18 +421,36 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("logs_restricted_pipeline", "logs", "restricted", _PIPELINE, False, None),
-            ("logs_restricted_app", "logs", "restricted", _APP, False, 6),
-            ("logs_granted_pipeline", "logs", "granted", _PIPELINE, False, 6),
-            ("logs_restricted_moved_off_pipeline", "logs", "restricted", _PIPELINE, True, None),
-            ("platform_restricted_pipeline", "platform", "restricted", _PIPELINE, False, None),
-            ("platform_restricted_app", "platform", "restricted", _APP, False, 6),
-            ("platform_granted_pipeline", "platform", "granted", _PIPELINE, False, 6),
-            ("platform_restricted_moved_off_pipeline", "platform", "restricted", _PIPELINE, True, None),
+            ("logs_restricted_pipeline", "logs", "restricted", _PIPELINE, None, None),
+            ("logs_restricted_app", "logs", "restricted", _APP, None, 6),
+            ("logs_granted_pipeline", "logs", "granted", _PIPELINE, None, 6),
+            ("logs_restricted_moved_off_pipeline", "logs", "restricted", _PIPELINE, "move_to_app", None),
+            (
+                "logs_restricted_moved_off_pipeline_and_disabled",
+                "logs",
+                "restricted",
+                _PIPELINE,
+                "move_and_disable",
+                None,
+            ),
+            ("logs_restricted_app_disabled", "logs", "restricted", _APP, "disable", 6),
+            ("platform_restricted_pipeline", "platform", "restricted", _PIPELINE, None, None),
+            ("platform_restricted_app", "platform", "restricted", _APP, None, 6),
+            ("platform_granted_pipeline", "platform", "granted", _PIPELINE, None, 6),
+            ("platform_restricted_moved_off_pipeline", "platform", "restricted", _PIPELINE, "move_to_app", None),
+            (
+                "platform_restricted_moved_off_pipeline_and_disabled",
+                "platform",
+                "restricted",
+                _PIPELINE,
+                "move_and_disable",
+                None,
+            ),
+            ("platform_restricted_app_disabled", "platform", "restricted", _APP, "disable", 6),
         ]
     )
     def test_alert_history_counts_follow_property_access(
-        self, _name: str, api: str, access: PropertyAccess, service: str, moved_to_app: bool, expected: int | None
+        self, _name: str, api: str, access: PropertyAccess, service: str, edit: str | None, expected: int | None
     ) -> None:
         filters = {"serviceNames": [service]}
         condition = {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5}
@@ -467,13 +485,18 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
                     value=6,
                 )
                 url = f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/events/"
-            if moved_to_app:
+            if edit is not None:
                 app_filters = {"serviceNames": [_APP]}
-                body = (
+                move = (
                     {"filters": app_filters}
                     if api == "logs"
                     else {"source_config": {"filters": app_filters, "condition": condition}}
                 )
+                body = {
+                    "move_to_app": move,
+                    "move_and_disable": {**move, "enabled": False},
+                    "disable": {"enabled": False},
+                }[edit]
                 with self.captureOnCommitCallbacks(execute=True):
                     edited = self.client.patch(url.removesuffix("events/"), body, format="json")
                 assert edited.status_code == 200, edited.json()
