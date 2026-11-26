@@ -12,7 +12,6 @@ const KEYWORDS = new Set([
     'ifnot',
     'default',
     'atan2',
-    'limit',
     'prefix',
 ])
 const WORD = /[a-zA-Z_:][a-zA-Z0-9_:.]*/y
@@ -72,11 +71,12 @@ export function selectorsOf(expr: string): string[] {
                 continue
             }
             const next = nextNonSpace(expr, at + word.length)
-            if (LABEL_LISTS.has(word) && expr[next] === '(') {
-                at = afterGroup(expr, next, '(', ')')
+            if (LABEL_LISTS.has(word)) {
+                at = expr[next] === '(' ? afterGroup(expr, next, '(', ')') : at + word.length
             } else if (
                 expr[next] === '(' ||
                 KEYWORDS.has(word.toLowerCase()) ||
+                (word.toLowerCase() === 'limit' && /[0-9]/.test(expr[next] ?? '')) ||
                 LABEL_LISTS.has(match(WORD, expr, next) ?? '')
             ) {
                 at += word.length
