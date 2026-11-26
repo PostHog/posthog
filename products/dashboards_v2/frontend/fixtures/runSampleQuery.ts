@@ -3,6 +3,9 @@ import { PropertyOperator } from '~/types'
 import { type AnalyticsPropertyFilter, analyticsPropertyFilters } from '../filters/analytics/analyticsPropertyFilters'
 import type { DataFrame, RunQuery, WidgetQuery } from '../widgets/chart/vizTypes'
 
+// TODO(2026-11-25): Delete once the scene always runs real queries through the query batch runner.
+// Without both v2 query flags, the scene draws charts from these seeded sample frames.
+
 const DAYS = 14
 
 function seededRandom(seed: string): () => number {
