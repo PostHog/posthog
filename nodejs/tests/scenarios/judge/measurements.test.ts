@@ -121,8 +121,8 @@ const BACKED_UP = { due: 50, oldestDueSeconds: 30 }
 
 type Read = typeof QUIET | 'failed' | 'missed'
 
-const probedQueue = (lag: (second: number) => Read): QueueSample[] =>
-    everySecondOf(0, 1500, 5).flatMap((second): QueueSample[] => {
+const probedQueue = (lag: (second: number) => Read, step = 5): QueueSample[] =>
+    everySecondOf(0, 1500, step).flatMap((second): QueueSample[] => {
         const read = lag(second)
         return read === 'missed'
             ? []
@@ -554,6 +554,17 @@ describe('measurements', () => {
         expect(measure([{ name, params: {} }], evidence({ queue, drive: DRIVE, timeline }))).toEqual(
             measured.map((value) => ({ name, unit: 's', ...value }))
         )
+    })
+
+    it('peaks the oldest due age over more reads than one call takes arguments', () => {
+        const queue = probedQueue((second) => (between(720, 760)(second) ? BACKED_UP : QUIET), 0.002)
+
+        expect(
+            measure(
+                [{ name: 'queue_lag_peak_seconds', params: {} }],
+                evidence({ queue, drive: DRIVE, timeline: [VALVE] })
+            )
+        ).toEqual([{ name: 'queue_lag_peak_seconds', unit: 's', value: 30 }])
     })
 
     const errors = (

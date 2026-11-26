@@ -201,7 +201,12 @@ describe('scorecard', () => {
             statusReason: 'the run stopped: statement timeout',
             units: undefined,
             convergence: undefined,
+            janitorResets: undefined,
             invariants: [],
+            measurements: [],
+            admissions: [],
+            bars: [],
+            restarts: undefined,
             stopped: { phase: 'seed', stack: 'Error: statement timeout\n    at seed (runner.ts:1:1)' },
         }
 
@@ -213,7 +218,11 @@ describe('scorecard', () => {
             send_retries: null,
             converged: null,
             unfinished_jobs: null,
+            janitor_resets: null,
             invariants_failed: [],
+            admissions: [],
+            bars: [],
+            role_restarts: [],
         })
     })
 
