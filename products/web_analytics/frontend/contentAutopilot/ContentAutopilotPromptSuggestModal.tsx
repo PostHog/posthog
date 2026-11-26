@@ -298,7 +298,9 @@ export const ContentAutopilotPromptSuggestModal = (): JSX.Element => {
         contentAutopilotPromptSuggestionsLogic
     )
     // A job saved from an earlier visit is fetched again on mount, so it shows as loading rather than the empty form.
-    const view: SuggestView = editingInputs ? 'form' : job ? job.status : jobRef ? 'loading' : 'form'
+    // A cancelled job left nothing to review, so it opens the form again.
+    const view: SuggestView =
+        editingInputs || job?.status === 'cancelled' ? 'form' : job ? job.status : jobRef ? 'loading' : 'form'
     const domain = jobRef?.domain || siteDomain(form.domain) || 'your site'
     const noSiteReason = !siteDomain(form.domain) ? 'Enter your site' : undefined
     const noSuggestions = view === 'completed' && (job?.suggestions.length ?? 0) === 0
