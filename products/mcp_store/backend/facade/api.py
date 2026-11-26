@@ -492,6 +492,14 @@ def slack_mcp_user_scopes(team_id: int, user_id: int | None) -> tuple[str, ...]:
     return tuple(template.oauth_scope_allowlist or ()) if template is not None else ()
 
 
+def has_slack_mcp_connected(team_id: int, user_id: int) -> bool:
+    """Whether the member's tasks mount a working Slack MCP, so an agent can read Slack with the member's access."""
+    ready_ids = [installation.id for installation in get_active_installations(team_id, user_id)]
+    if not ready_ids:
+        return False
+    return MCPServerInstallation.objects.filter(team_id=team_id, id__in=ready_ids, url=SLACK_MCP_URL).exists()
+
+
 # The token keys of an installation that holds its own token. A linked installation has none of them.
 _OWN_TOKEN_KEYS = ("access_token", "refresh_token", "token_retrieved_at", "expires_in", "needs_reauth")
 

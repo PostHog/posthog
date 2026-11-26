@@ -124,7 +124,7 @@ function bulkAcceptOptions(
         return undefined
     }
     return deprecateOptions(suggestion, {
-        deleteView: choices.deleteViews,
+        deprecateAction: choices.deleteViews ? 'delete' : 'deprecate',
         keepMaterialized: choices.keepMaterialized,
     })
 }

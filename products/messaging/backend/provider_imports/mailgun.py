@@ -1,10 +1,11 @@
-"""Imports suppressions, mailing list opt-outs, templates and the domain list from Mailgun.
+"""Imports suppressions, mailing list opt-outs and members, templates and the domain list from Mailgun.
 
 Mailgun keeps suppressions, mailing lists and templates per region and mostly per domain, while PostHog keeps them per
 team. So every step walks a sorted list of targets (a domain, a list, or an account's templates) and its checkpoint
 names the target and the page inside it. Merging domains can only block more email than Mailgun does, never less.
 
-Mailgun's API has no automations, so nothing here makes a workflow. People never move: list steps read only who left.
+Mailgun's API has no automations, so nothing here makes a workflow. List members become people only in the
+contacts step, matched by email.
 """
 
 import re
@@ -13,7 +14,7 @@ import hashlib
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import field
+from dataclasses import field, replace
 from datetime import datetime
 from email.utils import parseaddr, parsedate_to_datetime
 from functools import partial
@@ -41,9 +42,18 @@ from products.messaging.backend.provider_imports.base import (
     ImportSettingChoice,
     ImportSettingSpec,
     ImportStepSpec,
+    ImportTooLarge,
     SavedPage,
     StepCheckpoint,
     UnknownImportStep,
+)
+from products.messaging.backend.provider_imports.contacts import (
+    CONTACT_COUNT_LABELS,
+    ContactCollector,
+    ContactList,
+    new_people_page,
+    new_people_step,
+    save_contact_lists,
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.imported_senders import apply_sender
@@ -69,6 +79,7 @@ from products.messaging.backend.services.mailgun_client import (
     quoted,
 )
 from products.messaging.backend.services.message_templates import create_template, with_editor_design
+from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit.
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
@@ -90,6 +101,23 @@ NO_DOMAINS_MESSAGE = (
     "Mailgun has no domains for this key in the {regions} region. Everything PostHog imports belongs to a domain, so "
     "nothing would come across. Check which region your domains are in on Mailgun's domains page and choose it."
 )
+CONTACTS_FLAG = "workflows-mailgun-contacts-import"
+# Each list becomes its own cohort, and the contacts step saves them all in one transaction.
+MAX_CONTACT_LISTS = 500
+TOO_MANY_LISTS_MESSAGE = (
+    f"This account has more than {MAX_CONTACT_LISTS} mailing lists, more than one contacts import takes. Upload the "
+    "lists you need as CSV files instead."
+)
+# Mailgun ends a list with an empty page, so a full page that names no next page was cut short.
+LISTS_CUT_SHORT_MESSAGE = "Mailgun didn't return all your mailing lists. Import again in a few minutes."
+LIST_CUT_SHORT_MESSAGE = "{name}: Mailgun didn't return everything. Import again in a few minutes."
+LIST_CHANGED_MESSAGE = (
+    "{name}: Mailgun didn't return the whole list, so no cohort changed. Import again in a few minutes."
+)
+OPT_OUTS_MISSING_MESSAGE = (
+    "Mailgun couldn't find {place}, so its {what} weren't read. Import again later, or leave Contacts out of this "
+    "import."
+)
 IMPORT_TAG = "imported-from-mailgun"
 COMPLAINT_REASON_PREFIX = "Imported from Mailgun (spam complaint on "
 REGION_SETTING = "region"
@@ -106,6 +134,7 @@ _MAX_KEY_NAME_LENGTH = 150
 CATEGORY_KEY_MAX_LENGTH = 64
 _UNSAFE_IN_KEY = re.compile(r"[^A-Za-z0-9_-]+")
 _MAX_NOTED_ITEMS = 5
+CONTACT_OPT_OUT_STEPS = ("bounces", "complaints", "unsubscribes", "mailing_lists")
 _STEPS_NEEDING_SUPPRESSION_ROLE = {step: step for step in ("bounces", "complaints", "unsubscribes")}
 
 
@@ -150,8 +179,8 @@ class MailgunImportProvider(ImportProvider):
     )
     api_key_url = "https://app.mailgun.com/settings/api_security"
     not_imported = (
-        "Mailgun has no automations to import. Subscribed list members don't become people in PostHog. Routes, "
-        "webhooks, tracking settings, send history and stats stay in Mailgun, so rebuild what you need."
+        "Mailgun has no automations to import. Routes, webhooks, tracking settings, send history and stats "
+        "stay in Mailgun, so rebuild what you need."
     )
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
@@ -254,18 +283,37 @@ class MailgunImportProvider(ImportProvider):
             key="mailing_lists",
             label="Mailing lists",
             description=(
-                "Creates a marketing message category for each list, and opts out the members who left it. PostHog "
-                "reads only those members and doesn't create people from your lists."
+                "Creates a marketing message category for each list, and opts out the members who left it. This "
+                "step reads only those members and doesn't create people."
             ),
             count_labels=(
                 ("created", "New categories"),
                 ("already_present", "Already in PostHog, left as they are"),
                 ("opted_out", "People with a new list opt-out"),
                 ("already_opted_out", "People already opted out in PostHog, left as they are"),
-                ("members", "List members, who stay in Mailgun"),
+                ("members", "List members in Mailgun"),
                 ("missing_lists", "Lists Mailgun couldn't find, skipped"),
             ),
         ),
+        # Needs the opt-out steps in the same run and before it, so no imported member can be sent email they left or
+        # that bounced in Mailgun.
+        ImportStepSpec(
+            key="contacts",
+            label="Contacts",
+            description=(
+                "Matches each mailing list member to a person in PostHog by email and fills in their name and list "
+                "variables where PostHog has none. Fills a cohort with the members subscribed to any list, and one "
+                "with each list's subscribed members. Needs Bounces, Spam complaints, Unsubscribes and Mailing lists "
+                "selected too, so no one who left in Mailgun gets marketing email."
+            ),
+            count_labels=CONTACT_COUNT_LABELS,
+            requires=CONTACT_OPT_OUT_STEPS,
+            requires_fresh=True,
+            needs=CONTACT_OPT_OUT_STEPS,
+            counts_as_events=True,
+            feature_flag=CONTACTS_FLAG,
+        ),
+        new_people_step("Mailgun", CONTACTS_FLAG),
         ImportStepSpec(
             key="templates",
             label="Templates",
@@ -342,6 +390,10 @@ class MailgunImportProvider(ImportProvider):
                     yield from _fetch_suppression_list(clients, context, checkpoint, "whitelists", _save_allowlist)
                 case "mailing_lists":
                     yield from _fetch_mailing_lists(clients, context, checkpoint)
+                case "contacts":
+                    yield from _fetch_contacts(clients, context)
+                case "new_people":
+                    yield ImportPage(processed=0, save=new_people_page)
                 case "templates":
                     yield from _fetch_templates(clients, context, checkpoint)
                 case "domains":
@@ -404,7 +456,10 @@ def _read_targets(
     read_items: Callable[[MailgunClient, _Target, list[dict[str, Any]]], list[dict[str, Any]]] | None,
     save: Callable[[_Target, list[dict[str, Any]], bool], SavedPage],
     on_missing: Callable[[_Target], SavedPage],
+    *,
+    complete: bool = False,
 ) -> Iterator[ImportPage]:
+    """With `complete`, a target's read that was cut short raises instead of counting as the end."""
     remaining, first_after = _remaining_targets(targets, checkpoint)
     if not remaining:
         yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
@@ -421,6 +476,8 @@ def _read_targets(
             except MailgunNotFound:
                 yield ImportPage(processed=0, save=partial(on_missing, target), checkpoint=after_target)
                 break
+            if complete and not page.next_after and len(page.items) >= int(target.params["limit"]):
+                raise ImportProviderUnavailable(LIST_CUT_SHORT_MESSAGE.format(name=target.name))
             items = read_items(client, target, page.items) if read_items else page.items
             yield ImportPage(
                 processed=len(page.items),
@@ -434,7 +491,11 @@ def _read_targets(
 
 
 def _domain_targets(
-    clients: Mapping[MailgunRegion, MailgunClient], suffix: str, params: Mapping[str, Any] | None = None
+    clients: Mapping[MailgunRegion, MailgunClient],
+    suffix: str,
+    params: Mapping[str, Any] | None = None,
+    *,
+    complete: bool = False,
 ) -> list[_Target]:
     return [
         _Target(
@@ -446,7 +507,7 @@ def _domain_targets(
             details=domain,
         )
         for region, client in clients.items()
-        for domain in client.domains()
+        for domain in client.domains(complete=complete)
         if domain.get("name")
     ]
 
@@ -488,14 +549,21 @@ def _fetch_suppression_list(
     list_name: str,
     save: Callable[[ImportContext, _Target, list[dict[str, Any]], bool], SavedPage],
 ) -> Iterator[ImportPage]:
+    blocks_contacts = "contacts" in context.steps and list_name in CONTACT_OPT_OUT_STEPS
     yield from _read_targets(
         clients,
-        _domain_targets(clients, list_name, {"limit": SUPPRESSION_PAGE_SIZE}),
+        _domain_targets(clients, list_name, {"limit": SUPPRESSION_PAGE_SIZE}, complete=blocks_contacts),
         checkpoint,
         None,
         partial(save, context),
-        _missing_domain,
+        partial(_missing_opt_outs, list_name) if blocks_contacts else _missing_domain,
+        complete=blocks_contacts,
     )
+
+
+def _missing_opt_outs(list_name: str, target: _Target) -> SavedPage:
+    # Skipping the domain would let its members become people without the opt-outs it holds.
+    raise ImportProviderUnavailable(OPT_OUTS_MISSING_MESSAGE.format(place=target.name, what=list_name))
 
 
 def _save_bounces(context: ImportContext, target: _Target, items: list[dict[str, Any]], _first: bool) -> SavedPage:
@@ -639,35 +707,211 @@ def _save_allowlist(context: ImportContext, target: _Target, items: list[dict[st
     )
 
 
-def _owners(client: MailgunClient) -> list[str]:
-    return ["", *client.subaccount_ids()]
+def _owners(client: MailgunClient, *, complete: bool = False) -> list[str]:
+    return ["", *client.subaccount_ids(complete=complete)]
+
+
+def _list_targets(
+    clients: Mapping[MailgunRegion, MailgunClient], params: Mapping[str, Any], *, complete: bool
+) -> Iterator[_Target]:
+    for region, client in clients.items():
+        for owner in _owners(client, complete=complete):
+            after: str | None = None
+            while True:
+                page = client.page("/v3/lists/pages", {"limit": TEMPLATE_PAGE_SIZE}, after, owner or None)
+                for mailing_list in page.items:
+                    if address := mailing_list.get("address"):
+                        yield _Target(
+                            region=region,
+                            owner=owner,
+                            name=str(address),
+                            path=f"/v3/lists/{quoted(str(address))}/members/pages",
+                            params={**params, "limit": TEMPLATE_PAGE_SIZE},
+                            details=mailing_list,
+                        )
+                if page.next_after is None:
+                    if complete and len(page.items) >= TEMPLATE_PAGE_SIZE:
+                        raise ImportProviderUnavailable(LISTS_CUT_SHORT_MESSAGE)
+                    break
+                after = page.next_after
 
 
 def _fetch_mailing_lists(
     clients: Mapping[MailgunRegion, MailgunClient], context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
+    contacts = "contacts" in context.steps
+    targets = list(_list_targets(clients, {"subscribed": "false"}, complete=contacts))
+    yield from _read_targets(
+        clients, targets, checkpoint, None, partial(_save_list_members, context), _missing_list, complete=contacts
+    )
+
+
+def _fetch_contacts(clients: Mapping[MailgunRegion, MailgunClient], context: ImportContext) -> Iterator[ImportPage]:
+    # Each list's cohort fills in one go, so the step reads every member before it saves, and a retry reads them again.
     targets: list[_Target] = []
-    for region, client in clients.items():
-        for owner in _owners(client):
-            after: str | None = None
-            while True:
-                page = client.page("/v3/lists/pages", {"limit": TEMPLATE_PAGE_SIZE}, after, owner or None)
-                targets.extend(
-                    _Target(
-                        region=region,
-                        owner=owner,
-                        name=str(mailing_list["address"]),
-                        path=f"/v3/lists/{quoted(str(mailing_list['address']))}/members/pages",
-                        params={"subscribed": "false", "limit": TEMPLATE_PAGE_SIZE},
-                        details=mailing_list,
+    for target in _list_targets(clients, {}, complete=True):
+        if len(targets) >= MAX_CONTACT_LISTS:
+            raise ImportTooLarge(TOO_MANY_LISTS_MESSAGE)
+        targets.append(target)
+    if not targets:
+        yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
+        return
+    contacts = ContactCollector()
+    lists: list[ContactList] = []
+    left_by_list: list[tuple[_Target, list[str]]] = []
+    # By region, every member's address and whether they're still subscribed to one of its lists. A region that lists
+    # nothing has no entry, because a subaccount Mailgun temporarily can't find must not empty its cohort.
+    members: dict[MailgunRegion, dict[str, bool]] = {target.region: {} for target in targets}
+    read = 0
+    for target in sorted(targets, key=lambda target: target.position):
+        subscribed: list[dict[str, str]] = []
+        left: list[str] = []
+        for page in _member_pages(clients[target.region], target):
+            read += len(page)
+            for member in page:
+                row = contacts.add(member.get("address"), _member_properties(member))
+                if row is None:
+                    continue
+                address, stays = row["email"].lower(), member.get("subscribed") is True
+                members[target.region][address] = members[target.region].get(address, False) or stays
+                if stays:
+                    subscribed.append(row)
+                elif email := exact_email(member.get("address")):
+                    left.append(email)
+        lists.append(_contact_list(target, tuple(subscribed)))
+        left_by_list.append((target, left))
+    everyone = contacts.everyone
+    # The first list sends everyone's events, whichever region they're in.
+    first, *others = sorted(members, key=lambda region: -len(members[region]))
+    yield ImportPage(
+        processed=read,
+        save=partial(
+            _save_contacts,
+            context,
+            replace(
+                _members_list(clients[first], everyone, members[first]),
+                repeats_merged=contacts.repeats_merged,
+                invalid_skipped=contacts.invalid_skipped,
+            ),
+            [
+                *(
+                    _members_list(
+                        clients[region],
+                        tuple(row for row in everyone if row["email"].lower() in members[region]),
+                        members[region],
                     )
-                    for mailing_list in page.items
-                    if mailing_list.get("address")
-                )
-                if page.next_after is None:
-                    break
-                after = page.next_after
-    yield from _read_targets(clients, targets, checkpoint, None, partial(_save_list_members, context), _missing_list)
+                    for region in others
+                ),
+                *lists,
+            ],
+            left_by_list,
+            contacts.other_spellings,
+        ),
+    )
+
+
+def _members_list(client: MailgunClient, rows: tuple[dict[str, str], ...], members: Mapping[str, bool]) -> ContactList:
+    """A cohort of the people in `rows` who are subscribed to a list in this region. Someone who left every list joins
+    no cohort, because no list's category would stop a send to it. Each region of each account has its own cohort, so
+    importing one never empties another's."""
+    place = f"{client.region.value.upper()}, {_account_domain(client)}"
+    return ContactList(
+        cohort_name=f"Mailgun list members ({place})",
+        cohort_description=f"Imported from Mailgun list members ({place}).",
+        source=f"your Mailgun list members ({place})",
+        rows=rows,
+        non_members=frozenset(address for row in rows if not members.get(address := row["email"].lower(), False)),
+    )
+
+
+def _account_domain(client: MailgunClient) -> str:
+    """The account's oldest sandbox domain, which Mailgun creates with the account and never lets anyone delete, or its
+    oldest domain without one. Mailgun gives an API key no account ID, and a domain belongs to one account. When every
+    domain belongs to subaccounts, the name says whose key read them, because a subaccount's own key reads them too."""
+    domains = [domain for domain in client.domains(complete=True) if domain.get("name")]
+    own = [domain for domain in domains if not domain.get("subaccount_id")]
+    sandboxes = [domain for domain in own or domains if domain.get("type") == "sandbox"]
+
+    def age(domain: Mapping[str, Any]) -> tuple[float, str]:
+        created = _timestamp(domain.get("created_at"))
+        return (created.timestamp() if created else float("inf"), str(domain["name"]))
+
+    if not domains:
+        return "no domain"
+    reader = "" if own else ", subaccounts" if client.subaccount_ids(complete=True) else ", subaccount"
+    return f"{min(sandboxes or own or domains, key=age)['name']}{reader}"
+
+
+def _member_pages(client: MailgunClient, target: _Target) -> Iterator[list[dict[str, Any]]]:
+    """Every page of a list's members. A read that can't be complete raises, because the cohort is set to exactly
+    what this returns."""
+    incomplete = LIST_CHANGED_MESSAGE.format(name=target.name)
+    after: str | None = None
+    read = 0
+    while True:
+        try:
+            page = client.page(target.path, dict(target.params), after, target.on_behalf_of)
+        except MailgunNotFound as e:
+            # A list deleted since it was listed is gone on the retry, and a temporary 404 has passed.
+            raise ImportProviderUnavailable(incomplete) from e
+        read += len(page.items)
+        yield page.items
+        if page.next_after is None:
+            break
+        after = page.next_after
+    if len(page.items) >= TEMPLATE_PAGE_SIZE:
+        raise ImportProviderUnavailable(incomplete)
+    if read < int(target.details.get("members_count") or 0):
+        # Members can be deleted while the list is read, so the count is read again before the list counts as cut short.
+        body = client.get(f"/v3/lists/{quoted(target.name)}", None, target.on_behalf_of)
+        members = _as_dict(body.get("list")).get("members_count")
+        if not isinstance(members, int) or read < members:
+            raise ImportProviderUnavailable(incomplete)
+
+
+def _member_properties(member: Mapping[str, Any]) -> dict[str, Any]:
+    variables = member.get("vars")
+    # Mailgun returns the variables as an object or as a JSON string, depending on how they were added.
+    if isinstance(variables, str):
+        try:
+            variables = json.loads(variables)
+        except ValueError:
+            variables = None
+    name = _clean(member.get("name")).strip()
+    return {
+        **({"name": name} if name else {}),
+        **{key: value for key, value in _as_dict(variables).items() if not (name and key == "name")},
+    }
+
+
+def _contact_list(target: _Target, rows: tuple[dict[str, str], ...]) -> ContactList:
+    name = _clean(target.details.get("name")).strip() or target.name
+    return ContactList(
+        cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Mailgun)",
+        cohort_description=f"Imported from the Mailgun {target.region.value.upper()} list {target.name}.",
+        source=f'the Mailgun list "{name}"',
+        rows=rows,
+        empty_note="No subscribed members.",
+    )
+
+
+def _save_contacts(
+    context: ImportContext,
+    everyone: ContactList,
+    lists: Sequence[ContactList],
+    left_by_list: Sequence[tuple[_Target, Sequence[str]]],
+    other_spellings: Sequence[str],
+) -> SavedPage:
+    # Someone can leave a list after the mailing list step read it, so their opt-out is stored with their person.
+    categories = {target.position: _list_category(target.details, target.name) for target, left in left_by_list if left}
+    ids_by_key = import_categories(context.team_id, categories.values(), context.created_by_id).ids_by_key
+    opt_outs: dict[str, set[str]] = {}
+    for target, left in left_by_list:
+        category_id = ids_by_key.get(categories[target.position].key) if left else None
+        if category_id:
+            for email in left:
+                opt_outs.setdefault(email, set()).add(category_id)
+    return save_contact_lists(context, everyone, lists, other_spellings, opt_outs)
 
 
 def _missing_list(target: _Target) -> SavedPage:
@@ -706,15 +950,19 @@ def _save_list_members(context: ImportContext, target: _Target, items: list[dict
     items_out: tuple[ImportItem, ...] = ()
     if first:
         counts |= {"created": result.created, "already_present": result.already_present, "members": members}
+        unread = (
+            ""
+            if "contacts" in context.steps
+            else " This import created no people from this list."
+            " To send to this audience, use a cohort of people already in PostHog."
+        )
         items_out = (
             ImportItem(
                 label=target.name,
                 status="created" if result.created else "skipped",
                 url="/workflows/opt-outs",
                 notes=(
-                    f"Members on this list in Mailgun: {members}. PostHog doesn't create people from a list, and "
-                    "their custom variables stay in Mailgun too. To send to this audience, build a cohort from your "
-                    "own data or send people's details to PostHog first.",
+                    f"Members on this list in Mailgun: {members}.{unread}",
                     "Sending to the list address, who can post to it, and where replies go don't carry over.",
                 ),
             ),

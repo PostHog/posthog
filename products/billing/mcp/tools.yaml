@@ -75,7 +75,7 @@ tools:
             customer is paying for, which features they have access to, or aggregate usage for the current billing
             period. For time-series breakdowns of usage call billing-usage-get; for cost (spend) breakdowns call
             billing-spend-get. To check whether the customer has access to a specific feature (e.g. group analytics,
-            white-labelling), inspect `available_product_features` in the response.
+            white-labelling), inspect the keys and names in `available_product_features`.
         exclude_params:
             - limit
             - offset
@@ -111,6 +111,11 @@ tools:
                 - products.*.addons.*.trial
                 - products.*.addons.*.inclusion_only
                 - products.*.addons.*.legacy_product
+                - products.*.description
+                - products.*.addons.*.description
+                - available_product_features.*.description
+                - available_product_features.*.note
+                - available_product_features.*.is_plan_default
     billing-product-get:
         operation: billing_products_retrieve
         enabled: true

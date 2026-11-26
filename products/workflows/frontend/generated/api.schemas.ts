@@ -2541,8 +2541,6 @@ export interface EmailSendingAllowanceApi {
 export interface EmailInfrastructureHealthApi {
     /** A lower bound on the emails sent during the window, rounded down to one significant figure (1,234,567 sent reads as 1,000,000). The exact count is not exposed. */
     readonly emails_sent_at_least: number
-    /** Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down to 0.001. Acceptance is not inbox placement. */
-    readonly delivery_rate: number
     /** Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001. */
     readonly bounce_rate: number
     /** Spam complaints divided by deliveries to mailbox providers that report complaints (0-1), rounded up to 0.0001. */
@@ -2748,6 +2746,8 @@ export interface BlastRadiusApi {
     realtime_cohort_with_other_conditions?: RealtimeCohortRefApi | null
     /** Set when an email sending rate limit can raise 'limit'. A send at a slow enough rate leaves part of the project's daily email allowance to its other workflows, so it may reach more people over several days. */
     rate_limited?: RateLimitedAudienceApi | null
+    /** Keys of the project's test account filters this audience leaves out because they only apply to events, such as event properties. Empty unless the audience filters out test accounts. */
+    skipped_test_account_filters?: string[]
 }
 
 export interface PushTokenImportCreateApi {

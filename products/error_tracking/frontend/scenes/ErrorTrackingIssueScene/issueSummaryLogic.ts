@@ -237,15 +237,12 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                         dayjs().diff(dayjs(firstSeen), 'minute', true) < SUMMARY_WRITE_WINDOW_MINUTES
                     return isNew ? 'writing' : 'not_generated'
                 }
-                if (
-                    summaryResponse?.reason === 'ai_not_approved' ||
-                    summaryResponse?.reason === 'restricted' ||
-                    summaryResponse?.reason === 'setting_off'
-                ) {
+                if (summaryResponse?.reason === 'ai_not_approved' || summaryResponse?.reason === 'restricted') {
                     return summaryResponse.reason
                 }
-                // Before the first answer, and when summaries are off for the project, which is most teams. A
-                // line here would flash on every issue page, or tell people about a feature they do not have.
+                // Before the first answer, and when the project does not have summaries or has the setting off. A line
+                // here would flash on every issue page, or tell people about a feature they did not ask for. They find
+                // it through `IssueSummariesBanner` on the issue list and through the settings page.
                 return 'hidden'
             },
         ],

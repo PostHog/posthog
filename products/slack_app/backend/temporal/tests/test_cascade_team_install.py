@@ -188,6 +188,61 @@ class TestCascadeTeamInstall(TestCase):
         assert captured[0]["connected_repo_count"] == 2
         assert captured[0]["slack_session_id"] == "T_SLACK:C123:1234.5678"
 
+    @parameterized.expand(
+        [
+            (
+                "channel_repo_replaces_the_agent",
+                "<@BOT> is this one flaky?",
+                True,
+                "posthog/posthog-js",
+                "channel_default",
+            ),
+            (
+                "named_repo_beats_the_channel_repo",
+                "<@BOT> look at posthog/posthog",
+                True,
+                "posthog/posthog",
+                "explicit_mention",
+            ),
+            ("channel_repo_ignored_with_the_flag_off", "<@BOT> is this one flaky?", False, None, "needs_agent"),
+        ]
+    )
+    @patch("products.slack_app.backend.services.channel_settings.is_slack_app_web_settings_enabled")
+    @patch("products.slack_app.backend.api.UserGitHubIntegration")
+    def test_channel_default_repository(
+        self, _name, event_text, flag_on, expected_repository, expected_reason, mock_user_github_class, mock_flag
+    ):
+        from posthog.models.user_integration import UserIntegration
+
+        from products.slack_app.backend.models import SlackChannelSettings
+
+        mock_flag.return_value = flag_on
+        UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="gh-user-1",
+            config={},
+            sensitive_config={"access_token": "gh-user-token"},
+        )
+        mock_user_github_class.return_value.list_all_cached_repositories.return_value = [
+            {"id": 1, "name": "posthog", "full_name": "posthog/posthog"},
+            {"id": 2, "name": "posthog-js", "full_name": "posthog/posthog-js"},
+        ]
+        SlackChannelSettings.objects.create(
+            slack_workspace_id="T_SLACK",
+            slack_channel_id="C123",
+            organization=self.org,
+            default_repository="posthog/posthog-js",
+        )
+
+        with patch("products.slack_app.backend.analytics.ph_background_capture"):
+            outcome = cascade_posthog_code_repository_activity(
+                _make_inputs(self.slack_integration.id, self.user.id), event_text, self.user.id, [], None
+            )
+
+        assert outcome.repository == expected_repository
+        assert outcome.reason == expected_reason
+
 
 ONE_REPO = [{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}]
 TWO_REPOS = [*ONE_REPO, {"id": 2, "name": "posthog-js", "full_name": "posthog/posthog-js"}]

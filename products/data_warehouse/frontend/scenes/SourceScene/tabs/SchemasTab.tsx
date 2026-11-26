@@ -65,7 +65,10 @@ import {
     SyncTypeLabelMap,
     allowedSyncFrequencies,
 } from 'products/data_warehouse/frontend/utils'
-import type { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type {
+    ExternalDataDestinationApi,
+    WebhookIssueEnumApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { addTableLogic } from './addTableLogic'
 import { AddTableModal } from './AddTableModal'
@@ -142,6 +145,21 @@ const schemaStatusDisplay = (
 
 export interface SchemasTabProps {
     id: string
+}
+
+const WEBHOOK_ISSUE_LABELS: Record<WebhookIssueEnumApi, string> = {
+    not_registered: 'No webhook',
+    missing_inputs: 'Webhook setup incomplete',
+    not_routed: 'Missing from webhook',
+}
+
+const WEBHOOK_ISSUE_TOOLTIPS: Record<WebhookIssueEnumApi, string> = {
+    not_registered:
+        'This table uses webhook sync, but the source has no active webhook. Each sync reads the source API instead, which is slower and can read the whole table. Set up the webhook on the Webhook tab, or change the sync method.',
+    missing_inputs:
+        'The webhook is missing a required setting, such as its signing secret, so PostHog drops every event it receives. Add the missing setting on the Webhook tab.',
+    not_routed:
+        "The source's webhook doesn't include this table, so PostHog drops its events. Set up the webhook again on the Webhook tab to add it.",
 }
 
 export function SchemasTab({ id }: SchemasTabProps): JSX.Element {
@@ -686,14 +704,20 @@ function ManagedSchemaTable({
                         if (isFileUpload) {
                             return syncMethod
                         }
-                        const webhookTag = schema.webhook_not_registered ? (
-                            <Tooltip title="This table uses webhook sync, but the source has no active webhook. Each sync reads the source API instead, which is slower and can read the whole table. Set up the webhook on the Webhook tab, or change the sync method.">
+                        const webhookIssue = schema.webhook_issue
+                        const webhookTag = webhookIssue ? (
+                            <Tooltip title={WEBHOOK_ISSUE_TOOLTIPS[webhookIssue]}>
                                 <Link
                                     to={urls.dataWarehouseSource(prefixedSourceId, 'webhook')}
                                     subtle
-                                    data-attr="schemas-tab-webhook-not-registered"
+                                    // Pinned: data-attr values are product analytics keys.
+                                    data-attr={
+                                        webhookIssue === 'not_registered'
+                                            ? 'schemas-tab-webhook-not-registered'
+                                            : `schemas-tab-webhook-${webhookIssue}`
+                                    }
                                 >
-                                    <LemonTag type="danger">No webhook</LemonTag>
+                                    <LemonTag type="danger">{WEBHOOK_ISSUE_LABELS[webhookIssue]}</LemonTag>
                                 </Link>
                             </Tooltip>
                         ) : null

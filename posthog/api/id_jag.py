@@ -28,8 +28,10 @@ from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.models.id_jag_identity import IDENTITY_FIELD_MAX_LENGTH, IdJagIdentity
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 from posthog.scopes.catalog import translate_renamed_scopes
+from posthog.scopes.ceilings import clamp_scopes_to_ceiling
 from posthog.scopes.oauth import OAUTH_SCOPES_SUPPORTED
 from posthog.security.url_validation import is_url_allowed
 
@@ -614,18 +616,20 @@ def _parse_scope_list(value: str | list[str] | None) -> list[str]:
 def issue_access_token(
     assertion: str,
     requested_scope: str | list[str] | None,
-    authenticated_client_id: str,
+    authenticated_client: OAuthApplication,
     requested_resource: str | None = None,
 ) -> IssuedAccessToken:
     """
     Validate an ID-JAG `assertion` and mint an access token. Pulled out of the
     view so the same path is exercised by tests, batch tools, and the HTTP
-    handler. `authenticated_client_id` must come from verified client
-    authentication, never from an unchecked request field. `requested_resource`
-    is the token request's RFC 8707 `resource` parameter.
+    handler. `authenticated_client` must be the application that verified
+    client authentication resolved, never one looked up from an unchecked
+    request field. Its scope ceiling caps the granted scopes, as on every other
+    grant. `requested_resource` is the token request's RFC 8707 `resource`
+    parameter.
     """
 
-    verified_id_jag = _verify_and_extract_id_jag_token(assertion, authenticated_client_id, requested_resource)
+    verified_id_jag = _verify_and_extract_id_jag_token(assertion, authenticated_client.client_id, requested_resource)
 
     organization = verified_id_jag.identity_provider_config.organization
     if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
@@ -637,7 +641,10 @@ def issue_access_token(
     known_scopes = set(OAUTH_SCOPES_SUPPORTED)
     sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
 
-    granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
+    intersected = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
+    # A grant the ceiling empties still issues, like an empty intersection, and fails at the resource server.
+    within_ceiling = set(clamp_scopes_to_ceiling(intersected, authenticated_client.ceiling_scopes))
+    granted = [scope for scope in intersected if scope in within_ceiling]
     user = _resolve_user(verified_id_jag)
     payload = _construct_access_token_payload(
         verified_id_jag.claims,

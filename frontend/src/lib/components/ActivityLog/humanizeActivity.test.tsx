@@ -7,6 +7,7 @@ import {
     Describer,
     Description,
     defaultDescriber,
+    humanize,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
@@ -57,13 +58,25 @@ describe('humanizeActivity', () => {
                 { field: 'effective_membership_level', after: 1 },
                 {
                     field: 'feature_flag_policy_config',
-                    before: { require_tags: false, blocked_hosts: ['old.example.com'], blocked_ips: [] },
-                    after: { require_tags: true, blocked_hosts: ['new.example.com'], blocked_ips: [] },
+                    before: {
+                        require_tags: false,
+                        blocked_hosts: ['old.example.com'],
+                        blocked_ips: [],
+                        allowed_hosts: ['shop.example.com'],
+                        allowed_ips: [],
+                    },
+                    after: {
+                        require_tags: true,
+                        blocked_hosts: ['new.example.com'],
+                        blocked_ips: [],
+                        allowed_hosts: [],
+                        allowed_ips: ['203.0.113.7'],
+                    },
                 },
             ],
-            action: 'enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests',
+            action: 'enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, removed old.example.com from the blocked domains for feature flag requests, removed shop.example.com from the allowed domains for feature flag requests, and added 203.0.113.7 to the allowed IP addresses for feature flag requests',
             description:
-                'A user enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests on Example',
+                'A user enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, removed old.example.com from the blocked domains for feature flag requests, removed shop.example.com from the allowed domains for feature flag requests, and added 203.0.113.7 to the allowed IP addresses for feature flag requests on Example',
         },
         {
             scope: ActivityScope.EVENT_DEFINITION,
@@ -265,6 +278,23 @@ describe('humanizeActivity', () => {
                 .container.textContent?.replace(/\s+/g, ' ')
                 .trim()
         ).toBe(expected)
+    })
+
+    it.each([
+        [ActivityScope.SCORE_DEFINITION, false, 'Project key example-key-id', false],
+        [ActivityScope.TRACE_REVIEW, true, 'Project key example-key-id', false],
+        [ActivityScope.PERSON, true, 'PostHog', true],
+    ] as const)('renders the project-key actor for %s', (scope, storedAsSystem, expectedName, displayedAsSystem) => {
+        const logItem = makeLogItem({
+            scope,
+            is_system: storedAsSystem,
+            credential_type: 'project_secret_key',
+            credential_id: 'example-key-id',
+        })
+        const [row] = humanize([logItem], () => defaultDescriber)
+
+        expect(render(<ActivityLogUserName logItem={logItem} />).container.textContent).toBe(expectedName)
+        expect(row.isSystem).toBe(displayedAsSystem)
     })
 
     describe('userNameForLogItem', () => {

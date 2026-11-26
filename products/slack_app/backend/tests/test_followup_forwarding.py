@@ -1439,6 +1439,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         # flag (the "PR opened" card is deduped on the Task).
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("initial_prompt_override", "")
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("pending_user_message", "")
+        assert "Except for a security fix" in new_run.state.get("initial_prompt_override", "")
         assert "slack_pr_opened_notified" not in new_run.state
         assert "slack_notified_pr_url" not in new_run.state
 

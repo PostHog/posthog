@@ -30,6 +30,7 @@ from products.cdp.backend.abuse.classifier import (
     ClassificationFailed,
     FailureReason,
     HogFunctionContent,
+    SetAsideReason,
     Thresholds,
     classify,
     content_hash,
@@ -75,6 +76,7 @@ class ScoredHogFunction:
     outbound_call: bool
     account: Account
     account_tier: AccountTier
+    set_aside: dict[str, SetAsideReason]
 
     @property
     def would_alert(self) -> bool:
@@ -239,7 +241,7 @@ def _scoring_for(team: Team) -> _Scoring:
 def _hash_key(hog_function_id: str) -> str:
     # Versioned with the format of `_cache_entry`, so workers on the previous format do not overwrite these entries
     # during a deploy, and each function scores once more after it.
-    return f"cdp:abuse_classifier:content_hash:v2:{hog_function_id}"
+    return f"cdp:abuse_classifier:content_hash:v3:{hog_function_id}"
 
 
 def _backfill_scored_key(run_id: str, hog_function_id: str) -> str:
@@ -331,18 +333,24 @@ def classify_if_due(hog_function: HogFunction) -> None:
     runtime_content = _with_secret_inputs(hog_function, content)
     rule_hits = rules.matched_rules(runtime_content)
     outbound_call = rules.has_outbound_call(runtime_content)
+    set_aside = rules.set_aside_scores(runtime_content, rule_hits)
     scoring = _scoring_for(hog_function.team)
     public_content_hash = content_hash(content)
     reported = cache.get(_hash_key(str(hog_function.id)))
     # A verdict reported while enabled covers the same content saved disabled, so disabling a function reports nothing.
     covering_states = (True,) if hog_function.enabled else (True, False)
     if any(
-        reported == _cache_entry(public_content_hash, rule_hits, outbound_call, scoring.account_tier, enabled=state)
+        reported
+        == _cache_entry(public_content_hash, rule_hits, outbound_call, scoring.account_tier, set_aside, enabled=state)
         for state in covering_states
     ):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content, rule_hits, outbound_call, scoring), trigger=Trigger.SAVE)
+    report(
+        hog_function,
+        _score(hog_function, content, rule_hits, outbound_call, set_aside, scoring),
+        trigger=Trigger.SAVE,
+    )
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -359,11 +367,13 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 def score(hog_function: HogFunction) -> ScoredHogFunction:
     content = content_of(hog_function, hog_function.template)
     runtime_content = _with_secret_inputs(hog_function, content)
+    rule_hits = rules.matched_rules(runtime_content)
     return _score(
         hog_function,
         content,
-        rules.matched_rules(runtime_content),
+        rule_hits,
         rules.has_outbound_call(runtime_content),
+        rules.set_aside_scores(runtime_content, rule_hits),
         _scoring_for(hog_function.team),
     )
 
@@ -373,6 +383,7 @@ def _score(
     content: HogFunctionContent,
     rule_hits: tuple[rules.Rule, ...],
     outbound_call: bool,
+    set_aside: dict[str, SetAsideReason],
     scoring: _Scoring,
 ) -> ScoredHogFunction:
     verdict: AbuseVerdict | None = None
@@ -382,7 +393,7 @@ def _score(
             content,
             team_id=hog_function.team_id,
             thresholds=scoring.thresholds,
-            outbound_call=outbound_call,
+            set_aside=set_aside.keys(),
             account_tier=scoring.account_tier,
         )
     except ClassificationFailed as error:
@@ -396,6 +407,7 @@ def _score(
         outbound_call=outbound_call,
         account=scoring.account,
         account_tier=scoring.account_tier,
+        set_aside=set_aside,
     )
 
 
@@ -423,17 +435,19 @@ def _cache_entry(
     rule_hits: tuple[rules.Rule, ...],
     outbound_call: bool,
     account_tier: AccountTier,
+    set_aside: dict[str, SetAsideReason],
     *,
     enabled: bool,
 ) -> str:
-    """The model sees only the public content, and secret inputs change only the rule hits and the outbound call.
-    Keeping all three means a secret change that matches a rule or adds a call scores the function again, while the
-    cache holds nothing more about a secret value than the event does. Only the established tier changes whether a
-    moderate score alerts, so an account that enters or leaves it scores again on its next save. Enabling a function
-    that was scored while disabled reports it again, so a probe that starts running alerts as enabled. An enabled
-    entry carries no state suffix, so entries that earlier releases wrote stay valid."""
+    """The model sees only the public content, and secret inputs change only the rule hits, the outbound call and
+    the scores set aside. Keeping all of them means a secret change that matches a rule or adds a call scores the
+    function again, while the cache holds nothing more about a secret value than the event does. Only the established
+    tier changes whether a moderate score alerts, so an account that enters or leaves it scores again on its next
+    save. Enabling a function that was scored while disabled reports it again, so a probe that starts running alerts
+    as enabled."""
     established = account_tier is AccountTier.ESTABLISHED
-    entry = f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}"
+    reasons = ",".join(f"{question}={reason}" for question, reason in sorted(set_aside.items()))
+    entry = f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}:{reasons}"
     return entry if enabled else f"{entry}:disabled"
 
 
@@ -467,6 +481,7 @@ def report(
             **{f"score_{question}": probability for question, probability in verdict.scores.items()},
             "risk_score": verdict.risk_score,
             "rule_hits": rule_hits,
+            "set_aside_scores": {question: reason.value for question, reason in scored.set_aside.items()},
             "would_alert": scored.would_alert,
             "would_block": scored.would_block,
             "model_alert_gates": [gate.value for gate in verdict.model_alert_gates],
@@ -484,6 +499,7 @@ def report(
             scored.rule_hits,
             scored.outbound_call,
             scored.account_tier,
+            scored.set_aside,
             enabled=hog_function.enabled,
         ),
         _HASH_TTL_SECONDS,

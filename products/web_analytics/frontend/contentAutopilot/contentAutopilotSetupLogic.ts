@@ -454,9 +454,7 @@ export const contentAutopilotSetupLogic = kea<contentAutopilotSetupLogicType>([
                 actions.watchFirstChecks()
             }
             // Paused prompts are not in the overview's count, so the context tells the overview they exist.
-            if (stepOf(job, 'prompts')?.detail === 'paused' || values.jobRef?.onlyFirstRun) {
-                actions.loadSetupContext()
-            }
+            actions.loadSetupContext()
         },
         watchFirstChecks: () => {
             const until = Date.now() + FIRST_CHECKS_POLL_LIMIT_MS

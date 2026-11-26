@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, ReactNode } from 'react'
 
 import { HrefPin } from './sidebar/hrefPins'
 import { SidebarRowEnter } from './sidebar/SidebarRowEnter'
@@ -14,6 +14,8 @@ export function TodayPinnedRecentSections<P extends HrefPin<string>, R extends {
     isSectionOpen,
     onToggleSection,
     dataAttrPrefix,
+    pinsFooter,
+    recentsFooter,
 }: {
     pins: P[]
     recents: R[]
@@ -22,6 +24,8 @@ export function TodayPinnedRecentSections<P extends HrefPin<string>, R extends {
     isSectionOpen: (section: TodayPinnedRecentSection) => boolean
     onToggleSection: (section: TodayPinnedRecentSection) => void
     dataAttrPrefix: string
+    pinsFooter?: ReactNode
+    recentsFooter?: ReactNode
 }): JSX.Element {
     return (
         <>
@@ -40,6 +44,7 @@ export function TodayPinnedRecentSections<P extends HrefPin<string>, R extends {
                             {renderPin(pin)}
                         </SidebarRowEnter>
                     ))}
+                    {pinsFooter}
                 </SidebarSection>
             )}
             {recents.length > 0 && (
@@ -55,6 +60,7 @@ export function TodayPinnedRecentSections<P extends HrefPin<string>, R extends {
                     {recents.map((recent) => (
                         <Fragment key={recent.href}>{renderRecent(recent)}</Fragment>
                     ))}
+                    {recentsFooter}
                 </SidebarSection>
             )}
         </>

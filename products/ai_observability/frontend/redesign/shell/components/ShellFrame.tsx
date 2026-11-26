@@ -26,6 +26,8 @@ export interface ShellFrameProps {
     /** Search params carried on every tab link. */
     linkParams: Record<string, unknown>
     todayRailNav: boolean
+    /** For content that scrolls on its own: the frame takes the height the scene has left, for the content to fill. */
+    fillHeight?: boolean
     onScopeChange: (scope: ShellScope) => void
     children: React.ReactNode
 }
@@ -34,6 +36,7 @@ export function ShellFrame({
     location,
     linkParams,
     todayRailNav,
+    fillHeight = false,
     onScopeChange,
     children,
 }: ShellFrameProps): JSX.Element {
@@ -42,7 +45,7 @@ export function ShellFrame({
     const docsUrl = shellDocsUrl(location)
 
     return (
-        <SceneContent>
+        <SceneContent className={fillHeight ? 'min-h-0 flex-1' : undefined}>
             <SceneTitleSection
                 name={scene.name}
                 description={tab?.description ?? scene.description}
