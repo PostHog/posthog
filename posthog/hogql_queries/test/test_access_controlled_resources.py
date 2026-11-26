@@ -293,6 +293,16 @@ class TestQueriedAccessControlledResources(BaseTest):
         assert result is not None
         assert expected_subset <= result
 
+    def test_team_test_account_filters_are_scanned(self):
+        self.team.test_account_filters = [
+            {"type": "hogql", "key": "properties.x in (select span_id from posthog.trace_spans)"}
+        ]
+        self.team.save()
+        query = HogQLQuery(query="select count() from events where {filters}")
+        result = queried_access_controlled_resources(query, self.team)
+        assert result is not None
+        assert "tracing" in result
+
     def test_structured_query_with_nested_placeholder_table_fails_closed(self):
         query = DataVisualizationNode(source=HogQLQuery(query="select * from {table}"))
         assert queried_access_controlled_resources(query, self.team) is None

@@ -230,6 +230,7 @@ def queried_access_controlled_resources(
     *,
     bypassed_scopes: frozenset[str] = frozenset(),
     _catalog: Optional[_WarehouseCatalog] = None,
+    _nested: bool = False,
 ) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
     Empty when the query reads no access-controlled table.
@@ -264,10 +265,14 @@ def queried_access_controlled_resources(
     embedded_sources = (
         [value for name, value in query.__dict__.items() if name != "query"] if is_hogql_query else [query]
     )
+    if not _nested:
+        # `filterTestAccounts` applies the team's test-account filters at execution, and a HogQL entry there
+        # can read any table. Scanned for every query: an unused filter only adds scopes.
+        embedded_sources.append(team.test_account_filters)
     with nullcontext() if _shared_catalogs.get() is not None else shared_warehouse_lookups():
         for embedded_sql in _embedded_hogql(embedded_sources):
             nested = queried_access_controlled_resources(
-                HogQLQuery(query=embedded_sql), team, bypassed_scopes=bypassed_scopes
+                HogQLQuery(query=embedded_sql), team, bypassed_scopes=bypassed_scopes, _nested=True
             )
             if nested is None:
                 return None
@@ -384,10 +389,7 @@ def queried_access_controlled_resources(
                 if not isinstance(view_sql, str):
                     return None  # a view without a definition cannot expand -> fail closed
                 nested = queried_access_controlled_resources(
-                    HogQLQuery(query=view_sql),
-                    team,
-                    bypassed_scopes=bypassed_scopes,
-                    _catalog=catalog,
+                    HogQLQuery(query=view_sql), team, bypassed_scopes=bypassed_scopes, _catalog=catalog, _nested=True
                 )
                 if nested is None:
                     return None
@@ -418,7 +420,7 @@ def queried_access_controlled_resources(
         if not isinstance(view_sql, str):
             return None
         nested = queried_access_controlled_resources(
-            HogQLQuery(query=view_sql), team, bypassed_scopes=bypassed_scopes, _catalog=catalog
+            HogQLQuery(query=view_sql), team, bypassed_scopes=bypassed_scopes, _catalog=catalog, _nested=True
         )
         if nested is None:
             return None
