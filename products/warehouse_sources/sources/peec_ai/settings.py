@@ -112,6 +112,11 @@ ENDPOINTS: dict[str, PeecAIEndpoint] = {
     },
 }
 
+# Daily rows keep changing while late chats for the day arrive, so re-read the two latest days.
+INCREMENTAL_LOOKBACK_SECONDS = {
+    name: 2 * 24 * 60 * 60 for name, endpoint in ENDPOINTS.items() if endpoint.get("daily", False)
+}
+
 INCREMENTAL_FIELDS = {
     name: [incremental_field("date", IncrementalFieldType.Date)]
     for name in ("chats", "brand_report", "domain_report", "url_report", "search_fanout_queries")
