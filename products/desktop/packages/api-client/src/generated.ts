@@ -12734,7 +12734,7 @@ export namespace Schemas {
          */
         is_used_in_replay_settings: boolean;
         /**
-         * Whether this flag can back an experiment: multivariate with 2 to 20 variants.
+         * Whether this flag can back an experiment: multivariate with 2 to 20 variants, or, for a flag with rules, an experiment rule with 2 to 20 variants.
          */
         is_eligible_for_experiment: boolean;
     };
