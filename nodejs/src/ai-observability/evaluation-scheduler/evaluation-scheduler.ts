@@ -10,7 +10,6 @@
  * input/output it needs to grade.
  */
 import * as crypto from 'crypto'
-import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
@@ -25,13 +24,13 @@ import {
 } from '~/ai-observability/services/temporal.service'
 import { Evaluation, EvaluationConditionSet, Matchable } from '~/ai-observability/types'
 import { execHog } from '~/cdp/utils/hog-exec'
+import { convertClickhouseRawEventToFilterGlobals } from '~/cdp/utils/hog-function-filtering'
 import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, prefix as KAFKA_PREFIX } from '~/common/config/kafka-topics'
 import { createKafkaConsumer } from '~/common/kafka/consumer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
-import { clickHouseTimestampToISO } from '~/common/utils/utils'
 import { PluginServerService, RawKafkaEvent } from '~/types'
 
 export type EvaluationSchedulerConfig = TemporalServiceConfig &
@@ -158,46 +157,21 @@ export async function checkConditionMatch(event: RawKafkaEvent, condition: Evalu
         return false
     }
 
-    // Build globals for HogVM execution
-    let personProperties = {}
-    let eventProperties: Record<string, unknown> = {}
-
+    // The CDP builder sets every global the backend lets a condition read, and HogVM throws on a missing one.
+    let filterGlobals
     try {
-        personProperties = parseJSON(event.person_properties || '{}')
+        filterGlobals = Object.assign(convertClickhouseRawEventToFilterGlobals(event), {
+            // Conditions saved before the backend rejected person_id and person_mode filters still read them.
+            person_id: event.person_id ?? null,
+            person_mode: event.person_mode ?? null,
+        })
     } catch (e) {
-        logger.warn('Failed to parse person_properties', {
+        logger.warn('Failed to build filter globals', {
             conditionId: condition.id,
             eventUuid: event.uuid,
             error: e instanceof Error ? e.message : String(e),
         })
-    }
-
-    try {
-        eventProperties = parseJSON(event.properties || '{}')
-    } catch (e) {
-        logger.warn('Failed to parse event properties', {
-            conditionId: condition.id,
-            eventUuid: event.uuid,
-            error: e instanceof Error ? e.message : String(e),
-        })
-    }
-
-    // Event metadata filters compile to top-level globals, and HogVM throws when a global is missing
-    const filterGlobals = {
-        event: event.event,
-        uuid: event.uuid,
-        timestamp: DateTime.fromISO(event.timestamp).isValid
-            ? event.timestamp
-            : clickHouseTimestampToISO(event.timestamp),
-        elements_chain: event.elements_chain || '',
-        distinct_id: event.distinct_id,
-        person_id: event.person_id ?? null,
-        person_mode: event.person_mode ?? null,
-        person: {
-            properties: personProperties,
-        },
-        properties: eventProperties,
-        ...groupKeyGlobals(eventProperties),
+        return false
     }
 
     try {
@@ -220,14 +194,6 @@ export async function checkConditionMatch(event: RawKafkaEvent, condition: Evalu
         })
         return false
     }
-}
-
-function groupKeyGlobals(eventProperties: Record<string, unknown>): Record<`$group_${number}`, unknown> {
-    const globals: Record<`$group_${number}`, unknown> = {}
-    for (let index = 0; index < 5; index++) {
-        globals[`$group_${index}`] = eventProperties[`$group_${index}`] ?? null
-    }
-    return globals
 }
 
 export type EvaluationMatchResult =
