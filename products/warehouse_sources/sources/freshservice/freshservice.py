@@ -109,7 +109,9 @@ def _top_level_source(
     # Server-side incremental filter: only endpoints with a documented `updated_since` param
     # narrow the window, and only once a watermark exists.
     if should_use_incremental_field and config.updated_since_param and db_incremental_field_last_value:
-        params[config.updated_since_param] = _format_updated_since(db_incremental_field_last_value)
+        params[config.updated_since_param] = config.updated_since_template.format(
+            _format_updated_since(db_incremental_field_last_value)
+        )
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(domain, api_key),
