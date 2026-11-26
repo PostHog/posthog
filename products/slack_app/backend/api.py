@@ -94,6 +94,11 @@ from products.slack_app.backend.logic.onboarding.work_focus import (
     work_focus_review_blocks,
     work_focus_started_blocks,
 )
+from products.slack_app.backend.logic.shared_channels import (
+    SHARED_CHANNELS_TURNED_OFF_MESSAGE,
+    SharedChannelAccess,
+    shared_channel_access,
+)
 from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
@@ -121,11 +126,6 @@ from products.slack_app.backend.services.integration_resolver import (
     resolve_user_for_workspace,
     unresolved_user_properties,
     user_resolution_failure_reply,
-)
-from products.slack_app.backend.services.shared_channels import (
-    SHARED_CHANNELS_TURNED_OFF_MESSAGE,
-    SharedChannelAccess,
-    shared_channel_access,
 )
 from products.slack_app.backend.services.slack_app_home import (
     EDIT_MODAL_PERSONAL_CALLBACK_ID,

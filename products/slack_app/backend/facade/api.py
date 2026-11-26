@@ -171,7 +171,7 @@ def slack_shared_channel_allows_replies(integration: IntegrationRecord, slack_ch
     Only externally shared channels need this. Callers read that from the ``is_ext_shared_channel`` flag Slack
     puts on the event envelope and skip this check when it is false.
     """
-    from products.slack_app.backend.services.shared_channels import (  # noqa: PLC0415
+    from products.slack_app.backend.logic.shared_channels import (  # noqa: PLC0415
         SharedChannelAccess,
         shared_channel_access,
     )

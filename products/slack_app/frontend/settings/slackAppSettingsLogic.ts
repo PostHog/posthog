@@ -49,6 +49,7 @@ export interface slackAppSettingsLogicValues {
     integrationsLoading: boolean // integrationsLogic
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentTeamId: number | null // teamLogic
+    activeTab: SlackAppSettingsTab
     channelDraft: ChannelDraft | null
     channelSaveDisabledReason: string | undefined
     channelSaving: boolean
@@ -140,6 +141,9 @@ export interface slackAppSettingsLogicActions {
     selectIntegration: (integrationId: number) => {
         integrationId: number
     }
+    setActiveTab: (tab: SlackAppSettingsTab) => {
+        tab: SlackAppSettingsTab
+    }
     setChannelDraft: (change: Partial<ChannelDraft>) => {
         change: Partial<ChannelDraft>
     }
@@ -217,6 +221,8 @@ export type slackAppSettingsLogicType = MakeLogicType<
     slackAppSettingsLogicMeta
 >
 
+export type SlackAppSettingsTab = 'personal' | 'channels' | 'workspace'
+
 export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
     path(['products', 'slack_app', 'frontend', 'settings', 'slackAppSettingsLogic']),
     connect(() => ({
@@ -224,6 +230,7 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
         actions: [integrationsLogic, ['loadIntegrationsSuccess']],
     })),
     actions({
+        setActiveTab: (tab: SlackAppSettingsTab) => ({ tab }),
         selectIntegration: (integrationId: number) => ({ integrationId }),
         loadAll: true,
         openChannelModal: (channel: SlackAppChannelSettingsApi | null) => ({ channel }),
@@ -235,6 +242,12 @@ export const slackAppSettingsLogic = kea<slackAppSettingsLogicType>([
         setChannelSaving: (saving: boolean) => ({ saving }),
     }),
     reducers({
+        activeTab: [
+            'personal' as SlackAppSettingsTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         pickedIntegrationId: [
             null as number | null,
             {

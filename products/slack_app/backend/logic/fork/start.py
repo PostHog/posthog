@@ -10,7 +10,7 @@ import structlog
 
 from posthog.slack.formatting import escape_slack_mrkdwn
 
-from products.slack_app.backend.services.shared_channels import (
+from products.slack_app.backend.logic.shared_channels import (
     SHARED_CHANNELS_TURNED_OFF_MESSAGE,
     SharedChannelAccess,
     shared_channel_access,

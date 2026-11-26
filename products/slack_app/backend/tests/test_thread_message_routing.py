@@ -15,13 +15,13 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.logic.shared_channels import SharedChannelAccess
 from products.slack_app.backend.models import (
     SlackSettings,
     SlackThreadTaskMapping,
     SlackUserProfileCache,
     UntaggedFollowupMode,
 )
-from products.slack_app.backend.services.shared_channels import SharedChannelAccess
 
 
 class TestRouteThreadMessage(TestCase):

@@ -1,19 +1,20 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 
-export function SlackAppWorkspaceSettings(): JSX.Element | null {
+export function SlackAppWorkspaceSettings(): JSX.Element {
     const { settings, settingsLoading, workspaceSettingsDisabledReason } = useValues(slackAppSettingsLogic)
     const { updateWorkspaceSettings } = useActions(slackAppSettingsLogic)
 
     if (settingsLoading && !settings) {
         return <LemonSkeleton className="h-16" />
     }
-    // "My Slack settings" above already shows the not-connected and load-error states for the whole page.
     if (!settings) {
-        return null
+        return (
+            <LemonBanner type="error">Couldn't load the workspace settings. Refresh the page to try again.</LemonBanner>
+        )
     }
 
     return (

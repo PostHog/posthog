@@ -1618,8 +1618,8 @@ class TestChannelApprovalGate(TestCase):
     ):
         from django.utils import timezone
 
+        from products.slack_app.backend.logic.shared_channels import SHARED_CHANNELS_TURNED_OFF_MESSAGE
         from products.slack_app.backend.models import SlackChannel
-        from products.slack_app.backend.services.shared_channels import SHARED_CHANNELS_TURNED_OFF_MESSAGE
 
         if switch is not None:
             SlackSettings.objects.create(slack_workspace_id="T12345", external_channels_enabled=switch)
@@ -1632,7 +1632,7 @@ class TestChannelApprovalGate(TestCase):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
         with patch(
-            "products.slack_app.backend.services.shared_channels.is_slack_app_web_settings_enabled",
+            "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enabled",
             return_value=flag_on,
         ):
             result = route_posthog_code_event_to_relevant_region(
