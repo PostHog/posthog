@@ -174,11 +174,12 @@ const pairProperties = ({
 
 export function scorecardOf(
     result: RunVerdict,
-    { card, profile, admission }: LoadedCard,
+    { card, profile, admission, seedSource }: LoadedCard,
     provenance: Provenance,
     pair?: ScorecardPair
 ): ScorecardProperties {
     const versions = [provenance.runnerVersion, provenance.generatorVersion, provenance.valvesVersion]
+    const { scale, scaleBasis } = profile
     const fingerprint = versions.includes(null)
         ? null
         : createHash('sha256')
@@ -196,6 +197,12 @@ export function scorecardOf(
         card_hash: result.cardHash,
         profile_name: profile.name,
         profile_hash: result.profileHash,
+        ...(scale !== undefined && { profile_scale: scale }),
+        ...(scale !== undefined &&
+            scaleBasis === 'measured_peak' && {
+                profile_load_description: `measured mix at 1/${2n ** BigInt(-Math.log2(scale))} of the observed peak`,
+            }),
+        ...(profile.synthetic && { profile_synthetic: profile.synthetic }),
         topology_hash: result.topologyHash ?? null,
         config_hash: result.configHash ?? null,
         service_versions: result.services ?? null,
@@ -210,6 +217,7 @@ export function scorecardOf(
         generator_version: provenance.generatorVersion,
         valves_version: provenance.valvesVersion,
         seed: card.seed,
+        seed_source: seedSource ?? 'card',
         status: result.status,
         status_reason: result.statusReason,
         ...(result.stopped && { stopped_phase: result.stopped.phase, stopped_stack: result.stopped.stack }),

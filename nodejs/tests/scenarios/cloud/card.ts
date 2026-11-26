@@ -8,6 +8,7 @@ export const FAILOVER_VALVE = 'pg.failover'
 export type RunCard = {
     id: string
     failsOver: boolean
+    seed?: number
     pair?: { drive: string; convergeWithin: string }
 }
 
@@ -22,7 +23,8 @@ export function runCardOf(
     commit: string,
     id: string,
     runnerProfile: Buffer,
-    readAlertFile: ReadAlertFile
+    readAlertFile: ReadAlertFile,
+    seed?: number
 ): RunCard {
     const file = `nodejs/tests/scenarios/cards/${id}.yaml at ${commit}`
     let yaml: string
@@ -31,7 +33,7 @@ export function runCardOf(
     } catch (error) {
         throw new Error(`${id} is not a card at commit ${commit}: ${(error as Error).message}`)
     }
-    const loaded = loadText(file, { card: yaml, profile: runnerProfile.toString('utf8') }, readAlertFile)
+    const loaded = loadText(file, { card: yaml, profile: runnerProfile.toString('utf8') }, { seed, readAlertFile })
     const { card } = loaded
     const [problem] = card.pair ? pairProblemsOf(loaded, true) : []
     if (problem !== undefined) {
@@ -40,6 +42,7 @@ export function runCardOf(
     return {
         id,
         failsOver: card.valves.some(({ valve }) => valve === FAILOVER_VALVE),
+        ...(seed !== undefined && { seed }),
         ...(card.pair && { pair: { drive: card.drive.for, convergeWithin: card.convergeWithin } }),
     }
 }

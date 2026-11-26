@@ -13,7 +13,7 @@ import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../
 import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { AdmissionTargets, loadTargetsOf } from './load-targets'
-import { AlertsProfile, Card, Load, Named, Profile, stepsOf } from './schema'
+import { AlertsProfile, Card, Load, Named, Profile, SeedOverride, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
@@ -28,9 +28,10 @@ export type LoadedCard = {
     alerts?: AlertsProfile
     cardHash: string
     profileHash: string
+    seedSource?: 'override'
 }
 
-export type LoadOptions = { profilePath?: string; target?: Target }
+export type LoadOptions = { profilePath?: string; target?: Target; seed?: number }
 export type ReadAlertFile = (file: string) => { path: string; sha256: string }
 
 export class CardError extends Error {
@@ -351,7 +352,7 @@ function checkTrafficOnce(card: Card): string[] {
         .map(({ name, times }) => `drive.traffic: ${name} is listed ${times} times; list each traffic kind once`)
 }
 
-type ProfileRead = { profile: Profile; dir?: string } | { problems: string[] }
+type ProfileRead = { profile: Profile; unscaledProfile: Profile; dir?: string } | { problems: string[] }
 
 function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
     const file = profilePath ?? path.join(PROFILES_DIR, `${card.profile}.yaml`)
@@ -361,12 +362,54 @@ function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
     return readProfile(file)
 }
 
+function scaleProfile(profile: Profile): Profile {
+    const { scale, load } = profile
+    if (scale === undefined || scale === 1) {
+        return profile
+    }
+    const traffic = Object.fromEntries(
+        Object.entries(profile.traffic).map(([name, shape]) => [
+            name,
+            typeof shape === 'object' &&
+            shape !== null &&
+            'ratePerSecond' in shape &&
+            typeof shape.ratePerSecond === 'number'
+                ? { ...shape, ratePerSecond: shape.ratePerSecond * scale }
+                : shape,
+        ])
+    )
+    if (load === undefined) {
+        return { ...profile, traffic }
+    }
+    const { claimsPerSecond, newJobsPerSecond } = load.targets
+    return {
+        ...profile,
+        traffic,
+        load: {
+            ...load,
+            targets: {
+                claimsPerSecond: Object.fromEntries(
+                    Object.entries(claimsPerSecond).map(([queue, rate]) => [queue, rate * scale])
+                ),
+                ...(newJobsPerSecond === undefined ? {} : { newJobsPerSecond: newJobsPerSecond * scale }),
+            },
+        },
+    }
+}
+
 function profileOf(read: Read): ProfileRead {
     if ('problem' in read) {
         return { problems: [read.problem] }
     }
     const profile = Profile.safeParse(read.value)
-    return profile.success ? { profile: profile.data } : { problems: problemsOf(profile.error, 'profile') }
+    if (!profile.success) {
+        return { problems: problemsOf(profile.error, 'profile') }
+    }
+    const scaled = scaleProfile(profile.data)
+    const load = Load.optional().safeParse(scaled.load)
+    return load.success
+        ? { profile: scaled, unscaledProfile: profile.data }
+        : { problems: problemsOf(load.error, 'profile.load') }
 }
 
 export function readProfile(file: string): ProfileRead {
@@ -394,19 +437,19 @@ function alertFileAt(dir: string): ReadAlertFile {
 }
 
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
-    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options.target)
+    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options)
 }
 
 export function loadText(
     label: string,
     { card, profile }: { card: string; profile: string },
-    readAlertFile?: ReadAlertFile
+    { seed, readAlertFile }: Pick<LoadOptions, 'seed'> & { readAlertFile?: ReadAlertFile } = {}
 ): LoadedCard {
     return check(
         label,
         parseYaml(() => card, 'card'),
         () => profileOf(parseYaml(() => profile, 'profile')),
-        'local',
+        { seed },
         readAlertFile
     )
 }
@@ -415,7 +458,7 @@ function check(
     cardPath: string,
     read: Read,
     profileFor: (card: Card) => ProfileRead,
-    target: Target = 'local',
+    { target = 'local', seed }: LoadOptions,
     readAlertFile?: ReadAlertFile
 ): LoadedCard {
     if ('problem' in read) {
@@ -426,6 +469,16 @@ function check(
         throw new CardError(cardPath, problemsOf(parsed.error, ''))
     }
     const card = parsed.data
+    if (seed !== undefined) {
+        if (!card.seedable) {
+            throw new CardError(cardPath, ['Declare seedable: true to use --seed.'])
+        }
+        const override = SeedOverride.safeParse(seed)
+        if (!override.success) {
+            throw new CardError(cardPath, ['The seed override is outside the supported range.'])
+        }
+        card.seed = override.data
+    }
     const loaded = profileFor(card)
     if ('dir' in loaded && loaded.dir !== undefined) {
         readAlertFile ??= alertFileAt(loaded.dir)
@@ -458,31 +511,38 @@ function check(
         throw new CardError(cardPath, problems)
     }
 
+    const { profile, unscaledProfile } = loaded
     let alerts: AlertsProfile | undefined
-    let profileHash = sha256(loaded.profile)
-    if (loaded.profile.alerts && readAlertFile) {
-        const files = loaded.profile.alerts
+    let profileHash: string
+    if (profile.alerts && readAlertFile) {
+        const files = profile.alerts
         try {
             const rules = readAlertFile(files.rules)
             const labels = readAlertFile(files.labels)
             alerts = { ...files, rules: rules.path, labels: labels.path }
             profileHash = sha256({
-                profile: loaded.profile,
+                profile: unscaledProfile,
                 alertFiles: { rules: rules.sha256, labels: labels.sha256 },
             })
         } catch (error) {
             throw new CardError(cardPath, [`profile.alerts: ${(error as Error).message}`])
         }
+    } else {
+        profileHash = sha256(unscaledProfile)
     }
     return {
         card,
-        profile: loaded.profile,
-        admission: { load: derived.load, host: loaded.profile.host },
+        profile,
+        admission: { load: derived.load, host: profile.host },
         alerts,
         profileHash,
         cardHash: cardHashOf(card, profileHash),
+        ...(seed !== undefined && { seedSource: 'override' }),
     }
 }
 
 export const cardHashOf = (card: Card, profileHash: string): string =>
-    sha256({ card: { ...card, gates: undefined, pair: undefined, unpaired: undefined }, profileHash })
+    sha256({
+        card: { ...card, gates: undefined, pair: undefined, unpaired: undefined, seedable: undefined },
+        profileHash,
+    })
