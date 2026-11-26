@@ -27,8 +27,19 @@ class TestMetricsSqlInsight(APIBaseTest):
         [
             ("metrics_table", "SELECT now() AS time, count() AS value FROM posthog.metrics", None),
             ("interval_placeholder", "SELECT toStartOfInterval(timestamp, {interval}) AS time FROM events", None),
-            ("dashboard_variable", "SELECT count() FROM events WHERE event = $event", None),
-            ("quoted_dashboard_variable", "SELECT count() FROM events WHERE event = '$event'", None),
+            ("variable", "SELECT count() FROM events WHERE event = $event", None),
+            (
+                "quoted_variable_starting_with_a_digit",
+                "SELECT count() FROM events WHERE properties.status = '$2xx'",
+                None,
+            ),
+            ("quoted_query_variable", "SELECT count() FROM events WHERE event = '$event'", None),
+            ("quoted_dashboard_variable", "SELECT count() FROM events WHERE properties.service = '$service'", None),
+            (
+                "quoted_text",
+                "SELECT count() FROM events WHERE event = '$pageview'",
+                "SELECT count() FROM events WHERE event = '$pageview'",
+            ),
             ("invalid_sql", "SELECT FROM WHERE", None),
             ("unknown_placeholder", "SELECT count() FROM events WHERE event = {unknown}", None),
             (
@@ -39,6 +50,17 @@ class TestMetricsSqlInsight(APIBaseTest):
         ]
     )
     def test_sql_over_other_tables_becomes_a_sql_insight(self, _name: str, sql: str, expected: str | None) -> None:
+        self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/",
+            {
+                "name": "Services",
+                "filters": {
+                    "metricVariables": [{"name": "service", "source": "textbox"}, {"name": "2xx", "source": "textbox"}]
+                },
+            },
+            format="json",
+        )
+
         converted = sql_insight_for_metrics_sql(
             self.team,
             {
@@ -47,6 +69,7 @@ class TestMetricsSqlInsight(APIBaseTest):
                 "sql": sql,
                 "clauses": [],
                 "display": {"type": "table"},
+                "variables": {"event": {"values": ["$pageleave"]}},
             },
         )
 

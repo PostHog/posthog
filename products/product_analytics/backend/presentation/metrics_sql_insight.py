@@ -19,6 +19,8 @@ from posthog.hogql.parser import parse_select
 
 from posthog.models import Team
 
+from products.dashboards.backend.facade.api import metric_variable_names
+
 from common.hogvm.python.utils import HogVMException
 
 DEFAULT_DATE_FROM = "-24h"
@@ -38,15 +40,28 @@ _DATE_PLACEHOLDERS = {
     re.compile(r"\{\s*date_from\s*\}"): "{filters.dateRange.from}",
     re.compile(r"\{\s*date_to\s*\}"): "{filters.dateRange.to}",
 }
-# A dashboard can fill in a variable at render time, also inside quotes. `properties.$browser` is a field.
-_VARIABLE_REFERENCE = re.compile(r"(?<![\w.])\$\{?[A-Za-z_]")
+# Metrics SQL fills in `$name` and a whole quoted `'$name'`. `properties.$browser` is a field, not a reference.
+_UNQUOTED_REFERENCE = re.compile(r"(?<![\w.'\"`])\$\{?[A-Za-z0-9_]")
+_QUOTED_REFERENCE = re.compile(r"(['\"])\$\{?([A-Za-z0-9_]+)\}?\1")
+
+
+def _uses_dashboard_variables(team: Team, query: dict[str, Any], sql: str) -> bool:
+    if _UNQUOTED_REFERENCE.search(sql):
+        return True
+    quoted = {match.group(2) for match in _QUOTED_REFERENCE.finditer(sql)}
+    if not quoted:
+        return False
+    variables = query.get("variables")
+    known = set(variables) if isinstance(variables, dict) else set()
+    # A dashboard can fill in a variable at render time, so a quoted name that no dashboard defines is text.
+    return bool(quoted & (known | metric_variable_names(team_id=team.pk)))
 
 
 def sql_insight_for_metrics_sql(team: Team, query: dict[str, Any]) -> dict[str, Any] | None:
     if query.get("kind") != "MetricsQuery" or query.get("language") != "sql":
         return None
     sql = query.get("sql")
-    if not isinstance(sql, str) or _INTERVAL_PLACEHOLDER.search(sql) or _VARIABLE_REFERENCE.search(sql):
+    if not isinstance(sql, str) or _INTERVAL_PLACEHOLDER.search(sql) or _uses_dashboard_variables(team, query, sql):
         return None
     try:
         parsed = parse_select(
