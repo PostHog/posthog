@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { BUSY_ERROR, createQueryBatchRunner } from './queryBatchRunner'
+import { BUSY_ERROR, MAX_STREAMS, createQueryBatchRunner } from './queryBatchRunner'
 import { QUERY_BATCH_TIMING_EVENT } from './queryBatchTiming'
 import type { QueryRequest } from './queryTypes'
 
@@ -130,7 +130,7 @@ describe('createQueryBatchRunner', () => {
         await expect(result).rejects.toThrow('No answer came back for this query')
     })
 
-    it('sends charts that mount across ticks as one stream and holds later asks until it ends', async () => {
+    it('sends charts that mount across ticks as one stream, runs up to three streams and holds later asks', async () => {
         const runQuery = createQueryBatchRunner(7)
         const first = runQuery(SQL)
         await jest.advanceTimersByTimeAsync(0)
@@ -142,9 +142,12 @@ describe('createQueryBatchRunner', () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(1)
         expect(streams[0].body.queries).toHaveLength(3)
 
-        const late = runQuery(TRENDS)
-        await flush()
-        expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+        const later = []
+        for (let total = 4; total < 4 + MAX_STREAMS; total++) {
+            later.push(runQuery(TRENDS))
+            await flush()
+        }
+        expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_STREAMS)
 
         answer(streams[0], 2, 3)
         answer(streams[0], 0, 1)
@@ -153,15 +156,17 @@ describe('createQueryBatchRunner', () => {
         await expect(Promise.all([first, second, third])).resolves.toEqual([totalOf(1), totalOf(2), totalOf(3)])
         await flush()
 
-        expect(globalThis.fetch).toHaveBeenCalledTimes(2)
-        expect(streams[1].body.queries).toEqual([
+        expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_STREAMS + 1)
+        expect(streams[MAX_STREAMS].body.queries).toEqual([
             { target: { refId: '0', language: 'query', query: '{"kind":"TrendsQuery","series":[]}' }, time: TIME },
         ])
-        answer(streams[1], 0, 4)
-        await expect(late).resolves.toEqual(totalOf(4))
+        for (let stream = MAX_STREAMS; stream >= 1; stream--) {
+            answer(streams[stream], 0, 3 + stream)
+        }
+        await expect(Promise.all(later)).resolves.toEqual(later.map((_, index) => totalOf(4 + index)))
     })
 
-    it('asks once more for a query answered busy, a second after the stream ends', async () => {
+    it('asks once more for a query answered busy, a second after the stream ends, even when another stream is free', async () => {
         const runQuery = createQueryBatchRunner(7)
         const result = runQuery(SQL)
         await flush()
@@ -170,9 +175,16 @@ describe('createQueryBatchRunner', () => {
         await flush()
         expect(globalThis.fetch).toHaveBeenCalledTimes(1)
 
-        await jest.advanceTimersByTimeAsync(1000)
+        void runQuery(TRENDS).catch(() => {})
+        await flush()
         expect(globalThis.fetch).toHaveBeenCalledTimes(2)
-        streams[1].push(`${JSON.stringify({ i: 0, error: BUSY_ERROR })}\n`)
+        expect(streams[1].body.queries).toHaveLength(1)
+        expect(streams[1].body.queries[0].target.language).toBe('query')
+
+        await jest.advanceTimersByTimeAsync(1000)
+        expect(globalThis.fetch).toHaveBeenCalledTimes(3)
+        expect(streams[2].body.queries[0].target.language).toBe('hogql')
+        streams[2].push(`${JSON.stringify({ i: 0, error: BUSY_ERROR })}\n`)
 
         await expect(result).rejects.toThrow(BUSY_ERROR)
     })

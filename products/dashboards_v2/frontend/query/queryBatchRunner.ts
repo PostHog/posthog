@@ -16,6 +16,8 @@ const BUSY_RETRY_DELAY_MS = 1000
 const MAX_QUERIES_PER_BATCH = 500
 // Tiles mount across several ticks, so one tick would split a board into several batches.
 const COALESCE_MS = 30
+// Each stream holds one of the person's batch slots on the server, so this stays at or below `MAX_BATCHES_PER_USER`.
+export const MAX_STREAMS = 3
 // `_BUSY` in `products/dashboards/backend/v2/query_batch.py`.
 export const BUSY_ERROR = 'Too many dashboards are loading at once. Try again shortly.'
 
@@ -148,7 +150,7 @@ async function runBatch(
                         return
                     }
                     unanswered.delete(line.i)
-                    // Another tab, or a slot not yet freed, held this person's one running batch.
+                    // Another tab, or a slot not yet freed, held this person's running batches.
                     const busy = line.error === BUSY_ERROR && !pending.retriedBusy
                     timer.line(line, busy)
                     if (busy) {
@@ -179,49 +181,51 @@ async function runBatch(
 /**
  * Runs chart queries through `POST dashboard_v2/query_batch/`. The charts that ask within a short window, such as
  * every tile a dashboard mounts, share one stream, and each chart's promise settles as soon as its own line arrives.
- * Only one stream runs at a time, because the server runs one batch per person and answers the rest busy: charts that
- * ask while a stream is open are sent together once it ends.
+ * Up to `MAX_STREAMS` streams run at once, which stays inside the server's per-person shares
+ * (`MAX_BATCHES_PER_USER` and `MAX_OPEN_BATCHES_PER_USER`). Charts that ask while every stream is open are sent
+ * together once one ends.
  */
 export function createQueryBatchRunner(teamId: number, options: QueryBatchRunnerOptions = {}): RunQuery {
     // The scene makes a runner per visit, so its creation stands in for the board mounting.
     const board = startBoardLoad()
     let queued: Pending[] = []
     let timer: ReturnType<typeof setTimeout> | null = null
-    let running = false
+    let streams = 0
 
     const flush = (): void => {
-        timer = null
-        if (running || queued.length === 0) {
-            return
+        if (timer !== null) {
+            clearTimeout(timer)
+            timer = null
         }
-        const batch = queued.slice(0, MAX_QUERIES_PER_BATCH)
-        queued = queued.slice(MAX_QUERIES_PER_BATCH)
-        running = true
-        let retryingBusy = false
-        const batchTimer = new QueryBatchTimer(board, batch)
-        void runBatch(teamId, batch, batchTimer, (pending) => {
-            queued.push(pending)
-            retryingBusy = true
-        }).finally(() => {
-            try {
-                batchTimer.capture(batch[0].context)
-            } catch {
-                // Timing must never hold up the next batch.
-            }
-            setTimeout(
-                () => {
-                    running = false
-                    flush()
-                },
-                retryingBusy ? BUSY_RETRY_DELAY_MS : 0
-            )
-        })
+        while (streams < MAX_STREAMS && queued.length > 0) {
+            const batch = queued.slice(0, MAX_QUERIES_PER_BATCH)
+            queued = queued.slice(MAX_QUERIES_PER_BATCH)
+            streams++
+            const busy: Pending[] = []
+            const batchTimer = new QueryBatchTimer(board, batch)
+            void runBatch(teamId, batch, batchTimer, (pending) => busy.push(pending)).finally(() => {
+                try {
+                    batchTimer.capture(batch[0].context)
+                } catch {
+                    // Timing must never hold up the next batch.
+                }
+                // Held back from the other streams too, so a stream that ends sooner cannot send them early.
+                setTimeout(
+                    () => {
+                        queued.push(...busy)
+                        streams--
+                        flush()
+                    },
+                    busy.length > 0 ? BUSY_RETRY_DELAY_MS : 0
+                )
+            })
+        }
     }
 
     return (request) =>
         new Promise<QueryResult>((resolve, reject) => {
             queued.push({ request, resolve, reject, queuedAt: performance.now(), context: options.context?.() ?? {} })
-            if (!running && timer === null) {
+            if (streams < MAX_STREAMS && timer === null) {
                 timer = setTimeout(flush, COALESCE_MS)
             }
         })
