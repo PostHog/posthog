@@ -511,6 +511,9 @@ def _table_names_including_join_constraints(select) -> set[str]:
 
 
 def _has_placeholder_table(select) -> bool:
+    """Whether the select reads something unknown until its placeholders expand: a placeholder in a table
+    position, or a computed placeholder (such as `{jsonParse(...)}`) that can expand to a subquery. Named
+    placeholders such as `{filters}` or `{variables.x}` expand to expressions the analysis already covers."""
     # Deferred to break the query_runner -> this module -> hogql import cycle.
     from posthog.hogql import ast  # noqa: PLC0415
     from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
@@ -522,6 +525,10 @@ def _has_placeholder_table(select) -> bool:
             if isinstance(node.table, ast.Placeholder):
                 self.found = True
             super().visit_join_expr(node)
+
+        def visit_placeholder(self, node: ast.Placeholder) -> None:
+            if node.chain is None:
+                self.found = True
 
     finder = _PlaceholderTableFinder()
     finder.visit(select)

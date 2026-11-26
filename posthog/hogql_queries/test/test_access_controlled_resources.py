@@ -97,6 +97,8 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("placeholder_table", "select * from {table}", None),
             ("placeholder_join", "select * from events join {table} on 1", None),
             ("placeholder_outside_from", "select * from events where {filters}", set()),
+            ("variable_placeholder", "select {variables.x} from events", set()),
+            ("computed_placeholder", "select {jsonParse('1')} from events", None),
             (
                 "account_email_threads_lazy_join",
                 "select accounts.email_threads.count from system.accounts as accounts",
