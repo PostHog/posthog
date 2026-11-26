@@ -1,7 +1,12 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.contrib.auth.models import AnonymousUser
 from django.test import override_settings
+
+from parameterized import parameterized
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryModifiers, HogQLQueryResponse, PersonsOnEventsMode
 
@@ -13,6 +18,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_client.execute import execute_hogql_query
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -62,3 +68,11 @@ class TestExecuteThroughRequest(ClickhouseTestMixin, APIBaseTest):
         assert (served_team, served_user) == (self.team, self.user) and served_team is not self.team
         assert "./runner/query" in timings.timings and "./query" not in timings.timings
         assert {timing.k for timing in through_request.timings or []} == timings.to_dict().keys()
+
+    @parameterized.expand([("shared_link_viewer", AnonymousUser()), ("service_token", SyntheticUser)])
+    @override_settings(HOGQL_EXECUTE_THROUGH_REQUEST=True)
+    def test_refuses_a_principal_that_is_not_a_user_row(self, _name: str, principal: Any) -> None:
+        user = principal(self.team, "token") if principal is SyntheticUser else principal
+
+        with self.assertRaisesRegex(ValueError, "principal has no wire form"):
+            execute_hogql_query("select 1", self.team, user=user)

@@ -2,7 +2,7 @@ import dataclasses
 from typing import TYPE_CHECKING, Annotated, Any
 
 import orjson
-from pydantic import BaseModel, BeforeValidator, ConfigDict, InstanceOf
+from pydantic import BaseModel, BeforeValidator, ConfigDict, InstanceOf, JsonValue
 
 from posthog.schema import HogQLFilters, HogQLQueryModifiers, HogQLVariable
 
@@ -70,7 +70,7 @@ class ExecuteContext(BaseModel):
     enable_select_queries: bool | None = None
     limit_top_select: bool | None = None
     limit_context: LimitContext | None = None
-    globals: dict[str, Any] | None = None
+    globals: dict[str, JsonValue] | None = None
     property_type_overrides: dict[str, str] | None = None
     restricted_properties: set[RestrictedProperty] | None = None
     modifiers: HogQLQueryModifiers | None = None

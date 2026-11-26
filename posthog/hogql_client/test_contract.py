@@ -115,6 +115,11 @@ class TestExecuteRequest(SimpleTestCase):
             ("argument_with_no_wire_form", {"resolver_factory": object()}),
             ("context_field_with_no_wire_form", {"context": HogQLContext(output_format="JSONEachRow")}),
             ("settings_of_another_class", {"settings": HogQLQuerySettings()}),
+            ("context_global_that_json_would_change", {"context": HogQLContext(globals={"since": (2026, 1)})}),
+            (
+                "context_global_that_json_cannot_hold",
+                {"context": HogQLContext(globals={"since": datetime(2026, 1, 2, tzinfo=UTC)})},
+            ),
         ]
     )
     def test_refuses_what_cannot_cross(self, _name: str, arguments: dict[str, Any]) -> None:

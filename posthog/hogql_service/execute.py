@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.contrib.auth.models import AnonymousUser
+
 from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql import ast
@@ -8,6 +10,7 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_client.contract import ExecuteRequest
 from posthog.models import Team, User
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -31,11 +34,13 @@ def execute_through_request(
     query: str | ast.SelectQuery | ast.SelectSetQuery | None,
     team: Team,
     *,
-    user: User | None = None,
+    user: User | AnonymousUser | SyntheticUser | None = None,
     user_access_control: UserAccessControl | None = None,
     timings: HogQLTimings | None = None,
     **arguments: Any,
 ) -> HogQLQueryResponse:
+    if user is not None and not isinstance(user, User):
+        raise ValueError(f"A {type(user).__name__} principal has no wire form")
     request = ExecuteRequest.from_call(query, **arguments)
     response = execute_request(
         ExecuteRequest.model_validate_json(request.to_json()),
