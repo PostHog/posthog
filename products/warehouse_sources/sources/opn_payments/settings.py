@@ -17,6 +17,7 @@ class OpnPaymentsEndpointConfig:
     table_name: str
     fanout: DependentEndpointConfig | None = None
     primary_keys: tuple[str, ...] = ("id",)
+    incremental: bool = True
 
     # Read by the shared fan-out helper.
     @property
@@ -29,11 +30,11 @@ class OpnPaymentsEndpointConfig:
 
     @property
     def incremental_fields(self) -> list[IncrementalField]:
-        return [] if self.fanout else [_created_at_field()]
+        return [_created_at_field()] if self.incremental and not self.fanout else []
 
     @property
     def default_incremental_field(self) -> str | None:
-        return None if self.fanout else "created_at"
+        return "created_at" if self.incremental and not self.fanout else None
 
 
 def _created_at_field() -> IncrementalField:
@@ -71,7 +72,9 @@ OPN_PAYMENTS_ENDPOINTS: dict[str, OpnPaymentsEndpointConfig] = {
     "Receipts": OpnPaymentsEndpointConfig(path="/receipts", table_name="receipts"),
     "Recipients": OpnPaymentsEndpointConfig(path="/recipients", table_name="recipients"),
     "Refunds": OpnPaymentsEndpointConfig(path="/refunds", table_name="refunds"),
-    "Schedules": OpnPaymentsEndpointConfig(path="/schedules", table_name="schedules"),
+    # A schedule's status and upcoming dates change long after its `created_at`, which a
+    # `from` filter on that field would never re-read.
+    "Schedules": OpnPaymentsEndpointConfig(path="/schedules", table_name="schedules", incremental=False),
     "Transactions": OpnPaymentsEndpointConfig(path="/transactions", table_name="transactions"),
     "Transfers": OpnPaymentsEndpointConfig(path="/transfers", table_name="transfers"),
     "Cards": OpnPaymentsEndpointConfig(
