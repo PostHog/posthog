@@ -8,7 +8,7 @@ from typing import Any
 from products.metrics.backend.dashboard_import.catalog import MetricCatalog
 from products.metrics.backend.dashboard_import.promql_text import metric_names
 from products.metrics.backend.dashboard_import.spec import DashboardSpec, ImportSource, PanelSpec, PanelVerdict
-from products.metrics.backend.dashboard_import.validation import QueryCheck
+from products.metrics.backend.dashboard_import.validation import SMOKE_WORKERS, QueryCheck
 
 BRIEF_FILE_NAME = "brief.json"
 GRAFANA_FILE_NAME = "grafana-dashboard.json"
@@ -144,7 +144,7 @@ def build_prompt(
                 [
                     f'In every metrics-dashboard-panels-validate call, set import_id to "{import_id}" and give each '
                     "panel its title. PostHog shows the user which panels pass. Check each panel as soon as you have "
-                    "its query, up to 10 panels per call. Do not keep the checks for the end."
+                    f"its query, up to {SMOKE_WORKERS} panels per call. Do not keep the checks for the end."
                 ]
                 if import_id
                 else []
@@ -198,8 +198,9 @@ def build_brief(
             )
         brief["dashboard"] = {"title": spec.title, "description": spec.description, "variables": spec.variables}
         brief["panels_to_convert"] = panels
-    # Every model call rereads the brief, so it carries only what the agent uses to write queries.
-    return json.dumps(brief, separators=(",", ":")).encode()
+    # Every model call rereads the brief, so it carries only what the agent uses to write queries. The agent's
+    # Read tool cuts lines over 2,000 characters, so every value keeps its own line.
+    return json.dumps(brief, indent=1, separators=(",", ":")).encode()
 
 
 def _panel_brief(panel: PanelSpec) -> dict[str, Any]:
