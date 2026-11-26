@@ -740,7 +740,7 @@ tools:
     autoresearch-training-runs-stop-create:
         operation: autoresearch_training_runs_stop_create
         enabled: false
-        disabled_reason: Enable after the stop route deploys, because the MCP server deploys before Django
+        disabled_reason: Not enabled yet. The stop route is deployed, so the owning team can enable it.
         scopes:
             - autoresearch:write
         annotations:
