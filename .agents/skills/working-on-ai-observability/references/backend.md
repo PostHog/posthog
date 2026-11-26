@@ -8,6 +8,7 @@ This file gives the reasons, and the rules the table does not carry.
 - **Views are thin because HTTP, Temporal, PostHog AI and MCP share the facade.** A decision made in a view is a decision the other three callers do not get.
 - **A facade function takes typed parameters.** A loose dict or a mode flag makes every caller learn the function again.
 - **A facade function may also return a plain id or count that the caller uses as it is.** It never returns something the view must reshape before it serves it.
+- **A resource area may keep its facade in its own pair of modules,** `facade/<area>.py` and `facade/<area>_contracts.py`, so `api.py` and `contracts.py` do not grow without bound. Every function and contract in the pair follows the same rules.
 - **The facade function is the unit of work.** Only it knows which steps must succeed or fail together, so the transaction boundary sits in the one place that shows what is inside it.
 - **Behavior takes loaded data so that its tests need no database.** An ORM object is fine as data: read its fields, and leave relations, `.save()` and managers to the data access module.
 - **Validation is behavior, and has one implementation.** A create and an update share one check. When two languages each need the same behavior, both run one shared case file under `shared/`.
