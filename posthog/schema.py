@@ -6919,6 +6919,15 @@ class HogQLQueryModifiers(BaseModel):
             " server-side; not intended to be set by clients."
         ),
     )
+    webAnalyticsSessionlessShape: bool | None = Field(
+        default=None,
+        description=(
+            "Compute web analytics session metrics (sessions, bounce rate, duration,"
+            " entry and exit page) from the events table grouped by `$session_id`, with"
+            " no join to the sessions table and visitors from the event's own"
+            " `person_id`. Experimental; off unless set."
+        ),
+    )
 
 
 class HogQuery(BaseModel):
