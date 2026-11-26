@@ -3,10 +3,9 @@ import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-ge
 import { healthCheckRowsTable, healthDetectableEffects } from './healthCheckRows'
 import { HealthCheckRowsTable } from './HealthCheckRowsTable'
 import { type HealthReading, healthCheckReadings, healthExposureSplit } from './healthCheckValues'
-import { HealthDailyExposuresChart } from './HealthDailyExposuresChart'
-import { HealthDailyShareChart } from './HealthDailyShareChart'
 import { HealthDetectableEffectLine } from './HealthDetectableEffectLine'
 import { HealthExposureSplitTable } from './HealthExposureSplitTable'
+import { HealthFindingDailyChart } from './HealthFindingDailyChart'
 import type { HealthPanelCheck } from './healthPanelChecks'
 import type { HealthPanelFinding } from './healthPanelFindings'
 import { HealthPanelSection } from './HealthPanelSection'
@@ -40,21 +39,9 @@ export function HealthCheckReadSection({
         ...(countedFrom ? [{ label: 'Exposures counted from', time: countedFrom, asDate: true }] : []),
     ]
 
-    const startedOn = finding?.evidence.mismatch_started_on
-
     return (
         <HealthPanelSection title="What it read">
-            {finding && check.key === 'srm' && (
-                <HealthDailyShareChart
-                    exposures={exposures}
-                    startedOn={typeof startedOn === 'string' ? startedOn : null}
-                    showsPlan={finding.subcode !== 'split_changed'}
-                    units={units}
-                />
-            )}
-            {finding && check.key === 'split_changed_mid_run' && (
-                <HealthDailyExposuresChart check={check} exposures={exposures} units={units} />
-            )}
+            <HealthFindingDailyChart check={check} finding={finding} exposures={exposures} units={units} />
             {split && <HealthExposureSplitTable rows={split} units={units} />}
             {readings.length > 0 && <HealthReadingList readings={readings} />}
             {table && <HealthCheckRowsTable table={table} />}
