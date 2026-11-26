@@ -622,7 +622,7 @@ describe('hog setup', () => {
             'an action other than status',
             ['setup', 'next'],
             'invalid_setup_command',
-            'steps in order (say what PostHog is for, log in,',
+            'guides you through setting up PostHog step by step',
         ],
     ])('%s fails with a hint', async (_name, argv, code, hint) => {
         const result = await world().run(argv)
