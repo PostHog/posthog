@@ -486,7 +486,6 @@ export-shape	products.event_definitions.backend.models.property_definition.Prope
 export-shape	products.experiments.backend.facade.contracts.Unset	products.experiments.backend.facade.api	export-shape(class)	1
 export-shape	products.experiments.backend.facade.contracts.Unset	products.experiments.backend.facade.contracts	export-shape(class)	1
 export-shape	products.experiments.backend.hogql_queries.experiment_query_builder.ExperimentQueryBuilder	products.experiments.backend.facade.queries	export-shape(class)	1
-export-shape	products.experiments.backend.models.experiment.Experiment	products.experiments.backend.facade.legacy_migration	export-denied(model)	1
 export-shape	products.experiments.backend.models.experiment.Experiment	products.experiments.backend.facade.queries	export-denied(model)	1
 export-shape	products.experiments.backend.models.team_experiments_config.TeamExperimentsConfig	products.experiments.backend.facade.queries	export-denied(model)	1
 export-shape	products.experiments.backend.temporal.recalculation.metrics.ExperimentsRecalculationMetricsInterceptor	products.experiments.backend.facade.temporal	export-shape(class)	1
