@@ -1548,6 +1548,9 @@ jobs:
                           overall=$exit_code
                       fi
                   done
+                  if [ "$overall" -eq 124 ]; then
+                      echo "timed_out=true" >> "$GITHUB_OUTPUT"
+                  fi
                   set -e
                   exit $overall
 
@@ -1657,9 +1660,10 @@ jobs:
 
             # Verdict: red a real failure the gate didn't clear as a quarantined flake, or a masked failure
             # that the rerun did not clear. != 'success' also covers a skipped gate and a rerun that timed out.
+            # A test run stopped at TEST_RUN_TIMEOUT always reds the shard, because the rerun covers only failed tests and not the ones that never ran.
             - name: Fail on test failure
               id: test_verdict
-              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success' || steps.quarantine_rerun.outcome != 'success'))) }}
+              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || steps.run-product-tests.outputs.timed_out == 'true' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success' || steps.quarantine_rerun.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
@@ -4098,6 +4102,7 @@ jobs:
                   set -e
                   if [ $exit_code -eq 124 ] || { [ $exit_code -eq 137 ] && [ "$SECONDS" -ge "${TEST_RUN_TIMEOUT%s}" ]; }; then
                       echo "::error::The tests ran longer than $TEST_RUN_TIMEOUT and were stopped"
+                      echo "timed_out=true" >> "$GITHUB_OUTPUT"
                       exit 124
                   elif [ $exit_code -eq 5 ]; then
                       echo "No tests collected for this shard, this is expected when splitting tests"
@@ -4197,6 +4202,7 @@ jobs:
                   set -e
                   if [ $exit_code -eq 124 ] || { [ $exit_code -eq 137 ] && [ "$SECONDS" -ge "${TEST_RUN_TIMEOUT%s}" ]; }; then
                       echo "::error::The tests ran longer than $TEST_RUN_TIMEOUT and were stopped"
+                      echo "timed_out=true" >> "$GITHUB_OUTPUT"
                       exit 124
                   elif [ $exit_code -eq 5 ]; then
                       echo "No tests collected for this shard, this is expected when splitting tests"
@@ -4464,9 +4470,10 @@ jobs:
 
             # Verdict: red a real failure the gate didn't clear as a quarantined flake, or a masked failure
             # that the rerun did not clear. != 'success' also covers a skipped gate and a rerun that timed out.
+            # A test run stopped at TEST_RUN_TIMEOUT always reds the shard, because the rerun covers only failed tests and not the ones that never ran.
             - name: Fail on test failure
               id: test_verdict
-              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success' || steps.quarantine_rerun.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success' || steps.quarantine_rerun.outcome != 'success'))) }}
+              if: ${{ !cancelled() && (steps.run-core-tests.outputs.timed_out == 'true' || steps.run-temporal-tests.outputs.timed_out == 'true' || (steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success' || steps.quarantine_rerun.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success' || steps.quarantine_rerun.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
