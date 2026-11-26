@@ -77,16 +77,20 @@ export function QuillSqlVariablesTable(): JSX.Element {
                 meta: { expand: true },
                 sortingFn: (a, b) => a.original.name.localeCompare(b.original.name),
                 cell: ({ row }) => (
-                    <Button
-                        variant="link-foreground"
-                        size="inline"
-                        nativeButton={false}
-                        left
-                        render={<LinkPrimitive to={urls.variableEdit(row.original.id)} />}
-                        className="min-w-0 max-w-full font-semibold"
-                    >
-                        <span className="truncate">{row.original.name}</span>
-                    </Button>
+                    // The table pulls a borderless Button that sits directly in a cell 0.5rem to the left, to offset
+                    // its padding. This inline link has no padding, so the wrapper keeps it in line with the header.
+                    <div className="flex min-w-0">
+                        <Button
+                            variant="link-foreground"
+                            size="inline"
+                            nativeButton={false}
+                            left
+                            render={<LinkPrimitive to={urls.variableEdit(row.original.id)} />}
+                            className="min-w-0 max-w-full font-semibold"
+                        >
+                            <span className="truncate">{row.original.name}</span>
+                        </Button>
+                    </div>
                 ),
             },
             {
