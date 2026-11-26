@@ -122,7 +122,7 @@ class TestAPIDocsSchema(APIBaseTest):
         assert operation.get("deprecated", False) is deprecated
         assert operation["operationId"] == ("org_thing_list" if deprecated else "thing_list")
 
-    def test_docs_order_sorts_operations_within_their_tag(self) -> None:
+    def test_docs_order_sorts_operations_within_their_path_prefix(self) -> None:
         routes = [
             ("api/projects/<str:parent_lookup_team_id>/messages/", None),
             ("api/projects/<str:parent_lookup_team_id>/messaging/attachments/", 2),
