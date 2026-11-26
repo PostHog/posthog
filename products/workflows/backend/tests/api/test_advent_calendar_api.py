@@ -8,13 +8,18 @@ from rest_framework import status
 
 from posthog.models import Organization, Team, User
 
+from products.workflows.backend.models import AdventCalendarAnswer
+
 
 class TestAdventCalendarAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.outsider = User.objects.create_and_join(self.organization, "outsider@example.com", "password")
         flag_patch = patch(
             "posthog.permissions.posthog_feature_flag_enabled",
-            side_effect=lambda flag, *args, **kwargs: flag == "workflows-advent-calendar",
+            side_effect=lambda flag, distinct_id, **kwargs: (
+                flag == "workflows-advent-calendar" and distinct_id != str(self.outsider.distinct_id)
+            ),
         )
         flag_patch.start()
         self.addCleanup(flag_patch.stop)
@@ -92,13 +97,15 @@ class TestAdventCalendarAPI(APIBaseTest):
         response = self.client.post(self._url(self.team, "answer"), body)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert all(question["answer"] is None for question in self._results())
+        assert not AdventCalendarAnswer.objects.exists()
 
     def test_people_outside_the_advent_calendar_rollout_can_neither_answer_nor_read(self) -> None:
-        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
-            answer = self.client.post(self._url(self.team, "answer"), {"day": 2, "option": "tim"})
-            results = self.client.get(self._url(self.team, "results"))
+        self.client.force_login(self.outsider)
+
+        answer = self.client.post(self._url(self.team, "answer"), {"day": 2, "option": "tim"})
+        results = self.client.get(self._url(self.team, "results"))
 
         assert answer.status_code == status.HTTP_403_FORBIDDEN
         assert results.status_code == status.HTTP_403_FORBIDDEN
-        assert all(question["answer"] is None for question in self._results())
+        assert not AdventCalendarAnswer.objects.exists()
+        self._results()
