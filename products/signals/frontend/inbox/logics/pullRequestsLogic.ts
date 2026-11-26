@@ -37,13 +37,16 @@ function resolveProjectId(currentProjectId: number | null): string | null {
     return id != null ? String(id) : null
 }
 
-function syncOpenReportAfterMonitor(reportId: string): void {
+function currentOpenReportId(): string | null {
+    return inboxSceneLogic.findMounted()?.values.selectedReportId ?? null
+}
+
+function syncOpenReportAfterMonitor(initialReportId: string | null, reportId: string): void {
     const scene = inboxSceneLogic.findMounted()
-    const selectedId = scene?.values.selectedReportId
-    if (!scene || !selectedId) {
+    if (!scene || !initialReportId || scene.values.selectedReportId !== initialReportId) {
         return
     }
-    if (selectedId === reportId) {
+    if (initialReportId === reportId) {
         scene.actions.loadSelectedReport({ id: reportId })
         inboxReportDetailLogic.findMounted({ reportId })?.actions.loadReportArtefacts()
         return
@@ -263,6 +266,7 @@ export const pullRequestsLogic = kea<pullRequestsLogicType>([
                 return
             }
             cache.inFlightUrls.add(url)
+            const initialReportId = currentOpenReportId()
             const trimmedNote = (note ?? values.draftNotes[url] ?? '').trim()
             capturePRAction('submit_monitor', { has_note: Boolean(trimmedNote) })
             try {
@@ -272,7 +276,7 @@ export const pullRequestsLogic = kea<pullRequestsLogicType>([
                 )
                 actions.monitorPRDone(url, result)
                 monitoringTabLogic.findMounted()?.actions.loadReports()
-                syncOpenReportAfterMonitor(result.report_id)
+                syncOpenReportAfterMonitor(initialReportId, result.report_id)
             } catch (err: any) {
                 lemonToast.error(
                     err?.data?.detail || err?.detail || 'Could not start monitoring for this pull request.'

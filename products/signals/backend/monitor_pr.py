@@ -808,6 +808,12 @@ class PRMonitoringCheck(BaseModel):
         return CheckSpec.model_validate(self.model_dump(mode="json", exclude_none=True))
 
 
+_GUIDANCE_ACCESS_SENTINEL_QUERY: dict[str, Any] = {
+    "kind": "InsightVizNode",
+    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+}
+
+
 def _has_disallowed_control_chars(value: str) -> bool:
     return any(
         (ord(ch) < 32 and ch not in ("\n", "\r", "\t")) or 0x7F <= ord(ch) <= 0x9F or 0xD800 <= ord(ch) <= 0xDFFF
@@ -826,9 +832,9 @@ class PRMonitoringOutput(BaseModel):
         max_length=1500,
         description=(
             "Required when unavailable is true, null otherwise. Plain markdown explaining what direct "
-            "instrumentation is missing, naming candidate proxy events, properties, or actions found in "
-            "this project when any exist, and asking what to monitor. Qualitative names only; never include "
-            "raw analytics counts or property values."
+            "instrumentation is missing, naming candidate proxy event names found in this project when "
+            "any exist, and asking what to monitor. Event names only; never include action names, "
+            "restricted properties, raw analytics counts, or property values."
         ),
     )
 
@@ -948,8 +954,8 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
                     SignalReport.Status.PENDING_INPUT,
                     title=f"Monitor {pr.title}",
                     summary=(
-                        f"Post-merge impact check for {pr.repository}#{pr.number}.\n\n"
-                        f"## Guidance needed\n\n{output.guidance_question}"
+                        f"Post-merge impact check for {pr.repository}#{pr.number}. "
+                        "Monitoring research needs guidance on what to measure."
                     ),
                     error="PR monitoring research needs guidance on what to measure.",
                 )
@@ -957,7 +963,12 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
             SignalReportArtefact.add_log(
                 team_id=report.team_id,
                 report_id=str(report.id),
-                content=NoteArtefact(note=output.guidance_question, author="PR monitoring"),
+                content=NoteArtefact(
+                    note=output.guidance_question,
+                    author="PR monitoring",
+                    analytics_query_context=[_GUIDANCE_ACCESS_SENTINEL_QUERY],
+                    restricted_to_user_id=inputs.user_id,
+                ),
                 attribution=actor,
             )
             return

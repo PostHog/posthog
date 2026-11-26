@@ -808,21 +808,47 @@ class TestMonitorPR(APIBaseTest):
         )
         report.refresh_from_db()
         assert report.status == SignalReport.Status.PENDING_INPUT
-        assert f"## Guidance needed\n\n{question}" in (report.summary or "")
-        artefacts = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/").json()[
-            "results"
-        ]
+        assert question not in (report.summary or "")
+        artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
+        artefacts = self.client.get(artefacts_url).json()["results"]
         assert any(
             row["type"] == "note"
             and row["actor_kind"] == "system"
             and row["content"] == {"note": question, "author": "PR monitoring"}
             for row in artefacts
         )
+        teammate = User.objects.create_and_join(self.organization, email="viewer@example.com", password="test")
+        teammate_client = APIClient()
+        teammate_client.force_login(teammate)
+        assert question not in (
+            teammate_client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()["summary"] or ""
+        )
+        assert all(
+            question not in json_row["content"].get("note", "")
+            for json_row in teammate_client.get(artefacts_url).json()["results"]
+            if json_row["type"] == "note"
+        )
+        inbox_only_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="inbox-only",
+            user=self.user,
+            secure_value=hash_key_value(inbox_only_key),
+            scopes=["inbox:read"],
+            scoped_teams=[self.team.id],
+        )
+        unscoped_client = APIClient()
+        assert all(
+            question not in json_row["content"].get("note", "")
+            for json_row in unscoped_client.get(artefacts_url, HTTP_AUTHORIZATION=f"Bearer {inbox_only_key}").json()[
+                "results"
+            ]
+            if json_row["type"] == "note"
+        )
 
         restarted, retry_inputs = self.request_report(expected_status=202, note="Monitor order_submitted")
         assert restarted.id == report.id
         assert retry_inputs.note == "Monitor order_submitted"
-        assert "## Guidance needed" not in (restarted.summary or "")
+        assert "needs guidance" not in (restarted.summary or "")
         SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.POTENTIAL)
         restored, restored_inputs = self.request_report(expected_status=202)
         assert restored.id == report.id and restored_inputs.attempt_key != retry_inputs.attempt_key

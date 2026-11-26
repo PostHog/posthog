@@ -33,14 +33,14 @@ import {
     prFilesUrl,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
-import { reportPullRequests } from '../../utils/reportPullRequests'
+import { prMonitoringWindowExpiredReason, reportPullRequests } from '../../utils/reportPullRequests'
 import { ReportTagChips } from '../badges/ReportTagChips'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ReportSpendSection } from '../spend/ReportSpendSection'
-import { CommitContent } from './artefactTypes'
+import { CommitContent, latestPrMonitoringGuidanceQuestion } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { ImplementButton } from './ImplementButton'
 import { OpenPullRequestButton } from './OpenPullRequestButton'
@@ -127,13 +127,22 @@ const PR_GUIDANCE_COPY = {
     },
 } as const
 
-function prGuidancePrompt(isRetry: boolean, summary: string | null | undefined): string | null {
+function prGuidancePrompt(isRetry: boolean, guidanceQuestion: string | null): string {
     if (isRetry) {
         return 'Monitoring research stopped before saving a check. Retry as-is, or add guidance on what to monitor.'
     }
-    return String(summary ?? '').includes('## Guidance needed')
-        ? null
-        : 'Tell PostHog which event, property, or action to monitor for this pull request.'
+    return guidanceQuestion ?? 'Tell PostHog which event, property, or action to monitor for this pull request.'
+}
+
+function prGuidanceDisabledReason(
+    isRetry: boolean,
+    draftNote: string,
+    expiredReason: string | undefined
+): string | undefined {
+    if (expiredReason) {
+        return expiredReason
+    }
+    return !isRetry && !draftNote.trim() ? 'Add guidance on what PostHog should monitor' : undefined
 }
 
 function isUnmeasuredPrReport(
@@ -154,18 +163,19 @@ function isUnmeasuredPrReport(
 function PrMonitoringGuidanceForm({
     prUrl,
     isRetry,
-    summary,
+    expiredReason,
 }: {
     prUrl: string
     isRetry: boolean
-    summary: string | null | undefined
+    expiredReason: string | undefined
 }): JSX.Element {
+    const { reportArtefacts } = useValues(inboxReportDetailLogic)
     const { draftNotes, monitoringUrls } = useValues(pullRequestsLogic)
     const { monitorPR, setDraftNote } = useActions(pullRequestsLogic)
     const draftNote = draftNotes[prUrl] ?? ''
     const isSubmitting = Boolean(monitoringUrls[prUrl])
-    const disabledReason = !isRetry && !draftNote.trim() ? 'Add guidance on what PostHog should monitor' : undefined
-    const promptCopy = prGuidancePrompt(isRetry, summary)
+    const disabledReason = prGuidanceDisabledReason(isRetry, draftNote, expiredReason)
+    const promptCopy = prGuidancePrompt(isRetry, latestPrMonitoringGuidanceQuestion(reportArtefacts))
     const copy = PR_GUIDANCE_COPY[isRetry ? 'retry' : 'guidance']
 
     return (
@@ -173,13 +183,13 @@ function PrMonitoringGuidanceForm({
             data-attr="inbox-report-pr-guidance"
             className="flex flex-col gap-2.5 rounded border border-primary bg-surface-secondary p-3.5"
         >
-            {promptCopy && <p className="m-0 text-sm text-secondary">{promptCopy}</p>}
+            <p className="m-0 whitespace-pre-line text-sm text-secondary">{promptCopy}</p>
             <LemonTextArea
                 minRows={2}
                 maxRows={5}
                 maxLength={PR_MONITORING_NOTE_MAX_CHARS}
                 value={draftNote}
-                disabled={isSubmitting}
+                disabled={isSubmitting || Boolean(expiredReason)}
                 aria-label="Monitoring guidance"
                 data-attr="inbox-report-pr-guidance-input"
                 placeholder={copy.placeholder}
@@ -226,7 +236,13 @@ function PrMonitoringGuidance({
     if (!isUnmeasuredPrReport(report, pullRequest.prUrl, reportChecks, reportChecksError)) {
         return null
     }
-    return <PrMonitoringGuidanceForm prUrl={pullRequest.prUrl} isRetry={isRetry} summary={report.summary} />
+    return (
+        <PrMonitoringGuidanceForm
+            prUrl={pullRequest.prUrl}
+            isRetry={isRetry}
+            expiredReason={prMonitoringWindowExpiredReason(report, pullRequest.prUrl)}
+        />
+    )
 }
 
 /** Column classes shared by the frame and its skeleton, so the two can't drift apart. */
@@ -519,7 +535,7 @@ export function InboxDetailFrame({
                 report={activeReport}
                 pullRequest={pullRequest}
                 reportChecks={reportChecks}
-                reportChecksError={reportChecksError}
+                reportChecksError={Boolean(reportChecksError)}
             />
             {/* The notes and the rating close out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">

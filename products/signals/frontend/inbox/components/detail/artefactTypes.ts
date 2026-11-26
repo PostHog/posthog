@@ -340,6 +340,18 @@ export function readRankingScore(content: unknown): RankingScoreView | null {
  * rows are internal retry bookkeeping rather than something that happened to the report. The
  * activity count and the log itself both read this, so the two cannot disagree.
  */
+const REDACTED_EVIDENCE_PREFIX = "You don't have access to "
+
+export function latestPrMonitoringGuidanceQuestion(artefacts: SignalReportArtefact[] | null): string | null {
+    for (const artefact of [...(artefacts ?? [])].reverse()) {
+        const content = artefact.type === 'note' ? (artefact.content as NoteContent) : null
+        if (content?.author === 'PR monitoring' && content.note) {
+            return content.note.startsWith(REDACTED_EVIDENCE_PREFIX) ? null : content.note
+        }
+    }
+    return null
+}
+
 export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): SignalReportArtefact[] {
     return artefacts.filter(
         (artefact) =>

@@ -6,9 +6,10 @@ import { initKeaTests } from '~/test/init'
 
 import type { PRBrowserItemApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { selectVisibleReportActivity } from '../components/detail/artefactTypes'
+import { latestPrMonitoringGuidanceQuestion, selectVisibleReportActivity } from '../components/detail/artefactTypes'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import type { SignalReportArtefact } from '../types'
+import { prMonitoringWindowExpiredReason } from '../utils/reportPullRequests'
 import { monitoringTabLogic } from './monitoringTabLogic'
 import { pullRequestsLogic } from './pullRequestsLogic'
 
@@ -285,9 +286,34 @@ describe('pullRequestsLogic', () => {
             logic.actions.monitorPR(prUrl, 'Monitor order_submitted')
         }).toDispatchActions(['monitorPRDone'])
         expect(scene.values.selectedReportId).toBe('rep-3')
+
+        let finishPendingMonitor!: () => void
+        useMocks({
+            post: {
+                [MONITOR_PR_URL]: () =>
+                    new Promise((resolve) => {
+                        finishPendingMonitor = () =>
+                            resolve([
+                                202,
+                                {
+                                    report_id: 'rep-3',
+                                    report_url: 'http://localhost:8000/project/997/inbox/reports/rep-3',
+                                    status: 'in_progress',
+                                    idempotent_replay: false,
+                                },
+                            ])
+                    }),
+            },
+        })
+        logic.actions.monitorPR(prUrl, 'Monitor order_submitted')
+        scene.actions.setSelectedReportId('rep-other')
+        await expectLogic(scene).toDispatchActions(['loadSelectedReportSuccess'])
+        finishPendingMonitor()
+        await expectLogic(logic).toDispatchActions(['monitorPRDone'])
+        expect(scene.values.selectedReportId).toBe('rep-other')
         scene.unmount()
 
-        const visible = selectVisibleReportActivity([
+        const artefacts = [
             { id: '1', type: 'check_authoring', content: { status: 'failed' }, created_at: '2026-01-01T00:00:00Z' },
             {
                 id: '2',
@@ -296,7 +322,39 @@ describe('pullRequestsLogic', () => {
                 content: { note: 'Monitor `order_submitted`?', author: 'PR monitoring' },
                 created_at: '2026-01-01T00:00:01Z',
             },
-        ] as unknown as SignalReportArtefact[])
-        expect(visible.map((item) => item.id)).toEqual(['2'])
+            {
+                id: '3',
+                type: 'note',
+                actor_kind: 'system',
+                content: { note: "You don't have access to this assessment's evidence.", author: 'PR monitoring' },
+                created_at: '2026-01-01T00:00:02Z',
+            },
+        ] as unknown as SignalReportArtefact[]
+        expect(selectVisibleReportActivity(artefacts).map((item) => item.id)).toEqual(['2', '3'])
+        expect(latestPrMonitoringGuidanceQuestion(artefacts.slice(0, 2))).toBe('Monitor `order_submitted`?')
+        expect(latestPrMonitoringGuidanceQuestion(artefacts)).toBeNull()
+
+        const nowMs = Date.parse('2026-06-01T00:00:00Z')
+        expect(
+            prMonitoringWindowExpiredReason(
+                {
+                    pull_requests: [
+                        {
+                            id: 'pr-1',
+                            url: prUrl,
+                            state: 'merged',
+                            merged: true,
+                            review_decision: null,
+                            merged_at: '2026-02-01T00:00:00Z',
+                            attached_by: null,
+                            claim_id: null,
+                            attached_at: '2026-02-01T00:00:00Z',
+                        },
+                    ],
+                },
+                prUrl,
+                nowMs
+            )
+        ).toBe('Pull requests merged more than 90 days ago are outside the monitoring window')
     })
 })

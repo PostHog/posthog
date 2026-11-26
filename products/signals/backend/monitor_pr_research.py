@@ -55,9 +55,9 @@ Ask for guidance instead of guessing a weak proxy when no note resolves the choi
 - no relevant telemetry exists in this project yet.
 In those cases return metric: null, check: null, unavailable: true, and set guidance_question to 2-4
 concise sentences explaining what direct instrumentation is missing, listing concrete candidate proxy
-events, properties, or actions you found in this project (in backticks) when any exist, and asking
-what to monitor. Keep guidance_question qualitative: name events, properties, or actions only, and never
-include raw analytics counts or property values.
+event names you found in this project (in backticks) when any exist, and asking what to monitor. Keep
+guidance_question qualitative: name event names only, and never include action names, restricted
+properties, raw analytics counts, or property values.
 
 Return one query-backed primary metric and one metric_threshold check when authoring a measurement.
 Use a live InsightVizNode wrapping TrendsQuery with a relative date_from and empty date_to,
