@@ -1633,6 +1633,16 @@ class UserAccessControl:
         return bool(level and level != NO_ACCESS_LEVEL)
 
     @cached_property
+    def read_access_fingerprint(self) -> str:
+        """Equal for two snapshots exactly when they allow the same reads: resource-level access to every scope,
+        and the object IDs each scope blocks or allowlists. Lets a caller tell whether something built for one
+        snapshot is safe to hand to a holder of another."""
+        blocked = sorted(scope for scope in API_SCOPE_OBJECTS if not self.has_resource_access(scope))
+        blocked_ids = sorted((scope, sorted(ids)) for scope, ids in self.blocked_resource_ids_by_scope.items())
+        allowlisted_ids = sorted((scope, sorted(ids)) for scope, ids in self.allowlisted_resource_ids_by_scope.items())
+        return repr((blocked, blocked_ids, allowlisted_ids))
+
+    @cached_property
     def blocked_resources(self) -> list[str]:
         """Sorted list of resources the user has no access to at the resource level."""
         if self.is_organization_admin:

@@ -149,7 +149,7 @@ def shared_database_key(
         user_kind="user" if user is not None else "none",
         user_id=user.pk if user is not None else None,
         has_user_access_control=user_access_control is not None,
-        access_decision=_access_decision(user_access_control) if user_access_control is not None else None,
+        access_decision=user_access_control.read_access_fingerprint if user_access_control is not None else None,
         modifiers_fingerprint=modifiers_fingerprint(create_default_modifiers_for_team(team, modifiers)),
         connection_id=connection_id,
         bypass_warehouse_access_control=bypass_warehouse_access_control,
@@ -159,18 +159,3 @@ def shared_database_key(
         schema_table_names=frozenset(schema_table_names) if schema_table_names is not None else None,
         include_flag_evaluations_table=include_flag_evaluations_table,
     )
-
-
-def _access_decision(user_access_control: "UserAccessControl") -> str:
-    """What this snapshot allows, from the same reads the query cache key uses. A caller whose snapshot changed
-    mid-batch must not run on a catalog built from the old one, or it would cache old-access rows under its key."""
-    from posthog.scopes.catalog import API_SCOPE_OBJECTS  # noqa: PLC0415
-
-    blocked = sorted(scope for scope in API_SCOPE_OBJECTS if not user_access_control.has_resource_access(scope))
-    blocked_ids = sorted(
-        (scope, sorted(ids)) for scope, ids in user_access_control.blocked_resource_ids_by_scope.items()
-    )
-    allowlisted_ids = sorted(
-        (scope, sorted(ids)) for scope, ids in user_access_control.allowlisted_resource_ids_by_scope.items()
-    )
-    return repr((blocked, blocked_ids, allowlisted_ids))
