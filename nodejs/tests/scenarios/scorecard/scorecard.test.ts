@@ -264,21 +264,27 @@ describe('scorecard', () => {
         ])
     })
 
-    it('records the workload scale and synthetic inputs in the scorecard', () => {
+    it.each([
+        ['an unspecified basis', undefined, undefined],
+        ['a measured peak', 'measured_peak', 'measured mix at 1/4 of the observed peak'],
+    ] as const)('records the workload scale and synthetic inputs for %s', (_, scaleBasis, description) => {
         const loaded = loadText('scaled card', {
             card: JSON.stringify(SMOKE.card),
             profile: JSON.stringify({
                 ...SMOKE.profile,
+                traffic: { ...SMOKE.profile.traffic, transactional_email: { ratePerSecond: 2, parks: 1 } },
                 scale: 0.25,
+                scaleBasis,
                 synthetic: ['transactional_email_parks', 'backlog_padding'],
             }),
         })
 
-        expect(scorecardOf(RESULT, loaded, PROVENANCE)).toMatchObject({
+        const scorecard = scorecardOf(RESULT, loaded, PROVENANCE)
+        expect(scorecard).toMatchObject({
             profile_scale: 0.25,
-            profile_load_description: 'measured mix at 1/4 of the observed peak',
             profile_synthetic: ['transactional_email_parks', 'backlog_padding'],
         })
+        expect(scorecard.profile_load_description).toBe(description)
     })
 
     it.each<[string, InvariantResult, object]>([

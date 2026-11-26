@@ -193,6 +193,8 @@ const ProfileScale = z
     .max(1)
     .refine((scale) => scale === 2 ** Math.round(Math.log2(scale)), 'use a power of two')
 
+const PositiveParks = z.object({ parks: z.number().int().positive() })
+
 export const AlertsProfile = z
     .object({ rules: z.string(), labels: z.string(), exclude: z.array(z.string()).default([]) })
     .strict()
@@ -202,6 +204,7 @@ export const Profile = z
     .object({
         name: z.string(),
         scale: ProfileScale.optional(),
+        scaleBasis: z.literal('measured_peak').optional(),
         synthetic: z.array(z.enum(['transactional_email_parks', 'backlog_padding'])).optional(),
         traffic: z.record(z.string(), z.unknown()).default({}),
         settings: z.record(z.string(), z.string()).default({}),
@@ -212,4 +215,17 @@ export const Profile = z
         alerts: AlertsProfile.optional(),
     })
     .strict()
+    .refine(({ synthetic, backlog }) => !synthetic?.includes('backlog_padding') || backlog !== undefined, {
+        path: ['synthetic'],
+        message: 'backlog_padding requires a backlog',
+    })
+    .refine(
+        ({ synthetic, traffic }) =>
+            !synthetic?.includes('transactional_email_parks') ||
+            PositiveParks.safeParse(traffic.transactional_email).success,
+        {
+            path: ['synthetic'],
+            message: 'transactional_email_parks requires positive transactional email parks',
+        }
+    )
 export type Profile = z.infer<typeof Profile>

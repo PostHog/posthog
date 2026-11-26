@@ -465,6 +465,22 @@ describe('load', () => {
             'profile.traffic.event_email: ',
         ],
         [
+            'a synthetic padding label without a backlog',
+            card,
+            { ...profile, synthetic: ['backlog_padding'] },
+            'profile.synthetic: backlog_padding requires a backlog',
+        ],
+        [
+            'a synthetic transactional parks label without parks',
+            card,
+            {
+                ...profile,
+                traffic: { ...profile.traffic, transactional_email: { ratePerSecond: 1 } },
+                synthetic: ['transactional_email_parks'],
+            },
+            'profile.synthetic: transactional_email_parks requires positive transactional email parks',
+        ],
+        [
             'a profile the repository does not ship',
             { ...card, profile: 'prod-shape' },
             undefined,
