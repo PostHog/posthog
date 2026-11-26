@@ -5,6 +5,8 @@ from posthog.hogql.transforms.trino.query_wrappers import _AggregateFunctionFind
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 _MIN_SIBLING_READS_TO_LAYER = 2
+_MAX_LAYERS = 20
+_MAX_LAYERED_COLUMNS = 2_000
 
 
 class TrinoSiblingAliasLayerer(CloningVisitor):
@@ -31,20 +33,25 @@ def _layered(query: ast.SelectQuery) -> ast.SelectQuery | None:
     if source_columns is None or source_alias is None:
         return None
     aliases = {expr.alias: expr.expr for expr in query.select if isinstance(expr, ast.Alias) and not expr.hidden}
-    if not aliases or aliases.keys() & source_columns:
+    if not aliases or _names_collide(aliases, source_columns) or any(map(_reads_a_property, aliases.values())):
         return None
-    reads_by_projection = [_sibling_reads(_unwrap_projection(expr), aliases) for expr in query.select]
-    if any(reads is None for reads in reads_by_projection):
-        return None
-    total_reads = sum((reads for reads in reads_by_projection if reads is not None), Counter())
+    total_reads: Counter[str] = Counter()
+    for expr in query.select:
+        reads = _sibling_reads(_unwrap_projection(expr), aliases)
+        if reads is None:
+            return None
+        total_reads.update(reads)
     if max(total_reads.values(), default=0) < _MIN_SIBLING_READS_TO_LAYER:
         return None
     if query.where is not None and _sibling_reads(query.where, aliases) != Counter():
         return None
     depths = _alias_depths(aliases)
+    layer_count = max(depths.values()) + 1
+    if layer_count > _MAX_LAYERS or layer_count * (len(source_columns) + len(aliases)) > _MAX_LAYERED_COLUMNS:
+        return None
     qualifier = _SiblingAliasQualifier(set(aliases), source_alias)
     layer = source
-    for depth in range(max(depths.values()) + 1):
+    for depth in range(layer_count):
         layer_select: list[ast.Expr] = [ast.Field(chain=[source_alias, "*"])]
         layer_select.extend(
             ast.Alias(alias=name, expr=qualifier.visit(expr)) for name, expr in aliases.items() if depths[name] == depth
@@ -91,6 +98,23 @@ def _subquery_columns(source_type: ast.Type | None) -> set[str] | None:
     return None
 
 
+def _names_collide(aliases: dict[str, ast.Expr], source_columns: set[str]) -> bool:
+    folded_aliases = {name.casefold() for name in aliases}
+    return len(folded_aliases) < len(aliases) or not folded_aliases.isdisjoint(
+        column.casefold() for column in source_columns
+    )
+
+
+def _reads_a_property(expr: ast.Expr) -> bool:
+    expr = _unwrap_projection(expr)
+    if isinstance(expr, ast.PropertyAccess):
+        return True
+    field_type = expr.type if isinstance(expr, ast.Field) else None
+    while isinstance(field_type, ast.FieldAliasType):
+        field_type = field_type.type
+    return isinstance(field_type, ast.PropertyType)
+
+
 def _source_alias(source: ast.JoinExpr) -> str | None:
     if source.alias is not None:
         return source.alias
@@ -106,7 +130,7 @@ def _unwrap_projection(expr: ast.Expr) -> ast.Expr:
 def _sibling_reads(expr: ast.Expr, aliases: dict[str, ast.Expr]) -> Counter[str] | None:
     finder = _SiblingAliasReadFinder(set(aliases))
     finder.visit(expr)
-    return None if finder.defines_inline_alias else finder.reads
+    return None if finder.defines_inline_alias or finder.has_lambda else finder.reads
 
 
 def _alias_depths(aliases: dict[str, ast.Expr]) -> dict[str, int]:
@@ -141,6 +165,7 @@ class _SiblingAliasReadFinder(TraversingVisitor):
         self.names = names
         self.reads: Counter[str] = Counter()
         self.defines_inline_alias = False
+        self.has_lambda = False
 
     def visit(self, node: ast.AST | None) -> None:
         if isinstance(node, ast.Type):
@@ -151,6 +176,9 @@ class _SiblingAliasReadFinder(TraversingVisitor):
         if not node.hidden:
             self.defines_inline_alias = True
         super().visit_alias(node)
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self.has_lambda = True
 
     def visit_field(self, node: ast.Field) -> None:
         name = _sibling_alias_read(node, self.names)
