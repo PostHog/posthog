@@ -25,7 +25,6 @@ from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustaine
 
 from ee.api.billing import BillingExportThrottle, BillingQueryTimeout, BillingUsageRequestSerializer
 from ee.api.organization_billing import (
-    BETA_NOTICE,
     BillingPeriodSerializer,
     BillingReadViewSet,
     PaginatedBillingSpendTimeSeriesListSerializer,
@@ -110,7 +109,6 @@ class ProjectBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_project_usage_retrieve",
         summary="Get a project's usage so far this billing period",
-        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=ProjectUsageSummarySerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="usage")
@@ -151,7 +149,6 @@ class ProjectBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_project_usage_timeseries_retrieve",
         summary="A project's usage over time",
-        description=BETA_NOTICE,
         parameters=[ProjectTimeseriesRequestSerializer],
         responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
     )
@@ -164,7 +161,6 @@ class ProjectBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_project_spend_timeseries_retrieve",
         summary="A project's share of spend over time",
-        description=BETA_NOTICE,
         parameters=[ProjectTimeseriesRequestSerializer],
         responses={200: OpenApiResponse(response=PaginatedBillingSpendTimeSeriesListSerializer)},
     )
@@ -177,7 +173,6 @@ class ProjectBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_project_usage_export_download",
         summary="Export a project's usage as CSV",
-        description=BETA_NOTICE,
         parameters=[ProjectTimeseriesRequestSerializer],
         responses={(200, "text/csv"): OpenApiResponse(response=bytes)},
     )
@@ -190,7 +185,6 @@ class ProjectBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_project_spend_export_download",
         summary="Export a project's share of spend as CSV",
-        description=BETA_NOTICE,
         parameters=[ProjectTimeseriesRequestSerializer],
         responses={(200, "text/csv"): OpenApiResponse(response=bytes)},
     )
