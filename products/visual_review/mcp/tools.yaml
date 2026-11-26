@@ -315,8 +315,6 @@ tools:
                     The UUID of a run of the pull request, not a snapshot `id`.
                 aliases:
                     - run_id
-        feature_flag: visual-review-decisions
-        feature_flag_behavior: enable
     visual-review-runs-counts-retrieve:
         operation: visual_review_runs_counts_retrieve
         enabled: true
@@ -493,8 +491,6 @@ tools:
                     The UUID of a run of the pull request, not a snapshot `id`.
                 aliases:
                     - run_id
-        feature_flag: visual-review-decisions
-        feature_flag_behavior: enable
     visual-review-runs-retrieve:
         operation: visual_review_runs_retrieve
         enabled: true

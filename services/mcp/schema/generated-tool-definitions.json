@@ -18278,9 +18278,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "visual-review-decisions",
-        "feature_flag_behavior": "enable"
+        }
     },
     "visual-review-runs-counts-retrieve": {
         "description": "Review state counts (`needs_review`, `clean`, `processing`, `stale`) across every run in the project.",
@@ -18409,9 +18407,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "visual-review-decisions",
-        "feature_flag_behavior": "enable"
+        }
     },
     "visual-review-runs-retrieve": {
         "description": "Get one run: status, review decision, commit, branch, PR, change summary, `gate` (what blocks the merge: `ci_job` or `commit_status`), `stale_approval_count` (approvals whose baseline another merge changed, which keep a `commit_status` run red until the branch is updated), and the newer run that supersedes it, if any. `progress` counts the run's changes by where they stand (`approved`, `approved_on_earlier_commits`, `approved_via_mcp`, `rejected`, `needs_review`, `tolerated`), `head_run` is the newest run of the pull request, which finalize needs, and `can_finalize` says whether finalize without `approve_all` would pass now. `needs_review` also counts removed snapshots nobody decided on, which finalize accepts by itself. Per-snapshot results come from `visual-review-runs-snapshots-list`.",
