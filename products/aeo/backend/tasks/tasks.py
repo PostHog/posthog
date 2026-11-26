@@ -31,6 +31,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from products.aeo.backend import auto_setup, keyword_suggestions, suggestions
 from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
 from products.aeo.backend.check_brands import enrich_check_brands, enrich_lock, has_stale_brands, has_unresolved_checks
+from products.aeo.backend.check_keywords import enrich_check_keywords, has_new_keywords
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
     KeywordSuggestionRequest,
@@ -153,6 +154,11 @@ def refresh_aeo_stored_results_for_team_task(team_id: int) -> None:
     if has_unresolved_checks(team.id) or has_stale_brands(team.id):
         enrich_aeo_check_brands_task.delay(team.id)
         return
+    # A keyword whose history is not matched yet would read as unused. The match fills it and then
+    # starts this task again.
+    if has_new_keywords(team.id):
+        enrich_aeo_check_keywords_task.delay(team.id)
+        return
     refresh_stored_results(team.id, timezone_name=team.timezone)
 
 
@@ -194,6 +200,10 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
                 enrich_aeo_check_brands_task.delay(team_id, summary.run_id)
             except Exception:
                 logger.exception("aeo_check_brands_enqueue_failed", team_id=team_id)
+            try:
+                enrich_aeo_check_keywords_task.delay(team_id, summary.run_id)
+            except Exception:
+                logger.exception("aeo_check_keywords_enqueue_failed", team_id=team_id)
             # Repairs checks recorded against own domains that changed during the run, and any
             # recompute that a failed task or broker left undone. Queued rather than run inline, so it
             # keeps the recompute's time limit and lock.
@@ -393,3 +403,40 @@ def enrich_aeo_check_brands_task(self: Task, team_id: int, run_id: str | None = 
             lock.release()
         except LockError:
             logger.warning("aeo_check_brands_enrich_lock_expired", team_id=team_id)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    autoretry_for=(OperationalError, InterfaceError, EnrichAlreadyRunning),
+    retry_backoff=RECOMPUTE_RETRY_SECONDS,
+    max_retries=5,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=ENRICH_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=ENRICH_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # Team is the tenant; checks, keywords and keyword rows are read and written via for_team
+def enrich_aeo_check_keywords_task(self: Task, team_id: int, run_id: str | None = None) -> None:
+    """Match the team's keywords against its answers: after a run, after keywords are added, and from the
+    refresh when a keyword's history waits for it. One pass per team at a time."""
+    lock = get_client().lock(f"aeo_check_keywords_enrich:{team_id}", timeout=ENRICH_LOCK_SECONDS)
+    if not lock.acquire(blocking=False):
+        raise EnrichAlreadyRunning()
+    try:
+        result = enrich_check_keywords(team_id, run_id=run_id)
+        logger.info(
+            "aeo_check_keywords_enriched",
+            team_id=team_id,
+            new_keywords=result.new.keywords,
+            new_keyword_rows=result.new.rows,
+            run_checks=result.run.checks if result.run else 0,
+        )
+        try:
+            refresh_aeo_stored_results_for_team_task.delay(team_id)
+        except Exception:
+            logger.exception("aeo_stored_results_refresh_enqueue_failed", team_id=team_id)
+    finally:
+        try:
+            lock.release()
+        except LockError:
+            logger.warning("aeo_check_keywords_enrich_lock_expired", team_id=team_id)

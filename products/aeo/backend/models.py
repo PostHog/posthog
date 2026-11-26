@@ -427,6 +427,11 @@ class AEOKeyword(TeamScopedRootMixin, UUIDModel):
         help_text="The keyword, lowercased, trimmed and with whitespace collapsed. Matched as a phrase, case ignored.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the keyword was added.")
+    history_matched_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the keyword's rows in `posthog_aeo_check_keyword` were written for every check recorded before it. Null until then.",
+    )
 
     class Meta:
         db_table = "posthog_aeo_keyword"
@@ -598,3 +603,43 @@ class AEOTeamConfig(TeamScopedRootMixin):
 
     def __str__(self) -> str:
         return f"AI visibility config for team {self.team_id}"
+
+
+class AEOCheckKeyword(TeamScopedRootMixin, UUIDModel):
+    """
+    One keyword of the team's list that one answer's prompt, searches or text contains. Matched when
+    the check is written, and over the history when a keyword is added, so the keyword report counts
+    rows instead of scanning every answer's text.
+    """
+
+    # db_constraint=False for the same reason as AEOPrompt. No index of its own: the window index leads with team.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
+    # No index of its own: the unique (citation_check, keyword) index leads with it.
+    citation_check = models.ForeignKey(AEOCitationCheck, on_delete=models.CASCADE, related_name="+", db_index=False)
+    keyword = models.ForeignKey(AEOKeyword, on_delete=models.CASCADE, related_name="+")
+    created_at = models.DateTimeField(
+        help_text="When the check ran. Copied from the check, so a window read needs no join."
+    )
+    in_prompt = models.BooleanField(help_text="The prompt contains the keyword, case ignored.")
+    in_searches = models.BooleanField(help_text="One of the engine's searches contains the keyword, case ignored.")
+    uses = models.PositiveIntegerField(
+        help_text="How many times the answer text contains the keyword, case ignored, counted without overlaps."
+    )
+
+    class Meta:
+        db_table = "posthog_aeo_check_keyword"
+        constraints = [
+            models.UniqueConstraint(fields=["citation_check", "keyword"], name="aeo_check_keyword_unique_keyword"),
+        ]
+        indexes = [
+            models.Index(
+                fields=["team_id", "created_at"],
+                include=["citation_check_id", "keyword_id", "in_prompt", "in_searches", "uses"],
+                name="aeo_check_keyword_window_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.citation_check_id} {self.keyword_id} uses={self.uses}"

@@ -134,6 +134,7 @@ from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prom
 from products.aeo.backend.stored_results import stored_result
 from products.aeo.backend.tasks.tasks import (
     enrich_aeo_check_brands_task,
+    enrich_aeo_check_keywords_task,
     recompute_aeo_own_citations_task,
     set_up_aeo_task,
     suggest_aeo_keywords_task,
@@ -1188,7 +1189,22 @@ def get_keyword(team_id: int, keyword_id: str) -> Keyword:
 
 def create_keywords(team_id: int, texts: list[str]) -> KeywordCreateResult:
     """Raises KeywordLimitError when the new keywords would take the project past its cap."""
-    return keywords.create_keywords(team_id, texts)
+    result = keywords.create_keywords(team_id, texts)
+    _match_new_keywords_on_commit(team_id)
+    return result
+
+
+def _match_new_keywords_on_commit(team_id: int) -> None:
+    """New keywords are matched against the stored answers in the background, once they are visible to
+    the task. When the enqueue fails, the refresh beat finds the unmatched keywords and starts the pass."""
+
+    def enqueue() -> None:
+        try:
+            enrich_aeo_check_keywords_task.delay(team_id)
+        except Exception as error:
+            capture_exception(error, {"team_id": team_id})
+
+    transaction.on_commit(enqueue)
 
 
 def delete_keyword(team_id: int, keyword_id: str) -> None:
