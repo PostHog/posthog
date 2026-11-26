@@ -9,6 +9,12 @@ export interface AddMenuItem<Config = unknown> {
     create: () => ContentWidget<Config>
 }
 
+/** The appearance settings a widget type offers on its tiles. Each one left out is not offered. */
+export interface WidgetAppearanceOptions {
+    background?: boolean
+    backgroundColor?: boolean
+}
+
 /**
  * Everything about a widget type except how it renders. It is plain data with no React, so code outside the browser
  * can load it: the layout functions, `validateDashboard`, and tools that write dashboards as code.
@@ -24,6 +30,7 @@ export interface WidgetSpec<Config = unknown> {
     configSchema: z.ZodType<Config>
     /** Its widgets show data that refreshes, so their tiles can have a footer with the last refresh time. */
     refreshes?: boolean
+    appearance?: WidgetAppearanceOptions
 }
 
 /** For a saved widget whose type the host did not pass in, so it still gets a place in the grid. */

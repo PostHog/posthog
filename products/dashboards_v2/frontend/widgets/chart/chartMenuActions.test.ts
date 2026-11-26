@@ -1,5 +1,5 @@
 import type { ContentWidget } from '../../dashboard/dashboardTypes'
-import type { TileAction } from '../../tiles/tileAction'
+import type { MenuAction } from '../../dashboard/menuAction'
 import { chartMenuActions } from './chartMenuActions'
 import type { ChartConfig } from './chartSpec'
 import { barSpec } from './viz/bar/barSpec'
@@ -10,7 +10,7 @@ const query = { language: 'hogql', query: 'select 1' } as const
 
 function select(widget: ContentWidget<ChartConfig>, path: string[]): ChartConfig | undefined {
     let saved: ChartConfig | undefined
-    let entries: TileAction[] = chartMenuActions([statSpec, lineSpec, barSpec], {
+    let entries: MenuAction[] = chartMenuActions([statSpec, lineSpec, barSpec], {
         widget,
         setConfig: (config) => (saved = config),
         disabledReason: null,

@@ -56,7 +56,9 @@ from .process_task.activities import (
     wait_dev_stack_preview,
 )
 from .process_task.activities.agent_egress import (
+    await_agent_egress_git,
     cleanup_agent_egress,
+    initialize_agent_egress_git_grant,
     prepare_agent_egress,
     probe_agent_egress,
     renew_agent_egress,
@@ -90,7 +92,9 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES: list[ActivityDefinition] = [
+    await_agent_egress_git,
     prepare_agent_egress,
+    initialize_agent_egress_git_grant,
     renew_agent_egress,
     probe_agent_egress,
     cleanup_agent_egress,

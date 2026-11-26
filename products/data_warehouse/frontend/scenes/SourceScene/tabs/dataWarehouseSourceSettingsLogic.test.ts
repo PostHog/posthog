@@ -95,7 +95,7 @@ describe('sourceSettingsLogic', () => {
         const bulkUpdateSchemasSpy = jest
             .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
             .mockImplementation(async (_id, updates) => updates.map((update) => ({ ...schema, ...update })))
-        const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation()
+        const dialogSpy = jest.spyOn(LemonDialog, 'openForm').mockImplementation()
 
         logic = sourceSettingsLogic({ id: 'source-1' })
         logic.mount()
@@ -109,12 +109,13 @@ describe('sourceSettingsLogic', () => {
         await jest.advanceTimersByTimeAsync(500)
         expect(bulkUpdateSchemasSpy).not.toHaveBeenCalled()
 
-        const confirm = dialogSpy.mock.calls[0][0].primaryButton?.onClick as () => void
-        confirm()
+        const { initialValues, onSubmit } = dialogSpy.mock.calls[0][0]
+        await onSubmit(initialValues)
         await jest.advanceTimersByTimeAsync(500)
 
+        // The migrated table gets the dialog's daily default, not the 6 hour default nobody chose.
         expect(bulkUpdateSchemasSpy).toHaveBeenCalledWith('source-1', [
-            expect.objectContaining({ id: 'schema-1', should_sync: true }),
+            expect.objectContaining({ id: 'schema-1', should_sync: true, sync_frequency: '24hour' }),
         ])
     })
 
