@@ -167,7 +167,8 @@ def _statistics_gate(gate: PostImportGateContext) -> bool:
     table = gate.schema.table
     if gate.team is None or table is None:
         return False
-    return _statistics_stale(gate.team_id, table, schema_id=gate.schema.id)
+    # A `None` row count predates row counting, so it counts as written.
+    return _statistics_stale(gate.team_id, table, schema=gate.schema, wrote_rows=gate.job.rows_synced != 0)
 
 
 def _ducklake_copy_gate(gate: PostImportGateContext) -> bool:

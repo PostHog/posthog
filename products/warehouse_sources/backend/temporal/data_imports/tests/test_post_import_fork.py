@@ -705,7 +705,7 @@ def test_ducklake_copy_follows_its_flag_even_at_zero_rows(team, flag_result, exp
     "has_table,rows_synced,expect_statistics,expect_enrichment",
     [
         pytest.param(False, 5, False, False, id="no_table"),
-        pytest.param(True, 0, False, True, id="zero_rows_stats_within_weekly_cap"),
+        pytest.param(True, 0, False, True, id="zero_rows_checked_within_the_day"),
         pytest.param(True, 5, True, True, id="rows_written_stats_past_daily_interval"),
     ],
 )
@@ -750,6 +750,8 @@ def test_statistics_and_enrichment_start_only_when_the_child_has_work(
         WarehouseColumnStatistics.objects.for_team(team.id).create(
             team=team, table=table, column_name="email", computed_at=timezone.now() - timedelta(days=2)
         )
+        schema.sync_type_config = {"statistics_checked_at": (timezone.now() - timedelta(hours=1)).isoformat()}
+        schema.save()
 
     ctx = resolve_post_import_context_activity(
         PostImportWorkflowInputs(

@@ -112,10 +112,21 @@ class V2PipelineRemovedError(NonReportableError):
     """
 
 
-def _statistics_stale(team_id: int, table: DataWarehouseTable | None, schema_id: uuid.UUID | None = None) -> bool:
+def _statistics_stale(
+    team_id: int,
+    table: DataWarehouseTable | None,
+    *,
+    schema: ExternalDataSchema | None = None,
+    wrote_rows: bool = True,
+) -> bool:
     """Whether column statistics need recomputing: no stats yet, or the freshest column row is older
     than the recompute interval. Mirrors compute_table_statistics' own skip check so we don't spawn a
-    child that would immediately no-op on every sync."""
+    child that would immediately no-op on every sync.
+
+    The post-import gate passes the schema and whether its sync wrote rows. A sync that wrote nothing
+    then waits for a day after the last unchanged-version check as well, because the version is still
+    the same: a sync that writes after that check passes `wrote_rows` itself.
+    """
     if table is None:
         # First-ever sync — the table is created during it, so let the (post-sync) profiling run once.
         return True
@@ -123,6 +134,7 @@ def _statistics_stale(team_id: int, table: DataWarehouseTable | None, schema_id:
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
         MAX_RECOMPUTE_INTERVAL,
         MIN_RECOMPUTE_INTERVAL,
+        STATISTICS_CHECKED_AT_KEY,
     )
 
     latest = (
@@ -132,19 +144,22 @@ def _statistics_stale(team_id: int, table: DataWarehouseTable | None, schema_id:
     )
     if latest is None:
         return True
-    age = timezone.now() - latest
-    if age < MIN_RECOMPUTE_INTERVAL:
+    now = timezone.now()
+    if now - latest < MIN_RECOMPUTE_INTERVAL:
         return False
-    if schema_id is None or age >= MAX_RECOMPUTE_INTERVAL:
+    if schema is None or wrote_rows or now - latest >= MAX_RECOMPUTE_INTERVAL:
         return True
-    # With no rows written since the last computation the Delta version is unchanged, and the
-    # activity's version_unchanged skip records nothing, so only the maximum interval gives it work.
-    # A `None` row count predates row counting, so it counts as written.
-    return (
-        ExternalDataJob.objects.filter(team_id=team_id, schema_id=schema_id, created_at__gte=latest)
-        .exclude(rows_synced=0)
-        .exists()
-    )
+    checked_at = _parse_datetime((schema.sync_type_config or {}).get(STATISTICS_CHECKED_AT_KEY))
+    return checked_at is None or now - checked_at >= MIN_RECOMPUTE_INTERVAL
+
+
+def _parse_datetime(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: ExternalDataSchema) -> bool:

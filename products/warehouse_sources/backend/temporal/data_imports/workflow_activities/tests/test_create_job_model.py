@@ -126,33 +126,33 @@ class TestStatisticsStale:
     @parameterized.expand(
         [
             # Guards against re-profiling a freshly-computed table on every sync (the bug we're fixing).
-            ("recent_not_stale", dt.timedelta(hours=1), [5], False),
+            ("recent_not_stale", dt.timedelta(hours=1), True, None, False),
             # Guards against never recomputing once a row exists.
-            ("older_than_interval_stale", dt.timedelta(hours=25), [5], True),
-            ("no_rows_written_since_computation", dt.timedelta(days=2), [0, 0], False),
-            ("earlier_sync_wrote_rows_since_computation", dt.timedelta(days=2), [5, 0], True),
-            ("row_count_unknown", dt.timedelta(days=2), [None], True),
-            ("no_rows_written_past_weekly_cap", dt.timedelta(days=8), [0], True),
+            ("older_than_interval_stale", dt.timedelta(hours=25), True, None, True),
+            ("no_rows_never_checked", dt.timedelta(days=2), False, None, True),
+            ("no_rows_checked_within_interval", dt.timedelta(days=2), False, dt.timedelta(hours=1), False),
+            ("no_rows_checked_past_interval", dt.timedelta(days=2), False, dt.timedelta(hours=25), True),
+            ("rows_written_after_the_check", dt.timedelta(days=2), True, dt.timedelta(hours=1), True),
+            ("no_rows_past_weekly_cap", dt.timedelta(days=8), False, dt.timedelta(hours=1), True),
         ]
     )
     def test_staleness_by_recency(
-        self, _name: str, age: dt.timedelta, rows_synced_since: list[int | None], expected: bool
+        self,
+        _name: str,
+        age: dt.timedelta,
+        wrote_rows: bool,
+        checked_ago: dt.timedelta | None,
+        expected: bool,
     ) -> None:
         team = _team()
         table = _table(team)
         schema = _schema(team, table)
+        if checked_ago is not None:
+            schema.sync_type_config = {"statistics_checked_at": (timezone.now() - checked_ago).isoformat()}
         WarehouseColumnStatistics.objects.for_team(team.id).create(
             team=team, table=table, column_name="amount", computed_at=timezone.now() - age
         )
-        for rows_synced in rows_synced_since:
-            ExternalDataJob.objects.create(
-                team=team,
-                pipeline=schema.source,
-                schema=schema,
-                status=ExternalDataJob.Status.COMPLETED,
-                rows_synced=rows_synced,
-            )
-        assert _statistics_stale(team.id, table, schema_id=schema.id) is expected
+        assert _statistics_stale(team.id, table, schema=schema, wrote_rows=wrote_rows) is expected
 
 
 @pytest.mark.django_db

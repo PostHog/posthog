@@ -48,7 +48,10 @@ from products.warehouse_sources.backend.models.column_statistics import (
     clear_masked_column_bounds,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import clean_type
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import (
@@ -68,6 +71,9 @@ MIN_RECOMPUTE_INTERVAL = timedelta(hours=int(os.getenv("WAREHOUSE_STATS_MIN_RECO
 # Add-action scan (the expensive step) can be skipped. The cap still forces a recompute so a change in
 # the table's registered columns, or in how stats are derived, reaches every table eventually.
 MAX_RECOMPUTE_INTERVAL = timedelta(days=int(os.getenv("WAREHOUSE_STATS_MAX_RECOMPUTE_INTERVAL_DAYS", "7")))
+# `sync_type_config` key for the last run that found the Delta version unchanged. The post-import gate
+# reads it, because that skip writes no statistics row and so leaves `computed_at` where it was.
+STATISTICS_CHECKED_AT_KEY = "statistics_checked_at"
 # Each commit since the last computation is one small object-store read; past this many the full
 # Add-action scan is the cheaper path again.
 MAX_INCREMENTAL_COMMITS = int(os.getenv("WAREHOUSE_STATS_MAX_INCREMENTAL_COMMITS", "200"))
@@ -619,6 +625,9 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         and stored_version == delta_version
         and timezone.now() - latest < MAX_RECOMPUTE_INTERVAL
     ):
+        update_sync_type_config_keys(
+            schema.id, team_id, updates={STATISTICS_CHECKED_AT_KEY: timezone.now().isoformat()}
+        )
         emit_completed("skipped", reason="version_unchanged", delta_version=delta_version)
         return {"status": "skipped", "reason": "version_unchanged"}
 
