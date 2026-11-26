@@ -34,6 +34,7 @@ from .constants import (
 )
 from .media_blocks import MediaMarker, parse_media_block
 from .otel_parts import MEDIA_PART_KEY, flatten_parts_message
+from .repeated_input import RepeatedInputHistory
 from .tool_formatter import format_tools
 
 
@@ -49,7 +50,7 @@ class FormatterOptions(TypedDict, total=False):
     max_length: int | None  # Max output length; randomly drop lines if exceeded (default: None)
     max_render_length: int  # Abort oversized renders before sampling or assembling the full transcript
     media_marker: MediaMarker  # Render media blocks with this instead of dropping them (LLM judges with images)
-    collapse_repeated_input: bool  # Show input messages a generation repeats from the previous generation once
+    repeated_input_history: RepeatedInputHistory  # Show input messages an earlier generation already sent once
 
 
 class ToolCall(TypedDict, total=False):
@@ -768,8 +769,8 @@ def format_messages_array(
     Args:
         messages: List of message dictionaries with role, content, tool_calls
         options: Formatting options (truncation, etc.)
-        repeated_prefix: Number of leading entries of `messages` that are identical to the previous
-            generation's input. They render as one reference line, and the remaining messages keep their numbers.
+        repeated_prefix: Number of leading entries of `messages` that an earlier generation's input starts with.
+            They render as one reference line, and the remaining messages keep their numbers.
 
     Returns:
         List of formatted lines (no header, starts directly with messages)
@@ -782,8 +783,9 @@ def format_messages_array(
     repeated_count = sum(1 for _ in _flatten_parts_messages(messages[:repeated_prefix]))
     if repeated_count:
         numbers = "1" if repeated_count == 1 else f"1-{repeated_count}"
+        noun = "message" if repeated_count == 1 else "messages"
         lines.append("")
-        lines.append(f"[{numbers}] Same as messages {numbers} of the previous generation's input above")
+        lines.append(f"[{numbers}] Same as {noun} {numbers} of an earlier generation's input above")
         needs_separator = True
 
     for i, msg in enumerate(_flatten_parts_messages(messages[repeated_prefix:]), start=repeated_count):

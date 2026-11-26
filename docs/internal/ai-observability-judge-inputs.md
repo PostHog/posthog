@@ -12,6 +12,7 @@ These budgets include transcript headers and line numbers, but exclude the evalu
 The budgets do not depend on the selected judge model, with one exception.
 When a judge model rejects a trace transcript that is longer than 150,000 characters because it exceeds the model's context window, the evaluation renders the trace again with a 150,000-character budget and sends that instead.
 The run is skipped with `context_window_exceeded` only when the shorter transcript is also rejected.
+The `LLMA_JUDGE_TRACE_MAX_CHARS` environment variable sets the trace budget on the evaluation workers, and must be at least 150,000.
 
 ## Trace and session formatting
 
@@ -25,10 +26,13 @@ Message role headers, empty OpenTelemetry parts, and whitespace-only message bod
 Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
 Root-only traces with readable state still reach the judge, and Hog evaluations can grade root-only traces from their metadata.
 
-A generation whose input starts with the same messages as the previous generation's input shows those messages as one line, such as `[1-17] Same as messages 1-17 of the previous generation's input above`.
+A generation whose input starts with the same messages as an earlier generation's input shows those messages as one line, such as `[1-17] Same as messages 1-17 of an earlier generation's input above`.
 Its other messages keep their original numbers.
 Agent loops send the whole conversation again on every call, so without this a trace with seven generations repeats its first prompt seven times.
-Only messages that are exactly equal are shown this way, so a message that changed in any field renders in full.
+The match is against every earlier generation, so sub-agent calls between two steps of an orchestrator do not break it.
+A session evaluation matches across all of the session's traces, so a chat that resends its history in every trace shows it once.
+Messages must be equal in every field except `cache_control`, `signature` and `caller`, which callers change between calls without changing the message.
+A message that differs in any other field renders in full.
 
 Trace and session evaluations first render a text representation with message truncation and line sampling disabled.
 This attempt stops when the text exceeds the budget, before assembling the complete oversized transcript in memory.

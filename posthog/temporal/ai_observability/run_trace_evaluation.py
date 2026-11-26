@@ -99,6 +99,7 @@ from products.ai_observability.backend.text_repr.formatters import (
 )
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
 from products.ai_observability.backend.text_repr.formatters.message_formatter import has_message_content
+from products.ai_observability.backend.text_repr.formatters.repeated_input import RepeatedInputHistory
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -611,12 +612,12 @@ def format_trace_for_judge(
         "include_line_numbers": True,
         "max_length": None,
         "max_render_length": max_chars,
-        "collapse_repeated_input": True,
     }
     if media_marker is not None:
         options["media_marker"] = media_marker
     for truncated in (False, True):
         options["truncated"] = truncated
+        options["repeated_input_history"] = RepeatedInputHistory()
         try:
             text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
             return JudgeTranscript(text=text, truncated=truncated)
@@ -626,6 +627,7 @@ def format_trace_for_judge(
     del options["max_render_length"]
     options["preserve_generation_output"] = False
     options["max_length"] = max_chars
+    options["repeated_input_history"] = RepeatedInputHistory()
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
     return JudgeTranscript(text=text, truncated=True)
 
@@ -723,13 +725,14 @@ def run_trace_llm_judge(
             return marked[-1].text
 
         attachment_prompt = build_attachment_prompt(evaluation, transcript.text, render_marked)
-        # The judge receives the marked render when there is one, and it can be cut where the plain
-        # render is not, because image markers take space that dropped image blocks do not.
+        # Every judge path sends the marked render when there is one: the chat call with its attachments, and
+        # decision models and the retry after a rejected attachment without them. The two renders can be cut
+        # differently, because inline base64 renders in full in the plain one and as a short marker in the other.
         sent = marked[-1] if attachment_prompt is not None else transcript
         result = call_llm_judge(
             evaluation=evaluation,
             system_prompt=system_prompt,
-            user_prompt=transcript.text,
+            user_prompt=attachment_prompt.unnumbered_text() if attachment_prompt is not None else transcript.text,
             allows_na=allows_na,
             backfill=inputs.backfill_id is not None,
             attachment_prompt=attachment_prompt,

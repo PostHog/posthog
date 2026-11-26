@@ -147,14 +147,36 @@ class TestFormatSessionForJudge:
     def test_numbers_an_image_once_across_the_session(self):
         image = {"type": "image_url", "image_url": {"url": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1"}}
         traces = [_trace(f"t{i}", cost=0, latency=0) for i in range(2)]
-        for trace in traces:
-            trace.events[0].properties["$ai_input"] = [{"role": "user", "content": [image]}]
+        for index, trace in enumerate(traces):
+            trace.events[0].properties["$ai_input"] = [
+                {"role": "user", "content": [image, {"type": "text", "text": f"question {index}"}]}
+            ]
 
         rendered = format_session_for_judge(traces, JudgeAttachments(team_id=1).marker)
 
         assert rendered is not None
         assert rendered.count("[image 1]") == 2
         assert "[image 2]" not in rendered
+
+    def test_shows_chat_history_a_later_trace_resends_once(self):
+        traces = [_trace(f"t{i}", cost=0, latency=0) for i in range(2)]
+        first_turn = [
+            {"role": "system", "content": "Answer from the docs. critical evidence"},
+            {"role": "user", "content": "hi"},
+        ]
+        traces[0].events[0].properties["$ai_input"] = first_turn
+        traces[1].events[0].properties["$ai_input"] = [
+            *first_turn,
+            {"role": "assistant", "content": "hello"},
+            {"role": "user", "content": "second question"},
+        ]
+
+        rendered = format_session_for_judge(traces)
+
+        assert rendered is not None
+        assert rendered.count("critical evidence") == 1
+        assert "[1-2] Same as messages 1-2 of an earlier generation's input above" in rendered
+        assert "second question" in rendered
 
     def test_many_small_traces_are_judged_rather_than_skipped_on_count_alone(self):
         """The overflow check must measure the rendered transcript, not `per_trace_budget * n`.

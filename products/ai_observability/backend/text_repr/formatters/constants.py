@@ -18,7 +18,6 @@ MAX_UNABLE_TO_PARSE_REPR_LENGTH = 500  # Max length for repr() fallback in error
 # At worst case 2:1 ratio: 2M chars = 1M tokens (leaves minimal buffer for prompt/output)
 # At typical 2.5:1 ratio: 2M chars = 800K tokens (leaves 200K buffer)
 DEFAULT_MAX_LENGTH = 2_000_000
-REPEATED_INPUT_MESSAGES_KEY = "repeated_input_messages"
 PRESERVE_HEADER_LINES = 5  # Number of header lines to always keep when sampling
 SAMPLED_VIEW_HEADER = (
     "[SAMPLED VIEW: Showing ~{percent:.0f}% of {total:,} lines. Gaps in line numbers indicate omitted content.]"

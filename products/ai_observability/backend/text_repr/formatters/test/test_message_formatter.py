@@ -364,6 +364,22 @@ class TestFormatInputMessages:
         assert "[2] ASSISTANT" in lines
         assert "Hi there" in lines
 
+    def test_numbers_messages_after_a_repeated_parts_message_that_flattens_to_several(self):
+        messages = [
+            {"role": "system", "content": "Pick a repo"},
+            {
+                "role": "user",
+                "parts": [
+                    {"type": "tool_call_response", "id": "call_1", "response": {"repo": "a"}},
+                    {"type": "tool_call_response", "id": "call_2", "response": {"repo": "b"}},
+                ],
+            },
+            {"role": "assistant", "content": "Repo a"},
+        ]
+        lines = format_input_messages(messages, None, repeated_prefix=2)
+        assert "[1-3] Same as messages 1-3 of an earlier generation's input above" in lines
+        assert "[4] ASSISTANT" in lines
+
     def test_format_with_tool_calls(self):
         """Should include tool calls in messages."""
         messages = [

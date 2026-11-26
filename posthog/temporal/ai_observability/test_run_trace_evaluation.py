@@ -263,37 +263,61 @@ class TestFormatTraceForJudge:
         assert " end" in transcript
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
 
-    @pytest.mark.parametrize("edit_first_message", [False, True])
-    def test_shows_input_repeated_from_the_previous_generation_once(self, edit_first_message: bool) -> None:
+    @pytest.mark.parametrize(
+        "variant,prompt_copies",
+        [
+            ("resent", 1),
+            ("first_message_edited", 2),
+            ("cache_hint_moved", 1),
+            ("sub_agent_calls_between_steps", 1),
+        ],
+    )
+    def test_shows_input_repeated_from_an_earlier_generation_once(self, variant: str, prompt_copies: int) -> None:
         prompt = "start " + "x" * 60_000 + " critical evidence " + "y" * 60_000 + " end"
-        first_input = [{"role": "system", "content": prompt}, {"role": "user", "content": "Pick a repo"}]
-        second_input = [
-            {"role": "system", "content": prompt + " (revised)" if edit_first_message else prompt},
-            first_input[1],
-            {"role": "assistant", "content": "Searching repos"},
-            {"role": "user", "content": "first tool result"},
+
+        def message(role: str, text: str) -> dict[str, Any]:
+            return {"role": role, "content": [{"type": "text", "text": text}]}
+
+        def call(*messages: dict[str, Any]) -> list[dict[str, Any]]:
+            if variant != "cache_hint_moved":
+                return list(messages)
+            last = messages[-1]
+            return [
+                *messages[:-1],
+                {**last, "content": [{**last["content"][0], "cache_control": {"type": "ephemeral"}}]},
+            ]
+
+        task = message("user", "Pick a repo")
+        resent = [
+            message("system", prompt + " (revised)" if variant == "first_message_edited" else prompt),
+            task,
+            message("assistant", "Searching repos"),
+            message("user", "first tool result"),
         ]
-        third_input = [
-            *second_input,
-            {"role": "assistant", "content": "Reading the candidates"},
-            {"role": "user", "content": "second tool result"},
+        inputs = [
+            call(message("system", prompt), task),
+            call(*resent),
+            call(*resent, message("assistant", "Reading the candidates"), message("user", "second tool result")),
         ]
+        if variant == "sub_agent_calls_between_steps":
+            inputs.insert(1, [message("system", "You summarise one repo"), message("user", "Summarise repo A")])
+            inputs.insert(3, [message("system", "You summarise one repo"), message("user", "Summarise repo B")])
         trace = create_trace(
             [
                 create_trace_event("$ai_generation", **{"$ai_input": messages, "$ai_output": f"answer {index}"})
-                for index, messages in enumerate([first_input, second_input, third_input])
+                for index, messages in enumerate(inputs)
             ]
         )
 
         rendered = format_trace_for_judge(trace)
 
         assert not rendered.truncated
-        assert rendered.text.count("critical evidence") == (2 if edit_first_message else 1)
-        assert ("(revised)" in rendered.text) == edit_first_message
-        assert ("[1-2] Same as messages 1-2 of the previous generation's input above" in rendered.text) == (
-            not edit_first_message
+        assert rendered.text.count("critical evidence") == prompt_copies
+        assert ("(revised)" in rendered.text) == (variant == "first_message_edited")
+        assert ("[1-2] Same as messages 1-2 of an earlier generation's input above" in rendered.text) == (
+            variant != "first_message_edited"
         )
-        assert "[1-4] Same as messages 1-4 of the previous generation's input above" in rendered.text
+        assert "[1-4] Same as messages 1-4 of an earlier generation's input above" in rendered.text
         assert "first tool result" in rendered.text
         assert "[6] USER" in rendered.text
         assert "second tool result" in rendered.text
@@ -1051,6 +1075,59 @@ class TestExecuteTraceLLMJudgeActivity:
         content = mock_client.complete.call_args[0][0].messages[0]["content"]
         assert AttachmentPart(mime_type="image/png", data=b"hi") in content
         assert "[image 1]" in content[-1]["text"]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_retry_without_rejected_images_sends_the_transcript_the_flag_describes(
+        self, setup_data: dict[str, Any], active_key_config: None
+    ) -> None:
+        # Inline base64 renders in full in the plain transcript, which then gets cut, and as a short marker in
+        # the marked one, which fits whole.
+        screenshot = {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": "eHh4" * 100_000},
+        }
+        prompt = "start " + "x" * 2_000 + " critical evidence " + "y" * 2_000 + " end"
+        trace = create_trace(
+            [
+                create_trace_event(
+                    "$ai_generation",
+                    **{
+                        "$ai_input": [{"role": "system", "content": prompt}, {"role": "tool", "content": [screenshot]}],
+                        "$ai_output": "Done",
+                    },
+                )
+            ]
+        )
+
+        class ImagesRejected(Exception):
+            status_code = 400
+
+        response = MagicMock()
+        response.parsed = BooleanEvalResult(verdict=True, reasoning="ok")
+        response.usage = MagicMock(input_tokens=1, output_tokens=1, total_tokens=2)
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
+                return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=1),
+            ),
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+        ):
+            mock_client = mock_client_class.return_value
+            mock_client.complete.side_effect = [ImagesRejected("image input is not supported"), response]
+
+            result = execute_trace_llm_judge_activity(
+                ExecuteTraceEvaluationInputs(
+                    evaluation=evaluation_dict(setup_data),
+                    team_id=setup_data["team"].id,
+                    trace_id="trace-123",
+                    window_start=FROZEN_NOW.isoformat(),
+                )
+            )
+
+        retry_prompt = mock_client.complete.call_args_list[1][0][0].messages[0]["content"]
+        assert "critical evidence" in retry_prompt
+        assert "eHh4eHh4" not in retry_prompt
+        assert "input_truncated" not in result
 
     @pytest.mark.parametrize(
         "trace_state",
