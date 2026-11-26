@@ -903,6 +903,11 @@ def _stranded_candidate_runs_sql() -> str:
     it the planner flattens the subquery back into that same hash anti-join.
     It changes no semantics; the plan-shape test pins the probe.
 
+    The scan is split so that each arm matches a partial index (``sb_claimable_idx``
+    and ``sb_schema_busy_idx``). One four-state IN list matches neither, so the
+    planner seq-scans every retained partition. 'waiting' is left out because no
+    writer sets it. Add an arm for it if one ever does.
+
     Loader progress anywhere in a (team_id, schema_id) group spares every run
     in it. The loader serializes a group and claims its batches oldest-first,
     so a run queued behind a long sibling makes no progress of its own until
@@ -922,10 +927,19 @@ def _stranded_candidate_runs_sql() -> str:
     return f"""
         WITH stranded_runs AS (
             SELECT b.run_uuid, b.team_id, b.schema_id, MIN(b.created_at) AS oldest_created_at
-            FROM {BATCH_TABLE} b
-            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-              AND b.created_at <= now() - make_interval(secs => %(stale)s)
-              AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+            FROM (
+                SELECT bc.run_uuid, bc.team_id, bc.schema_id, bc.created_at
+                FROM {BATCH_TABLE} bc
+                WHERE bc.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND bc.created_at <= now() - make_interval(secs => %(stale)s)
+                  AND bc.latest_state IN ('pending', 'waiting_retry')
+                UNION ALL
+                SELECT be.run_uuid, be.team_id, be.schema_id, be.created_at
+                FROM {BATCH_TABLE} be
+                WHERE be.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND be.created_at <= now() - make_interval(secs => %(stale)s)
+                  AND be.latest_state = 'executing'
+            ) b
             GROUP BY b.run_uuid, b.team_id, b.schema_id
         ),
         progressing_groups AS (
