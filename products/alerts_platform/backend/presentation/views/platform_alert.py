@@ -315,8 +315,7 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_last_error_message(self, obj: PlatformAlertConfigurationView) -> str | None:
         extras = self._extras(obj)
-        # The list's history keeps no check's `source_detail`.
-        return _check_error(obj.source_kind, extras.last_error_message, {}) if extras else None
+        return _check_error(obj.source_kind, extras.last_error_message, extras.last_source_detail) if extras else None
 
     @extend_schema_field(PlatformAlertStateIntervalSerializer(many=True))
     def get_state_timeline(self, obj: PlatformAlertConfigurationView) -> list[dict[str, Any]]:

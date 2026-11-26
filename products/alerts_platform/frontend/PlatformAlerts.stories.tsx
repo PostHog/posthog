@@ -279,6 +279,7 @@ const meta: Meta = {
                     ],
                 },
                 [`/api/projects/:team_id/platform_alerts/${CONFIGURATION.id}/`]: CONFIGURATION,
+                [`/api/projects/:team_id/platform_alerts/${DISABLED_CONFIGURATION.id}/`]: DISABLED_CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/`]: GROUPED_CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${ROUTED_CONFIGURATION.id}/`]: ROUTED_CONFIGURATION,
                 '/api/projects/:team_id/platform_alert_receivers/': RECEIVERS,
@@ -506,6 +507,10 @@ export const Detail: Story = {
 
 export const DetailGrouped: Story = {
     parameters: { pageUrl: urls.platformAlert(GROUPED_CONFIGURATION.id) },
+}
+
+export const DetailInsightAlert: Story = {
+    parameters: { pageUrl: urls.platformAlert(DISABLED_CONFIGURATION.id) },
 }
 
 export const DetailGroupedSnoozeMenuOpen: Story = {

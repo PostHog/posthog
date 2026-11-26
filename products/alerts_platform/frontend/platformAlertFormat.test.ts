@@ -1,3 +1,5 @@
+import { urls } from 'scenes/urls'
+
 import {
     BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
@@ -8,6 +10,7 @@ import {
     PlatformAlertConfigurationStatus,
     PlatformAlertListRow,
     PlatformAlertStateCount,
+    SOURCE_KINDS,
     configurationListRows,
     configurationStateCounts,
     configurationStatus,
@@ -248,6 +251,21 @@ describe('platformAlertFormat', () => {
         ['an insight alert the platform owns', { owner: 'platform', source_kind: 'insight' }, false],
     ])('canChangeFromList: %s', (_, overrides, expected) => {
         expect(canChangeFromList(makeConfiguration(overrides))).toEqual(expected)
+    })
+
+    test.each<[string, string | null, string]>([
+        [
+            'with a source row links to it',
+            '0192a5b0-0000-7000-8000-000000000001',
+            urls.alert('0192a5b0-0000-7000-8000-000000000001'),
+        ],
+        ['with no source row links by its own id', null, urls.alert('configuration-id')],
+    ])('an insight alert %s', (_, legacyConfigurationId, expected) => {
+        const configuration = makeConfiguration({
+            source_kind: 'insight',
+            legacy_configuration_id: legacyConfigurationId,
+        })
+        expect(SOURCE_KINDS.insight.alertUrl(configuration)).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([

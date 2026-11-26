@@ -577,13 +577,13 @@ CHECKS_ONLY: Final = f"kind IN ({', '.join(repr(kind) for kind in _CHECK_KINDS)}
 # alert and the newest check, so a page of alerts that check every minute returns a few rows each
 # rather than a day of them.
 _HISTORY_SQL = f"""
-SELECT configuration_id, occurred_at, previous_state, state, error_message, is_latest, grouping_key
+SELECT configuration_id, occurred_at, previous_state, state, error_message, is_latest, grouping_key, source_detail
 FROM (
-    SELECT configuration_id, occurred_at, previous_state, state, error_message, grouping_key,
+    SELECT configuration_id, occurred_at, previous_state, state, error_message, grouping_key, source_detail,
            occurred_at = max(occurred_at) OVER (PARTITION BY configuration_id) AS is_latest
     FROM (
         SELECT configuration_id, alert_id, evaluation_key, occurred_at, previous_state, state, error_message,
-               grouping_key
+               grouping_key, source_detail
         FROM {PLATFORM_ALERT_EVENTS_TABLE}
         WHERE team_id = %(team_id)s
           AND configuration_id IN %(configuration_ids)s
@@ -634,8 +634,17 @@ def history(
         send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
     )
     changes: dict[UUID, list[PlatformStateChange]] = {}
-    latest: dict[UUID, tuple[datetime, str]] = {}
-    for configuration_id, occurred_at, previous_state, state, error_message, is_latest, grouping_key in rows:
+    latest: dict[UUID, tuple[datetime, str, str]] = {}
+    for (
+        configuration_id,
+        occurred_at,
+        previous_state,
+        state,
+        error_message,
+        is_latest,
+        grouping_key,
+        source_detail,
+    ) in rows:
         if previous_state != state:
             changes.setdefault(configuration_id, []).append(
                 PlatformStateChange(
@@ -646,14 +655,15 @@ def history(
                 )
             )
         if is_latest:
-            latest[configuration_id] = (occurred_at, error_message)
+            latest[configuration_id] = (occurred_at, error_message, source_detail)
     return {
         configuration_id: PlatformAlertHistory(
             state_changes=tuple(changes.get(configuration_id, ())),
             last_checked_at=last_checked_at,
             last_error_message=error_message or None,
+            last_source_detail=_snapshot(source_detail),
         )
-        for configuration_id, (last_checked_at, error_message) in latest.items()
+        for configuration_id, (last_checked_at, error_message, source_detail) in latest.items()
     }
 
 

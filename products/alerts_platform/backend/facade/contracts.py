@@ -446,6 +446,7 @@ class PlatformAlertHistory:
     last_checked_at: datetime
     # None when the last check in the window succeeded.
     last_error_message: str | None
+    last_source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen

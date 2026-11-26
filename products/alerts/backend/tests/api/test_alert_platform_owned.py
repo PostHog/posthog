@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.db import connection
+from django.db.models import QuerySet
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -99,6 +100,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.templates.discord.template_discord import template as template_discord
 from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack, template_webhook
@@ -581,6 +583,22 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         expected = status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND
         assert (retrieved.status_code, events.status_code) == (expected, expected), retrieved.json()
 
+    def test_the_platform_api_checks_insight_access_only_for_the_alert_it_reads(self) -> None:
+        url = self._platform_alerts_url()
+        move_to_platform(create_insight_alert(self.team), at=self.now)
+        checked: list[int] = []
+
+        def record(queryset: QuerySet[Any], **kwargs: Any) -> QuerySet[Any]:
+            if queryset.model is Insight:
+                checked.extend(queryset.values_list("id", flat=True))
+            return filter_queryset(queryset, **kwargs)
+
+        with patch("products.authorization.backend.presentation.querysets.filter_queryset", side_effect=record):
+            retrieved = self.client.get(f"{url}{self.copy_id}/")
+
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert checked == [self.alert.insight_id]
+
     @parameterized.expand(
         [
             (
@@ -607,8 +625,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         events = self.client.get(f"{url}{self.copy_id}/events/").json()
 
         assert [event["error_message"] for event in events if event["kind"] == "check"] == [shown_in_events]
-        # The list's history keeps no error code, so it cannot tell an owner-facing error apart.
-        assert [row["last_error_message"] for row in listed] == [GENERIC_CHECK_ERROR_MESSAGE]
+        assert [row["last_error_message"] for row in listed] == [shown_in_events]
 
     @parameterized.expand(
         [

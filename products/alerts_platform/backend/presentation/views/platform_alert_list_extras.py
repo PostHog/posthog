@@ -2,9 +2,9 @@
 last day and where it notifies. Read for a whole page at once, so a page costs a fixed number of queries.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from django.utils import timezone
@@ -35,6 +35,7 @@ class ConfigurationExtras:
     created_by: User | None
     last_checked_at: datetime | None
     last_error_message: str | None
+    last_source_detail: Mapping[str, Any]
     state_timeline: tuple[StateInterval, ...]
     destination_types: tuple[str, ...]
 
@@ -86,6 +87,7 @@ def list_extras(
             last_error_message=histories[configuration.id].last_error_message
             if configuration.id in histories
             else None,
+            last_source_detail=histories[configuration.id].last_source_detail if configuration.id in histories else {},
             state_timeline=platform_api.state_timeline(
                 history=histories.get(configuration.id),
                 control=controls.get(configuration.id),
