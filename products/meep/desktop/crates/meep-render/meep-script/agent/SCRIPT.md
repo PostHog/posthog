@@ -171,7 +171,7 @@ Text fields are retained native controls: caret, selection and input methods sur
 - Pass `markdown: string` instead of `value` to start from Markdown. `toMarkdown(blocks)` and `fromMarkdown(text)` convert either way (pure and synchronous).
 - `onChange(blocks)` runs once typing pauses (and when the editor loses focus), never per keystroke. Save the blocks in state; persist them through your normal save path. `value` is controlled like `Input`: the editor is reset only when the script passes a document it was not just given.
 - Give it a stable `id` and the height to scroll in (`grow: true` inside a `Page`, or `h`); it scrolls itself and keeps the caret in view. It reserves a 48 px gutter on the left for the drag handle, so place it with `ml: -48` when the text must line up with a header.
-- Everything else is built in: the slash menu, Markdown shortcuts (`# `, `- `, `1. `, `[] `, `> `, ```` ``` ````, `---`, `**bold**`, `*italic*`, `` `code` ``, `~~strike~~`), ⌘B/⌘I/⌘E/⌘⇧S/⌘K, ⌘⌥0–8 to turn blocks into other kinds, drag handles, copy and paste as Markdown and rich text, undo, and IME input. Don't rebuild any of it around the editor.
+- Everything else is built in: the slash menu, Markdown shortcuts (`#`, `-`, `1.`, `[]`, `>`, ```` ``` ````, `---`, `**bold**`, `*italic*`, `` `code` ``, `~~strike~~`), ⌘B/⌘I/⌘E/⌘⇧S/⌘K, ⌘⌥0–8 to turn blocks into other kinds, drag handles, copy and paste as Markdown and rich text, undo, and IME input. Don't rebuild any of it around the editor.
 
 ```js
 view({
@@ -341,7 +341,7 @@ waits up to three seconds and checks access again before acting.
 | `host.toast.show({id,title,body?,style?,action?})` | `{id}`. Style `info` (default), `success`, `error`, `progress`. Same ID replaces existing feedback. Ordinary toasts leave after 6 seconds on screen, waiting while the pointer rests on them or View is in the background; progress remains until updated/dismissed. Window-only. |
 | `host.toast.update(options)` | Same complete object as show; replaces rather than merges. |
 | `host.toast.dismiss(id)` | `{id}`. Idempotent. |
-| `host.notifications.send({id?,title,body?,delivery?,sound?,action?})` | Durable inbox entry. Delivery `system` (default), `inApp`, or `both`. Optional `sound:"default"|"none"` (default sound). Returns `{id,stored:true,system:null\|{submitted,error?}}`; system submission does not prove OS display. Same ID replaces the entry. View retains up to 100 entries per view and 500 across all views for up to 30 days. |
+| `host.notifications.send({id?,title,body?,delivery?,sound?,action?})` | Durable inbox entry. Delivery `system` (default), `inApp`, or `both`. Optional `sound:"default"\|"none"` (default sound). Returns `{id,stored:true,system:null\|{submitted,error?}}`; system submission does not prove OS display. Same ID replaces the entry. View retains up to 100 entries per view and 500 across all views for up to 30 days. |
 | `host.notifications.list()` / `.dismiss(id)` | List stored entries / remove by ID. These work after notification permission is revoked. |
 | `host.confirm({title,message?,confirmLabel?,cancelLabel?})` | Boolean; cancellation returns `false`. Native dialog, five-minute timeout. The window title identifies this view; your title remains the question above the message. Title 1–256 bytes, message up to 8192, labels up to 64 each. One confirm or file panel may be open per view; another rejects. |
 | `host.files.pick({title?,multiple?,extensions?})` | Array of `{id,name}` handles or `null` on cancel. Picker selection grants access only to chosen files; files in hidden or credential folders, `~/Library` (outside cloud folders), system folders and View's data are refused. Max 128 handles per view. The person can remove any handle in the view's permissions. |
@@ -490,6 +490,7 @@ additional rows scroll beneath the fixed heading. Return all relevant rows rathe
 truncating to five or shortening content to fit a total-card budget.
 Invalid parts are dropped; commands must be declared by the view and open it before running.
 Errors clear the badge/card and are logged. Reconnect keeps locally edited top-level state keys.
+
 ```js
 view({ state: { items: [] }, render: s => Page(Text(s.items.length)),
   badge: s => ({ value: s.items.length, title: "Items to review",
@@ -542,7 +543,6 @@ and every host call rechecks current permissions. Failed runs expose
 ### Declarative workflows
 
 Render the executable definition and its trace with `WorkflowOutline({id, definition, trace, onEdit})`. Give the outline a bounded height. An optional edit handler receives a step ID, or null for a script-backed command. The native `WorkflowEditor({id, definition, step?, onClose})` edits a registered definition or individual step. Re-read the catalog on close to pick up the accepted revision. Changes use the original definition as the expected value. A mounted host must implement `workflows.update` for saves. Both controls use the host view's scope.
-
 
 Use **version 2** for new workflows. Rust executes their steps in both mounted
 and closed views: reference resolution, conditions, parallel branches, bounded
@@ -816,6 +816,7 @@ More than ~100 rows or any grid: use Table with a dataset, never Rows of Text.
 separate from state. It survives restarts/live edits, works headlessly, and is deleted with the view.
 Rows are flat JSON objects (scalar values); each key is a unique string or number. Total cap: 16 MB/view.
 All methods are synchronous; mutation throws on invalid rows/keys or size overflow.
+
 - `host.data.set(name, rows, {key:'id'})` replaces; `patch(name, rows)` merges/upserts by key.
 - `remove(name, keys)` removes keys; `clear(name)` empties the dataset.
 - `count(name, query?)` counts all matches; `rows(name, query?)` returns at most `limit`
@@ -837,6 +838,7 @@ Optional `cell:row=>element` runs only for visible rows, cached until the next r
 no text inputs inside rows. Stock cells and scrolling need no JS per row.
 Selection is controlled: onRowClick(key), onSort({field,dir}), onToggleGroup(group).
 Use `keys.up/down` to update selected; Table reveals it. Collapsed is an array of group values.
+
 ```js
 view({state:{q:'',selected:null},
   init(){if(!host.data.count('work'))host.data.set('work',[{id:1,title:'Review'}],{key:'id'});},
