@@ -671,7 +671,13 @@ describe('runner', () => {
                 expect(result).toMatchObject({
                     status: 'invalid',
                     statusReason: expect.stringMatching(new RegExp(`^the run stopped: .*${statusReason.source}`)),
+                    stopped: {
+                        phase: 'seed',
+                        stack: expect.stringMatching(new RegExp(`${statusReason.source}.*\\n +at `)),
+                    },
                 })
+                const ended = readFileSync(path.join(result.evidenceDir, LIVE_FILE), 'utf8').trim().split('\n').at(-1)
+                expect(parseJSON(ended!)).toMatchObject({ type: 'end', stopped: result.stopped })
                 expect(rows).toEqual([])
             } finally {
                 await holder.end()
@@ -1159,7 +1165,7 @@ describe('runner through seed, drive and judge', () => {
         {
             replicas = {},
             parks = 0,
-            measures = SMOKE.card.measure,
+            measures = SMOKE.card.measure.filter(({ name }) => name !== 'counter_drift'),
             load: loadTargets,
             backlog,
             ramp,
@@ -1337,6 +1343,7 @@ describe('runner through seed, drive and judge', () => {
         const result = await createRunner(environmentOf(delivering), env, {
             topologyWithinMs: 1000,
             topologyEveryMs: 10,
+            counterRead: { withinMs: 5000, quietMs: 0, pollMs: 100 },
         }).run(shortSmoke(valves, traffic, options), signal)
         results.push(result)
         return result
@@ -1454,6 +1461,38 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+    it.each<['all' | 'all, leaving one job running', (sent: number) => number | null]>([
+        ['all', (sent) => -sent],
+        ['all, leaving one job running', () => null],
+    ])(
+        'scores the email sends no app metric counted when delivering %s',
+        async (delivering, drift) => {
+            const result = await run(delivering, [], 'event_email', {
+                measures: [{ name: 'counter_drift', params: {} }],
+                ...(delivering !== 'all' && { convergeWithin: '1s' }),
+            })
+
+            const sent = (evidenceOf(result, 'truth.json') as TruthRecord[]).filter(
+                ({ kind, status }) => kind === 'ses.send' && status === 200
+            )
+            const owed = (evidenceOf(result, 'journal.json') as JournalEntry[]).filter(
+                ({ answer, expect }) => answer.accepted && expect.deliveries.includes('email')
+            )
+            expect(sent).not.toHaveLength(0)
+            expect(api.captured[0]?.properties).toMatchObject({
+                ...(delivering === 'all' && { m_counter_drift_owed: owed.length }),
+                m_counter_drift_email_sent: drift(sent.length),
+                m_counter_drift_email_sent_counted: 0,
+                m_counter_drift_email_sent_sink: sent.length,
+                m_counter_drift_email_failed_counted: 0,
+            })
+            expect(evidenceOf(result, 'counters.json')).toEqual({
+                counted: { email_sent: 0, email_delivered: 0, email_failed: 0 },
+                consumers: 1,
+            })
+        },
+        30_000
+    )
     it.each([
         ['lets duplicate_sends pass a duplicate the janitor reset accounts for, which no_loss still fails', 1, true],
         ['fails a duplicate send that no janitor reset accounts for', 0, false],
@@ -1506,7 +1545,7 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
-    it('records the warm-up its drive ran before the first offer, and the baseline it admitted after it', async () => {
+    it('records the warm-up, the baseline after it, and a first step scheduled at the drive start', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'transactional_email', { driveFor: '3s', warmUp: '1s' }),
             NEVER_ABORTED
@@ -1515,17 +1554,20 @@ describe('runner through seed, drive and judge', () => {
 
         const journal = evidenceOf(result, 'journal.json') as JournalEntry[]
         const { drive } = evidenceOf(result, 'probes.json') as { drive: DriveWindow }
-        const saved = evidenceOf(result, 'scorecard.json') as { warmUp: RunWindow; baseline: RunWindow }
+        const saved = evidenceOf(result, 'scorecard.json') as {
+            warmUp: RunWindow
+            baseline: RunWindow
+            units: { steps: { startedAt: number }[] }
+        }
         const [warmUpFrom, warmUpTo] = [Date.parse(saved.warmUp.from), Date.parse(saved.warmUp.to)]
-        const firstOfferedAt = Math.min(...journal.map(({ offeredAt }) => offeredAt))
         expect({
             warmUp: [warmUpFrom - drive.startedAt, warmUpTo - drive.startedAt],
-            firstOfferInWarmUp: firstOfferedAt >= warmUpFrom && firstOfferedAt < warmUpTo,
+            trafficFrom: saved.units.steps[0].startedAt - drive.startedAt,
             offeredAfter: journal.some(({ offeredAt }) => offeredAt >= warmUpTo),
             baseline: saved.baseline,
         }).toEqual({
             warmUp: [0, 1000],
-            firstOfferInWarmUp: true,
+            trafficFrom: 0,
             offeredAfter: true,
             baseline: { from: saved.warmUp.to, to: new Date(drive.endedAt).toISOString() },
         })
