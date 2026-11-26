@@ -13,6 +13,8 @@ import type { TransactionalPushStatsRowApi } from 'products/messaging/frontend/g
 
 import { transactionalPushMetricsLogic } from './transactionalPushMetricsLogic'
 
+const PAGE_SIZE = 20
+
 function Count({ value }: { value: number }): JSX.Element {
     return <span className="tabular-nums">{humanFriendlyNumber(value)}</span>
 }
@@ -34,7 +36,7 @@ export function TransactionalPushMetrics({ actions }: { actions: JSX.Element }):
         <SceneSection
             title="Push notifications"
             actions={actions}
-            description="Sent reached at least one of the person's devices. Not sent reached none, for example because the person has no device registered."
+            description="Sent means Apple or Google accepted the push for at least one of the person's devices. Not sent means there was no device to send to, for example because the person has none registered."
         >
             {pushStatsFailed && !pushStatsLoading && (
                 <LemonBanner
@@ -52,6 +54,7 @@ export function TransactionalPushMetrics({ actions }: { actions: JSX.Element }):
                 dataSource={pushStats ?? []}
                 loading={pushStatsLoading}
                 rowKey="template_id"
+                pagination={{ pageSize: PAGE_SIZE, hideOnSinglePage: true }}
                 data-attr="transactional-push-metrics-by-push"
                 columns={[
                     {
@@ -81,9 +84,15 @@ export function TransactionalPushMetrics({ actions }: { actions: JSX.Element }):
                 footer={
                     pushStats && pushStats.length > 1 ? (
                         <div className="flex justify-end gap-6 px-3 py-2 font-semibold tabular-nums">
-                            <span>Sent {humanFriendlyNumber(totals.sent)}</span>
-                            <span>Not sent {humanFriendlyNumber(totals.not_sent)}</span>
-                            <span>Failed {humanFriendlyNumber(totals.failed)}</span>
+                            <span>
+                                Sent <Count value={totals.sent} />
+                            </span>
+                            <span>
+                                Not sent <Count value={totals.not_sent} />
+                            </span>
+                            <span>
+                                Failed <Count value={totals.failed} />
+                            </span>
                         </div>
                     ) : undefined
                 }
