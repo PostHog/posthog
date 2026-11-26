@@ -4915,11 +4915,21 @@ export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVi
     // This tuple represents a [good, poor] threshold, where values below good are good and values above poor are poor
     // Values in between the two values are the threshold for needs_improvements
     thresholds: [number, number]
+    /**
+     * Drop pages with fewer samples than this in the period, so a page with a handful of
+     * slow loads does not outrank a busy page with a real problem. No floor when omitted.
+     */
+    minSamples?: positive_integer
     /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
     useWebAnalyticsPrecompute?: boolean
 }
 
-export type WebVitalsPathBreakdownResultItem = { path: string; value: number }
+export type WebVitalsPathBreakdownResultItem = {
+    path: string
+    value: number
+    /** Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets. */
+    count?: integer
+}
 export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitalsPathBreakdownResultItem[]>
 
 // NOTE: The response is an array of results because pydantic requires it, but this will always have a single entry

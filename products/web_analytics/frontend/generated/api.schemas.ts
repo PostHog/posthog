@@ -2298,7 +2298,7 @@ export interface DigestMetadataApi {
     date_to: string
     /** Project timezone for the period boundaries. */
     timezone: string
-    /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+    /** True when the headline metrics, top pages and top sources exclude events from test accounts. Follows the project's "Filter out internal and test users" default, like the query-web-* tools. Goal conversions include them either way. */
     filter_test_accounts: boolean
     /** Metric definitions to use when you compare the digest with a direct query. */
     notes: string[]
@@ -3897,11 +3897,11 @@ export type WebAnalyticsRecapParams = {
 
 export type WebAnalyticsWeeklyDigestParams = {
     /**
-     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     * When true (default), include period-over-period change for each metric comparing against the `days` complete days before the window. Set to false to skip the comparison query (faster).
      */
     compare?: boolean
     /**
-     * Lookback window in days (1–90). Defaults to 7.
+     * Number of complete days to summarize (1–90), ending yesterday in the project timezone. Defaults to 7.
      */
     days?: number
 }
