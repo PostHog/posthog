@@ -1679,13 +1679,13 @@ export class CdpApi {
                 if (!team) {
                     return refuse('not_found', 404, { error: 'Team not found' })
                 }
-                if (!slot.claimFor(team.organization_id)) {
-                    return refuse('over_capacity', 503, { error: 'over_capacity' })
-                }
                 // A single send answers 404 here, which Django retries. A batch refuses for good: the workflow is gone
                 // for every recipient.
                 if (!hogFlow || hogFlow.team_id !== team.id || hogFlow.trigger?.type !== 'api') {
                     return refuse('not_sendable', 400, { error: 'not_sendable' })
+                }
+                if (!slot.claimFor(team.organization_id)) {
+                    return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
 
                 stages.start('validate')

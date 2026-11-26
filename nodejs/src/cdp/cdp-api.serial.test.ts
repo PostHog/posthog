@@ -5818,7 +5818,7 @@ describe('CDP API', () => {
                     ])
                 })
 
-                it("refuses a batch from an organization holding its share across two teams, and admits another organization's", async () => {
+                it("refuses a batch from an organization holding its share across two teams, as not sendable for a workflow it cannot send, and admits another organization's", async () => {
                     const flowOf = async (teamId: number) => ({
                         teamId,
                         flowId: (await insertHogFlow({ ...transactionalFlow('api', 'active'), team_id: teamId })).id,
@@ -5851,6 +5851,7 @@ describe('CDP API', () => {
 
                     const holders: Promise<supertest.Response>[] = []
                     let thirdOfOrg: supertest.Response
+                    let notSendableOfOrg: supertest.Response
                     let ofOtherOrg: supertest.Response
                     try {
                         holders.push(sendAs(ownTeam, `ada-${new UUIDT().toString()}@example.com`))
@@ -5860,6 +5861,7 @@ describe('CDP API', () => {
                         await heldAt(secondRead, holders[1])
                         read.pass()
                         thirdOfOrg = await sendAs(sameOrg, 'cy@example.com')
+                        notSendableOfOrg = await sendAs({ ...sameOrg, flowId: otherOrg.flowId }, 'ed@example.com')
                         ofOtherOrg = await sendAs(otherOrg, 'di@example.com')
                     } finally {
                         read.release()
@@ -5869,6 +5871,7 @@ describe('CDP API', () => {
                     const held = await Promise.all(holders)
 
                     expect([thirdOfOrg.status, thirdOfOrg.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([notSendableOfOrg.status, notSendableOfOrg.body]).toEqual([400, { error: 'not_sendable' }])
                     expect([ofOtherOrg.status, ofOtherOrg.body.results]).toEqual([
                         200,
                         [{ status: 202, body: expect.objectContaining({ status: 'queued' }) }],
