@@ -800,8 +800,7 @@ def _plant_upgrade_banner(team: Team, user: User, now: datetime) -> dict[str, An
     }
 
 
-# The implied-need cases install the catalog next to the scenario, so the context the prompt does not name is one
-# catalog search away.
+# The implied-need cases also install the catalog, so the unnamed context is one catalog search away.
 def seed_renewal_account_in_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team, _ = team_and_user(context)
     account = _plant_account(team, build_renewal_account(), timezone.now())

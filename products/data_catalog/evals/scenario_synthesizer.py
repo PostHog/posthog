@@ -187,8 +187,7 @@ EXPANSION_WINDOW_DAYS = 90
 # PREVIEW_LAUNCH: file previews that users adopt, while about a quarter of the PDF previews fail to render.
 PREVIEW_FAILING_FILE_TYPE = "application/pdf"
 PREVIEW_PDF_FAILURE_SHARE = 0.25
-# The issue name, error type and value match the Hedgebox demo issue, so the planted errors join that issue when the
-# case team has it.
+# These match the Hedgebox demo issue, so the planted errors join that issue when the case team has it.
 PREVIEW_RENDER_ISSUE_NAME = "File preview render failure"
 PREVIEW_RENDER_ISSUE_DESCRIPTION = (
     "Preview rendering fails for some uploaded PDFs, leaving customers unable to inspect files before sharing them."
@@ -1002,7 +1001,6 @@ def build_expansion_account() -> AccountNeedle:
                 properties=_web_event(clients[admin.distinct_id], "/account/team/", _uuid(rng), **group),
             )
         )
-        # The invited member joins on the day of the invite and never comes back.
         session = _uuid(rng)
         join_steps: tuple[tuple[str, str, dict[str, Any]], ...] = (
             ("$pageview", f"/invite/{_uuid(rng)}/", {}),
