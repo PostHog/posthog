@@ -34,13 +34,14 @@ export interface QueryBatchLine {
         canonical?: string
         /** Freshness and access-control notes that qualify the frames. */
         warnings?: { message: string }[]
-        cache?: { fetchedAt?: string | null; stale?: boolean }
+        cache?: { fetchedAt?: string | null; stale?: boolean; hit?: boolean }
     } | null
 }
 
 export async function readNdjson(
     body: ReadableStream<Uint8Array>,
-    onLine: (line: QueryBatchLine) => void
+    onLine: (line: QueryBatchLine) => void,
+    onChunk?: (byteLength: number) => void
 ): Promise<void> {
     const reader = body.getReader()
     const decoder = new TextDecoder()
@@ -58,6 +59,7 @@ export async function readNdjson(
     while (true) {
         const { done, value } = await reader.read()
         if (value) {
+            onChunk?.(value.byteLength)
             buffer += decoder.decode(value, { stream: true })
             const lines = buffer.split('\n')
             buffer = lines.pop() ?? ''

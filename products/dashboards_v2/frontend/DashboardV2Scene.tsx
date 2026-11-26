@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
@@ -40,6 +40,8 @@ function DashboardV2(): JSX.Element {
     const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardV2Logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId, timezone } = useValues(teamLogic)
+    const tabRef = useRef(activeTabId)
+    tabRef.current = activeTabId
     // The same pair of flags as the v1 dashboard query layer: the project turns it on, the person sees it.
     const runsRealQueries =
         !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
@@ -50,7 +52,14 @@ function DashboardV2(): JSX.Element {
     const widgets = useMemo(
         () =>
             runsRealQueries && currentTeamId
-                ? [createChartWidget({ runQuery: createQueryBatchRunner(currentTeamId) }), ...NON_CHART_WIDGETS]
+                ? [
+                      createChartWidget({
+                          runQuery: createQueryBatchRunner(currentTeamId, {
+                              context: () => ({ dashboard_tab_id: tabRef.current }),
+                          }),
+                      }),
+                      ...NON_CHART_WIDGETS,
+                  ]
                 : SAMPLE_WIDGETS,
         [runsRealQueries, currentTeamId]
     )
