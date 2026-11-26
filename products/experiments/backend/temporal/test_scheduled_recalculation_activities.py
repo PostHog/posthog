@@ -408,8 +408,6 @@ async def test_run_scheduled_recalculation_holds_the_slot_until_the_run_closes(
 
 
 async def test_run_scheduled_recalculation_fails_when_the_run_state_is_unknown() -> None:
-    # Returning here would free the slot while the run may still be live. Failing hands the run to the
-    # retry, which waits on the experiment's active run.
     with (
         patch(f"{MODULE}._start_scheduled_recalculation_sync", AsyncMock(return_value=_STARTED)),
         patch(f"{MODULE}.async_connect", AsyncMock(return_value=_FakeRunWorkflow("unavailable"))),
