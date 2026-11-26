@@ -17,7 +17,6 @@ export type TicketChannelDetail =
     | 'teams_bot_mention'
     | 'widget_embedded'
     | 'widget_api'
-    | 'widget_mcp'
     | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical'

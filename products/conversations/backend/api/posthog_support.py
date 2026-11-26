@@ -8,13 +8,15 @@ draft, so reading a draft and claiming it for that form accept browser sessions 
 from __future__ import annotations
 
 import re
+import math
 from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import Throttled
+from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -243,10 +245,23 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = {"mcp-posthog-support-tickets": ["create_draft", "send_draft"]}
     pagination_class = None
 
-    def get_throttles(self) -> list[BaseThrottle]:
+    def check_throttles(self, request: Request) -> None:
         if self.action == "create_draft":
-            return [PostHogSupportDraftCreateThrottle(), *super().get_throttles()]
-        return super().get_throttles()
+            throttle = PostHogSupportDraftCreateThrottle()
+            if not throttle.allow_request(request, self):
+                wait = math.ceil(throttle.wait() or 0)
+                hours = max(1, math.ceil(wait / 3600))
+                throttled = Throttled(
+                    detail=(
+                        f"Nothing was drafted. PostHog allows {throttle.num_requests} drafts a day, so they can try "
+                        f"again in about {hours} hour{'s' if hours > 1 else ''}."
+                    ),
+                )
+                # Set after init so DRF doesn't append its own wait sentence. Without Retry-After, the MCP
+                # client retries the refused draft with backoff before the agent sees why.
+                throttled.wait = wait  # type: ignore[attr-defined]
+                raise throttled
+        super().check_throttles(request)
 
     @property
     def _user(self) -> User:

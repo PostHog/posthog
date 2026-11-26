@@ -331,6 +331,32 @@ class TestPostHogSupportSend(APIBaseTest):
         assert third_day.status_code == status.HTTP_403_FORBIDDEN
         assert fourth_day.status_code == status.HTTP_201_CREATED
 
+    @parameterized.expand(
+        [
+            ("hours", timedelta(hours=22, minutes=30), "about 2 hours.", "5400"),
+            ("one_hour", timedelta(hours=23, minutes=30), "about 1 hour.", "1800"),
+        ]
+    )
+    @patch("posthog.rate_limit.PostHogSupportDraftCreateThrottle.rate", "2/day")
+    def test_draft_limit_says_when_they_can_draft_again(
+        self, _name: str, refused_after: timedelta, expected_wait: str, retry_after: str
+    ) -> None:
+        now = timezone.now()
+        with time_machine.travel(now, tick=False):
+            self._create_draft()
+            self._create_draft()
+        with time_machine.travel(now + refused_after, tick=False):
+            refused = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
+        with time_machine.travel(now + timedelta(hours=24, seconds=1), tick=False):
+            next_day = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
+
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert refused.json()["detail"] == (
+            f"Nothing was drafted. PostHog allows 2 drafts a day, so they can try again in {expected_wait}"
+        )
+        assert refused.headers["Retry-After"] == retry_after
+        assert next_day.status_code == status.HTTP_201_CREATED
+
     def test_a_draft_belongs_to_the_project_it_was_made_in(self) -> None:
         draft = self._create_draft()
         other_project = Team.objects.create(organization=self.organization, name="Other project")
@@ -365,7 +391,7 @@ class TestPostHogSupportSend(APIBaseTest):
         self.organization.save()
         services = "products.conversations.backend.services.posthog_support"
         billing_manager = MagicMock()
-        billing_manager.return_value.get_billing.side_effect = requests.ConnectionError("billing is down")
+        billing_manager.return_value.get_billing_read_only.side_effect = requests.ConnectionError("billing is down")
 
         with (
             patch(f"{services}.get_cached_instance_license", return_value=MagicMock()),
@@ -442,9 +468,9 @@ class TestCheckTicketPermission(SimpleTestCase):
         organization = Organization(created_at=timezone.now() - timedelta(days=organization_age_days))
         billing_manager = MagicMock()
         if billing is None:
-            billing_manager.return_value.get_billing.side_effect = requests.ConnectionError("billing is down")
+            billing_manager.return_value.get_billing_read_only.side_effect = requests.ConnectionError("billing is down")
         else:
-            billing_manager.return_value.get_billing.return_value = billing
+            billing_manager.return_value.get_billing_read_only.return_value = billing
 
         with (
             patch(

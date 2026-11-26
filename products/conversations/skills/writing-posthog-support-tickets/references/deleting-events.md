@@ -10,14 +10,19 @@ Support usually cannot do that, so ask whether they want the events deleted inst
 There are two routes ([docs](https://posthog.com/docs/privacy/data-storage#deleting-specific-events)):
 
 - **Support runs the deletion.** The ticket needs everything below, including the query and its count.
-- **Support turns on event deletion in the PostHog app** for the person's organization, so they file their own requests. This fits only a one-off deletion of events that one query can select, because PostHog selects the matching events once, when it processes the request. Organization admins and owners can use it, and so can members who are given access. A project can have up to 5 requests in progress, and PostHog reviews each one before any events are deleted.
+- **Support turns on self-serve event deletion** for the person's organization, so they file their own requests, in the PostHog app (project settings, "Deletion requests") or through the data deletion requests API. Both stay off until support turns them on. Organization admins and owners can use it, and so can members who are given access. A project can have up to 5 requests in progress, and PostHog reviews each one before any events are deleted. No MCP tool files these requests, so you can't file one for them.
 
-Use the first route for any other event deletion, and when you aren't sure. If one query can't select the events, give a query and a count for each part.
-Removing properties, deleting on a schedule, and deleting persons or recordings fit neither.
-To delete by age, point them to [events retention](https://posthog.com/docs/data/events-retention).
+| They want to delete                          | Self-serve event deletion                                                                                                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Whole events that one query can select, once | Yes, in the app or the API, after support turns it on                                                                                                                           |
+| Events that arrive later, or on a schedule   | No. PostHog selects the matching events once, when it processes the request. To delete by age, point them to [events retention](https://posthog.com/docs/data/events-retention) |
+| A property, but keep the events              | No                                                                                                                                                                              |
+| Persons or recordings                        | No, and they don't need it: both are self-serve already, so use the routes in `answering-privacy-questions`                                                                     |
 
-When the second route fits, tell the person about both and say in **Request** which one they want.
-That ticket needs the region, the project, the reason, who is asking, and what they want to delete. Add the query and count when they have them, and say that they ask for event deletion to be turned on, and not for support to run the deletion.
+Use the first route for any other one-off event deletion, and when you aren't sure. Neither route deletes events on a schedule. If one query can't select the events, give a query and a count for each part.
+
+When the second route fits, always tell the person they can ask for it, in the app and the API, and what it can and can't delete. Say in **Request** which route they want.
+A ticket asking to turn it on needs the region, the project, the reason, who is asking, and what they want to delete. Add the query and count when they have them, and say that they ask for event deletion to be turned on, and not for support to run the deletion.
 Never say that event deletion is turned on, or that it will be.
 
 ## What the ticket must include
@@ -45,9 +50,12 @@ Support checks the deletion against this number and stops if they differ.
 
 **The person's confirmation.**
 Show the person the query and the count before you write the ticket, and ask them to confirm that this is exactly what to delete.
-Ask why they need it deleted, and put their reason in **Request**. A privacy or security reason decides the ticket's `topic`.
+Ask why they need it deleted, and put their reason in **Request** without adding to it. A privacy or security reason decides the ticket's `topic`.
 Then **Request** asks to delete that many events, such as "Please delete the 3,817 events the query below returns".
 A ticket that gives the query and its count and asks for the deletion counts as their confirmation, so support does not ask again.
+
+**Who is asking.**
+Their name and role in the organization. Ask for both. Never infer them from what your connection can access.
 
 When you hand it over, tell the person to send it from their own PostHog account, through the draft tool or the support widget, and not from another email address.
 Support checks that the requester is a member of the organization that owns the project.
@@ -68,13 +76,14 @@ Staging test events to delete from our live project
 
 Request:
 
-Our staging build sent test checkout events to our live project in the first week of October 2026. Please delete the 3,817 events the query below returns.
+Our staging build sent test checkout events to our live project in the first week of October 2026. Please delete the 3,817 events the query below returns. We'd like support to run this deletion, rather than turning on self-serve event deletion for us.
 
 ---
 
 Details:
 - Project: [Web app](https://us.posthog.com/project/12345)
 - Region: US Cloud
+- Requested by: Jane Doe, engineering lead
 - Events: `checkout_started` and `checkout_completed` from the host `staging.example.com`
 - Query, which returned 3,817 events:
 
@@ -90,6 +99,6 @@ WHERE timestamp >= toDateTime('2026-10-01 00:00:00', 'UTC')
 ---
 
 Already checked:
-- Claude Code checked: no self-serve route fits, because the same persons have real events that must stay
+- Claude Code checked: the same persons have 41,200 real events that must stay, so deleting the persons doesn't fit
 - I tried: the query returns 3,817 events, all from `staging.example.com`
 ````

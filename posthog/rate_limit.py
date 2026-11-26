@@ -2304,7 +2304,7 @@ class EmailForwardingChallengeThrottle(UserRateThrottle):
 
 class PostHogSupportDraftCreateThrottle(UserRateThrottle):
     scope = "posthog_support_draft_create"
-    rate = "20/day"
+    rate = "75/day"
 
 
 class ComposeTicketBurstThrottle(UserRateThrottle):

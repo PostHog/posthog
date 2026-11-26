@@ -1185,6 +1185,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'signals-source-filters',
             'error-tracking-issue-tags',
             'inbox-plan-edits-mcp',
+            'mcp-posthog-support-tickets',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1229,13 +1230,12 @@ describe('Tool Filtering - Feature Flags', () => {
                 'logs-agent-tools',
                 'release-objects',
                 'signals-monitor-pr',
-                'mcp-posthog-support-tickets',
             ])
         )
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(40)
+        expect(flags).toHaveLength(39)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

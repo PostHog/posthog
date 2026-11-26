@@ -106,7 +106,9 @@ def _check_plan(organization: Organization, user: User) -> TicketPermission:
         # Without a license there is no billing account, and the web app shows such an instance as free.
         return TicketPermission.PLAN_EXCLUDES_SUPPORT
     try:
-        billing = BillingManager(instance_license, user).get_billing(organization, timeout=BILLING_TIMEOUT_SECONDS)
+        billing = BillingManager(instance_license, user).get_billing_read_only(
+            organization, timeout=BILLING_TIMEOUT_SECONDS
+        )
     except Exception as e:
         capture_exception(e)
         return TicketPermission.PLAN_UNKNOWN

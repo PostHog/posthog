@@ -27,7 +27,7 @@ For every topic except billing, load `answering-privacy-questions` first: it fin
 For anything else, don't write or draft a ticket, even when the person asks for a human. Don't write one for them to paste either.
 Answer what the docs answer, then say where they can ask:
 
-- **On a paid plan, on a trial that includes support, or in an organization under 3 months old:** log in to PostHog in their browser and ask in the support widget in the right-hand sidebar.
+- **On a paid plan, on a trial that includes support, or in an organization under 3 months old:** log in to PostHog in their browser and ask in the support widget in the right-hand sidebar, at https://app.posthog.com/home#panel=support.
 - **On the free plan:** community support at https://posthog.com/forum. Say that the forum is public, so they should leave out personal data and secrets. Any paid plan adds support.
 - **When you don't know the plan:** give both.
 - **When they can't log in:** no plan can file that from here. Say something like "For security reasons, I can't send that ticket through the MCP. When you try to log in and it fails, a help link appears above the login fields. You can open a support ticket from there, even on the free plan."
