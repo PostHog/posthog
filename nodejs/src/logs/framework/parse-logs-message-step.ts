@@ -17,8 +17,8 @@ import {
 } from '../logs-ingestion-consumer'
 import {
     AUTH_TYPE_SECRET_KEY,
-    isSecretKey,
     isSecretKeyDigest,
+    isUnhashedSecretKey,
     isUnknownToken,
     loggableToken,
 } from '../secret-key-teams'
@@ -41,7 +41,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
         const message = input.message
         try {
             const headers = parseKafkaHeaders(message.headers)
-            let token = headers.token
+            const token = headers.token
 
             if (!token) {
                 logger.warn('missing_token')
@@ -49,7 +49,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                 return drop('missing_token')
             }
             const sentSecretKey = isSecretKeyDigest(token)
-            const sentUnhashedKey = isSecretKey(token)
+            const sentUnhashedKey = isUnhashedSecretKey(token)
 
             let team: Team | null
             try {
@@ -79,10 +79,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                 countDropped('team_not_found')
                 return drop('team_not_found')
             }
-            // Quota, output headers and the DLQ are keyed by the public token.
-            if (sentSecretKey) {
-                token = team.api_token
-            }
+            const publicToken = sentSecretKey ? team.api_token : token
 
             const bytesUncompressed = parseSizeHeader(headers.bytes_uncompressed)
             const bytesUncompressedRecords = parseSizeHeader(headers.bytes_uncompressed_records)
@@ -101,7 +98,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                     offset: message.offset,
                 })
                 await quarantineLogMessage(context, message, new Error('invalid_size_headers'), {
-                    token,
+                    token: publicToken,
                     teamId: team.id,
                 })
                 return drop('invalid_size_headers')
@@ -113,7 +110,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
             }
 
             return ok({
-                token,
+                token: publicToken,
                 authType: sentSecretKey ? AUTH_TYPE_SECRET_KEY : undefined,
                 message,
                 teamId: team.id,

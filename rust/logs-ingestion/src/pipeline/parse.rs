@@ -5,8 +5,7 @@ use metrics::counter;
 
 use crate::internal_logs::INTERNAL_LOGS_HEADER;
 use crate::secret_key::{
-    is_secret_key, is_secret_key_digest, AUTH_TYPE_SECRET_KEY, SECRET_KEY_DIGEST_PREFIX,
-    SECRET_KEY_PREFIX,
+    is_secret_key_digest, is_unhashed_secret_key, loggable_token, AUTH_TYPE_SECRET_KEY,
 };
 
 use super::context::{kafka_header, quarantine_log_message, AppSource, LogsPipelineContext};
@@ -29,7 +28,7 @@ async fn parse(
     message: Arc<KafkaMessage>,
 ) -> anyhow::Result<PipelineResult<LogsIngestionMessage>> {
     let header = |name: &str| kafka_header(&message, name);
-    let mut token = match header("token").as_deref() {
+    let token = match header("token").as_deref() {
         Some(t) if !t.is_empty() => t.to_string(),
         _ => {
             tracing::warn!("missing_token");
@@ -38,15 +37,14 @@ async fn parse(
         }
     };
 
+    let sent_secret_key = is_secret_key_digest(&token);
+    let sent_unhashed_key = is_unhashed_secret_key(&token);
+    let secret_key_allowed = context.identity.app_source == AppSource::Logs;
     // A Postgres blip is retried in place with bounded backoff: dropping it would lose good data for
     // every team whose token is not cached yet. Only an outage past the backoff drops.
-    let sent_secret_key = is_secret_key_digest(&token);
-    let sent_unhashed_key = is_secret_key(&token);
-    // The key scope is `logs:write`, so a key does not authenticate another signal.
-    let logs = context.identity.app_source == AppSource::Logs;
     let team: Option<Team> = match context
         .retry(|| async {
-            if sent_unhashed_key || (sent_secret_key && !logs) {
+            if sent_unhashed_key || (sent_secret_key && !secret_key_allowed) {
                 Ok(None)
             } else if sent_secret_key {
                 context
@@ -68,22 +66,15 @@ async fn parse(
         }
     };
     let Some(team) = team else {
-        // A digest is as good as the key to a reader of the logs.
-        let logged_token = if sent_unhashed_key {
-            SECRET_KEY_PREFIX
-        } else if sent_secret_key {
-            token.get(..15).unwrap_or(SECRET_KEY_DIGEST_PREFIX)
-        } else {
-            token.as_str()
-        };
-        tracing::warn!(token_with_no_team = %logged_token, "team_not_found");
+        tracing::warn!(token_with_no_team = %loggable_token(&token), "team_not_found");
         count_dropped("team_not_found");
         return Ok(drop("team_not_found"));
     };
-    // Quota, output headers and the DLQ are keyed by the public token.
-    if sent_secret_key {
-        token = team.api_token.clone();
-    }
+    let public_token = if sent_secret_key {
+        team.api_token.clone()
+    } else {
+        token
+    };
 
     let bytes_uncompressed = parse_size_header(header("bytes_uncompressed").as_deref());
     let bytes_uncompressed_records =
@@ -109,7 +100,14 @@ async fn parse(
             "logs_ingestion_invalid_size_headers"
         );
         let error = anyhow::Error::new(NamedError::new("Error", "invalid_size_headers"));
-        quarantine_log_message(context, &message, &error, Some(&token), Some(team.id)).await?;
+        quarantine_log_message(
+            context,
+            &message,
+            &error,
+            Some(&public_token),
+            Some(team.id),
+        )
+        .await?;
         return Ok(drop("invalid_size_headers"));
     };
 
@@ -123,7 +121,7 @@ async fn parse(
         header("created_at").as_deref(),
     );
     Ok(ok(LogsIngestionMessage {
-        token,
+        token: public_token,
         auth_type: sent_secret_key.then_some(AUTH_TYPE_SECRET_KEY),
         message: message.clone(),
         team_id: team.id,
