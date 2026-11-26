@@ -41,13 +41,14 @@ describe('transactional email batch', () => {
             expect(admitFor(capacity, 'org-a')).toBeNull()
         })
 
-        it('holds a team to its share before its organization is known', () => {
+        it('keeps the last slots for teams holding none before their organization is known', () => {
             const capacity = new BatchCapacity(4)
-            const pending = [capacity.admit(1), capacity.admit(1)]
+            const pending = [capacity.admit(1), capacity.admit(1), capacity.admit(2)]
 
             expect(pending).not.toContain(null)
             expect(capacity.admit(1)).toBeNull()
-            expect(admitFor(capacity, 'org-b')).not.toBeNull()
+            expect(capacity.admit(2)).toBeNull()
+            expect(capacity.admit(3)).not.toBeNull()
         })
 
         it.each([

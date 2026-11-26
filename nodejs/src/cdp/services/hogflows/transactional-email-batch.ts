@@ -139,7 +139,7 @@ export const slotRequestOf = (batch: TransactionalEmailBatchRequest, recipient: 
 
 export const transactionalEmailBatchRequestsTotal = new Counter({
     name: 'cdp_transactional_email_batch_requests_total',
-    help: 'Batch email requests from Django, by outcome: answered (with a result per recipient), over_capacity (the pod is full, the team or the organization on this pod already runs its share of batches, or only the slots kept for organizations running none are left), or another whole-call refusal, which produces nothing. Recipients count in cdp_transactional_email_requests_total with route batch.',
+    help: 'Batch email requests from Django, by outcome: answered (with a result per recipient), over_capacity (the pod is full, the team or the organization on this pod already runs its share of batches, or only the slots kept for teams and organizations running none are left), or another whole-call refusal, which produces nothing. Recipients count in cdp_transactional_email_requests_total with route batch.',
     labelNames: ['outcome'],
 })
 
@@ -163,7 +163,11 @@ export class BatchCapacity {
 
     admit(teamId: number): BatchSlot | null {
         const admittedForTeam = this.admittedByTeam.get(teamId) ?? 0
-        if (this.admitted >= this.maxRequests || admittedForTeam >= this.maxRequestsPerTenant) {
+        if (
+            this.admitted >= this.maxRequests ||
+            admittedForTeam >= this.maxRequestsPerTenant ||
+            (admittedForTeam > 0 && this.admitted >= this.maxRequests - this.reserved)
+        ) {
             return null
         }
         this.admitted++
