@@ -1,11 +1,9 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { Text, cn } from '@posthog/quill'
 
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
-
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityCard } from './AiVisibilityCard'
 import { contentAutopilotMoversLogic } from './contentAutopilotMoversLogic'
 import { ContentAutopilotPageMoversTable } from './ContentAutopilotPageMoversTable'
 import { ContentAutopilotPromptMoversTable } from './ContentAutopilotPromptMoversTable'
@@ -26,15 +24,17 @@ export const ContentAutopilotMovers = (): JSX.Element | null => {
         return null
     }
     if (moversError === 'failed') {
+        // The banner takes no data-attr, so the wrapper carries it.
         return (
-            <LemonBanner
-                type="error"
-                action={{ children: 'Try again', onClick: loadMovers, loading: moversLoading }}
-                data-attr="content-autopilot-movers-error"
-            >
-                Couldn't load the prompts and pages that moved most. Try again, and if it keeps happening contact
-                support.
-            </LemonBanner>
+            <div data-attr="content-autopilot-movers-error">
+                <AiVisibilityBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadMovers, loading: moversLoading }}
+                >
+                    Couldn't load the prompts and pages that moved most. Try again, and if it keeps happening contact
+                    support.
+                </AiVisibilityBanner>
+            </div>
         )
     }
     if (!movers) {
@@ -53,7 +53,7 @@ export const ContentAutopilotMovers = (): JSX.Element | null => {
     const pagesComparable = Math.min(movers.answers, movers.previous_answers) >= minAnswers
     return (
         <div
-            className={clsx(
+            className={cn(
                 GRID_CLASS_NAME,
                 'transition-opacity motion-reduce:transition-none',
                 // The rows on screen belong to the previous filters until the new ones arrive.
@@ -62,11 +62,10 @@ export const ContentAutopilotMovers = (): JSX.Element | null => {
             aria-busy={moversLoading}
             data-attr="content-autopilot-movers"
         >
-            <PagePerformanceCard className="min-w-0">
-                <PagePerformanceCardHeader
-                    title={PROMPTS_TITLE}
-                    description={`A prompt needs at least ${minAnswers} answers in both periods to be compared.`}
-                />
+            <AiVisibilityCard
+                title={PROMPTS_TITLE}
+                description={`A prompt needs at least ${minAnswers} answers in both periods to be compared.`}
+            >
                 {promptsMoved ? (
                     <div className="overflow-x-auto" data-attr="content-autopilot-movers-prompts">
                         <ContentAutopilotPromptMoversTable
@@ -78,14 +77,18 @@ export const ContentAutopilotMovers = (): JSX.Element | null => {
                         />
                     </div>
                 ) : (
-                    <p className="m-0 p-3 text-secondary" data-attr="content-autopilot-movers-prompts-empty">
+                    <Text
+                        size="xs"
+                        variant="muted"
+                        render={<p className="m-0" />}
+                        data-attr="content-autopilot-movers-prompts-empty"
+                    >
                         No prompt changed against {before}. A prompt is compared once it has at least {minAnswers}{' '}
                         answers in each period.
-                    </p>
+                    </Text>
                 )}
-            </PagePerformanceCard>
-            <PagePerformanceCard className="min-w-0">
-                <PagePerformanceCardHeader title={PAGES_TITLE} />
+            </AiVisibilityCard>
+            <AiVisibilityCard title={PAGES_TITLE}>
                 {pagesMoved ? (
                     <div className="overflow-x-auto" data-attr="content-autopilot-movers-pages">
                         <ContentAutopilotPageMoversTable
@@ -97,13 +100,18 @@ export const ContentAutopilotMovers = (): JSX.Element | null => {
                         />
                     </div>
                 ) : (
-                    <p className="m-0 p-3 text-secondary" data-attr="content-autopilot-movers-pages-empty">
+                    <Text
+                        size="xs"
+                        variant="muted"
+                        render={<p className="m-0" />}
+                        data-attr="content-autopilot-movers-pages-empty"
+                    >
                         {pagesComparable
                             ? `No page on your site is cited more or less often than in ${before}.`
                             : `Pages are compared once there are at least ${minAnswers} answers in each period.`}
-                    </p>
+                    </Text>
                 )}
-            </PagePerformanceCard>
+            </AiVisibilityCard>
         </div>
     )
 }

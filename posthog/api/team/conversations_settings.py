@@ -185,6 +185,8 @@ def handle_conversations_token_on_update(
 
 VALID_CONVERSATIONS_CHANNELS = {"widget", "email", "slack", "teams", "github"}
 VALID_AI_REPLY_MODES = {"private_note", "bot_reply"}
+# first_message: one run per ticket. until_team_reply: also run on later customer messages until a teammate replies.
+VALID_AI_RERUN_MODES = {"first_message", "until_team_reply"}
 VALID_AI_REPLY_TICKET_TYPES = {"how_to", "diagnostic", "account_billing"}
 # Only how_to replies may be published to the ticket author. diagnostic/account_billing
 # draw on project data (events, persons, recordings, logs) and must stay private notes —
@@ -280,6 +282,12 @@ def validate_conversations_settings(
             value["ai_resolution_channels"] = channels
         else:
             raise serializers.ValidationError({"ai_resolution_channels": "Must be a list of channel names or null."})
+    if "ai_rerun_mode" in value:
+        rerun_mode = value.get("ai_rerun_mode")
+        if rerun_mode is not None and (not isinstance(rerun_mode, str) or rerun_mode not in VALID_AI_RERUN_MODES):
+            raise serializers.ValidationError(
+                {"ai_rerun_mode": f"Must be one of: {', '.join(sorted(VALID_AI_RERUN_MODES))}."}
+            )
     # AI reply modes: { channel: { ticket_type: mode } } or null
     if "ai_reply_modes" in value:
         modes = value.get("ai_reply_modes")

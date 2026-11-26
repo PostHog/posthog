@@ -1,10 +1,20 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
+import {
+    Button,
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    Text,
+} from '@posthog/quill'
 
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { ContentAutopilotCitationsActions } from './ContentAutopilotCitationsActions'
 import { type CitationsLookup, contentAutopilotCitationsModalLogic } from './contentAutopilotCitationsModalLogic'
 import { ContentAutopilotCitationsTable } from './ContentAutopilotCitationsTable'
@@ -21,7 +31,10 @@ const modalTitle = ({ kind, value }: CitationsLookup): string =>
           ? 'Answers that cite this page'
           : `Answers that searched for "${value}"`
 
-/** The answers behind the cited page, cited site or engine search picked anywhere on the AI visibility page. */
+/**
+ * The answers behind the cited page, cited site or engine search picked anywhere on the AI visibility page.
+ * A dialog on every screen size, because the answers table needs the width.
+ */
 export const ContentAutopilotCitationsModal = (): JSX.Element => {
     const { lookup, citations, citationsLoading, citationsFailed, hasMoreCitations, isOwnPage } = useValues(
         contentAutopilotCitationsModalLogic
@@ -29,61 +42,63 @@ export const ContentAutopilotCitationsModal = (): JSX.Element => {
     const { closeCitations, loadCitations, loadMoreCitations, openCitationPrompt } = useActions(
         contentAutopilotCitationsModalLogic
     )
+    const title = lookup ? modalTitle(lookup) : ''
+    const description = lookup
+        ? `Answers to ${segmentPrompts(lookup.branded)}, newest first. Date range: ${lookupRange(lookup)}.`
+        : undefined
+    const content = lookup ? (
+        <div className="flex flex-col gap-3" data-attr="content-autopilot-citations-modal">
+            <ContentAutopilotCitationsActions lookup={lookup} isOwnPage={isOwnPage} />
+            {citationsFailed && !citations ? (
+                <AiVisibilityBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadCitations, loading: citationsLoading }}
+                >
+                    Couldn't load the answers. Try again, and if it keeps happening contact support.
+                </AiVisibilityBanner>
+            ) : (
+                <>
+                    {citations ? (
+                        <Text size="xs" variant="muted" render={<span className="m-0" />}>
+                            {pluralize(citations.count, 'answer')}
+                        </Text>
+                    ) : null}
+                    <ContentAutopilotCitationsTable
+                        citations={citations?.results ?? []}
+                        loading={citationsLoading && !citations}
+                        onOpenPrompt={openCitationPrompt}
+                    />
+                    {hasMoreCitations ? (
+                        <div className="flex justify-center">
+                            <Button
+                                variant="outline"
+                                onClick={loadMoreCitations}
+                                loading={citationsLoading}
+                                data-attr="content-autopilot-citations-load-more"
+                            >
+                                Show more answers
+                            </Button>
+                        </div>
+                    ) : null}
+                    {citationsFailed && citations ? (
+                        <Text size="xs" variant="destructive" render={<span className="m-0" role="alert" />}>
+                            Couldn't load more answers. Try again, and if it keeps happening contact support.
+                        </Text>
+                    ) : null}
+                </>
+            )}
+        </div>
+    ) : null
 
     return (
-        <LemonModal
-            isOpen={!!lookup}
-            onClose={closeCitations}
-            title={lookup ? modalTitle(lookup) : ''}
-            description={
-                lookup
-                    ? `Answers to ${segmentPrompts(lookup.branded)}, newest first. Date range: ${lookupRange(lookup)}.`
-                    : undefined
-            }
-            width={960}
-        >
-            {lookup ? (
-                <div className="flex flex-col gap-3" data-attr="content-autopilot-citations-modal">
-                    <ContentAutopilotCitationsActions lookup={lookup} isOwnPage={isOwnPage} />
-                    {citationsFailed && !citations ? (
-                        <LemonBanner
-                            type="error"
-                            action={{ children: 'Try again', onClick: loadCitations, loading: citationsLoading }}
-                        >
-                            Couldn't load the answers. Try again, and if it keeps happening contact support.
-                        </LemonBanner>
-                    ) : (
-                        <>
-                            {citations ? (
-                                <span className="text-xs text-muted">{pluralize(citations.count, 'answer')}</span>
-                            ) : null}
-                            <ContentAutopilotCitationsTable
-                                citations={citations?.results ?? []}
-                                loading={citationsLoading && !citations}
-                                onOpenPrompt={openCitationPrompt}
-                            />
-                            {hasMoreCitations ? (
-                                <div className="flex justify-center">
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        onClick={loadMoreCitations}
-                                        loading={citationsLoading}
-                                        data-attr="content-autopilot-citations-load-more"
-                                    >
-                                        Show more answers
-                                    </LemonButton>
-                                </div>
-                            ) : null}
-                            {citationsFailed && citations ? (
-                                <span className="text-xs text-danger">
-                                    Couldn't load more answers. Try again, and if it keeps happening contact support.
-                                </span>
-                            ) : null}
-                        </>
-                    )}
-                </div>
-            ) : null}
-        </LemonModal>
+        <Dialog open={!!lookup} onOpenChange={(next) => !next && closeCitations()}>
+            <DialogContent size="wide">
+                <DialogHeader>
+                    <DialogTitle>{title}</DialogTitle>
+                    {description ? <DialogDescription>{description}</DialogDescription> : null}
+                </DialogHeader>
+                <DialogBody>{content}</DialogBody>
+            </DialogContent>
+        </Dialog>
     )
 }

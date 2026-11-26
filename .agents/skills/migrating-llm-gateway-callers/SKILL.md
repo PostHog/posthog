@@ -28,7 +28,7 @@ Match every required contract to the parity record and current code.
 
 - If all required contracts are supported, continue with the migration.
 - If a 🔎 item applies, verify it against the caller's actual model, request, and configuration.
-- If a ⛔ gap applies, stop the migration. Report the exact blocker and keep the Python path.
+- If a ⛔ gap applies, stop the migration and report the exact blocker. The fix lands in `PostHog/ai-gateway`; do not extend the Python gateway.
 
 An existing Python client or product route is not a blocker by itself.
 
@@ -40,14 +40,14 @@ Prefer the smallest existing pattern that matches the caller:
 
 Read [migration examples](references/migration-examples.md) for verified PRs covering Django clients, staged workload rollout, sandbox wiring, and attribution continuity. Follow the contract demonstrated by the relevant example rather than copying its code mechanically.
 
-1. Use `build_openai_client`, `build_async_openai_client`, or `build_async_anthropic_client` from `posthog/llm/gateway_client.py` for Django callers when possible.
+1. Use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client` or `build_async_anthropic_client` from `posthog/llm/gateway_client.py` for Django callers. They read `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` and raise `GatewayNotConfiguredError` when either is missing. `build_ai_gateway_openai_client` sends the caller's own bearer instead of `AI_GATEWAY_API_KEY`.
 2. Use the slugless Go base URL. Do not carry a Python `/{product}/` path into the Go URL.
 3. Use a supported `phs_` or `pha_` credential with `llm_gateway:read`. Do not weaken auth or expose a shared secret to an untrusted runtime.
 4. Send event labels in one `X-PostHog-Properties` JSON object. Use the dedicated distinct ID and trace ID headers where required.
 5. Treat `ai_product` as telemetry only. Do not use it to replace trusted product auth or billing policy.
 6. Confirm the canonical model and API shape against the Go model catalog.
 7. Preserve the caller's provider and fallback requirements. Use provider pinning only when the caller requires a specific host.
-8. Keep a Python fallback only when rollout needs it, and make the switch explicit in settings or the shared builder.
+8. Do not keep a Python fallback. The Python gateway takes no changes and is being removed.
 
 For sandbox callers, follow the existing `SANDBOX_AI_GATEWAY_URL` and product rollout patterns rather than inventing another environment contract.
 

@@ -108,6 +108,7 @@ class LLMPromptViewSet(
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     # The two reads the SDKs make. Every other action stays tied to a person.
     psak_allowed_actions = ["list", "get_by_name"]
+    accepts_project_token = True
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
     permission_classes = [AccessControlPermission]
@@ -261,8 +262,8 @@ class LLMPromptViewSet(
             error_status = status.HTTP_404_NOT_FOUND
         return Response({"detail": err.message, "reference_name": err.reference_name}, status=error_status)
 
-    def _resolve_labeled_list_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Splice references into labeled list rows, mirroring get_by_name.
+    def _resolve_list_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Splice references into list rows, mirroring get_by_name.
 
         An unresolvable reference fails the whole request with the same
         status get_by_name uses. Serving the raw tag would leak it into the
@@ -847,17 +848,22 @@ class LLMPromptViewSet(
         params = self._get_list_params(request)
         label = params.get("label")
         data = list(serializer.data)
-        if label is not None and params.get("content", "full") == "full" and cast(bool, params.get("resolve", True)):
+        # The unlabeled list also backs the prompts UI page. A browser reading that page
+        # needs the raw text, tags included, to edit it, and reading the page is not a
+        # prompt fetch. An application gets the assembled text, like get_by_name serves,
+        # and its read counts as a fetch. An archived list is never served to an application.
+        serves_application = (label is not None or not self._is_browser_session(request)) and not params.get("archived")
+        if (
+            (label is not None or serves_application)
+            and params.get("content", "full") == "full"
+            and cast(bool, params.get("resolve", True))
+        ):
             try:
-                data = self._resolve_labeled_list_items(data)
+                data = self._resolve_list_items(data)
             except PromptReferenceResolutionError as err:
                 return self._reference_resolution_error_response(err)
 
-        if (label or not self._is_browser_session(request)) and not params.get("archived"):
-            # The unlabeled list also backs the prompts UI page, where reading the
-            # page is not a prompt fetch. The browser session separates a prompt
-            # served to an application from someone looking at the list. An archived
-            # list is never served to an application, so it is not a fetch either.
+        if serves_application:
             resolved_reference_count = sum(len(item.get("resolved_references") or []) for item in data)
             self._track_list_fetch(len(data), label, resolved_reference_count)
 

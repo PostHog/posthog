@@ -200,7 +200,6 @@ class Command(BaseCommand):
         # internal retries underneath would multiply that budget nine-fold per fetch and actively
         # worsen a 429 the tenacity layer is already backing off from.
         client = build_openai_client(
-            product="growth",
             ai_product="growth",
             properties={"ai_feature": AI_ENRICHMENT_FEATURE, "surface": "batch"},
         ).with_options(max_retries=0)

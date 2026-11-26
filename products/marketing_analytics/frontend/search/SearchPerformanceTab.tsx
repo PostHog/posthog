@@ -136,7 +136,6 @@ export function SearchPerformanceTab({
                                                 type="secondary"
                                                 size="small"
                                                 to={urls.dataWarehouseSource(`managed-${sourceId}`)}
-                                                targetBlank
                                                 data-attr="marketing-search-manage-source"
                                             >
                                                 Manage source
@@ -154,7 +153,6 @@ export function SearchPerformanceTab({
                             action={{
                                 children: 'Manage source',
                                 to: urls.dataWarehouseSource(`managed-${sourceId}`),
-                                targetBlank: true,
                                 'data-attr': 'marketing-search-manage-source',
                             }}
                         >

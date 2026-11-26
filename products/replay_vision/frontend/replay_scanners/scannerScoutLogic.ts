@@ -17,7 +17,7 @@ import type {
     SignalScoutOutputDestinationsApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { PatchedSignalScoutConfigUpdateApi } from 'products/signals/frontend/generated/api.schemas'
-import type { ScoutSurface } from 'products/signals/frontend/inbox/inboxAnalytics'
+import type { ScoutDeleteEntryPoint, ScoutSurface } from 'products/signals/frontend/inbox/inboxAnalytics'
 import type { ScoutReportAction } from 'products/signals/frontend/inbox/logics/scoutDetailLogic'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import type { SignalScoutConfig } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
@@ -158,9 +158,11 @@ export interface scannerScoutLogicValues {
 export interface scannerScoutLogicActions {
     deleteScout: (
         configId: string,
-        surface?: ScoutSurface | undefined
+        surface?: ScoutSurface | undefined,
+        entryPoint?: ScoutDeleteEntryPoint | null | undefined
     ) => {
         configId: string
+        entryPoint: ScoutDeleteEntryPoint | null
         surface: ScoutSurface
     } // scoutFleetLogic
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic

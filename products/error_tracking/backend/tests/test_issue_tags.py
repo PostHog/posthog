@@ -19,7 +19,9 @@ from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.schema_enums import ErrorTrackingIssueTagColor
 
+from products.error_tracking.backend.facade.contracts import IssueTagColor
 from products.error_tracking.backend.logic import team_flags
 from products.error_tracking.backend.logic.issue_tags import registry, writer
 from products.error_tracking.backend.logic.issue_tags.registry import (
@@ -68,6 +70,10 @@ class TestIssueTagRegistry(SimpleTestCase):
 
         # One slot stays free for the severity question, so the tag request and the severity request can merge.
         assert jev_questions + 1 <= MAX_QUESTIONS_PER_REQUEST
+
+    def test_tag_colors_match_the_query_schema(self) -> None:
+        # Issue list results are validated against the query schema, so a color it lacks fails the issue list.
+        assert {color.value for color in IssueTagColor} == {color.value for color in ErrorTrackingIssueTagColor}
 
 
 class TestIssueTagStorage(BaseTest):

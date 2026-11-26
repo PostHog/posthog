@@ -43,9 +43,7 @@ def ask_model(
     *, team_id: int, stage: str, system: str, content: list[dict[str, Any]], answer_type: type[AnswerT]
 ) -> AnswerT:
     try:
-        client = build_anthropic_client(
-            product="django", ai_product=AI_PRODUCT, team_id=team_id, properties={"ai_stage": stage}
-        )
+        client = build_anthropic_client(ai_product=AI_PRODUCT, team_id=team_id, properties={"ai_stage": stage})
     except GatewayNotConfiguredError as error:
         raise ModelUnavailable(str(error)) from error
     try:

@@ -8,10 +8,8 @@ from celery.app.task import Task
 
 from posthog.celery_queues import CeleryQueue
 
-from products.event_definitions.backend.logic.placeholder import (
-    PlaceholderEventDefinition,
-    create_placeholder_event_definitions,
-)
+from products.event_definitions.backend.facade.api import create_placeholder_event_definitions
+from products.event_definitions.backend.facade.contracts import PlaceholderEventDefinition
 from products.wizard.backend.facade.enums import WizardSessionRunPhase
 from products.wizard.backend.models import WizardSession
 

@@ -173,6 +173,9 @@ class UserManager(BaseUserManager):
             queryset = queryset.select_related("current_organization")
         return queryset
 
+    def humans(self) -> "models.QuerySet[Any]":
+        return self.get_queryset().filter(type=UserType.HUMAN)
+
     @contextmanager
     def joining_current_organization(self) -> Iterator[None]:
         # Authentication backends load the user through this manager, and we cannot pass them a queryset.
@@ -449,6 +452,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             super().save(*args, **kwargs)
         finally:
             self.is_staff = False
+
+    @property
+    def is_human(self) -> bool:
+        return self.type == UserType.HUMAN
+
+    @property
+    def is_service_account(self) -> bool:
+        return self.type == UserType.SERVICE_ACCOUNT
 
     @property
     def is_superuser(self) -> bool:  # type: ignore[override]

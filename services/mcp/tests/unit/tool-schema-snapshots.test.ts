@@ -106,6 +106,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'experiment-setup-context': true,
         'scout-trials': true,
         'scout-scratchpad-discard-mcp': true,
+        'scout-config-retrieve-mcp': true,
         'signals-report-monitoring': true,
         'signals-monitor-pr': true,
         'inbox-report-actions-mcp': true,

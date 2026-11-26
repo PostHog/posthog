@@ -678,7 +678,7 @@ const InboxReportsClaimSchema = () => {
 
 const inboxReportsClaim = (): ToolBase<
     ReturnType<typeof InboxReportsClaimSchema>,
-    WithPostHogUrl<Schemas.SignalReport>
+    WithAgentNote<WithPostHogUrl<Schemas.SignalReport>>
 > => ({
     name: 'inbox-reports-claim',
     schema: InboxReportsClaimSchema(),
@@ -708,7 +708,10 @@ const inboxReportsClaim = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/claim/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, result, `/inbox/${result.id}`),
+            "Put this report's `_posthogUrl` in the description of each pull request that fixes it, so that reviewers can see the context. Then attach each pull request to the report with `pull_requests` on this tool.\n"
+        )
     },
 })
 
@@ -877,7 +880,13 @@ const inboxReportsLeaveReviewers = (): ToolBase<ReturnType<typeof InboxReportsLe
 
 const InboxReportsListSchema = () => {
     const SignalsReportsListQueryParams = orvalSchemas.SignalsReportsListQueryParams()
-    return SignalsReportsListQueryParams
+    return SignalsReportsListQueryParams.extend({
+        view: SignalsReportsListQueryParams.shape['view'].describe(
+            "Inbox view. `for_you` is the user's own inbox: the open, actionable reports that wait for their input, that they claimed, or that name them as a suggested reviewer. Unless you are a scout run, pass `for_you` when the user does not ask for the whole project. The other views are `actionable`, `needs_input`, `needs_decision` (also every failed report), `monitoring` (the fix shipped and its outcome is being verified), `monitoring_recent` (also the resolved and closed reports whose Monitoring ended in the last 14 days), `resolved`, `closed`, `dismissed` (a person or agent dismissed it, it was merged, or its pull request closed without merging), `held_back` (the safety or actionability judge suppressed it before anyone saw it), `not_actionable`, and `all` (suppressed reports included). Each view applies the matching status, actionability, and pull request filters. Without `view`, the list holds every report in the project except the suppressed ones."
+        ),
+        sort: SignalsReportsListQueryParams.shape['sort'].default('recommended').optional(),
+        limit: SignalsReportsListQueryParams.shape['limit'].default(10).optional(),
+    })
 }
 
 const inboxReportsList = (): ToolBase<
@@ -940,7 +949,7 @@ const inboxReportsList = (): ToolBase<
                     'id',
                     'title',
                     'summary_lead',
-                    'metrics',
+                    'repo_slug',
                     'tags',
                     'status',
                     'priority',
@@ -998,7 +1007,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. With no user to ask, leave it and work on another report. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
+            "A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before you change code for a report, read it with inbox-reports-retrieve and claim it with inbox-reports-claim. Put the report's `_posthogUrl` in your pull request description so that reviewers can see the context, then attach the pull request with inbox-reports-claim and `pull_requests`.\n"
         )
     },
 })
@@ -1164,7 +1173,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. With no user to ask, leave it and work on another report. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
+            "Before you change code, claim the report with inbox-reports-claim and read its work log with inbox-report-artefacts-list. If `assignee` shows another person or their agent, ask your user before you take it over. Put this report's `_posthogUrl` in your pull request description so that reviewers can see the context, then attach the pull request with inbox-reports-claim and `pull_requests`.\n"
         )
     },
 })
@@ -1913,7 +1922,51 @@ const scoutConfigList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/inbox')
+        const filtered = (
+            Array.isArray(result)
+                ? result.map((item: any) =>
+                      pickResponseFields(item, [
+                          'id',
+                          'skill_name',
+                          'display_name',
+                          'description',
+                          'scout_origin',
+                          'scout_role',
+                          'enabled',
+                          'status',
+                          'pause_reason',
+                          'emit',
+                          'run_interval_minutes',
+                          'run_cron_schedule',
+                          'last_run_at',
+                          'tags',
+                          'source_product',
+                      ])
+                  )
+                : {
+                      ...(result as any),
+                      results: ((result as any).results ?? []).map((item: any) =>
+                          pickResponseFields(item, [
+                              'id',
+                              'skill_name',
+                              'display_name',
+                              'description',
+                              'scout_origin',
+                              'scout_role',
+                              'enabled',
+                              'status',
+                              'pause_reason',
+                              'emit',
+                              'run_interval_minutes',
+                              'run_cron_schedule',
+                              'last_run_at',
+                              'tags',
+                              'source_product',
+                          ])
+                      ),
+                  }
+        ) as typeof result
+        return await withPostHogUrl(context, filtered, '/inbox')
     },
 })
 
@@ -1941,6 +1994,24 @@ const scoutConfigPrecheckTest = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/precheck_test/`,
             body,
+        })
+        return result
+    },
+})
+
+const ScoutConfigRetrieveSchema = () => {
+    const SignalsScoutConfigRetrieveParams = orvalSchemas.SignalsScoutConfigRetrieveParams()
+    return SignalsScoutConfigRetrieveParams.omit({ project_id: true })
+}
+
+const scoutConfigRetrieve = (): ToolBase<ReturnType<typeof ScoutConfigRetrieveSchema>, Schemas.SignalScoutConfig> => ({
+    name: 'scout-config-retrieve',
+    schema: ScoutConfigRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalScoutConfig>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -2943,13 +3014,54 @@ const scoutRunsList = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 emitted: params.emitted,
+                exclude_skill_name: params.exclude_skill_name,
                 limit: params.limit,
                 skill_name: params.skill_name,
                 skill_version: params.skill_version,
                 text: params.text,
             },
         })
-        return await withPostHogUrl(context, result, '/inbox')
+        const filtered = (
+            Array.isArray(result)
+                ? result.map((item: any) =>
+                      pickResponseFields(item, [
+                          'run_id',
+                          'skill_name',
+                          'skill_version',
+                          'status',
+                          'created_at',
+                          'started_at',
+                          'completed_at',
+                          'summary_lead',
+                          'failure_reason',
+                          'emitted_count',
+                          'emitted_finding_ids',
+                          'emitted_report_ids',
+                          'edited_report_ids',
+                      ])
+                  )
+                : {
+                      ...(result as any),
+                      results: ((result as any).results ?? []).map((item: any) =>
+                          pickResponseFields(item, [
+                              'run_id',
+                              'skill_name',
+                              'skill_version',
+                              'status',
+                              'created_at',
+                              'started_at',
+                              'completed_at',
+                              'summary_lead',
+                              'failure_reason',
+                              'emitted_count',
+                              'emitted_finding_ids',
+                              'emitted_report_ids',
+                              'edited_report_ids',
+                          ])
+                      ),
+                  }
+        ) as typeof result
+        return await withPostHogUrl(context, filtered, '/inbox')
     },
 })
 
@@ -3103,6 +3215,7 @@ const scoutScratchpadSearch = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
                 content_max_chars: params.content_max_chars,
+                content_offset: params.content_offset,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 include_expired: params.include_expired,
@@ -4066,6 +4179,7 @@ const signalsScoutRunsList = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 emitted: params.emitted,
+                exclude_skill_name: params.exclude_skill_name,
                 limit: params.limit,
                 skill_name: params.skill_name,
                 skill_version: params.skill_version,
@@ -4206,6 +4320,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
                 content_max_chars: params.content_max_chars,
+                content_offset: params.content_offset,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 include_expired: params.include_expired,
@@ -4278,6 +4393,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-config-delete': scoutConfigDelete,
     'scout-config-list': scoutConfigList,
     'scout-config-precheck-test': scoutConfigPrecheckTest,
+    'scout-config-retrieve': scoutConfigRetrieve,
     'scout-config-sync': scoutConfigSync,
     'scout-config-update': scoutConfigUpdate,
     'scout-create': scoutCreate,

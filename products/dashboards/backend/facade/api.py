@@ -13,8 +13,8 @@ Everything that writes runs inside the caller's transaction; each function says 
 matters. Refusals are raised as the error types defined here — the caller decides which HTTP
 response they become.
 
-The sharing publish gate and the template helper are imported at call time. They load the
-subscriptions facade, which loads the exports facade, and the exports facade imports this module.
+The sharing publish gate is imported at call time. It loads the subscriptions facade, which loads
+the exports facade, and the exports facade imports this module.
 """
 
 import re
@@ -77,12 +77,14 @@ from products.dashboards.backend.logic import (
     usage as usage_logic,
     visibility as visibility_logic,
 )
+from products.dashboards.backend.logic.template_instantiation import create_from_template
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingCachedEvent
 from products.dashboards.backend.v2 import (
     board_stream as v2_board_stream,
+    boards as v2_boards,
     cached_tiles as v2_cached_tiles,
     first_load as v2_first_load,
     query_batch as v2_query_batch,
@@ -191,10 +193,56 @@ def create_dashboard_from_tiles(
         created_by=user,
         creation_mode=Dashboard.CreationMode.TEMPLATE,
     )
-    from posthog.helpers.dashboard_templates import create_from_template
-
     create_from_template(dashboard, template, user, user_access_control=UserAccessControl(user=user, team=team))
     return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
+def apply_dashboard_template(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template_key: str,
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    """Fill a new dashboard from the saved or code-defined template named `template_key`.
+
+    Raises AttributeError when the team can see no template with that name. The template writes the
+    dashboard row, so reload a dashboard model read before the call. With a `user_id`, the insights and
+    widgets it adds name that user as their creator. With a `user_access_control`, each widget first
+    checks that user's access to its product. Opens no transaction: wrap the call to roll back the
+    tiles of a template that fails part way.
+    """
+    templates_logic.apply_template_by_key(
+        team_id=team_id,
+        dashboard_id=dashboard_id,
+        template_key=template_key,
+        user_id=user_id,
+        user_access_control=user_access_control,
+    )
+
+
+def apply_dashboard_template_json(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template: Mapping[str, JsonValue],
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    """Fill a new dashboard from a template body in the `create_from_template_json` request shape.
+
+    Raises KeyError when the body has no `template_name`, `dashboard_description`, `dashboard_filters` or
+    `tiles`. What `apply_dashboard_template` says about the dashboard row, the user, the access control
+    and the transaction applies here too.
+    """
+    templates_logic.apply_template_json(
+        team_id=team_id,
+        dashboard_id=dashboard_id,
+        template=template,
+        user_id=user_id,
+        user_access_control=user_access_control,
+    )
 
 
 def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
@@ -253,6 +301,21 @@ def _team_dashboards(team_id: int, *, include_deleted: bool) -> QuerySet[Dashboa
     # `team_id=` goes through the root-team filter, so an environment's id finds its project's dashboards.
     manager = Dashboard.objects_including_soft_deleted if include_deleted else Dashboard.objects
     return manager.filter(team_id=team_id)
+
+
+def metric_variable_names(*, team_id: int) -> frozenset[str]:
+    """The names of the metrics variables that this team's dashboards define."""
+    names: set[str] = set()
+    for filters in (
+        _team_dashboards(team_id, include_deleted=False)
+        .filter(filters__has_key="metricVariables")
+        .values_list("filters", flat=True)
+    ):
+        variables = filters.get("metricVariables") if isinstance(filters, dict) else None
+        for variable in variables if isinstance(variables, list) else []:
+            if isinstance(variable, dict) and isinstance(variable.get("name"), str):
+                names.add(variable["name"])
+    return frozenset(names)
 
 
 def get_dashboard(*, team_id: int, dashboard_id: int, include_deleted: bool = False) -> DashboardSummary | None:
@@ -1244,6 +1307,8 @@ __all__ = [
     "can_access_dashboard",
     "add_insight_tile",
     "add_insight_to_dashboard",
+    "apply_dashboard_template",
+    "apply_dashboard_template_json",
     "check_insight_tile_limit",
     "create_dashboard",
     "create_dashboard_from_tiles",
@@ -1387,3 +1452,39 @@ def query_batch_stream(
         result_format=result_format,
     )
     return batch.astream() if asynchronous else batch.stream()
+
+
+# `dashboard-v2` boards. Each is one row that holds the whole version 2 document.
+
+
+def list_boards(
+    team_id: int, page: PageRequest, access: contracts.BoardListAccess | None
+) -> Page[contracts.BoardSummary]:
+    """List a team's live boards the viewer may see, the most recently saved first. `None` access lists them all."""
+    return v2_boards.list_boards(team_id, page, access)
+
+
+def get_board(team_id: int, uid: str) -> contracts.BoardDetail:
+    """Read one live board. Raises `BoardNotFound` for a uid of another team or a deleted board."""
+    return v2_boards.get_board(team_id, uid)
+
+
+def create_board(team_id: int, user_id: int, spec: dict[str, JsonValue]) -> contracts.BoardDetail:
+    """Save a document as a new native board at version 1, upgraded to the current schema. Raises `BoardSpecInvalid`."""
+    return v2_boards.create_board(team_id, user_id, spec)
+
+
+def update_board(
+    team_id: int, uid: str, user_id: int, spec: dict[str, JsonValue], base_version: int | None
+) -> contracts.BoardDetail:
+    """Replace a board's document and add 1 to its version.
+
+    Raises `BoardVersionConflict` when `base_version` is given and the board is at another version, and
+    `BoardReadOnly` for a board that is not native.
+    """
+    return v2_boards.update_board(team_id, uid, user_id, spec, base_version)
+
+
+def delete_board(team_id: int, uid: str, user_id: int) -> None:
+    """Soft-delete a native board, which frees its uid. Raises `BoardReadOnly` for any other board."""
+    v2_boards.delete_board(team_id, uid, user_id)

@@ -68,11 +68,12 @@ from posthog.models import OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
 from posthog.models.group.util import get_group_by_key
 from posthog.models.group_type_mapping import get_group_types_for_project
-from posthog.models.tag import tagify
+from posthog.models.tag import tag_assignment_transaction, tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
+from posthog.tag_management import delete_unused_tags
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.conversations.backend.facade.api import (
@@ -1079,33 +1080,32 @@ def _set_tags(
     renders its new tags without re-reading a stale prefetch (the mixin did the same)."""
     if tags is None:
         return
-    deduped_tags = list({tagify(t) for t in tags})
-    tagged_item_objects = []
-    added_tags: list[Tag] = []
-    for tag in deduped_tags:
-        tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=account.team_id)
-        tagged_item_instance, created = account.tagged_items.get_or_create(tag_id=tag_instance.id)
-        tagged_item_instance.tag = tag_instance
-        tagged_item_objects.append(tagged_item_instance)
-        if created:
-            added_tags.append(tag_instance)
-    removed_tags: list[Tag] = []
-    # Activity logging reads each deleted item's tag, its team and the tagged object.
-    removed_items = (
-        account.tagged_items.exclude(tag__name__in=deduped_tags)
-        .select_related("tag__team")
-        .prefetch_related("uuid_object")
-    )
-    for tagged_item in removed_items:
-        removed_tags.append(tagged_item.tag)
-        tagged_item.delete()
-    if removed_tags:
-        Tag.objects.filter(
-            Q(team_id=account.team_id) & Q(id__in=[tag.id for tag in removed_tags]) & Q(tagged_items__isnull=True)
-        ).delete()
-    account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
-    _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
-    _schedule_account_tags_removed(account, removed_tags, actor, workflow_id=workflow_id)
+    with tag_assignment_transaction([account.team_id]):
+        deduped_tags = list({tagify(t) for t in tags})
+        tagged_item_objects = []
+        added_tags: list[Tag] = []
+        for tag in deduped_tags:
+            tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=account.team_id)
+            tagged_item_instance, created = account.tagged_items.get_or_create(tag_id=tag_instance.id)
+            tagged_item_instance.tag = tag_instance
+            tagged_item_objects.append(tagged_item_instance)
+            if created:
+                added_tags.append(tag_instance)
+        removed_tags: list[Tag] = []
+        # Activity logging reads each deleted item's tag, its team and the tagged object.
+        removed_items = (
+            account.tagged_items.exclude(tag__name__in=deduped_tags)
+            .select_related("tag__team")
+            .prefetch_related("uuid_object")
+        )
+        for tagged_item in removed_items:
+            removed_tags.append(tagged_item.tag)
+            tagged_item.delete()
+        if removed_tags:
+            delete_unused_tags(account.team_id, [tag.id for tag in removed_tags])
+        account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
+        _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
+        _schedule_account_tags_removed(account, removed_tags, actor, workflow_id=workflow_id)
 
 
 def _schedule_account_tags_added(

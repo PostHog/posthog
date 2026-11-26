@@ -21,6 +21,7 @@ from posthog.storage.cache_expiry_manager import (
     ExpiringTeamSelection,
     RefreshPacing,
     cleanup_stale_expiry_tracking,
+    delete_entry_keeping_failed_delete_tracked,
     refresh_expiring_caches,
     select_expiring_teams,
 )
@@ -346,6 +347,20 @@ class TestCleanupStaleExpiryTracking(BaseTest):
             assert removed == 1
             assert self.entry_state(deleted_team) == (False, False, False)
             assert self.entry_state(self.team) == (True, object_storage_enabled, True)
+
+    def test_a_failed_tracking_write_still_deletes_the_entry_and_raises(self) -> None:
+        self.given_cache(token_based=True)
+        retired_team = self.deleted_team()
+        self.write_entry(retired_team)
+        failing_redis = MagicMock()
+        failing_redis.zadd.side_effect = ConnectionError("redis down")
+
+        with patch(f"{MODULE}.get_client", return_value=failing_redis), self.assertRaises(ConnectionError):
+            delete_entry_keeping_failed_delete_tracked(
+                self.hypercache, self.hypercache.get_cache_identifier(retired_team)
+            )
+
+        assert self.entry_state(retired_team) == (False, False, True)
 
     @parameterized.expand(
         [

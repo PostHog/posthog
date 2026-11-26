@@ -11,6 +11,7 @@ import { ReplicaOf, nameOf } from '../environment/identity'
 import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
+import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
 
@@ -38,11 +39,11 @@ export type QueueSample = { at: number } & (QueueCounts | { error: string })
 
 export type Probed = { writer: WriterSample[]; queue: QueueSample[] }
 
-export type DriveWindow = { startedAt: number; endedAt: number }
+export type DriveWindow = { startedAt: number; endedAt: number; warmedAt?: number }
 
 type Value = { value: number; censored?: true } | { value: null; censored: true }
 
-type Measured = { key?: string; incomplete?: true } & Value
+type Measured = { key?: string; incomplete?: true; unmeasured?: string } & Value
 
 export type Measurement = { name: string; unit: string } & Measured
 
@@ -53,6 +54,11 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         drive: DriveWindow
         steps: readonly Step[]
         timeline: readonly ValveTimelineEntry[]
+        counters?: CounterReading
+        unread?: string
+        horizonAt?: number
+        converged?: boolean
+        unsettled?: string
     }
 
 export type MeasurementDefinition = Definition & {
@@ -60,8 +66,8 @@ export type MeasurementDefinition = Definition & {
     measure(evidence: MeasureEvidence): Measured[]
 }
 
-const SAMPLE_INTERVAL_MS = 5000
-const SCRAPE_TIMEOUT_MS = 2000
+export const SAMPLE_INTERVAL_MS = 5000
+export const SCRAPE_TIMEOUT_MS = 2000
 const BASELINE_WITHIN_MS = 10_000
 const BASELINE_RETRY_MS = 500
 
@@ -114,6 +120,9 @@ export const roleCpuSeconds: MeasurementDefinition = {
         }),
 }
 
+export const maxOf = (values: readonly number[]): number =>
+    values.reduce((max, value) => Math.max(max, value), -Infinity)
+
 export const roleRssMaxBytes: MeasurementDefinition = {
     name: 'role_rss_max_bytes',
     params: z.object({}).strict(),
@@ -121,7 +130,7 @@ export const roleRssMaxBytes: MeasurementDefinition = {
     measure: ({ samples, missed }) =>
         [...byRole(samples)].map(([role, ofRole]) => ({
             key: role,
-            value: Math.max(...ofRole.map(({ rssBytes }) => rssBytes)),
+            value: maxOf(ofRole.map(({ rssBytes }) => rssBytes)),
             ...completeness(role, missed),
         })),
 }
@@ -171,13 +180,14 @@ export function phasesOf(drive: DriveWindow, timeline: readonly ValveTimelineEnt
         const released = releaseIntentAt ?? releasedAt
         return { intent: Date.parse(intentAt!), released: released === undefined ? Infinity : Date.parse(released) }
     })
+    const from = Math.min(drive.warmedAt ?? drive.startedAt, drive.endedAt)
     if (applied.length === 0) {
-        return { baseline: { from: drive.startedAt, to: drive.endedAt } }
+        return { baseline: { from, to: drive.endedAt } }
     }
-    const intent = Math.max(Math.min(...applied.map(({ intent }) => intent)), drive.startedAt)
+    const intent = Math.max(Math.min(...applied.map(({ intent }) => intent)), from)
     const released = Math.max(...applied.map(({ released }) => released))
     return {
-        baseline: { from: drive.startedAt, to: intent },
+        baseline: { from, to: intent },
         valve: { from: intent, to: Math.min(released, drive.endedAt) },
         ...(released < drive.endedAt ? { failback: { from: released, to: drive.endedAt } } : {}),
     }
@@ -301,6 +311,34 @@ const spanning = <T extends { at: number }>(series: readonly T[], phase: Phase):
 const inside = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] =>
     series.filter(({ at }) => within(phase, at))
 
+type Opened<T> = { window: T[]; from: number; fromOpening: boolean; before: (read: (sample: T) => number) => number }
+
+// Opening at the scrape before the baseline lets a quiet warm-up dilute the rate, so the counter is interpolated at the
+// baseline's start. Across a restart nothing can be interpolated, so the rate opens at the first scrape after it.
+function openedAt<T extends { at: number; startedAt?: number }>(series: readonly T[], phase: Phase): Opened<T> {
+    const window = spanning(series, phase)
+    const [reference, first] = window
+    if (first === undefined || reference.at >= phase.from) {
+        return { window, from: reference?.at ?? phase.from, fromOpening: false, before: () => 0 }
+    }
+    if (reference.startedAt !== first.startedAt) {
+        return { window: window.slice(1), from: first.at, fromOpening: true, before: () => 0 }
+    }
+    const share = (phase.from - reference.at) / (first.at - reference.at)
+    return { window, from: phase.from, fromOpening: true, before: (read) => (read(first) - read(reference)) * share }
+}
+
+// Start times are whole seconds, so the opening lifetime is told by identity, not by its start time.
+const increaseFromOpening = (window: readonly MetricSample[], read: Counter): number =>
+    [...Map.groupBy(window, ({ startedAt }) => startedAt)].reduce(
+        (sum, [startedAt, lifetime]) =>
+            sum + read(lifetime.at(-1)!) - (startedAt === window[0].startedAt ? read(lifetime[0]) : 0),
+        0
+    )
+
+const openedSpanOf = ({ window, from }: Opened<{ at: number }>): number =>
+    window.length < 2 ? 0 : window.at(-1)!.at - from
+
 const bracketing = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] => {
     const closing = series.find(({ at }) => at >= phase.to)
     return [...spanning(series, phase), ...(closing ? [closing] : [])]
@@ -344,9 +382,16 @@ const spanOf = (window: readonly { at: number }[]): number => (window.length < 2
 
 function phaseRate(samples: readonly MetricSample[], read: Counter, phase: Phase): number {
     return replicasOf(samples).reduce((sum, ofReplica) => {
-        const window = spanning(ofReplica, phase)
-        const span = spanOf(window)
-        return span <= 0 ? sum : sum + increaseOf(window, read, window[0].at) / seconds(span)
+        const opened = openedAt(ofReplica, phase)
+        const span = openedSpanOf(opened)
+        return span <= 0
+            ? sum
+            : sum +
+                  ((opened.fromOpening
+                      ? increaseFromOpening(opened.window, read)
+                      : increaseOf(opened.window, read, opened.from)) -
+                      opened.before(read)) /
+                      seconds(span)
     }, 0)
 }
 
@@ -359,17 +404,19 @@ const claimRate = (samples: readonly MetricSample[], queue: string, phase: Phase
 
 function scrapedSeconds(samples: readonly MetricSample[], phase: Phase): number {
     const spans = replicasOf(samples)
-        .map((ofReplica) => spanning(ofReplica, phase))
+        .map((ofReplica) => openedAt(ofReplica, phase).window)
         .filter((window) => window.length > 0)
         .map((window) => seconds(spanOf(window)))
     return spans.length === 0 ? 0 : Math.min(...spans)
 }
 
-function busyShareOf(span: readonly HostSample[]): number | undefined {
+function busyShareOf(span: readonly HostSample[], before: Opened<HostSample>['before'] = () => 0): number | undefined {
     const [first, last] = [span.at(0), span.at(-1)]
-    return first !== undefined && last !== undefined && last.totalTicks > first.totalTicks
-        ? (last.busyTicks - first.busyTicks) / (last.totalTicks - first.totalTicks)
-        : undefined
+    if (first === undefined || last === undefined) {
+        return undefined
+    }
+    const total = last.totalTicks - first.totalTicks - before(({ totalTicks }) => totalTicks)
+    return total > 0 ? (last.busyTicks - first.busyTicks - before(({ busyTicks }) => busyTicks)) / total : undefined
 }
 
 export const stepHostBusyShareOf = (host: readonly HostSample[], step: Phase): number | undefined =>
@@ -419,17 +466,21 @@ export function baselineOf({
     }
     const queues = scraped < MIN_BASELINE_SECONDS ? [] : queuesOf(samples)
     const claimsPerSecond = Object.fromEntries(queues.map((name) => [name, claimRate(samples, name, baseline)]))
-    const inserted = spanning(counted(queue), baseline)
-    const hostBusyShare = busyShareOf(spanning(byTime(host), baseline))
+    const inserted = openedAt(counted(queue), baseline)
+    const insertedSpan = openedSpanOf(inserted)
+    const openedHost = openedAt(byTime(host), baseline)
+    const hostBusyShare = busyShareOf(openedHost.window, openedHost.before)
     return {
         seconds: length,
         scrapedSeconds: scraped,
         claimsPerSecond,
-        ...(inserted.length > 1 && inserted.at(-1)!.at > inserted[0].at
+        ...(insertedSpan > 0
             ? {
                   newJobsPerSecond:
-                      (inserted.at(-1)!.inserted - inserted[0].inserted) /
-                      seconds(inserted.at(-1)!.at - inserted[0].at),
+                      (inserted.window.at(-1)!.inserted -
+                          inserted.window[0].inserted -
+                          inserted.before(({ inserted }) => inserted)) /
+                      seconds(insertedSpan),
               }
             : {}),
         ...(hostBusyShare === undefined ? {} : { hostBusyShare }),
@@ -496,7 +547,7 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
             .map(({ oldestDueSeconds }) => oldestDueSeconds)
         return ages.length === 0
             ? []
-            : [{ value: Math.max(...ages), ...(readThroughout(queue, phase) ? {} : { incomplete: true as const }) }]
+            : [{ value: maxOf(ages), ...(readThroughout(queue, phase) ? {} : { incomplete: true as const }) }]
     }),
     inPhase('drain_seconds', 's', 'valve', ({ queue }, phase, { baseline }) => drain(queue, baseline, phase)),
     inPhase('failback_drain_seconds', 's', 'failback', ({ queue }, phase, { baseline }) =>
@@ -545,6 +596,7 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
     deliveryLatencyMs,
+    counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]
 

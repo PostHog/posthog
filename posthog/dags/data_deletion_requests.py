@@ -41,7 +41,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.common.s3_staging import S3StagingLocation
 from posthog.dags.deletes import deletes_job
-from posthog.data_deletion import compile_event_uuid_query
+from posthog.data_deletion import QUERY_BACKED_MAX_EXECUTION_TIME, compile_event_uuid_query
 from posthog.dataclasses import frozen
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
@@ -515,7 +515,7 @@ class HogQLEventDeletionExecutor:
             workload=Workload.OFFLINE,
             team_id=request.team_id,
             ch_user=ClickHouseUser.DELETION_EXECUTOR,
-            settings=selected.settings,
+            settings={**selected.settings, "max_execution_time": QUERY_BACKED_MAX_EXECUTION_TIME},
             external_tables=list(selected.context.external_tables.values()) or None,
         )
         return result if isinstance(result, int) else 0
@@ -581,6 +581,11 @@ def _deletion_target(data_table: str) -> DeletionTarget:
 def _hogql_excludes(target: DeletionTarget, deletion_request: DeletionRequestContext) -> bool:
     """Whether the request carries a HogQL predicate that does not compile against ``target``."""
     return bool(deletion_request.hogql_predicate) and not target.accepts_hogql_predicate
+
+
+# The targets event removal and property removal read or sweep. A target of derived rows is left out
+# before placements are resolved, so a request that never touches it does not probe its cluster.
+_EVENT_ROW_TARGETS: tuple[DeletionTarget, ...] = tuple(t for t in PERSONAL_DATA_TARGETS if not t.derived_from_events)
 
 
 def _refuse_property_removal_unsweepable(
@@ -653,7 +658,7 @@ def _event_removal_placements(
     """
     events = [] if deletion_request.delete_all_events else deletion_request.events
     swept: list[TargetPlacement] = []
-    for placement in resolve_placements(cluster):
+    for placement in resolve_placements(cluster, _EVENT_ROW_TARGETS):
         target = placement.target
         if not target.may_hold_any_of(events):
             continue
@@ -1488,7 +1493,7 @@ def get_property_removal_shards(
             description=f"Request {deletion_request.request_id} no longer holds this run's marker. Nothing was "
             "staged. Retry the request to start a new run."
         )
-    placements = resolve_placements(cluster)
+    placements = resolve_placements(cluster, _EVENT_ROW_TARGETS)
     # Bound by the same marker as the sweep and the verify gate, so a row ingested after the
     # marker, which the sweep would never touch, cannot refuse the request forever.
     _refuse_property_removal_unsweepable(
@@ -1961,7 +1966,7 @@ def verify_property_removal(
     # Repeat the fan-out gate here. That one is point-in-time: rows can land between it and now, and
     # a re-execution from a failed shard reuses the fan-out op's cached output without re-running it.
     # Bounded by the same marker as the checks below so post-marker ingestion can't wedge the run.
-    placements = resolve_placements(cluster)
+    placements = resolve_placements(cluster, _EVENT_ROW_TARGETS)
     _refuse_property_removal_unsweepable(
         cluster, [p.target for p in placements], deletion_request, marker_str, log=context.log
     )

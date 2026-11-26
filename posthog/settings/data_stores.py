@@ -448,9 +448,6 @@ CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLE
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION", "warpstream_ingestion"
 )
-CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION: str = os.getenv(
-    "CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION", "warpstream_calculated_events"
-)
 CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION", "warpstream_replay"
 )
@@ -608,7 +605,7 @@ CDP_API_URL = get_from_env("CDP_API_URL", "")
 
 if not CDP_API_URL:
     CDP_API_URL = (
-        "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
+        "http://localhost:6738" if DEBUG or TEST else "http://ingestion-cdp-api.posthog.svc.cluster.local"
     )  # localhost is correct — plugin server runs on host in dev
 
 # Shared secret for internal API authentication between Django and Node.js services.

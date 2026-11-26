@@ -5,9 +5,9 @@ import json
 import uuid
 import builtins
 import contextvars
-from collections.abc import AsyncGenerator, Callable, Iterable
+from collections.abc import AsyncGenerator, Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from datetime import timedelta
 from enum import StrEnum
 from functools import partial
@@ -82,8 +82,6 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX, AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers import create_dashboard_from_template
-from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -133,17 +131,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.ai_observability.backend.facade import api as ai_observability_api
-from products.alerts.backend.models.alert import AlertConfiguration
-from products.dashboards.backend.customization import (
-    normalize_dashboard_customization,
-    normalized_group_key,
-    stored_customization,
-    stored_groups,
-    validate_template_groups,
-    validated_group_key,
-    validated_group_keys,
-    without_default_settings,
-)
+from products.alerts.backend.facade.api import insight_alerts_prefetch
 from products.dashboards.backend.facade.access import (
     dashboard_access_method,
     record_dashboard_access,
@@ -153,11 +141,25 @@ from products.dashboards.backend.facade.api import (
     CachedTileStatus,
     CannotAddToDashboard,
     add_insight_to_dashboard,
+    apply_dashboard_template,
+    apply_dashboard_template_json,
     board_stream_cached_event,
     create_unlisted_dashboard,
     read_cached_tiles,
     shared_tile_work,
     tile_ids_prefetch,
+)
+from products.dashboards.backend.facade.contracts import DashboardCustomizationRejected
+from products.dashboards.backend.facade.customization import (
+    clear_home_tab_dashboard,
+    normalize_dashboard_customization,
+    normalized_group_key,
+    stored_customization,
+    stored_groups,
+    validate_template_groups,
+    validated_group_key,
+    validated_group_keys,
+    without_default_settings,
 )
 from products.dashboards.backend.facade.enums import (
     DASHBOARD_GRID_COLUMN_COUNT,
@@ -278,6 +280,16 @@ AGENT_CONTEXT_HELP_TEXT = (
 )
 
 
+@contextmanager
+def _customization_rejected_as_400() -> Iterator[None]:
+    """Answer a rejected group key or group setting with a 400, on the rejection's field when it names one."""
+    try:
+        yield
+    except DashboardCustomizationRejected as rejected:
+        detail = rejected.message if rejected.field is None else {rejected.field: rejected.message}
+        raise serializers.ValidationError(detail) from rejected
+
+
 def _with_groups(customization: dict[str, Any], groups: dict[str, dict[str, Any]] | None) -> dict[str, Any]:
     customization = {key: value for key, value in customization.items() if key not in ("groups", "group_titles")}
     if groups:
@@ -307,7 +319,9 @@ class _GroupDictField(serializers.DictField):
 
 def _effective_layout_compaction(customization: Any) -> str:
     layout_compaction = normalize_dashboard_customization(customization).get("layout_compaction")
-    return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
+    if isinstance(layout_compaction, str) and layout_compaction in DASHBOARD_GRID_COMPACTION_MODES:
+        return layout_compaction
+    return "vertical"
 
 
 logger = structlog.get_logger(__name__)
@@ -539,15 +553,7 @@ def tile_insight_prefetches() -> list[Prefetch]:
             queryset=TaggedItem.objects.select_related("tag"),
             to_attr="prefetched_tags",
         ),
-        Prefetch(
-            "insight__alertconfiguration_set",
-            # AlertSerializer emits threshold and subscribed_users per alert; without these,
-            # every alert on the dashboard costs two extra queries
-            queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
-                "subscribed_users"
-            ),
-            to_attr="_prefetched_alerts",
-        ),
+        insight_alerts_prefetch(to_attr="_prefetched_alerts", insight_path="insight"),
     ]
 
 
@@ -1738,10 +1744,16 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     def validate_groups(self, value: dict[str, dict[str, Any]] | None) -> dict[str, dict[str, Any]] | None:
         if value is None:
             return None
-        return {key: without_default_settings(group) for key, group in validated_group_keys(value).items()}
+        with _customization_rejected_as_400():
+            groups: dict[str, Any] = validated_group_keys(value)
+        return {key: without_default_settings(group) for key, group in groups.items()}
 
     def validate_group_titles(self, value: dict[str, str] | None) -> dict[str, str] | None:
-        return None if value is None else validated_group_keys(value)
+        if value is None:
+            return None
+        with _customization_rejected_as_400():
+            titles: dict[str, Any] = validated_group_keys(value)
+        return titles
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -1750,7 +1762,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
     @extend_schema_field(DashboardCustomizationSerializer)
     def get_customization(self, dashboard: Dashboard) -> dict[str, Any]:
-        result = stored_customization(dashboard.customization)
+        result: dict[str, Any] = stored_customization(dashboard.customization)
         groups = result.get("groups", {})
         if groups:
             result["groups"] = {key: {**DASHBOARD_TILE_GROUP_DEFAULTS, **group} for key, group in groups.items()}
@@ -2235,10 +2247,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
             if use_template:
                 try:
-                    create_dashboard_from_template(
-                        use_template,
-                        dashboard,
-                        cast(User, request.user),
+                    apply_dashboard_template(
+                        team_id=team_id,
+                        dashboard_id=dashboard.id,
+                        template_key=use_template,
+                        user_id=cast(User, request.user).id,
                         user_access_control=user_access_control,
                     )
                 except (AttributeError, ValueError) as error:
@@ -2250,6 +2263,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         exc_info=True,
                     )
                     raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                # The replica cannot see the row this transaction inserted.
+                dashboard.refresh_from_db(using=router.db_for_write(Dashboard))
                 # Group settings in the request apply on top of the template's groups, so they wait for the merge.
                 if has_groups or has_group_titles:
                     dashboard.customization = with_requested_groups(
@@ -2491,15 +2506,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
             from posthog.models.team import Team
 
-            from products.dashboards.backend.models import TeamHomeTabDashboardConfig
-
             Team.objects.filter(
                 primary_dashboard=instance,
                 id=instance.team_id,
             ).update(primary_dashboard=None)
-            TeamHomeTabDashboardConfig.objects.for_team(instance.team_id).filter(dashboard_id=instance.id).update(
-                dashboard=None
-            )
+            clear_home_tab_dashboard(team_id=instance.team_id, dashboard_id=instance.id)
             group_dashboard_ids = self.context.get("group_type_mapping_dashboard_ids")
             if group_dashboard_ids is None or instance.id in group_dashboard_ids:
                 clear_dashboard_from_group_type_mapping(
@@ -2703,7 +2714,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def _validated_tile_marking(tile_fields: dict) -> dict:
         marking: dict = {}
         if "group_key" in tile_fields:
-            marking["group_key"] = validated_group_key(tile_fields["group_key"])
+            with _customization_rejected_as_400():
+                marking["group_key"] = validated_group_key(tile_fields["group_key"])
         if "badge" in tile_fields:
             if tile_fields["badge"] not in (None, *DashboardTileBadge.values):
                 raise serializers.ValidationError(
@@ -3261,6 +3273,26 @@ class DashboardActivitySummarySerializer(serializers.Serializer):
     )
 
 
+def _sql_tile_bucket(data: Any) -> str:
+    """Bucket the board's SQL-backed tile count so it can label a metric without unbounded cardinality."""
+
+    def as_dict(value: Any) -> dict:
+        # Error-fallback tiles keep whatever malformed query was saved, so any level may be a non-dict.
+        return value if isinstance(value, dict) else {}
+
+    count = 0
+    tiles = as_dict(data).get("tiles")
+    for tile in tiles if isinstance(tiles, list) else []:
+        query = as_dict(as_dict(as_dict(tile).get("insight")).get("query"))
+        if query.get("kind") == "HogQLQuery" or as_dict(query.get("source")).get("kind") == "HogQLQuery":
+            count += 1
+    if count == 0:
+        return "0"
+    if count <= 20:
+        return "1-20"
+    return "21-50" if count <= 50 else ">50"
+
+
 def _record_dashboard_view(dashboard: Dashboard, access_method: DashboardAccessMethod) -> None:
     # The facade stamps its own copy of the row, so copy the stamp onto this instance before it is serialized.
     last_accessed_at = record_dashboard_view(dashboard_id=dashboard.id, access_method=access_method)
@@ -3584,10 +3616,19 @@ class DashboardsViewSet(
             _record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
-        if str_to_bool(request.query_params.get("omit_tile_results")) and self._dashboard_v2_enabled(request):
+        v2_enabled = self._dashboard_v2_enabled(request)
+        omit_results = str_to_bool(request.query_params.get("omit_tile_results")) and v2_enabled
+        if omit_results:
             serializer_context["omit_insight_results"] = True
         serializer = DashboardSerializer(dashboard, context=serializer_context)
         data = serializer.data
+        # The middleware reads this off the underlying Django request, not the DRF wrapper.
+        request._request._pg_queries_labels = {  # type: ignore[attr-defined]
+            # The gate alone switches on batched tile work, so it is labelled apart from result omission.
+            "dashboard_v2": "true" if v2_enabled else "false",
+            "omit_results": "true" if omit_results else "false",
+            "sql_tiles": _sql_tile_bucket(data),
+        }
 
         response = Response(data)
 
@@ -4074,7 +4115,8 @@ class DashboardsViewSet(
         serializer = CopyDashboardGroupRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         source_id = serializer.validated_data["fromDashboardId"]
-        group_key = normalized_group_key(serializer.validated_data["groupKey"])
+        with _customization_rejected_as_400():
+            group_key = normalized_group_key(serializer.validated_data["groupKey"])
         self._copy_group_tiles(request, destination, source_id, group_key)
 
         return Response(DashboardSerializer(destination, context=self.get_serializer_context()).data)
@@ -4948,7 +4990,8 @@ class DashboardsViewSet(
             customization = DashboardCustomizationSerializer(data=template_body["customization"])
             if not customization.is_valid():
                 raise serializers.ValidationError({"customization": customization.errors})
-        validate_template_groups(template_body.get("customization"), template_body.get("tiles"))
+        with _customization_rejected_as_400():
+            validate_template_groups(template_body.get("customization"), template_body.get("tiles"))
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
             created_by=cast(User, request.user),
@@ -4956,14 +4999,15 @@ class DashboardsViewSet(
         )
 
         try:
-            dashboard_template = dashboard_template_from_creation_payload(template_body)
             creation_context = request.data.get("creation_context")
-            create_from_template(
-                dashboard,
-                dashboard_template,
-                cast(User, request.user),
+            apply_dashboard_template_json(
+                team_id=self.team_id,
+                dashboard_id=dashboard.id,
+                template=template_body,
+                user_id=cast(User, request.user).id,
                 user_access_control=UserAccessControl(user=cast(User, request.user), team=self.team),
             )
+            dashboard.refresh_from_db(using=router.db_for_write(Dashboard))
 
             raw_scope = template_body.get("scope")
             if raw_scope is None or raw_scope == "":
@@ -4977,7 +5021,7 @@ class DashboardsViewSet(
                 {
                     **dashboard.get_analytics_metadata(),
                     "from_template": True,
-                    "template_key": dashboard_template.template_name,
+                    "template_key": template_body["template_name"],
                     **template_scope_props,
                     "duplicated": False,
                     "creation_context": creation_context,

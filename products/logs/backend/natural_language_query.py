@@ -230,10 +230,7 @@ def propose_candidates(
 ) -> list[_ProposedCandidate]:
     if resolve_ai_gateway_config() is None:
         raise NaturalLanguageQueryUnavailable("Configure AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
-    # The product name only routes the Python-gateway fallback, which the check above rules out.
-    client = build_openai_client(
-        "django", ai_product=AI_PRODUCT, properties={"team_id": str(team.pk)}, distinct_id=distinct_id
-    )
+    client = build_openai_client(ai_product=AI_PRODUCT, properties={"team_id": str(team.pk)}, distinct_id=distinct_id)
     user_content = json.dumps(
         {
             "now_utc": timezone.now().astimezone(ZoneInfo("UTC")).isoformat(timespec="seconds"),
