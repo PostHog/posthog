@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import CachedHogQLQueryResponse, HogQLQuery
+from posthog.schema import CachedHogQLQueryResponse, CacheMissResponse, HogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -26,6 +26,7 @@ from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode as QueryExecutionMode
 from posthog.models import (
     DataDeletionRequest,
     Group,
@@ -1757,14 +1758,16 @@ class TestSystemTablesFileSystemCanvasVisibility(NonAtomicBaseTest):
         )
         query = HogQLQuery(query="SELECT ref FROM system.file_system WHERE type = 'canvas'")
 
+        cache_only = QueryExecutionMode.CACHE_ONLY_NEVER_CALCULATE
         with time_machine.travel("2026-11-26T08:00:00Z", tick=False):
-            before = HogQLQueryRunner(query=query, team=self.team).run(user=other)
+            HogQLQueryRunner(query=query, team=self.team).run(user=other)
+            hit = HogQLQueryRunner(query=query, team=self.team).run(cache_only, user=other)
             with team_scope(self.team.pk):
                 Channel.objects.filter(id=channel.id).update(channel_type=Channel.ChannelType.PERSONAL)
-            after = HogQLQueryRunner(query=query, team=self.team).run(user=other)
+            miss = HogQLQueryRunner(query=query, team=self.team).run(cache_only, user=other)
 
-        assert isinstance(before, CachedHogQLQueryResponse) and isinstance(after, CachedHogQLQueryResponse)
-        assert ([row[0] for row in before.results], after.results) == ([str(canvas)], [])
+        assert isinstance(hit, CachedHogQLQueryResponse)
+        assert ([row[0] for row in hit.results], type(miss)) == ([str(canvas)], CacheMissResponse)
 
     def test_canvas_rows_are_dropped_for_a_key_without_canvas_scope(self):
         with team_scope(self.team.pk):
