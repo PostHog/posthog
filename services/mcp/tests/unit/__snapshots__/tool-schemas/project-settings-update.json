@@ -452,8 +452,26 @@
         },
         "feature_flag_policy_config": {
             "properties": {
+                "allowed_hosts": {
+                    "description": "Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.",
+                    "items": {
+                        "maxLength": 2000,
+                        "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "type": "array"
+                },
+                "allowed_ips": {
+                    "description": "IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins.",
+                    "items": {
+                        "maxLength": 2000,
+                        "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "type": "array"
+                },
                 "blocked_hosts": {
-                    "description": "Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.",
+                    "description": "Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.",
                     "items": {
                         "maxLength": 2000,
                         "type": "string"
@@ -462,7 +480,7 @@
                     "type": "array"
                 },
                 "blocked_ips": {
-                    "description": "IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.",
+                    "description": "IP addresses or CIDR ranges to block from /flags requests, up to 100. The widest ranges are /8 for IPv4 and /16 for IPv6.",
                     "items": {
                         "maxLength": 2000,
                         "type": "string"

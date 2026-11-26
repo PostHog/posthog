@@ -104,6 +104,8 @@ export default defineConfig(({ mode }) => {
                 // tiptap packages (e.g. starter-kit importing @tiptap/extension-code) to paths that
                 // don't exist under frontend/node_modules.
                 '@tiptap/core': resolve(__dirname, 'node_modules/@tiptap/core'),
+                // Subpath first, for the same reason as '@posthog/llm-normalizer/types' above.
+                '@tiptap/react/menus': resolve(__dirname, 'node_modules/@tiptap/react/dist/menus/index.js'),
                 '@tiptap/react': resolve(__dirname, 'node_modules/@tiptap/react'),
                 '@tiptap/pm': resolve(__dirname, 'node_modules/@tiptap/pm'),
                 '@tiptap/extension-image': resolve(__dirname, 'node_modules/@tiptap/extension-image'),

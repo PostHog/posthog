@@ -4,6 +4,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models.team import Team
 
+from products.aeo.backend.facade.contracts import PromptLimitError
 from products.aeo.backend.models import AEOPrompt
 from products.aeo.backend.seeding import import_prompts_csv, upsert_prompts
 
@@ -36,7 +37,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"Dry run: {len(candidates)} candidates, nothing saved"))
             return
 
-        result = upsert_prompts(team, candidates)
+        try:
+            result = upsert_prompts(team, candidates)
+        except PromptLimitError as error:
+            raise CommandError(str(error)) from error
         if result["skipped"]:
             self.stdout.write(self.style.WARNING(f"Skipped {result['skipped']} empty or oversized prompt(s)"))
         total_active = AEOPrompt.objects.for_team(team.id).filter(active=True).count()

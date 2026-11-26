@@ -4,7 +4,6 @@ import { IconCheck, IconX } from '@posthog/icons'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type { SourceFilterPreviewResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -21,8 +20,8 @@ type PreviewSide = 'passing' | 'excluded'
 
 function unreadableNote(count: number, noun: string): string {
     return count === 1
-        ? `1 ${noun} is unreadable. It holds a value this filter can't read, so it never passes.`
-        : `${humanFriendlyNumber(count)} ${noun}s are unreadable. They hold a value this filter can't read, so they never pass.`
+        ? `1 ${noun} is unreadable, so the filter excludes it.`
+        : `${humanFriendlyNumber(count)} ${noun}s are unreadable, so the filter excludes them.`
 }
 
 export function SourceFilterPreviewResults({
@@ -72,9 +71,6 @@ export function SourceFilterPreviewResults({
             {side === 'excluded' && result.malformed_count > 0 && (
                 <p className="m-0 text-xs text-muted">{unreadableNote(result.malformed_count, noun)}</p>
             )}
-            <p className="m-0 text-xs text-muted">
-                {`Shows the 10 newest of each. ${capitalizeFirstLetter(nouns)} that pass can still be skipped by guidance or as duplicates.`}
-            </p>
         </>
     )
 }

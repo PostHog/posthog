@@ -31,21 +31,25 @@ function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props): React.React
     return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />
 }
 
-const ComboboxTrigger = React.forwardRef<HTMLButtonElement, ComboboxPrimitive.Trigger.Props>(
-    ({ className, children, ...props }, ref) => {
-        return (
-            <ComboboxPrimitive.Trigger
-                ref={ref}
-                data-slot="combobox-trigger"
-                className={cn('quill-combobox__trigger', className)}
-                {...props}
-            >
-                {children}
-                <ChevronDownIcon className="pointer-events-none size-3.5 text-muted-foreground" />
-            </ComboboxPrimitive.Trigger>
-        )
+const ComboboxTrigger = React.forwardRef<
+    HTMLButtonElement,
+    ComboboxPrimitive.Trigger.Props & {
+        /** Appends a chevron after the children. Turn it off for a button that shows no chevron, such as an "Add" button. */
+        showChevron?: boolean
     }
-)
+>(({ className, children, showChevron = true, ...props }, ref) => {
+    return (
+        <ComboboxPrimitive.Trigger
+            ref={ref}
+            data-slot="combobox-trigger"
+            className={cn('quill-combobox__trigger', className)}
+            {...props}
+        >
+            {children}
+            {showChevron && <ChevronDownIcon className="pointer-events-none size-3.5 text-muted-foreground" />}
+        </ComboboxPrimitive.Trigger>
+    )
+})
 ComboboxTrigger.displayName = 'ComboboxTrigger'
 
 const ComboboxClear = React.forwardRef<

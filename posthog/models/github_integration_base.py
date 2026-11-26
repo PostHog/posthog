@@ -56,6 +56,12 @@ CREDENTIALS_CALLER = CredentialsCaller.INTEGRATIONS
 
 
 @frozen
+class GitHubInstallationToken:
+    token: str = field(repr=False)
+    expires_at: datetime
+
+
+@frozen
 class GitHubAppJwtCredentials:
     """What PostHog's GitHub App signs its App JWT with."""
 
@@ -698,6 +704,25 @@ class GitHubIntegrationBase:
         mint a new one instead. Requesting a permission the installation doesn't have
         fails the mint (422), which surfaces as ``GitHubIntegrationError``.
         """
+        return self._mint_scoped_installation_token(permissions, repositories)["token"]
+
+    def mint_scoped_installation_credential(
+        self, permissions: Mapping[str, str], repositories: list[str]
+    ) -> GitHubInstallationToken:
+        if not repositories:
+            raise GitHubIntegrationError("Scoped installation credential requires at least one repository")
+        data = self._mint_scoped_installation_token(permissions, repositories)
+        try:
+            expires_at = datetime.fromisoformat(data["expires_at"])
+            if timezone.is_naive(expires_at) or expires_at <= timezone.now():
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise GitHubIntegrationError("Invalid scoped installation token expiry") from None
+        return GitHubInstallationToken(token=data["token"], expires_at=expires_at)
+
+    def _mint_scoped_installation_token(
+        self, permissions: Mapping[str, str] | None, repositories: list[str] | None
+    ) -> dict[str, Any]:
         installation_id = self.github_installation_id
         if not installation_id:
             raise GitHubIntegrationError("No GitHub App installation id on this integration")
@@ -724,7 +749,7 @@ class GitHubIntegrationBase:
                 f"Failed to mint scoped installation token: {response.text[:500]}",
                 status_code=response.status_code,
             )
-        return data["token"]
+        return data
 
     def _mark_if_installation_gone(self, response: requests.Response) -> None:
         """Persist the permanently-gone marker after a failed scoped mint (404 uninstalled /

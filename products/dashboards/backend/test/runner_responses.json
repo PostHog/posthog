@@ -1,0 +1,380 @@
+{
+    "trends_number_with_compare": {
+        "query": {
+            "kind": "TrendsQuery",
+            "series": [{ "kind": "EventsNode", "event": "$pageview" }],
+            "trendsFilter": { "display": "BoldNumber" },
+            "compareFilter": { "compare": true }
+        },
+        "response": {
+            "results": [
+                {
+                    "data": [],
+                    "days": [],
+                    "count": 0,
+                    "aggregated_value": 5,
+                    "label": "$pageview",
+                    "compare": true,
+                    "compare_label": "current",
+                    "order": 0,
+                    "custom_name": null
+                },
+                {
+                    "data": [],
+                    "days": [],
+                    "count": 0,
+                    "aggregated_value": 0,
+                    "label": "$pageview",
+                    "compare": true,
+                    "compare_label": "previous",
+                    "order": 0,
+                    "custom_name": null
+                }
+            ],
+            "timezone": "UTC",
+            "resolved_date_range": {
+                "date_from": "2026-09-12 00:00:00+00:00",
+                "date_to": "2026-09-19 23:59:59.999999+00:00",
+                "read_from": null
+            },
+            "resolved_compare_date_range": {
+                "date_from": "2026-09-05 00:00:00+00:00",
+                "date_to": "2026-09-12 23:59:59.999999+00:00",
+                "read_from": null
+            }
+        }
+    },
+    "trends_pie_by_breakdown": {
+        "query": {
+            "kind": "TrendsQuery",
+            "series": [{ "kind": "EventsNode", "event": "$pageview" }],
+            "trendsFilter": { "display": "ActionsPie" },
+            "breakdownFilter": { "breakdown": "$browser" }
+        },
+        "response": {
+            "results": [
+                {
+                    "data": [],
+                    "days": [],
+                    "count": 0,
+                    "aggregated_value": 3,
+                    "label": "Safari",
+                    "breakdown_value": "Safari",
+                    "order": 0,
+                    "custom_name": null
+                },
+                {
+                    "data": [],
+                    "days": [],
+                    "count": 0,
+                    "aggregated_value": 2,
+                    "label": "Chrome",
+                    "breakdown_value": "Chrome",
+                    "order": 0,
+                    "custom_name": null
+                }
+            ],
+            "timezone": "UTC",
+            "resolved_date_range": {
+                "date_from": "2026-09-12 00:00:00+00:00",
+                "date_to": "2026-09-19 23:59:59.999999+00:00",
+                "read_from": null
+            }
+        }
+    },
+    "funnel_steps": {
+        "query": {
+            "kind": "FunnelsQuery",
+            "series": [
+                { "kind": "EventsNode", "event": "$pageview" },
+                { "kind": "EventsNode", "event": "signup" }
+            ]
+        },
+        "response": {
+            "results": [
+                {
+                    "name": "$pageview",
+                    "custom_name": null,
+                    "order": 0,
+                    "count": 2,
+                    "average_conversion_time": null,
+                    "median_conversion_time": null
+                },
+                {
+                    "name": "signup",
+                    "custom_name": null,
+                    "order": 1,
+                    "count": 1,
+                    "average_conversion_time": 3600.0,
+                    "median_conversion_time": 3600.0
+                }
+            ],
+            "timezone": "UTC",
+            "resolved_date_range": {
+                "date_from": "2026-09-12 00:00:00+00:00",
+                "date_to": "2026-09-19 23:59:59.999999+00:00",
+                "read_from": null
+            }
+        }
+    },
+    "funnel_time_to_convert": {
+        "query": {
+            "kind": "FunnelsQuery",
+            "series": [
+                { "kind": "EventsNode", "event": "$pageview" },
+                { "kind": "EventsNode", "event": "signup" }
+            ],
+            "funnelsFilter": { "funnelVizType": "time_to_convert" }
+        },
+        "response": {
+            "results": {
+                "average_conversion_time": 3600.0,
+                "bins": [
+                    [3600, 1],
+                    [3660, 0]
+                ],
+                "median_conversion_time": 3600.0
+            },
+            "timezone": "UTC",
+            "resolved_date_range": {
+                "date_from": "2026-09-12 00:00:00+00:00",
+                "date_to": "2026-09-19 23:59:59.999999+00:00",
+                "read_from": null
+            }
+        }
+    },
+    "retention_cohorts_by_period": {
+        "query": {
+            "kind": "RetentionQuery",
+            "retentionFilter": { "totalIntervals": 3, "period": "Day" },
+            "dateRange": { "date_from": "-3d" }
+        },
+        "response": {
+            "results": [
+                {
+                    "breakdown_value": null,
+                    "date": "2026-09-16 00:00:00+00:00",
+                    "label": "Day 0",
+                    "values": [
+                        { "aggregation_value": null, "count": 0.0, "label": "Day 0" },
+                        { "aggregation_value": null, "count": 0.0, "label": "Day 1" },
+                        { "aggregation_value": null, "count": 0.0, "label": "Day 2" }
+                    ]
+                },
+                {
+                    "breakdown_value": null,
+                    "date": "2026-09-17 00:00:00+00:00",
+                    "label": "Day 1",
+                    "values": [
+                        { "aggregation_value": null, "count": 2.0, "label": "Day 0" },
+                        { "aggregation_value": null, "count": 2.0, "label": "Day 1" },
+                        { "aggregation_value": null, "count": 0.0, "label": "Day 2" }
+                    ]
+                },
+                {
+                    "breakdown_value": null,
+                    "date": "2026-09-18 00:00:00+00:00",
+                    "label": "Day 2",
+                    "values": [
+                        { "aggregation_value": null, "count": 2.0, "label": "Day 0" },
+                        { "aggregation_value": null, "count": 0.0, "label": "Day 1" },
+                        { "aggregation_value": null, "count": 0.0, "label": "Day 2" }
+                    ]
+                },
+                {
+                    "breakdown_value": null,
+                    "date": "2026-09-19 00:00:00+00:00",
+                    "label": "Day 3",
+                    "values": [
+                        { "aggregation_value": null, "count": 0.0, "label": "Day 0" },
+                        { "aggregation_value": null, "count": 0.0, "label": "Day 1" },
+                        { "aggregation_value": null, "count": 0.0, "label": "Day 2" }
+                    ]
+                }
+            ],
+            "timezone": "UTC",
+            "resolved_date_range": {
+                "date_from": "2026-09-16 00:00:00+00:00",
+                "date_to": "2026-09-20 00:00:00+00:00",
+                "read_from": null
+            }
+        }
+    },
+    "stickiness_counts_by_interval": {
+        "query": { "kind": "StickinessQuery", "series": [{ "kind": "EventsNode", "event": "$pageview" }] },
+        "response": {
+            "results": [
+                {
+                    "count": 2,
+                    "data": [0, 2, 0, 0, 0, 0, 0, 0],
+                    "days": [1, 2, 3, 4, 5, 6, 7, 8],
+                    "order": 0,
+                    "custom_name": null,
+                    "label": "$pageview"
+                }
+            ],
+            "timezone": "UTC",
+            "resolved_date_range": {
+                "date_from": "2026-09-12 00:00:00+00:00",
+                "date_to": "2026-09-19 23:59:59.999999+00:00",
+                "read_from": null
+            }
+        }
+    },
+    "lifecycle_status_series": {
+        "query": { "kind": "LifecycleQuery", "series": [{ "kind": "EventsNode", "event": "$pageview" }] },
+        "response": {
+            "results": [
+                {
+                    "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "count": 0.0,
+                    "days": [
+                        "2026-09-12",
+                        "2026-09-13",
+                        "2026-09-14",
+                        "2026-09-15",
+                        "2026-09-16",
+                        "2026-09-17",
+                        "2026-09-18",
+                        "2026-09-19"
+                    ],
+                    "order": 0,
+                    "custom_name": null,
+                    "label": "$pageview - new",
+                    "status": "new"
+                },
+                {
+                    "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0],
+                    "count": 2.0,
+                    "days": [
+                        "2026-09-12",
+                        "2026-09-13",
+                        "2026-09-14",
+                        "2026-09-15",
+                        "2026-09-16",
+                        "2026-09-17",
+                        "2026-09-18",
+                        "2026-09-19"
+                    ],
+                    "order": 0,
+                    "custom_name": null,
+                    "label": "$pageview - returning",
+                    "status": "returning"
+                },
+                {
+                    "data": [0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0],
+                    "count": 2.0,
+                    "days": [
+                        "2026-09-12",
+                        "2026-09-13",
+                        "2026-09-14",
+                        "2026-09-15",
+                        "2026-09-16",
+                        "2026-09-17",
+                        "2026-09-18",
+                        "2026-09-19"
+                    ],
+                    "order": 0,
+                    "custom_name": null,
+                    "label": "$pageview - resurrecting",
+                    "status": "resurrecting"
+                },
+                {
+                    "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -2.0],
+                    "count": -2.0,
+                    "days": [
+                        "2026-09-12",
+                        "2026-09-13",
+                        "2026-09-14",
+                        "2026-09-15",
+                        "2026-09-16",
+                        "2026-09-17",
+                        "2026-09-18",
+                        "2026-09-19"
+                    ],
+                    "order": 0,
+                    "custom_name": null,
+                    "label": "$pageview - dormant",
+                    "status": "dormant"
+                }
+            ],
+            "timezone": "UTC",
+            "resolved_date_range": {
+                "date_from": "2026-09-12 00:00:00+00:00",
+                "date_to": "2026-09-19 23:59:59.999999+00:00",
+                "read_from": "2026-09-11 00:00:00+00:00"
+            }
+        }
+    },
+    "web_stats_by_page": {
+        "query": {
+            "kind": "WebStatsTableQuery",
+            "properties": [],
+            "breakdownBy": "Page",
+            "dateRange": { "date_from": "-7d" }
+        },
+        "response": {
+            "columns": [
+                "context.columns.breakdown_value",
+                "context.columns.visitors",
+                "context.columns.views",
+                "context.columns.ui_fill_fraction",
+                "context.columns.cross_sell"
+            ],
+            "results": [["/x", [1, null], [4, null], 1.0, ""]],
+            "types": [
+                ["context.columns.breakdown_value", "Nullable(String)"],
+                ["context.columns.visitors", "Tuple(UInt64, Nullable(Nothing))"],
+                ["context.columns.views", "Tuple(UInt64, Nullable(Nothing))"],
+                ["context.columns.ui_fill_fraction", "Float64"]
+            ]
+        }
+    },
+    "web_overview": {
+        "query": { "kind": "WebOverviewQuery", "properties": [], "dateRange": { "date_from": "-7d" } },
+        "response": {
+            "results": [
+                {
+                    "changeFromPreviousPct": null,
+                    "isIncreaseBad": null,
+                    "key": "visitors",
+                    "kind": "unit",
+                    "previous": null,
+                    "value": 0.0
+                },
+                {
+                    "changeFromPreviousPct": null,
+                    "isIncreaseBad": null,
+                    "key": "views",
+                    "kind": "unit",
+                    "previous": null,
+                    "value": 0.0
+                },
+                {
+                    "changeFromPreviousPct": null,
+                    "isIncreaseBad": null,
+                    "key": "sessions",
+                    "kind": "unit",
+                    "previous": null,
+                    "value": 0.0
+                },
+                {
+                    "changeFromPreviousPct": null,
+                    "isIncreaseBad": null,
+                    "key": "session duration",
+                    "kind": "duration_s",
+                    "previous": null,
+                    "value": null
+                },
+                {
+                    "changeFromPreviousPct": null,
+                    "isIncreaseBad": true,
+                    "key": "bounce rate",
+                    "kind": "percentage",
+                    "previous": null,
+                    "value": null
+                }
+            ]
+        }
+    }
+}

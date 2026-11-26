@@ -15,6 +15,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.logic.shared_channels import SharedChannelAccess
 from products.slack_app.backend.models import (
     SlackSettings,
     SlackThreadTaskMapping,
@@ -452,7 +453,10 @@ class TestRouteThreadMessage(TestCase):
 
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
         with (
-            patch("products.slack_app.backend.api._channel_is_approved", return_value=False),
+            patch(
+                "products.slack_app.backend.api.shared_channel_access",
+                return_value=SharedChannelAccess.NEEDS_APPROVAL,
+            ),
             patch("products.slack_app.backend.api._post_channel_approval_prompt") as mock_prompt,
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
         ):

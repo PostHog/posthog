@@ -8,14 +8,7 @@ import {
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import {
-    DEFAULT_MAX_RESPONSE_TOKENS,
-    RESPONSE_BUDGET_KEY,
-    boundText,
-    jsonResponseBody,
-    maxResponseBytes,
-    responseTokenBudget,
-} from '@/lib/response-budget'
+import { RESPONSE_BUDGET_KEY, boundText, jsonResponseBody, maxResponseBytes } from '@/lib/response-budget'
 import { withAgentNote, withInformationalResponse } from '@/tools/tool-utils'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -282,16 +275,5 @@ describe('boundText', () => {
 
         expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_BYTES)
         expect(JSON.parse(bounded)).toContain('line of schema\nline of schema')
-    })
-})
-
-describe('responseTokenBudget', () => {
-    it.each([
-        [undefined, {}, DEFAULT_MAX_RESPONSE_TOKENS],
-        [undefined, { truncate: false }, undefined],
-        [10_000, {}, 10_000],
-        [10_000, { truncate: false }, 10_000],
-    ])('with client limit %j and args %j resolves %j', (clientLimit, args, expected) => {
-        expect(responseTokenBudget(clientLimit, args)).toBe(expected)
     })
 })

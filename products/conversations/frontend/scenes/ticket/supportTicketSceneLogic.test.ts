@@ -64,6 +64,7 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsDestroy: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsAiFeedbackCreate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsAiHumanOutcomeCreate: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsAiRerunCreate: jest.fn().mockResolvedValue({ workflow_id: 'support-reply-ticket-1-m1' }),
     conversationsTicketsMessagesFullEmailRetrieve: jest.fn().mockResolvedValue({ content: 'Full email body' }),
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
@@ -78,10 +79,12 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import api from '~/lib/api'
+import { ApiError } from '~/lib/api-error'
 
 import {
     conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsAiRerunCreate,
     conversationsTicketsDestroy,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
@@ -91,6 +94,7 @@ import {
 const submitAiFeedbackMock = conversationsTicketsAiFeedbackCreate as jest.Mock
 const submitAiHumanOutcomeMock = conversationsTicketsAiHumanOutcomeCreate as jest.Mock
 const fullEmailRetrieveMock = conversationsTicketsMessagesFullEmailRetrieve as jest.Mock
+const rerunAiMock = conversationsTicketsAiRerunCreate as jest.Mock
 
 function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
     return {
@@ -273,6 +277,49 @@ function makeCustomerComment(id: string, itemContext: Record<string, any> = {}):
         created_by: null,
     } as unknown as CommentType
 }
+
+describe('supportTicketSceneLogic rerunAi', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        rerunAiMock.mockClear()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('marks the ticket as in progress once the run starts', async () => {
+        const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('' as never)
+
+        logic.actions.rerunAi()
+        expect(logic.values.aiRerunning).toBe(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(rerunAiMock).toHaveBeenCalledWith(expect.any(String), 'ticket-1')
+        expect(logic.values.aiRerunning).toBe(false)
+        expect(logic.values.ticket?.ai_triage).toEqual(expect.objectContaining({ status: 'in_progress' }))
+        successToast.mockRestore()
+    })
+
+    it('shows the server reason and leaves the ticket alone when the run is refused', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        const reason = 'Support AI already ran on this ticket and nothing was added since.'
+        rerunAiMock.mockRejectedValueOnce(new ApiError('Conflict', 409, undefined, { detail: reason }))
+
+        logic.actions.rerunAi()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(errorToast).toHaveBeenCalledWith(reason)
+        expect(logic.values.aiRerunning).toBe(false)
+        expect(logic.values.ticket?.ai_triage?.status).toBe('done')
+        errorToast.mockRestore()
+    })
+})
 
 describe('supportTicketSceneLogic chatMessages mapping', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>

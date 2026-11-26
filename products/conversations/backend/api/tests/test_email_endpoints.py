@@ -37,6 +37,9 @@ from products.conversations.backend.models import (
     EmailOutboxMessage,
 )
 from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.services.email_thread_ingestion import EmailAddress
+from products.conversations.backend.services.mailgun_events import _forwarded_message, _ForwardedMessage
+from products.conversations.backend.temporal.ai_reply.activities.build_context import _build_context_sync
 
 
 def _make_png_bytes() -> bytes:
@@ -2626,6 +2629,269 @@ class TestEmailInboundTrustedRelay(MailgunWebhookTestMixin, BaseTest):
         assert comment.item_context is not None
         assert comment.item_context["author_type"] == "customer"
         assert comment.created_by is None
+
+
+JANE = EmailAddress(name="Jane Doe", email="jane@example.net")
+
+
+def _gmail_forward(from_header: str) -> str:
+    return (
+        "---------- Forwarded message ---------\r\n"
+        f"From: {from_header}\r\n"
+        "Date: Mon, 2 Nov 2026 at 10:00\r\n"
+        "Subject: Export is broken\r\n"
+        "To: <billing@example.com>\r\n\r\n"
+        "My export is broken."
+    )
+
+
+def _jane(subject: str) -> _ForwardedMessage:
+    return _ForwardedMessage(sender=JANE, subject=subject)
+
+
+class TestForwardedMessage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "wrapped_headers",
+                "---------- Forwarded message ---------\r\nFrom: Jane Doe <\r\njane@example.net>\r\nSubject: Export is\r\nbroken\r\n",
+                _jane("Export is broken"),
+            ),
+            (
+                "superhuman_spacing",
+                "---------- Forwarded message ----------\r\n\r\nFrom: Jane Doe < jane@example.net >\r\n\r\nSubject: Help\r\n",
+                _jane("Help"),
+            ),
+            (
+                "apple_mail_quoted_headers",
+                "Begin forwarded message:\n\n> From: Jane Doe <jane@example.net>\n> Subject: Help\n",
+                _jane("Help"),
+            ),
+            (
+                "apple_mail_quoted_marker",
+                "FYI\n\n> Begin forwarded message:\n> \n> From: Jane Doe <jane@example.net>\n> Subject: Help\n",
+                _jane("Help"),
+            ),
+            (
+                "thunderbird_subject_first",
+                "-------- Forwarded Message --------\r\nSubject: Help\r\nDate: Mon\r\nFrom: Jane Doe <jane@example.net>\r\n",
+                _jane("Help"),
+            ),
+            ("bold_name", _gmail_forward("*Jane Doe* <jane@example.net>"), _jane("Export is broken")),
+            (
+                "bare_address_then_text",
+                "---------- Forwarded message ---------\nFrom: jane@example.net\nImportant\n",
+                _ForwardedMessage(sender=EmailAddress(name="jane", email="jane@example.net"), subject=""),
+            ),
+            ("group_rewrite", _gmail_forward("'Jane' via Billing <billing@example.org>"), None),
+            ("overlong_from", _gmail_forward("J" * 600 + " <jane@example.net>"), None),
+            ("quoted_gmail_marker", "FYI\n\n> " + _gmail_forward("Bob <bob@example.net>"), None),
+            (
+                "forward_below_reply_header",
+                "Thanks!\n\nOn Mon, 2 Nov 2026, Jane Doe <jane@example.net> wrote:\n"
+                + _gmail_forward("Bob <bob@example.net>"),
+                None,
+            ),
+            (
+                "forward_below_german_reply_header",
+                "Danke!\n\nAm Mo., 2. Nov. 2026 um 10:00 schrieb Jane Doe <jane@example.net>:\n"
+                + _gmail_forward("Bob <bob@example.net>"),
+                None,
+            ),
+            (
+                "forward_below_bare_address_reply_header",
+                "Danke!\n\nAm 02.11.2026 um 10:00 schrieb jane@example.net:\n"
+                + _gmail_forward("Bob <bob@example.net>"),
+                None,
+            ),
+            (
+                "forward_below_french_reply_header",
+                "Merci !\n\nLe lun. 2 nov. 2026 à 10:00, Jane Doe <jane@example.net> a écrit :\n"
+                + _gmail_forward("Bob <bob@example.net>"),
+                None,
+            ),
+            (
+                "forward_inside_reply_header",
+                "On it.\r\n\r\nFrom: Jane Doe <jane@example.net>\r\nSent: Monday\r\n\r\n"
+                + _gmail_forward("Bob <bob@example.net>"),
+                None,
+            ),
+            (
+                "forward_inside_outlook_forward",
+                "See below\r\n\r\n________________________________\r\nFrom: Jane Doe <jane@example.net>\r\nSent: Monday\r\n\r\n"
+                + _gmail_forward("Bob <bob@example.net>"),
+                None,
+            ),
+        ]
+    )
+    def test_reads_the_forwarded_message(self, _name: str, body: str, expected: _ForwardedMessage | None) -> None:
+        assert _forwarded_message(body) == expected
+
+
+class TestEmailInboundForwardedByTeamMember(MailgunWebhookTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="fa11fb22fc33",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+        self._create_user("sam@example.org")
+        self._create_user("ana.forwarding-test@gmail.com")
+        self._create_user("ana.forwarding-test@proton.me")
+        flag = patch(
+            "products.conversations.backend.services.mailgun_events.posthoganalytics.feature_enabled", return_value=True
+        )
+        self.feature_enabled = flag.start()
+        self.addCleanup(flag.stop)
+
+    def _forward(self, message_id: str, extra: dict[str, str]) -> None:
+        post_mailgun(
+            self.client,
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-fa11fb22fc33@mg.posthog.com",
+                "from": f"Agent <{self.user.email}>",
+                "sender": self.user.email,
+                "X-Mailgun-Spf": "Pass",
+                "Message-Id": message_id,
+                "subject": "Fwd: VIP, please be quick",
+                "To": "support@example.com",
+                "body-plain": "Can someone take this?\r\n\r\n" + _gmail_forward("Jane Doe <jane@example.net>"),
+                **extra,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("copied_to_a_team_member", {"Cc": "Sam <sam@example.org>"}),
+            ("copied_to_the_customer", {"Cc": "Jane Doe <jane@example.net>"}),
+        ]
+    )
+    def test_forward_from_team_member_opens_ticket_for_original_sender(self, name: str, extra: dict[str, str]):
+        self._forward(f"<{name}@posthog.com>", extra)
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == "jane@example.net"
+        assert ticket.anonymous_traits == {
+            "name": "Jane Doe",
+            "email": "jane@example.net",
+            "email_relayed": True,
+            "email_forwarded": True,
+        }
+        assert ticket.identity_verified is False
+        assert ticket.unread_team_count == 1
+        assert ticket.email_subject == "Export is broken"
+        assert ticket.cc_participants == []
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.item_context is not None
+        assert comment.item_context["is_private"] is True
+        assert comment.item_context["author_type"] == "support"
+        assert comment.created_by == self.user
+
+    @parameterized.expand([("flag_off", False), ("flag_service_down", RuntimeError("unavailable"))])
+    def test_forward_keeps_the_sender_without_the_flag(self, _name: str, flag_result: bool | Exception):
+        self.feature_enabled.side_effect = [flag_result]
+        self._forward("<no-flag@posthog.com>", {})
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == self.user.email
+        assert ticket.anonymous_traits == {"name": "Agent", "email": self.user.email}
+
+    @parameterized.expand(
+        [
+            ("sender_not_authenticated", {"X-Mailgun-Spf": ""}),
+            ("sent_on_to_an_outsider", {"To": "support@example.com, Bob <bob@example.org>"}),
+            ("forwarded_sender_on_forwarders_domain", {"body-plain": _gmail_forward("Billing <billing@posthog.com>")}),
+            ("forwarded_team_member", {"body-plain": _gmail_forward("Sam <sam@example.org>")}),
+            ("copied_to_a_lookalike_inbound_address", {"Cc": "team-abc123@example.org"}),
+            (
+                "free_mail_forwarder_copies_an_outsider",
+                {
+                    "from": "Ana <ana.forwarding-test@gmail.com>",
+                    "sender": "ana.forwarding-test@gmail.com",
+                    "Cc": "bo.forwarding-test@gmail.com",
+                },
+            ),
+            (
+                "proton_forwarder_copies_an_outsider",
+                {
+                    "from": "Ana <ana.forwarding-test@proton.me>",
+                    "sender": "ana.forwarding-test@proton.me",
+                    "Cc": "bo.forwarding-test@proton.me",
+                },
+            ),
+            ("reply_on_existing_thread", {"In-Reply-To": "<existing@example.net>"}),
+        ]
+    )
+    def test_forward_keeps_the_sender_when_the_original_is_unclear(self, name: str, extra: dict[str, str]):
+        if "In-Reply-To" in extra:
+            customer = {"from": "Customer <customer@example.net>", "sender": "customer@example.net", "body-plain": "Hi"}
+            self._forward("<existing@example.net>", customer)
+        self._forward(f"<{name}@posthog.com>", extra)
+
+        comment = Comment.objects.get(team=self.team, item_context__email_message_id=f"<{name}@posthog.com>")
+        assert comment.item_context is not None
+        assert comment.item_context["is_private"] is False
+        assert not Ticket.objects.filter(team=self.team, anonymous_traits__email_relayed=True).exists()
+
+    @parameterized.expand(
+        [
+            ("team_reply_all", {"To": "support@example.com", "Cc": "Sam <sam@example.org>"}, True, []),
+            ("team_reply_to_customer", {"To": "jane@example.net", "Cc": "sam@example.org"}, False, ["sam@example.org"]),
+            (
+                "outsider_copies_the_customer",
+                {"from": "Lee <lee@example.net>", "sender": "lee@example.net", "Cc": "jane@example.net"},
+                True,
+                [],
+            ),
+            (
+                "non_member_reply_all",
+                {"from": "Am <am@posthog.com>", "sender": "am@posthog.com", "Cc": "Sam <sam@example.org>"},
+                True,
+                [],
+            ),
+            ("customer_reply", {"from": "Jane Doe <jane@example.net>", "sender": "jane@example.net"}, False, []),
+        ]
+    )
+    def test_mail_on_a_forwarded_ticket_is_private_unless_it_reached_the_customer(
+        self, name: str, extra: dict[str, str], expected_private: bool, expected_cc: list[str]
+    ):
+        self._forward("<forward@posthog.com>", {})
+        self._forward(f"<{name}@posthog.com>", {"In-Reply-To": "<forward@posthog.com>", "body-plain": "On it", **extra})
+
+        comment = Comment.objects.get(team=self.team, item_context__email_message_id=f"<{name}@posthog.com>")
+        assert comment.item_context is not None
+        assert comment.item_context["is_private"] is expected_private
+        assert Ticket.objects.get(team=self.team).cc_participants == expected_cc
+
+    @parameterized.expand([("forward_kept", False), ("forward_deleted", True)])
+    def test_ai_context_has_only_the_first_forwarded_email(self, _name: str, deleted: bool):
+        internal = (
+            "\r\n\r\n---------- Forwarded message ---------\r\nFrom: Sam <sam@example.org>\r\n\r\nOffer a discount."
+        )
+        body = "Can someone take this?\r\n\r\n" + _gmail_forward("Jane Doe <jane@example.net>") + internal
+        self._forward("<forward@posthog.com>", {"body-plain": body})
+        Comment.objects.filter(item_context__email_message_id="<forward@posthog.com>").update(deleted=deleted)
+        customer = {"from": "Jane Doe <jane@example.net>", "sender": "jane@example.net", "body-plain": "Any news?"}
+        self._forward("<news@example.net>", {"In-Reply-To": "<forward@posthog.com>", **customer})
+        ticket = Ticket.objects.get(team=self.team)
+
+        with patch("products.conversations.backend.ai.suggest._load_person_properties", return_value={}):
+            context = _build_context_sync(self.team.id, str(ticket.id)).ticket_context
+
+        assert ("[Customer]: ---------- Forwarded message" in context) is not deleted
+        assert ("My export is broken." in context) is not deleted
+        assert "Can someone take this?" not in context
+        assert "Offer a discount." not in context
+        assert "[Customer]: Any news?" in context
 
 
 class TestEmailInboundSelfAddressedAutoreply(MailgunWebhookTestMixin, BaseTest):
