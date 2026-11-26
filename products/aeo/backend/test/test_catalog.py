@@ -403,6 +403,29 @@ class TestCompetitorCandidates(BaseTest):
         assert [candidate.domain for candidate in competitor_candidates(self.team.id, limit=1)] == [
             "lantern.example.org"
         ]
+        AEOBrand.objects.for_team(self.team.id).filter(id=beacon.id).update(kind=BrandKind.COMPETITOR)
+        assert [candidate.domain for candidate in competitor_candidates(self.team.id, limit=20)] == [
+            "beacon.example.org",
+            "lantern.example.org",
+        ]
+
+    def test_only_answers_to_the_current_prompts_suggest_competitors(self) -> None:
+        self._brand("Lantern", "lantern.example.org")
+        self._answer("Lantern is the one.", ["lantern.example.org"])
+        AEOPrompt.objects.for_team(self.team.id).filter(id=self.prompt.id).update(
+            archived_at=timezone.now(), active=False
+        )
+        self.prompt = AEOPrompt.objects.for_team(self.team.id).create(
+            team=self.team, prompt="which beacon tools?", prompt_hash="b", prompt_source=AEOPrompt.Source.MANUAL
+        )
+        beacon = self._brand("Beacon", "beacon.example.org")
+        quiet = self._brand("Quiet", "quiet.example.org")
+        AEOBrand.objects.for_team(self.team.id).filter(id__in=[beacon.id, quiet.id]).update(kind=BrandKind.COMPETITOR)
+        self._answer("Beacon is great.", [], prompt_text="which beacon tools?")
+
+        assert [candidate.domain for candidate in competitor_candidates(self.team.id, limit=20)] == [
+            "beacon.example.org"
+        ]
 
 
 class TestListDomainsAcrossTeams(BaseTest):

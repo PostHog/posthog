@@ -1091,6 +1091,21 @@ class TestAEOPromptAPI(APIBaseTest):
             ("example.com", "example", 1),
         ]
 
+        with team_scope(self.team.pk):
+            acme_id = AEOBrand.objects.get(team=self.team, domain="acme.co.uk").id
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/aeo_brands/{acme_id}/", {"status": "suggested"}, format="json"
+            )
+        assert response.status_code == 200, response.json()
+        rankings = self.client.get(f"{self.url}rankings/").json()
+
+        assert rankings["competitors_confirmed"] is False
+        assert {row["domain"]: row["name"] for row in rankings["brands"] if not row["is_target"]} == {
+            "acme.co.uk": "Acme",
+            "rival.io": "Rival",
+        }
+
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_rankings_fallback_skips_brands_ignored_or_labeled_otherwise(self) -> None:
         ids = self._import_prompts([{"prompt": "funnels?"}])
@@ -1942,10 +1957,10 @@ class TestAEOPromptAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("answer", True, "completed", ["Best session replay tool?"], 1),
-            ("paused", True, "completed", ["Best session replay tool?"], 2),
-            ("cut_off", True, "completed", ["Best session replay tool?"], 1),
-            ("timeout", True, "failed", [], 1),
+            ("answer", True, "completed", ["Best session replay tool?"], 2),
+            ("paused", True, "completed", ["Best session replay tool?"], 3),
+            ("cut_off", True, "completed", ["Best session replay tool?"], 2),
+            ("timeout", True, "failed", [], 2),
             ("answer", False, None, [], 0),
         ]
     )
@@ -1978,17 +1993,20 @@ class TestAEOPromptAPI(APIBaseTest):
             "stop_reason": "max_tokens",
             "content": [{"type": "text", "text": json.dumps(items[:1])[:-1] + ', {"prompt": "Half'}],
         }
+        top_up = MagicMock(status_code=200)
+        top_up.json.return_value = {"stop_reason": "end_turn", "content": [{"type": "text", "text": "[]"}]}
         post = MagicMock(
             side_effect={
-                "answer": [answered],
-                "paused": [paused, answered],
-                "cut_off": [cut_off],
+                "answer": [answered, top_up],
+                "paused": [paused, answered, top_up],
+                "cut_off": [cut_off, top_up],
                 "timeout": requests.Timeout(),
             }[outcome]
         )
         gateway = MagicMock(url="http://gateway", api_key="test-key")
 
         with (
+            patch("products.aeo.backend.suggestions.TRANSIENT_RETRY_SECONDS", 0),
             patch("products.aeo.backend.suggestions.resolve_ai_gateway_config", return_value=gateway),
             patch("products.aeo.backend.suggestions.requests.Session.post", post),
         ):

@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from celery.exceptions import Retry
 from redis.exceptions import (
     ConnectionError as RedisConnectionError,
     LockNotOwnedError,
@@ -17,7 +18,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.redis import get_client
 
-from products.aeo.backend import credits, keyword_suggestions
+from products.aeo.backend import credits, keyword_suggestions, run_stop
 from products.aeo.backend.facade.api import get_prompt_set_overview
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.tasks import tasks
@@ -78,6 +79,24 @@ def test_dispatch_runs_teams_with_active_prompts_that_pass_the_gate(
     assert run.call_count == (1 if gate_passes else 0)
 
 
+def test_setups_run_waits_for_a_run_still_finishing_instead_of_being_dropped(team: Team) -> None:
+    lease = get_client().lock(run_stop.lease_key(team.id), timeout=60)
+    assert lease.acquire(blocking=False)
+    run_stop.mark_run_queued(team.id)
+
+    with (
+        patch.object(tasks, "feature_enabled_or_false", return_value=True),
+        patch.object(tasks, "run_citation_checks") as run,
+        pytest.raises(Retry),
+    ):
+        run_aeo_citation_checks_for_team_task(team.id, wait_for_lease=True)
+
+    run.assert_not_called()
+    assert run_stop.checks_running(team.id)
+    lease.release()
+    run_stop.clear_run_queued(team.id)
+
+
 @pytest.mark.parametrize("run_in_progress", [False, True])
 def test_one_run_per_team_at_a_time(team: Team, run_in_progress: bool) -> None:
     lease = get_client().lock(f"aeo_citation_run:{team.id}", timeout=60)
@@ -94,6 +113,27 @@ def test_one_run_per_team_at_a_time(team: Team, run_in_progress: bool) -> None:
     if not run_in_progress:
         assert lease.acquire(blocking=False), "the finished run must give the lease back"
     lease.release()
+
+
+@pytest.mark.parametrize("when", ["before_start", "during_run"])
+def test_a_stop_request_ends_the_run_once(team: Team, when: str) -> None:
+    def run(_team: Team, stop: threading.Event) -> tuple[Mock, list]:
+        if when == "during_run":
+            run_stop.request_stop(team.id)
+            assert stop.wait(timeout=10), "the run must see the stop"
+        return Mock(run_id=None), []
+
+    if when == "before_start":
+        run_stop.request_stop(team.id)
+    with (
+        patch.object(tasks, "feature_enabled_or_false", return_value=True),
+        patch.object(tasks, "run_citation_checks", side_effect=run) as runner,
+    ):
+        run_aeo_citation_checks_for_team_task(team.id)
+
+    assert runner.call_count == (0 if when == "before_start" else 1)
+    assert not run_stop.stop_requested(team.id), "a consumed stop must not skip the next run"
+    assert get_client().lock(f"aeo_citation_run:{team.id}", timeout=60).acquire(blocking=False)
 
 
 def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team) -> None:

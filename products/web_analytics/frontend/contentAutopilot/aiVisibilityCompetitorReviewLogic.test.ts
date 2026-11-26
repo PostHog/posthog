@@ -155,4 +155,25 @@ describe('aiVisibilityCompetitorReviewLogic', () => {
             jest.useRealTimers()
         }
     })
+
+    it('offers only brands the answers named, with the likely ones selected, and confirms them in one step', async () => {
+        const suggested = [
+            { id: CANDIDATES[1].brand_id, name: 'Forum', domain: 'forum.example.org' },
+            { id: '00000000-0000-4000-8000-000000000903', name: 'Quiet rival', domain: 'quiet.example.org' },
+        ] as AEOBrandApi[]
+        jest.mocked(aeoBrandsList).mockImplementation(async (_team, params) =>
+            params?.status === 'suggested'
+                ? { count: suggested.length, next: null, previous: null, results: suggested }
+                : { count: 0, next: null, previous: null, results: [] }
+        )
+        await mountLoaded()
+
+        expect(logic.values.candidates.map(({ name }) => name)).toEqual(['Forum', 'Rival'])
+        expect(logic.values.selectedIds).toEqual([CANDIDATES[1].brand_id])
+
+        await expectLogic(logic, () => logic.actions.confirmSelected()).toDispatchActions(['finishReview'])
+        expect(aeoBrandsPartialUpdate).toHaveBeenCalledTimes(1)
+        expect(logic.values.decisions.confirmed).toBe(1)
+        expect(logic.values.candidates.map(({ name }) => name)).toEqual(['Rival'])
+    })
 })
