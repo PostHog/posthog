@@ -17,6 +17,8 @@ from typing import Any
 from temporalio import activity, common, workflow
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
+from posthog.hogql.database.database import credential_denied_scopes
+
 from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
@@ -176,7 +178,10 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
     try:
         # A Temporal activity has none of the request middleware's team scope, and the
         # dispatch writes a fail-closed NotebookNodeRun row.
-        with team_scope(notebook_run.team_id, canonical=True):
+        with (
+            team_scope(notebook_run.team_id, canonical=True),
+            credential_denied_scopes(notebook_run.credential_denied_scopes or ()),
+        ):
             dispatch = dispatch_node_run(
                 notebook_run.notebook,
                 user,

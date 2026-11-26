@@ -29,6 +29,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import current_credential_denied_scopes
 from posthog.hogql.parser import parse_select
 
 from posthog import redis
@@ -899,6 +900,47 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual([i["name"] for i in dispatched.inputs], ["df1"])
         self.assertEqual(dispatched.inputs[0]["query"], "select id from events")
 
+    @parameterized.expand(
+        [
+            ("query_only_key", ["notebook:write", "query:read"], {"tracing"}, 403),
+            ("key_with_tracing", ["notebook:write", "query:read", "tracing:read"], set(), 200),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_data_plane.get_query_status", return_value=_TRACE_STATUS)
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    def test_scoped_key_run_reads_trace_tables_only_with_tracing_read(
+        self, _name, scopes, expected_denied, expected_status, _mock_start, _mock_status
+    ):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="notebook run", user=self.user, secure_value=hash_key_value(key), scopes=scopes
+        )
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "py", "node_type": "python", "code": "1", "output_name": "result"},
+            format="json",
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        # The sandbox fetches without the key, so the run carries what the key may not read.
+        token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id, response.json()["run_id"])
+        denied_at_enqueue: list[frozenset[str]] = []
+
+        def enqueue(**_kwargs):
+            denied_at_enqueue.append(current_credential_denied_scopes())
+            return SimpleNamespace(id="q1")
+
+        with patch("products.notebooks.backend.sql_v2_data_plane.enqueue_process_query_task", side_effect=enqueue):
+            self.client.post(
+                "/internal/notebooks/data_plane/query/",
+                data=json.dumps({"query": "select name from posthog.trace_spans"}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+        self.assertEqual(denied_at_enqueue, [frozenset(expected_denied)])
+        status = self.client.get("/internal/notebooks/data_plane/query/q1/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(status.status_code, expected_status)
+
     @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     def test_python_node_referencing_a_never_run_node_is_rejected(self, mock_start):
         response = self.client.post(
@@ -1653,6 +1695,113 @@ class TestSQLV2RunResult(APIBaseTest):
         mock_status.side_effect = QueryNotFoundError()
         self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
 
+    @parameterized.expand([("none", 403), ("viewer", 200)])
+    @patch("products.notebooks.backend.sql_v2_data_plane.get_query_status", return_value=_TRACE_STATUS)
+    def test_kernel_run_output_follows_what_its_kernel_read(self, access_level, expected, _mock_status):
+        _set_tracing_access(self, access_level)
+        producer = User.objects.create_and_join(
+            self.organization, "producer@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        runtime = KernelRuntime.objects.create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=producer,
+            read_scopes=[],
+        )
+        # The second run fetches nothing: it reads a frame the first one left in the kernel.
+        fetching, reusing = (
+            self._create_run(NotebookNodeRun.Status.RUNNING, node_type=NotebookNodeRun.NodeType.PYTHON)
+            for _ in range(2)
+        )
+        for run in (fetching, reusing):
+            with team_scope(self.team.id):
+                run.kernel_runtime_id = runtime.id
+                run.save(update_fields=["kernel_runtime_id"])
+        token = mint_data_plane_token(self.notebook.short_id, self.team.id, producer.id, str(fetching.id))
+        response = self.client.get("/internal/notebooks/data_plane/query/q1/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(response.status_code, 200)
+
+        for run in (fetching, reusing):
+            callback = self.client.post(
+                f"/internal/notebooks/runs/{run.id}/result/",
+                # A sandbox claiming its output read nothing must not lift the gate.
+                data=json.dumps({"envelope": {"status": "ok", "first_page": [["GET /api"]], "read_scopes": []}}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {mint_callback_token(str(run.id), self.team.id)}",
+            )
+            self.assertEqual(callback.status_code, 200)
+            self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+
+    @parameterized.expand(
+        [
+            ("pre_tracking_none", "pre_tracking", "none", 403),
+            ("pre_tracking_viewer", "pre_tracking", "viewer", 200),
+            ("missing_kernel_none", "missing", "none", 403),
+            ("unnamed_kernel_none", "unnamed", "none", 403),
+        ]
+    )
+    def test_kernel_with_unknown_reads_gates_its_output(self, _name, kernel, access_level, expected):
+        _set_tracing_access(self, access_level)
+        # read_scopes is None: the kernel predates read recording, so its cache may hold anything.
+        runtime = KernelRuntime.objects.create(
+            team=self.team, notebook=self.notebook, notebook_short_id=self.notebook.short_id, user=self.user
+        )
+        run = self._create_run(NotebookNodeRun.Status.RUNNING, node_type=NotebookNodeRun.NodeType.PYTHON)
+        with team_scope(self.team.id):
+            run.kernel_runtime_id = None if kernel == "unnamed" else runtime.id
+            run.save(update_fields=["kernel_runtime_id"])
+        if kernel == "missing":
+            runtime.delete()
+        callback = self.client.post(
+            f"/internal/notebooks/runs/{run.id}/result/",
+            data=json.dumps({"envelope": {"status": "ok", "first_page": [["GET /api"]]}}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {mint_callback_token(str(run.id), self.team.id)}",
+        )
+        self.assertEqual(callback.status_code, 200)
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+
+    @parameterized.expand(
+        [
+            ("kernel_none", NotebookNodeRun.NodeType.PYTHON, "none", 403),
+            ("kernel_viewer", NotebookNodeRun.NodeType.PYTHON, "viewer", 200),
+        ]
+    )
+    def test_result_stored_before_reads_were_recorded(self, _name, node_type, access_level, expected):
+        _set_tracing_access(self, access_level)
+        run = self._create_run(
+            NotebookNodeRun.Status.DONE, envelope={"first_page": [["GET /api"]]}, node_type=node_type
+        )
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+
+    @parameterized.expand([("none", None), ("viewer", "KeyError: 'GET /api'")])
+    def test_state_hides_a_kernel_error_from_readers_denied_what_it_read(self, access_level, expected_error):
+        _set_tracing_access(self, access_level)
+        self.notebook.content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-markdown-notebook",
+                    "attrs": {
+                        "nodeId": "markdown-notebook-v2",
+                        "markdown": '<PythonV2 nodeId="n1" code="x = 1" returnVariable="x" />',
+                    },
+                }
+            ],
+        }
+        self.notebook.save()
+        self._create_run(
+            NotebookNodeRun.Status.FAILED,
+            envelope={"status": "error", "read_scopes": ["tracing"], "columns": ["name"], "row_count": 1},
+            error="KeyError: 'GET /api'",
+            node_type=NotebookNodeRun.NodeType.PYTHON,
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/state/")
+        self.assertEqual(response.status_code, 200)
+        (cell,) = [cell for cell in response.json()["cells"] if cell["node_id"] == "n1"]
+        self.assertEqual(cell["last_run"]["error"], expected_error)
+
     @parameterized.expand(
         [
             ("stored_run_none", False, "none", 403),
@@ -2319,6 +2468,24 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         mock_status.return_value = _TRACE_STATUS
         token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id if with_user else None)
         self.assertEqual(self._get_status("q1", token=token).status_code, expected)
+
+    @parameterized.expand(
+        [
+            ("unmarked_object", [], 403),
+            ("trace_object", ["read-scopes-recorded", "read-scope:tracing"], 403),
+            ("plain_object", ["read-scopes-recorded"], 302),
+        ]
+    )
+    @patch(
+        "products.notebooks.backend.sql_v2_data_plane.frame_store.presign_get", return_value="https://s3.example.com/f"
+    )
+    @patch("products.notebooks.backend.sql_v2_data_plane.get_query_status")
+    def test_object_status_is_served_only_on_recorded_scopes(self, _name, labels, expected, mock_status, _presign):
+        _set_tracing_access(self, "none")
+        mock_status.return_value = SimpleNamespace(
+            complete=True, error=False, error_message=None, labels=labels, results={"object_key": "k"}
+        )
+        self.assertEqual(self._get_status("q1").status_code, expected)
 
     def test_status_is_team_scoped(self):
         # A leaked query_id plus a token for another team must not read the result.

@@ -9,13 +9,17 @@ its own block in sql_v2_callback.py.
 """
 
 from typing import Any
+from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
 
-from products.notebooks.backend.models import NotebookNodeRun
+from posthog.hogql.database.database import access_controlled_posthog_tables
+
+from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots, renew_run_slots
 from products.notebooks.backend.sql_v2_metrics import OUTCOME_TIMED_OUT, outcome_for_status, record_node_run_terminal
 
@@ -97,6 +101,56 @@ def touch_run_progress(team_id: int, notebook_short_id: str, run_id: str) -> Non
         # The id comes out of a signed token, so a malformed one means the minting side has a
         # bug. Swallow it here rather than failing the sandbox's fetch over it.
         logger.warning("notebook_run_progress_touch_invalid_run_id", run_id=run_id, team_id=team_id)
+
+
+def record_kernel_read_scopes(team_id: int, run_id: str, read_scopes: set[str]) -> None:
+    """Add what the data plane served `run_id` to its kernel's read scopes, before the rows leave.
+
+    Not best effort: a lost write would let the kernel's later outputs reach readers denied these
+    resources, so a failure fails the fetch.
+    """
+    kernel_runtime_id = (
+        NotebookNodeRun.objects.for_team(team_id).filter(id=run_id).values_list("kernel_runtime_id", flat=True).first()
+    )
+    if kernel_runtime_id is None:
+        return
+    with transaction.atomic():
+        # nosemgrep: idor-lookup-without-user-and-team (internal data-plane path; a user filter would skip a kernel another user owns and lift its gate)
+        runtime = KernelRuntime.objects.select_for_update().filter(id=kernel_runtime_id, team_id=team_id).first()
+        # None is a kernel started before reads were recorded: its history stays unknown, and
+        # kernel_read_scopes gates it on everything.
+        if runtime is None or runtime.read_scopes is None or read_scopes.issubset(runtime.read_scopes):
+            return
+        runtime.read_scopes = sorted(read_scopes.union(runtime.read_scopes or []))
+        runtime.save(update_fields=["read_scopes"])
+
+
+def run_credential_denied_scopes(team_id: int, run_id: str | None) -> frozenset[str]:
+    """What the credential that started `run_id` may not read, for the queries the sandbox makes without it."""
+    if not run_id:
+        return frozenset()
+    scopes = (
+        NotebookNodeRun.objects.for_team(team_id)
+        .filter(id=run_id)
+        .values_list("credential_denied_scopes", flat=True)
+        .first()
+    )
+    return frozenset(scopes or ())
+
+
+def kernel_read_scopes(team_id: int, kernel_runtime_id: UUID | None) -> list[str]:
+    gated: list[str] = sorted(set(access_controlled_posthog_tables().values()))
+    if kernel_runtime_id is None:
+        # Only dispatch names the kernel, so a callback for a run without one has unknown provenance.
+        return gated
+    rows = list(
+        # nosemgrep: idor-lookup-without-user-and-team (internal data-plane path; a user filter would skip a kernel another user owns and lift its gate)
+        KernelRuntime.objects.filter(id=kernel_runtime_id, team_id=team_id).values_list("read_scopes", flat=True)[:1]
+    )
+    if not rows or rows[0] is None:
+        # A kernel row that is gone, or that started before reads were recorded, may have held any gated rows.
+        return gated
+    return sorted(rows[0])
 
 
 def seconds_until_kernel_run_is_stale(run: NotebookNodeRun) -> float | None:

@@ -639,6 +639,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             table = self.table.hogql_definition(modifiers)
             if isinstance(table, S3Table):
                 table.saved_query_id = str(self.id)
+                table.saved_query_sql = self.sql
             return table
 
         query = self.query or {}

@@ -804,6 +804,226 @@ def record_read_scopes(scopes: Collection[str]) -> None:
         read_scopes.update(scopes)
 
 
+def record_posthog_table_scopes(scopes: Collection[str]) -> None:
+    """Records reads of gated resources that reached the query through a stored copy of their rows."""
+    read_scopes = _read_posthog_table_scopes.get()
+    if read_scopes is not None:
+        read_scopes.update(scopes)
+
+
+def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = None) -> frozenset[str]:
+    """The resources gating `posthog.*` tables that a materialized view's definition reads, at any depth.
+
+    The materialized copy holds those rows but resolves as a plain S3 table, so it is gated on what its
+    definition reads instead. It fails closed on every gated resource when the walk can't read the definition,
+    or when it or a view it reads changed after the copy was built, since the copy may hold what the old one read.
+    `lookups` comes from `warehouse_lookups` and shares name lookups between the views one query reads.
+    """
+    if table.saved_query_id is None or table.saved_query_sql is None:
+        return frozenset()
+    # Deferred: posthog.schema is heavy, and the walk imports hogql back.
+    from posthog.schema import HogQLQuery  # noqa: PLC0415
+
+    from posthog.hogql_queries.access_controlled_resources import (  # noqa: PLC0415
+        queried_access_controlled_resources,
+        warehouse_lookups,
+    )
+
+    gated_tables = access_controlled_posthog_tables()
+    gated = frozenset(gated_tables.values())
+    catalog = (lookups or warehouse_lookups(team.pk)).for_next_fingerprint()
+    scopes = queried_access_controlled_resources(HogQLQuery(query=table.saved_query_sql), team, _catalog=catalog)
+    if scopes is None:
+        return gated
+    definitions = [table.saved_query_sql]
+    for name in catalog.walked_views:
+        view_query = catalog.view_queries.get(name)
+        if isinstance(view_query, dict) and isinstance(view_query.get("query"), str):
+            definitions.append(view_query["query"])
+    if _reads_tables_the_walk_cannot_name(definitions, catalog.looked_up_names, frozenset(gated_tables), team):
+        return gated
+    if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team):
+        return gated
+    return frozenset(scopes & gated)
+
+
+def _reads_tables_the_walk_cannot_name(
+    definitions: Sequence[str], read_names: Collection[str], gated_tables: frozenset[str], team: Team
+) -> bool:
+    """True when a definition may read a table through a field its text doesn't name, which the name walk misses.
+
+    Warehouse joins and saved expressions add fields to a table. A join reaches its target, and that target's own
+    joins, by no name; an expression with a subquery or query tag reads whatever it selects. Names match on their
+    last segment, case-insensitively, so every queryable form of a table (`posthog.events`, `models.x`) matches.
+    """
+    from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
+    from posthog.hogql.metadata import TableCollector  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
+
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+    from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin  # noqa: PLC0415
+
+    def key(name: str) -> str:
+        return name.rsplit(".", 1)[-1].lower()
+
+    class _ReadFinder(TraversingVisitor):
+        found = False
+
+        def visit_select_query(self, node: ast.SelectQuery) -> None:
+            self.found = True
+
+        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+            self.found = True
+
+        def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+            self.found = True
+
+    names = {key(name) for name in read_names}
+    for definition in definitions:
+        collector = TableCollector()
+        try:
+            collector.visit(parse_select(definition))
+        except BaseHogQLError:
+            return True
+        names |= {key(name) for name in collector.table_names}
+
+    def selects(expression: str) -> bool:
+        finder = _ReadFinder()
+        try:
+            finder.visit(parse_expr(expression))
+        except BaseHogQLError:
+            return True
+        return finder.found
+
+    joins: dict[str, set[str]] = defaultdict(set)
+    reading_expressions: set[str] = set()
+    for source, target, source_key, target_key in (
+        DataWarehouseJoin.objects.filter(team_id=team.pk)
+        .exclude(deleted=True)
+        .values_list("source_table_name", "joining_table_name", "source_table_key", "joining_table_key")
+    ):
+        joins[key(source)].add(key(target))
+        # Join keys are HogQL expressions too, evaluated whenever the joined field is read.
+        if selects(source_key) or selects(target_key):
+            reading_expressions.add(key(source))
+    for table_name, expression in (
+        DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
+        .exclude(deleted=True)
+        .values_list("table_name", "expression")
+    ):
+        if selects(expression):
+            reading_expressions.add(key(table_name))
+    if not joins and not reading_expressions:
+        return False
+
+    gated = {key(name) for name in gated_tables}
+    # Built-in tables reach each other through lazy fields such as `events.person`, so a join stored on one
+    # is reachable from all of them.
+    builtin = {key(name) for name in build_database_root_node().children["posthog"].children}
+    reached: set[str] = set()
+    frontier = list(names)
+    while frontier:
+        name = frontier.pop()
+        if name in reached:
+            continue
+        reached.add(name)
+        if name in builtin:
+            frontier.extend(builtin - reached)
+        if name in reading_expressions:
+            return True
+        for target in joins.get(name, ()):
+            if target in gated:
+                return True
+            frontier.append(target)
+    joined = reached - names
+    if not joined:
+        return False
+    # A joined view can read a gated table itself, so it fails closed instead of being walked too.
+    return any(
+        key(name) in joined
+        for name in DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+        .exclude(deleted=True)
+        .values_list("name", flat=True)
+    )
+
+
+def _virtual_fields_changed_since(built_at: datetime, team: Team) -> bool:
+    """True when a warehouse join or saved expression of the team was changed or removed after `built_at`.
+
+    A build reads the joins and expressions that existed then, which a later walk can no longer see.
+    The join API hard deletes, so its activity log is the only record that a join is gone.
+    """
+    from posthog.models.activity_logging.activity_log import ActivityLog  # noqa: PLC0415
+
+    from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin  # noqa: PLC0415
+
+    if (
+        ActivityLog.objects.filter(
+            # Saved expressions are stored, and logged, on the project's root team.
+            team_id__in={team.pk, team.parent_team_id or team.pk},
+            scope__in=["DataWarehouseJoin", "DataWarehouseExpression"],
+            created_at__gt=built_at,
+        )
+        .exclude(activity="created")
+        .exists()
+    ):
+        return True
+    if DataWarehouseJoin.objects.filter(team_id=team.pk, deleted_at__gt=built_at).exists():
+        return True
+    return (
+        DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
+        .filter(deleted_at__gt=built_at)
+        .exists()
+    )
+
+
+def _definition_changed_since_materialized(saved_query_id: str, view_names: Collection[str], team: Team) -> bool:
+    """True when the view or a view its definition names was edited, created or deleted after its copy's build began."""
+    from django.db.models import Max  # noqa: PLC0415
+    from django.db.models.functions import Greatest  # noqa: PLC0415
+
+    from products.data_modeling.backend.facade.models import (  # noqa: PLC0415
+        DataModelingJob,
+        DataModelingJobStatus,
+        DataWarehouseSavedQuery,
+    )
+
+    built_at = (
+        DataModelingJob.objects.filter(
+            team_id=team.pk, saved_query_id=saved_query_id, status=DataModelingJobStatus.COMPLETED
+        )
+        .order_by("-last_run_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+    root = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team.pk, id=saved_query_id)
+        .values_list("query_updated_at", "last_run_at")
+        .first()
+    )
+    if root is None:
+        return True
+    query_updated_at, last_run_at = root
+    built_at = built_at or last_run_at
+    if built_at is None:
+        return True
+    if query_updated_at is not None and query_updated_at > built_at:
+        return True
+    if _virtual_fields_changed_since(built_at, team):
+        return True
+    names = {name.removeprefix("models.") for name in view_names} | set(view_names)
+    if not names:
+        return False
+    # Deleted rows count too: a view removed after the build no longer shows what the copy read through it.
+    latest_upstream_change = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team.pk, name__in=names)
+        .exclude(id=saved_query_id)
+        .aggregate(latest=Max(Greatest("created_at", "query_updated_at", "deleted_at")))["latest"]
+    )
+    return latest_upstream_change is not None and latest_upstream_change > built_at
+
+
 _credential_denied_scopes: ContextVar[frozenset[str]] = ContextVar("credential_denied_scopes", default=frozenset())
 
 
@@ -1121,6 +1341,10 @@ class Database(BaseModel):
             self._ensure_revenue_views_built()
             return self.tables.has_child(table_name)
         return False
+
+    def denied_posthog_table_scopes(self) -> set[str]:
+        """The resources whose `posthog.*` tables access control removed from this database."""
+        return {scope for name, scope in access_controlled_posthog_tables().items() if name in self._denied_tables}
 
     def is_table_access_denied(self, table_name: str | list[str]) -> bool:
         """True if access control denied this table when the HogQL database was built.

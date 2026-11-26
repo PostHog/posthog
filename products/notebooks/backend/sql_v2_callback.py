@@ -19,6 +19,7 @@ from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots
 from products.notebooks.backend.sql_v2_metrics import outcome_for_status, record_node_run_terminal
+from products.notebooks.backend.sql_v2_runs import kernel_read_scopes
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
 
 logger = structlog.get_logger(__name__)
@@ -92,6 +93,9 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         run = NotebookNodeRun.objects.for_team(team_id).select_related("user", "notebook").get(id=run_id)
     except NotebookNodeRun.DoesNotExist:
         return JsonResponse({"error": "Run not found"}, status=404)
+
+    # Set by the server, never taken from the sandbox: readers of this run are checked against it.
+    envelope["read_scopes"] = kernel_read_scopes(team_id, run.kernel_runtime_id)
 
     status_by_envelope = {
         "ok": NotebookNodeRun.Status.DONE,

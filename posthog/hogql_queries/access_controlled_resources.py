@@ -216,6 +216,11 @@ def shared_warehouse_lookups() -> Iterator[None]:
         _shared_catalogs.reset(token)
 
 
+def warehouse_lookups(team_id: int) -> _WarehouseCatalog:
+    """Name lookups to pass as `_catalog.for_next_fingerprint()` to several walks in one query."""
+    return _WarehouseCatalog(team_id=team_id)
+
+
 def _catalog_for_fingerprint(team_id: int) -> _WarehouseCatalog:
     shared = _shared_catalogs.get()
     if shared is None:
@@ -254,7 +259,7 @@ def queried_access_controlled_resources(
     from posthog.hogql.database.database import access_controlled_posthog_tables  # noqa: PLC0415
     from posthog.hogql.database.schema.system import access_controlled_system_tables  # noqa: PLC0415
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
-    from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
+    from posthog.hogql.metadata import TableCollector  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
@@ -302,28 +307,33 @@ def queried_access_controlled_resources(
 
         if _has_placeholder_table(select):
             return None  # the table is unknown until the placeholder expands -> fail closed
+        if _has_query_tag(select):
+            return None  # a query tag's tables appear only when it expands -> fail closed
 
-        table_names = set(get_table_names(select))
+        collector = TableCollector()
+        collector.visit(select)
         system_scopes = {
             **{f"system.{name}": scope for name, scope in access_controlled_system_tables().items()},
             **access_controlled_posthog_tables(),
         }
-        scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
+        # CTE names are collected without their scope, so a CTE named after a gated table can hide a
+        # read of that table elsewhere in the query. Count such a name as read rather than miss it.
+        scopes: set[str] = {system_scopes[name] for name in collector.table_names if name in system_scopes}
         scopes_from_system_tables = set(scopes)
 
         # Cache partitioning runs before lazy joins resolve, so their resource scopes do not appear as table names yet.
-        if "system.accounts" in table_names and any(
+        if "system.accounts" in collector.table_names and any(
             any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain)
             for field in GetFieldsTraverser(select).fields
         ):
             scopes.add("ticket")
 
-        for name in table_names:
+        for name in collector.table_names:
             scopes |= _TRANSITIVE_SYSTEM_TABLE_SCOPES.get(name, frozenset())
 
         # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
         # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.
-        if table_names & _DATA_CATALOG_INFORMATION_SCHEMA_TABLES:
+        if collector.table_names & _DATA_CATALOG_INFORMATION_SCHEMA_TABLES:
             scopes.add("data_catalog")
             # Their row visibility also depends on per-object warehouse denials (`_catalog_table_visible`
             # and referenced-table filtering hide rows for sources/views the caller can't see), so
@@ -342,7 +352,7 @@ def queried_access_controlled_resources(
         # users with different warehouse grants share a cache key and the denied one is served the
         # allowed one's check configs and run counts on a hit. The specific denied object IDs fold
         # into the key via AnalyticsQueryRunner._get_object_access_restrictions.
-        if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
+        if collector.table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
             scopes.add("data_catalog")
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
@@ -362,7 +372,7 @@ def queried_access_controlled_resources(
         # fingerprint runs before any database), so resolve referenced warehouse objects with a light
         # name lookup. We only add the scope here; the specific denied object IDs are folded into the
         # cache key by AnalyticsQueryRunner._get_object_access_restrictions.
-        non_system_names = table_names - set(system_scopes)
+        non_system_names = collector.table_names - set(system_scopes)
         if non_system_names:
             views = catalog.get_views(non_system_names)
             # Inside a view walk the parent view already added warehouse_table, so skip the table lookup.
@@ -509,6 +519,26 @@ def _has_placeholder_table(select) -> bool:
 
     finder = _PlaceholderTableFinder()
     finder.visit(select)
+    return finder.found
+
+
+def _has_query_tag(node) -> bool:
+    """True when a HogQLX tag anywhere in the tree expands to a query, which can read any table."""
+    # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS  # noqa: PLC0415
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
+
+    class _QueryTagFinder(TraversingVisitor):
+        found = False
+
+        def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+            if node.kind not in HOGQLX_TAGS and node.kind not in HOGQLX_COMPONENTS:
+                self.found = True
+            super().visit_hogqlx_tag(node)
+
+    finder = _QueryTagFinder()
+    finder.visit(node)
     return finder.found
 
 
