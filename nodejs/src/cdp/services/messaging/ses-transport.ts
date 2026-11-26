@@ -187,9 +187,10 @@ export class SesTransport {
     private readonly clients: Record<SendKind, SESv2Client>
 
     constructor(options: SesClientOptions) {
+        const { region, endpoint, credentials } = options
         this.clients = {
             plain: new SESv2Client(options),
-            files: new SESv2Client({ ...options, ...oneAttemptOnANewConnection() }),
+            files: new SESv2Client({ region, endpoint, credentials, ...oneAttemptOnANewConnection() }),
         }
     }
 
