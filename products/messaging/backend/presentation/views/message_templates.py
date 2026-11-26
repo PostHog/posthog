@@ -882,14 +882,13 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
                 data = {**data, "template_id": template.get("id")}
             if "distinct_id" not in data and isinstance(identifiers, Mapping):
                 data = {**data, "distinct_id": identifiers.get("distinct_id")}
-            if "template_id" in data and "category" in data:
-                data = data.copy()
-                del data["category"]
         return super().to_internal_value(data)
 
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         fields["from"] = fields.pop("from_address")
+        if _is_template_send(getattr(self, "initial_data", None)):
+            fields.pop("category")
         return fields
 
     def validate_html(self, value: str) -> str:
@@ -944,6 +943,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
+
+
+def _is_template_send(initial_data: Any) -> bool:
+    return isinstance(initial_data, Mapping) and (
+        "template_id" in initial_data or isinstance(initial_data.get("template"), Mapping)
+    )
 
 
 def _sent_fields(initial_data: Any) -> set[str]:

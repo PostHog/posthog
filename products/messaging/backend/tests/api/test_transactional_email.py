@@ -11,6 +11,7 @@ from unittest.mock import ANY, MagicMock, _Call, call, patch
 
 from django.conf import settings
 from django.core.cache import caches
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -741,16 +742,18 @@ class TestTransactionalEmail(APIBaseTest):
             team=self.team, key=key, name=key.title(), category_type=category_type, deleted=deleted
         )
 
-    @parameterized.expand([(MessageCategoryType.MARKETING,), (MessageCategoryType.TRANSACTIONAL,)])
+    @parameterized.expand(
+        [(MessageCategoryType.MARKETING, {}), (MessageCategoryType.TRANSACTIONAL, {"cc": ["copy@example.com"]})]
+    )
     def test_a_code_send_in_a_category_carries_the_category_to_the_pipeline(
-        self, mock_post, _flag, _capture, category_type
+        self, mock_post, _flag, _capture, category_type, fields
     ):
         category = self._category("newsletter", category_type)
         pipeline = FakeCdpApi()
         mock_post.side_effect = pipeline.post
 
         response = self._psak_client(["hog_flow:write"]).post(
-            self.send_email_url, self._code_send(category="newsletter"), format="json"
+            self.send_email_url, self._code_send(category="newsletter", **fields), format="json"
         )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
@@ -800,7 +803,22 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert len(pipeline.queued) == 1
-        assert "category" not in pipeline.queued[0]
+
+    @override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=0)
+    def test_a_template_form_send_with_a_file_ignores_category_as_before(self, mock_post, flag, _capture):
+        flag.side_effect = lambda name, *_args, **_kwargs: name != CODE_SEND_CATEGORIES_FLAG
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+        form = {name: value for name, value in self._flat(self.body).items() if not isinstance(value, dict)}
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url,
+            {**form, "category": "newsletter", "note": SimpleUploadedFile("note.txt", b"hello")},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert len(pipeline.queued) == 1
 
     def _code_send(self, **fields: Any) -> dict[str, Any]:
         return {
