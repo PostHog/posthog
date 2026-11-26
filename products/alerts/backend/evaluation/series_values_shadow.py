@@ -2,8 +2,6 @@ import time
 from datetime import datetime
 from typing import Any, Literal
 
-from django.conf import settings
-
 import structlog
 import posthoganalytics
 from temporalio.exceptions import CancelledError
@@ -48,8 +46,6 @@ class ShadowComparison:
 
 def is_series_values_precompute_enabled(team: Team) -> bool:
     try:
-        if team.id in settings.ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS:
-            return True
         return bool(
             posthoganalytics.feature_enabled(
                 SERIES_VALUES_PRECOMPUTE_FLAG,
@@ -70,7 +66,6 @@ def is_series_values_precompute_enabled(team: Team) -> bool:
         raise
     except Exception as err:
         capture_exception(err, {"feature": "alerts", "phase": "series_values_flag_check", "team_id": team.pk})
-        logger.exception("alert_series_values_flag_check_failed", team_id=team.pk)
         return False
 
 
@@ -155,7 +150,6 @@ def compare_series_values_shadow(
             err,
             {"feature": "alerts", "phase": "series_values_shadow", "team_id": alert.team_id, "alert_id": str(alert.id)},
         )
-        logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
         comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
     _record(
         alert,
