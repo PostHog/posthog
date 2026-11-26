@@ -865,6 +865,9 @@ const errorTrackingTagRulesCreate = (): ToolBase<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.color !== undefined) {
+            body['color'] = params.color
+        }
         if (params.filters !== undefined) {
             body['filters'] = params.filters
         }
@@ -935,6 +938,9 @@ const errorTrackingTagRulesUpdate = (): ToolBase<ReturnType<typeof ErrorTracking
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.color !== undefined) {
+            body['color'] = params.color
         }
         if (params.filters !== undefined) {
             body['filters'] = params.filters

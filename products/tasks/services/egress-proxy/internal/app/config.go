@@ -20,19 +20,28 @@ type ServerConfig struct {
 
 type ProxyConfig struct {
 	ServerConfig
-	CertificateFile          string `json:"certificate_file"`
-	PrivateKeyFile           string `json:"private_key_file"`
-	ClientCAFile             string `json:"client_ca_file"`
-	VerificationKeysFile     string `json:"verification_keys_file"`
-	RegistryURL              string `json:"registry_url"`
-	RegistryAllowClusterHTTP bool   `json:"registry_allow_cluster_http"`
-	RegistryRegion           string `json:"registry_region"`
-	RegistrySigningKeyFile   string `json:"registry_signing_key_file"`
-	RegistryCAFile           string `json:"registry_ca_file"`
-	LookupTimeoutSeconds     int    `json:"lookup_timeout_seconds"`
-	CacheEntries             int    `json:"cache_entries"`
-	CacheLookups             int    `json:"cache_lookups"`
-	AuditCapacity            int    `json:"audit_capacity"`
+	CertificateFile          string         `json:"certificate_file"`
+	PrivateKeyFile           string         `json:"private_key_file"`
+	ClientCAFile             string         `json:"client_ca_file"`
+	VerificationKeysFile     string         `json:"verification_keys_file"`
+	RegistryURL              string         `json:"registry_url"`
+	RegistryAllowClusterHTTP bool           `json:"registry_allow_cluster_http"`
+	RegistryRegion           string         `json:"registry_region"`
+	RegistrySigningKeyFile   string         `json:"registry_signing_key_file"`
+	RegistryCAFile           string         `json:"registry_ca_file"`
+	LookupTimeoutSeconds     int            `json:"lookup_timeout_seconds"`
+	CacheEntries             int            `json:"cache_entries"`
+	CacheLookups             int            `json:"cache_lookups"`
+	AuditCapacity            int            `json:"audit_capacity"`
+	GitRead                  *GitReadConfig `json:"git_read,omitempty"`
+}
+
+type GitReadConfig struct {
+	GrantURL            string `json:"grant_url"`
+	GrantSigningKeyFile string `json:"grant_signing_key_file"`
+	GrantCAFile         string `json:"grant_ca_file"`
+	SmokescreenURL      string `json:"smokescreen_url"`
+	UpstreamCAFile      string `json:"upstream_ca_file"`
 }
 
 type RelayConfig struct {

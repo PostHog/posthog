@@ -1381,6 +1381,17 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingIssueTagColor(StrEnum):
+    BLUE = "blue"
+    TEAL = "teal"
+    GREEN = "green"
+    YELLOW = "yellow"
+    ORANGE = "orange"
+    RED = "red"
+    PINK = "pink"
+    PURPLE = "purple"
+
+
 class ErrorTrackingOrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
@@ -1493,6 +1504,8 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1517,6 +1530,8 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
@@ -2276,6 +2291,11 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     SPEND_WITHOUT_CONVERSIONS = "spend_without_conversions"
     STRIKING_DISTANCE = "striking_distance"
     KEYWORD_TRACKING = "keyword_tracking"
+
+
+class MarketingAnalyticsRecommendationsConversionSourceKind(StrEnum):
+    POSTHOG = "posthog"
+    GOOGLE_ADS = "google_ads"
 
 
 class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):

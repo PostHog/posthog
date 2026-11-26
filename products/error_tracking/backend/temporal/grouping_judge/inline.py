@@ -18,7 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
+from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
 from posthog.models import Team
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 from posthog.temporal.common.utils import close_db_connections
@@ -161,9 +161,7 @@ def _judge_in_worker(
     new_text, neighbour_text = _truncate(new_text), _truncate(neighbour_text)
 
     try:
-        client = build_ai_gateway_anthropic_client(
-            ai_product=AI_PRODUCT, team_id=team.id, distinct_id=team_distinct_id(team.id)
-        )
+        client = build_anthropic_client(ai_product=AI_PRODUCT, team_id=team.id, distinct_id=team_distinct_id(team.id))
     except ValueError:
         return _JudgeResult(outcome="unavailable")
     with client:

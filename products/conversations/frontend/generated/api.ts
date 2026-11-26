@@ -13,6 +13,7 @@ import type {
     AIReplyPlaybookApi,
     AiFeedbackRequestApi,
     AiHumanOutcomeRequestApi,
+    AiRerunResponseApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsUUIDRequestApi,
@@ -466,6 +467,24 @@ export const conversationsTicketsAiHumanOutcomeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aiHumanOutcomeRequestApi),
+    })
+}
+
+export const getConversationsTicketsAiRerunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/ai_rerun/`
+}
+
+/**
+ * Start a new Support AI run on this ticket. Its output is a private note and is never sent to the customer.
+ */
+export const conversationsTicketsAiRerunCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AiRerunResponseApi> => {
+    return apiMutator<AiRerunResponseApi>(getConversationsTicketsAiRerunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -21,7 +21,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.monitoring import monitor
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change
 from posthog.permissions import AccessControlPermission
 
@@ -41,6 +41,9 @@ from products.ai_observability.backend.score_definition_configs import (
     normalize_score_definition_key,
 )
 from products.ai_observability.backend.score_validation import validate_score_value
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 TRACE_REVIEW_SCORE_VALUE_FIELDS = ("categorical_values", "numeric_value", "boolean_value")
 
@@ -303,6 +306,34 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
             .prefetch_related("versions")
             .distinct()
         }
+        instance = cast(TraceReview | None, self.instance)
+        stored_definition_ids = set(instance.scores.values_list("definition_id", flat=True)) if instance else set()
+        denied_definition_ids: set[str] = set()
+        user = self.context["request"].user
+        if isinstance(user, User):
+            new_definitions = [
+                definition for definition in definition_lookup.values() if definition.id not in stored_definition_ids
+            ]
+            allowed = authorization.check(
+                [
+                    CheckRequest(
+                        resource=Resource(
+                            type=ResourceType.LLM_ANALYTICS,
+                            id=str(definition.id),
+                            project_id=definition.team_id,
+                            created_by_id=definition.created_by_id,
+                        ),
+                        action=Action.VIEW,
+                        subject=Subject(user_id=user.id),
+                    )
+                    for definition in new_definitions
+                ]
+            )
+            denied_definition_ids = {
+                str(definition.id)
+                for definition, is_allowed in zip(new_definitions, allowed, strict=True)
+                if not is_allowed
+            }
         version_lookup = {
             str(version.id): version
             for definition in definition_lookup.values()
@@ -318,6 +349,11 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
 
             if definition is None:
                 score_errors[index]["definition_id"] = "Unknown scorer definition."
+                continue
+            if definition_key in denied_definition_ids:
+                score_errors[index]["definition_id"] = (
+                    "You need viewer access to this scorer to use it. Ask for access or remove it from the review."
+                )
                 continue
 
             definition_version_id = score_payload.get("definition_version_id")

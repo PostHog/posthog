@@ -406,6 +406,42 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
+            ("2026-11-25T12:47:00+00:00", True, ["repo"]),
+            ("2026-11-25T12:47:00", False, ["repo"]),
+            ("2026-11-25T11:59:59Z", False, ["repo"]),
+            (None, False, ["repo"]),
+            ("2026-11-25T12:47:00+00:00", False, []),
+        ]
+    )
+    @time_machine.travel("2026-11-25T12:00:00Z", tick=False)
+    def test_scoped_credential_validates_scope_and_expiry(
+        self, expiry: str | None, valid: bool, repositories: list[str]
+    ) -> None:
+        integration = self.create_integration({"installation_id": "INSTALL"}, {"access_token": "FULL_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.NORMAL)
+        response = MagicMock(status_code=201)
+        response.json.return_value = {"token": "synthetic-scoped-token", "expires_at": expiry}
+        with patch.object(github, "client_request", return_value=response) as client:
+            if not valid:
+                message = (
+                    "Invalid scoped installation token expiry"
+                    if repositories
+                    else "Scoped installation credential requires at least one repository"
+                )
+                with self.assertRaisesRegex(GitHubIntegrationError, message):
+                    github.mint_scoped_installation_credential({"contents": "read"}, repositories)
+                if not repositories:
+                    client.assert_not_called()
+                return
+            credential = github.mint_scoped_installation_credential({"contents": "read"}, repositories)
+        self.assertEqual(credential.expires_at, datetime(2026, 11, 25, 12, 47, tzinfo=UTC))
+        self.assertEqual(credential.token, "synthetic-scoped-token")
+        self.assertNotIn(credential.token, repr(credential))
+        integration.refresh_from_db()
+        self.assertEqual(integration.sensitive_config["access_token"], "FULL_TOKEN")
+
+    @parameterized.expand(
+        [
             # An answer GitHub gave: the account committed, and this is when.
             (
                 "dated_commit",

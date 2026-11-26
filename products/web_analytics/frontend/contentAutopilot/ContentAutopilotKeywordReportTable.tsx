@@ -52,10 +52,10 @@ const KEYWORD_COLUMN: ReportColumn = {
 
 const AI_COLUMNS: ReportColumn[] = [
     {
-        title: 'Mention rate',
+        title: 'Visibility',
         key: 'answer_mention_rate',
         align: 'right',
-        tooltip: 'Of the answers that use this keyword, the share that name your brand or cite your site.',
+        tooltip: 'Share of answers containing this keyword that name your brand or link to your site.',
         sorter: byRate('answer_mention_rate'),
         render: (_, row) => <Rate value={row.answer_mention_rate} of={row.answer_checks} />,
     },
@@ -206,7 +206,7 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
             title: (
                 <GroupTitle
                     title="AI answers"
-                    description="Each day the engines answer your prompts. A keyword counts in an answer, or in a web search the engine ran for it, when that text contains the keyword, case ignored."
+                    description="An answer or search counts for a keyword when its text contains the keyword."
                 />
             ),
             children: AI_COLUMNS,
@@ -215,12 +215,7 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
         ...(searchTable && !impressionsFailed
             ? [
                   {
-                      title: (
-                          <GroupTitle
-                              title="Google search"
-                              description="From Google Search Console: Google searches that contain the keyword and showed your site."
-                          />
-                      ),
+                      title: <GroupTitle title="Google search" description="From Google Search Console." />,
                       children: searchColumns(impressionsLoading ? null : impressions),
                   },
               ]

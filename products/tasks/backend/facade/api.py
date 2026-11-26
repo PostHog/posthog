@@ -114,6 +114,7 @@ from products.tasks.backend.constants import (
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
     TASK_DESCRIPTION_PREVIEW_LENGTH,
+    TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
     TASK_SESSION_MAX_SIZE_BYTES,
     TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
     UPSTREAM_RETRYABLE_ERROR_CATEGORIES,
@@ -157,6 +158,7 @@ from products.tasks.backend.logic.log_slice import (
     summary_to_json,
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
+from products.tasks.backend.logic.services import storage_deletion
 from products.tasks.backend.logic.services.agent_command import send_set_config_option
 from products.tasks.backend.logic.services.agent_egress import AgentEgressRegistry
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
@@ -226,6 +228,8 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
     TaskWorkflowDispatch,
+    task_sessions_s3_prefix,
+    team_task_artifacts_s3_prefix,
 )
 from products.tasks.backend.pr_urls import (
     canonical_github_pull_request_url,
@@ -343,6 +347,7 @@ class _AutoArchiveUnchanged:
 _AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
 
 __all__ = [
+    "TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS",
     "is_current_task_run_actor",
     "mint_private_gateway_token",
     "revoke_private_gateway_token",
@@ -417,8 +422,11 @@ __all__ = [
     "resolve_stream_base_url",
     "claim_and_fail_stale_run",
     "TIMED_OUT_INACTIVITY_STATE_KEY",
+    "delete_organization_task_storage",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
+    "delete_team_task_session_storage_page",
+    "delete_team_task_storage",
     "ensure_personal_channel_id",
     "ensure_sandbox_custom_image_builder_task",
     "edit_task_run_living_artifact",
@@ -681,6 +689,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "benjamin_enabled",
         "claude_model_access",
         "claude_subscription_user_id",
+        "codex_apps_disabled",
         "codex_max_subagents",
         "codex_model_access",
         "codex_shared_prompt_cache",
@@ -3143,6 +3152,22 @@ def update_sandbox_environment(
     return _sandbox_env_to_dto(SandboxEnvironment.objects.select_related("created_by", "custom_image").get(pk=env.pk))
 
 
+def delete_team_task_storage(team_id: int, *, should_stop: Callable[[], bool]) -> int:
+    return storage_deletion.delete_team_storage(team_id, should_stop=should_stop)
+
+
+def delete_team_task_session_storage_page(
+    team_ids: list[int], *, after_task_id: str | None, limit: int, should_stop: Callable[[], bool]
+) -> str | None:
+    return storage_deletion.delete_team_task_session_storage_page(
+        team_ids, after_task_id=after_task_id, limit=limit, should_stop=should_stop
+    )
+
+
+def delete_organization_task_storage(organization_id: UUID | str, *, should_stop: Callable[[], bool]) -> int:
+    return storage_deletion.delete_organization_storage(organization_id, should_stop=should_stop)
+
+
 def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -> bool:
     """Delete a visible environment. Returns whether a row was deleted."""
     env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id, internal=False).first()
@@ -3496,6 +3521,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_connect_token",
         "sandbox_jwt_kid",
         "agent_egress_probe",
+        "agent_egress_git_reads",
         DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
@@ -3591,6 +3617,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "claude_subscription_user_id",
         "codex_model_access",
         "codex_subscription_user_id",
+        # Keeps the apps of the plan owner out of a run that other Slack users can drive.
+        "codex_apps_disabled",
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
@@ -4875,7 +4903,7 @@ def sync_task_run_session(
 
     content_sha256 = hashlib.sha256(content).hexdigest()
     object_storage_key = (
-        f"task-sessions/{visible_run.task.team.organization_id}/{visible_run.task_id}/"
+        f"{task_sessions_s3_prefix(visible_run.task.team.organization_id, visible_run.task_id)}"
         f"{visible_run.active_task_session_id}/{uuid4()}.jsonl"
     )
     object_storage.write(object_storage_key, content)
@@ -9526,7 +9554,6 @@ def finalize_task_staged_artifacts(
     artifacts: list[dict],
 ) -> contracts.StagedArtifactFinalizeResult | None:
     """Verify staged S3 uploads and cache their metadata. ``None`` if task not found."""
-    from django.conf import settings  # noqa: PLC0415
 
     from posthog.storage import object_storage  # noqa: PLC0415
 
@@ -9546,7 +9573,7 @@ def finalize_task_staged_artifacts(
     if task is None or not _task_drive_allowed(task, user_id):
         return None
 
-    artifact_prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/staged/"
+    artifact_prefix = f"{team_task_artifacts_s3_prefix(task.team_id)}task_{task.id}/staged/"
     finalized: list[dict] = []
     for artifact in artifacts:
         artifact_id = artifact["id"]

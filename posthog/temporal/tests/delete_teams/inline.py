@@ -7,8 +7,10 @@ to completion synchronously. ``execute_deletion_workflows_inline`` patches both 
 execute the corresponding workflow on an in-process time-skipping ``WorkflowEnvironment`` with the
 real activities, so the side effects land in the test's (committed) database.
 
-Only ``queue_recording_deletions_activity`` is stubbed — it starts a separate recording-deletion
-workflow on the external cluster, which is out of scope for these tests and covered elsewhere.
+``queue_recording_deletions_activity`` is stubbed — it starts a separate recording-deletion
+workflow on the external cluster, which is out of scope for these tests and covered elsewhere. The
+task storage activities are stubbed too: they sign S3 requests with the process clock, so under a
+frozen clock object storage rejects them and they retry forever. Their own storage tests cover them.
 
 Callers MUST run in a non-atomic test case (``NonAtomicBaseTest`` / ``transaction=True``); the
 activities run on a worker thread pool with their own connections and cannot see data held open in
@@ -17,6 +19,7 @@ an uncommitted transaction.
 
 import uuid
 import asyncio
+import datetime as dt
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -29,24 +32,41 @@ from temporalio.worker import Worker
 
 from posthog.temporal.delete_teams import ACTIVITIES as REAL_ACTIVITIES
 from posthog.temporal.delete_teams.activities import (
+    delete_organization_task_storage_activity as real_delete_organization_task_storage_activity,
+    delete_task_session_storage_activity as real_delete_task_session_storage_activity,
+    delete_task_storage_activity as real_delete_task_storage_activity,
     queue_recording_deletions_activity as real_queue_recording_deletions_activity,
 )
 from posthog.temporal.delete_teams.types import (
     DeleteOrganizationWorkflowInputs,
     DeleteProjectDataWorkflowInputs,
+    OrganizationRecordInputs,
     TeamDataActivityInputs,
 )
 from posthog.temporal.delete_teams.workflows import (
     DeleteOrganizationWorkflow,
     DeleteProjectDataWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
     DeleteTeamsDataWorkflow,
 )
 
-WORKFLOWS = [DeleteTeamsDataWorkflow, DeleteProjectDataWorkflow, DeleteOrganizationWorkflow]
+WORKFLOWS = [
+    DeleteTeamsDataWorkflow,
+    DeleteProjectDataWorkflow,
+    DeleteOrganizationWorkflow,
+    DeleteTaskStorageAfterUploadsExpireWorkflow,
+]
+
+EXECUTION_TIMEOUT = dt.timedelta(hours=6)
 
 # Activities swapped for no-op stubs in the inline worker, matched by object identity so the swap
 # stays correct regardless of how the Temporal SDK derives the registered activity name.
-_STUBBED_ACTIVITIES = {real_queue_recording_deletions_activity}
+_STUBBED_ACTIVITIES = {
+    real_queue_recording_deletions_activity,
+    real_delete_task_session_storage_activity,
+    real_delete_task_storage_activity,
+    real_delete_organization_task_storage_activity,
+}
 
 
 def _inline_activities() -> list:
@@ -54,8 +74,26 @@ def _inline_activities() -> list:
     async def queue_recording_deletions_activity(inputs: TeamDataActivityInputs) -> None:
         pass
 
+    @activity.defn(name="delete_task_session_storage_activity")
+    async def delete_task_session_storage_activity(inputs: TeamDataActivityInputs) -> None:
+        pass
+
+    @activity.defn(name="delete_task_storage_activity")
+    async def delete_task_storage_activity(inputs: TeamDataActivityInputs) -> None:
+        pass
+
+    @activity.defn(name="delete_organization_task_storage_activity")
+    async def delete_organization_task_storage_activity(inputs: OrganizationRecordInputs) -> None:
+        pass
+
     real = [fn for fn in REAL_ACTIVITIES if fn not in _STUBBED_ACTIVITIES]
-    return [*real, queue_recording_deletions_activity]
+    return [
+        *real,
+        queue_recording_deletions_activity,
+        delete_task_session_storage_activity,
+        delete_task_storage_activity,
+        delete_organization_task_storage_activity,
+    ]
 
 
 async def _execute(workflow_run, inputs) -> None:
@@ -68,7 +106,13 @@ async def _execute(workflow_run, inputs) -> None:
             activities=_inline_activities(),
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            await env.client.execute_workflow(workflow_run, inputs, id=str(uuid.uuid4()), task_queue=task_queue)
+            await env.client.execute_workflow(
+                workflow_run,
+                inputs,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                execution_timeout=EXECUTION_TIMEOUT,
+            )
 
 
 def _run_delete_project_data(

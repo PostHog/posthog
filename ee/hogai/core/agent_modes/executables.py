@@ -31,7 +31,6 @@ from posthog.schema import (
 )
 
 from posthog.event_usage import groups
-from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
@@ -260,10 +259,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             "posthog_properties": self._get_agent_mode_posthog_properties(state),
         }
 
-        if resolve_ai_gateway_config() is not None:
-            base_model = MaxChatAnthropic(**model_kwargs)
-        else:
-            base_model = MaxChatAnthropic(**model_kwargs)
+        base_model = MaxChatAnthropic(**model_kwargs)
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.

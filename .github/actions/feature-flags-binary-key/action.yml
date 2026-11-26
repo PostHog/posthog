@@ -1,0 +1,108 @@
+name: Feature-flags binary key
+description: |
+    Computes the key for the debug `feature-flags` binary that MCP CI runs, which is also
+    the name of the artifact master uploads it under.
+    The key is deliberately coarse. It hashes the index entries of everything tracked under
+    rust/ and proto/, the repo-root .cargo/ and rust-toolchain files, the MCP CI workflow
+    (its build step and env), the composite actions the build and lookup use, the toolchain
+    and RUSTFLAGS. A change to any of them builds from source.
+    The output is empty when the index does not describe those inputs faithfully (a symlink
+    that leaves the hashed set, a submodule, a cargo [env] value that names a path), and
+    callers then build from source.
+
+inputs:
+    toolchain:
+        description: 'Rust toolchain the binary is built with'
+        required: true
+    rustflags:
+        description: 'RUSTFLAGS the binary is built with'
+        required: true
+
+outputs:
+    key:
+        description: 'Key for rust/target/debug/feature-flags, empty when the sources could not be hashed'
+        value: ${{ steps.key.outputs.key }}
+
+runs:
+    using: composite
+    steps:
+        - name: Compute feature-flags binary key
+          id: key
+          shell: bash
+          env:
+              TOOLCHAIN: ${{ inputs.toolchain }}
+              FLAGS: ${{ inputs.rustflags }}
+          run: |
+              set -euo pipefail
+              # A key that matches master's while the compiled sources differ would make a PR
+              # test master's binary, so any input the index does not describe refuses the key.
+              status=0
+              SOURCE_HASH=$(GIT_LITERAL_PATHSPECS=1 python3 - <<'PY'
+              import hashlib, os, subprocess, sys, tomllib
+
+              root = os.path.realpath(subprocess.run(
+                  ["git", "rev-parse", "--show-toplevel"], check=True, capture_output=True, text=True
+              ).stdout.strip())
+              os.chdir(root)
+
+              def refuse(msg):
+                  # msg holds PR-controlled names. Escape it as GitHub escapes command data, so it
+                  # cannot end the ::warning:: line and start another workflow command.
+                  msg = msg.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                  print(f"::warning::feature-flags binary key refused, building from source: {msg}", file=sys.stderr)
+                  sys.exit(3)
+
+              # GIT_LITERAL_PATHSPECS (set on this step): no glob or `:(exclude)` magic can drop files.
+              # Paths that do not exist add nothing to the hash.
+              hashed = [
+                  "rust", "proto", ".cargo", "rust-toolchain", "rust-toolchain.toml",
+                  ".gitattributes",
+                  ".github/workflows/ci-mcp.yml",
+                  ".github/actions/setup-protoc",
+                  ".github/actions/feature-flags-binary-key",
+                  ".github/actions/find-feature-flags-binary",
+              ]
+
+              def inside_hashed(path):
+                  return any(path == h or path.startswith(h + "/") for h in hashed)
+
+              listing = subprocess.run(["git", "ls-files", "-s", "-z", "--", *hashed], check=True, capture_output=True).stdout
+              for entry in listing.split(b"\0"):
+                  if not entry:
+                      continue
+                  meta, raw_path = entry.split(b"\t", 1)
+                  path, mode = os.fsdecode(raw_path), meta.split(b" ")[0].decode()
+                  if mode == "160000":
+                      refuse(f"{path!r} is a submodule")
+                  # The index stores a symlink's target string, not the target's contents, so a
+                  # symlink is only hashed faithfully when it resolves into the hashed set.
+                  # A symlinked cargo config, or .cargo directory, would skip the [env] check below.
+                  if mode == "120000":
+                      if ".cargo" in path.split("/"):
+                          refuse(f"cargo config {path!r} is a symlink")
+                      resolved = os.path.realpath(os.path.join(root, path))
+                      if os.path.commonpath([root, resolved]) != root or not inside_hashed(os.path.relpath(resolved, root)):
+                          refuse(f"symlink {path!r} resolves outside the hashed sources")
+                      continue
+                  # A cargo [env] entry can point a build script at sources outside the hashed set,
+                  # for example PROTO_ROOT for usage-ingestion-proto, so it must not name a path.
+                  parts = path.split("/")
+                  if len(parts) >= 2 and parts[-2] == ".cargo" and parts[-1] in ("config", "config.toml"):
+                      with open(path, "rb") as f:
+                          env = tomllib.load(f).get("env", {})
+                      for name, value in env.items():
+                          if not isinstance(value, str) or "/" in value or "\\" in value or ".." in value:
+                              refuse(f"{path!r} sets [env] {name!r} to a table or a path")
+
+              entries = subprocess.run(["git", "ls-files", "-s", "--", *hashed], check=True, capture_output=True).stdout
+              print(hashlib.sha256(entries).hexdigest()[:40])
+              PY
+              ) || status=$?
+              if [ "$status" -eq 3 ]; then
+                  echo "key=" >> "$GITHUB_OUTPUT"
+                  exit 0
+              elif [ "$status" -ne 0 ]; then
+                  exit "$status"
+              fi
+              FLAGS_HASH=$(printf '%s' "$FLAGS" | sha256sum | cut -c1-8)
+              echo "key=feature-flags-debug-v2-${RUNNER_OS}-${RUNNER_ARCH}-${ImageOS:-unknown}-rust${TOOLCHAIN}-${FLAGS_HASH}-${SOURCE_HASH}" >> "$GITHUB_OUTPUT"

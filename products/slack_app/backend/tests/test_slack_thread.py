@@ -1,7 +1,10 @@
+import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -9,6 +12,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
+from products.slack_app.backend.models import SlackChannel, SlackSettings
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (
     PROGRESS_MESSAGE_HEADERS,
@@ -17,6 +21,16 @@ from products.slack_app.backend.slack_thread import (
     SlackThreadHandler,
     _format_task_error,
 )
+
+
+@pytest.fixture(autouse=True)
+def _shared_channel_check_without_a_database(request):
+    # The database-free classes cannot read the approvals the shared-channel check needs.
+    if request.cls is not None and issubclass(request.cls, TestCase):
+        yield
+        return
+    with patch.object(SlackThreadHandler, "_shared_channel_turned_off", return_value=False):
+        yield
 
 
 def _streamed_text(mock_client: MagicMock) -> str:
@@ -1081,3 +1095,45 @@ class TestMobileTaskNotificationTargets(SimpleTestCase):
         )
         handler.post_pr_opened("https://example.com/pr/1", None, reply_target_slack_user_id="U123")
         assert post.call_args.args[0] == "*Hedgehog shipped a PR* :hedgehog: :rocket:"
+
+
+class TestSharedChannelTurnedOffMidRun(BaseTest):
+    @parameterized.expand(
+        [
+            ("relayed_answer_switch_off", lambda h: h.post_thread_message("here is the answer"), False, False),
+            ("relayed_answer_switch_on", lambda h: h.post_thread_message("here is the answer"), True, True),
+            ("progress_switch_off", lambda h: h.post_or_update_progress("planning"), False, False),
+            ("status_stream_switch_off", lambda h: h.start_status_stream(first_markdown_text="thinking"), False, False),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_a_run_stops_posting_once_an_admin_turns_shared_channels_off(
+        self, _name, post, switch_on, posts, mock_get_client, _mock_find_progress
+    ) -> None:
+        # The run passed the check when it started, in an approved Slack Connect channel.
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SHARED", sensitive_config={"access_token": "xoxb"}
+        )
+        SlackChannel.objects.create(slack_workspace_id="T_SHARED", slack_channel_id="C_EXT", approved_at=timezone.now())
+        SlackSettings.objects.create(slack_workspace_id="T_SHARED", external_channels_enabled=switch_on)
+        mock_client = MagicMock()
+        mock_client.conversations_history.return_value = {"messages": [{"ts": "1700000000.000100"}]}
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(
+            SlackThreadContext(
+                team_id=self.team.id,
+                integration_id=integration.id,
+                channel="C_EXT",
+                thread_ts="1700000000.000100",
+                mentioning_slack_user_id="U123",
+            )
+        )
+
+        with patch(
+            "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enforced", return_value=True
+        ):
+            post(handler)
+
+        sent = mock_client.chat_postMessage.called or mock_client.chat_startStream.called
+        assert sent is posts
