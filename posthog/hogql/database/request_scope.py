@@ -46,11 +46,16 @@ class SharedDatabases:
     A Database is built to be read by concurrent query threads (its deferred builds take their own locks),
     so the only coordination needed here is that one thread builds each key while the others wait.
 
+    `enabled` is asked once, at the first build, so a caller on an event loop can pass a check that reads the database.
     Each stored catalog can be large, so past max_databases distinct keys a build is handed out but not kept.
     A catalog holds the access decision it was built with, so it is rebuilt after max_age_seconds: a revoked
     grant reaches the rest of a long batch within that window instead of at the stream's end."""
 
-    def __init__(self, max_databases: int = 4, max_age_seconds: float = 30.0) -> None:
+    def __init__(
+        self, max_databases: int = 4, max_age_seconds: float = 30.0, enabled: Callable[[], bool] = lambda: True
+    ) -> None:
+        self._is_enabled = enabled
+        self._enabled: Optional[bool] = None
         self._max_databases = max_databases
         self._max_age_seconds = max_age_seconds
         self._lock = threading.Lock()
@@ -64,6 +69,10 @@ class SharedDatabases:
         return entry[0]
 
     def get_or_build(self, key: SharedDatabaseKey, build: Callable[[], "Database"]) -> "Database":
+        if self._enabled is None:
+            self._enabled = self._is_enabled()
+        if not self._enabled:
+            return build()
         with self._lock:
             database = self._fresh(key)
             if database is not None:

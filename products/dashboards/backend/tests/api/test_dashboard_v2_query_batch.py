@@ -32,6 +32,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import PersonalAPIKey
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.waiting import wait_until
@@ -668,6 +669,9 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual([line["result"]["result"]["results"] for line in lines], [[[1]], [[2]], [[3]]])
         self.assertEqual(three, one)
         self.assertEqual(mixed, 2 * one)
+        with override_instance_config("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", False):
+            killed, _ = builds([sql(7), sql(8), sql(9)])
+        self.assertEqual(killed, 3 * one)
 
     def test_each_run_is_tagged_for_the_query_log_with_its_tile_target_and_traceparent(self) -> None:
         traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"

@@ -14,7 +14,6 @@ import weakref
 from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import AbstractContextManager, nullcontext
 from contextvars import copy_context
 from dataclasses import replace
 from datetime import UTC, datetime, tzinfo
@@ -780,7 +779,11 @@ class QueryBatch:
         self._deadline = monotonic() + MAX_STREAM_SECONDS
         self._overflow: list[tuple[int, str, ResolvedQuery | QueryBatchInput]] = []
         self._shares = _share_keys(team.organization_id, user.pk)
-        self._databases = SharedDatabases()
+        # The kill switch keeps query threads from sharing schema state. It is read at the first build, not here,
+        # because the batch can be built on an event loop.
+        self._databases = SharedDatabases(
+            enabled=lambda: bool(get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"))
+        )
         self._open = _OpenSlot(self._shares)
         if not self._open.acquire():
             raise QueryBatchBusy()
@@ -798,13 +801,6 @@ class QueryBatch:
         self._watchdog = _Watchdog(self)
         weakref.finalize(self, self._watchdog.cancel)
         self._watchdog.arm(self._next_check() - monotonic())
-
-    def _sharing_databases(self) -> AbstractContextManager[None]:
-        # Read in the worker, as the batch can be built on an event loop. Its kill switch keeps concurrent query
-        # threads from sharing schema state, so planning above, which runs on one thread, shares regardless.
-        if get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
-            return sharing_databases(self._databases)
-        return nullcontext()
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
         resolved: dict[int, ResolvedQuery] = {}
@@ -1150,7 +1146,7 @@ class QueryBatch:
             return {"i": index, "error": _FAILED}
         started = monotonic()
         try:
-            with range_based_freshness(), self._sharing_databases():
+            with range_based_freshness(), sharing_databases(self._databases):
                 response = process_query_dict(
                     self._team,
                     query.query,
