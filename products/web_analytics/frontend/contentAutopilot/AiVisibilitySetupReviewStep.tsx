@@ -49,8 +49,7 @@ export const AiVisibilitySetupReviewStep = ({ onStartAgain }: { onStartAgain: ()
     } = useValues(aiVisibilitySetupReviewLogic)
     const { togglePrompt, toggleKeyword, toggleEngine, setEngineFrequency, openAddPrompts } =
         useActions(aiVisibilitySetupReviewLogic)
-    const { setupContext, restarting, runInProgress, jobRunning, job, hasCurrentChecks } =
-        useValues(contentAutopilotSetupLogic)
+    const { setupContext, restarting, runInProgress, jobRunning, job } = useValues(contentAutopilotSetupLogic)
     const stepPending = (name: string): boolean =>
         jobRunning && !!job && job.steps.some((step) => step.step === name && step.status !== 'done')
     const settingUp = stepPending('prompts')
@@ -226,17 +225,6 @@ export const AiVisibilitySetupReviewStep = ({ onStartAgain }: { onStartAgain: ()
                         ) : (
                             <Skeleton className="h-16 w-full" />
                         )}
-                    </section>
-
-                    <section className="flex flex-col gap-1" data-attr="ai-visibility-setup-review-competitors">
-                        <SectionHeading
-                            title="Competitors"
-                            detail={
-                                hasCurrentChecks
-                                    ? 'Choose your competitors in First results, from the brands the answers named.'
-                                    : 'Competitors appear once the first answers are in.'
-                            }
-                        />
                     </section>
                 </div>
                 <div className="w-full shrink-0 lg:sticky lg:top-4 lg:w-80">

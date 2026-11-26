@@ -64,11 +64,7 @@ export const AiVisibilityFirstResults = (): JSX.Element => {
                 How AI answers see {brandName}
             </Heading>
             <Text size="sm" variant="muted" render={<p className="m-0 mt-1" />}>
-                From {pluralize(view.openAnswers, 'answer')} to prompts that don't name you
-                {view.brandedAnswers > 0
-                    ? `. "When asked about you" uses the ${pluralize(view.brandedAnswers, 'answer')} to prompts that do.`
-                    : '.'}{' '}
-                The overview shows trends once the checks have run on more days.
+                Here is your current overview. We'll keep tracking your brand, so you'll see trends here soon.
             </Text>
 
             <ContentAutopilotStatStrip
@@ -87,7 +83,7 @@ export const AiVisibilityFirstResults = (): JSX.Element => {
             <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
                 <div className="min-w-0 lg:col-span-2">
                     <Heading size="sm" render={<h4 className="m-0" />}>
-                        Brands AI answers name
+                        Top brands mentioned
                     </Heading>
                     <Text size="xs" variant="muted" render={<p className="m-0 mt-1 mb-2" />}>
                         Brands named in at least one of the {pluralize(view.openAnswers, 'answer')}, and you.{' '}
