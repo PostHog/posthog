@@ -2268,7 +2268,6 @@ level:isolated	event_definitions	1
 level:isolated	groups	1
 level:isolated	knowledge_writer	1
 level:isolated	legal_documents	1
-level:isolated	managed_warehouse	1
 level:isolated	messaging	1
 level:isolated	metrics	1
 level:isolated	ml_inference	1
