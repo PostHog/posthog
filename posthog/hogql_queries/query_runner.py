@@ -4033,7 +4033,9 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if user_access_control is None:
             return None
         if queried_resources is None:
-            return user_access_control.blocked_resources or None
+            # The tables are unknown, so key on every scope the user can't read, default-denied ones included:
+            # `blocked_resources` lists only explicit rules, so an admin and a member would share one entry.
+            queried_resources = set(API_SCOPE_OBJECTS)
         # has_resource_access resolves RESOURCE_INHERITANCE_MAP (same predicate the schema filter uses),
         # so a deny on a parent (e.g. customer_analytics) still partitions a child-scoped table (account).
         # Intersecting the raw blocked_resources list would miss inherited denies and leak the cache.

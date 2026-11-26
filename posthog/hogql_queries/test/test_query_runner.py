@@ -2199,6 +2199,16 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         assert keys[0] != keys[1]
 
+    def test_unknown_table_query_partitions_default_denied_resources(self) -> None:
+        query = {"kind": "HogQLQuery", "query": "select * from system.data_deletion_requests where {1}"}
+        member_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        admin_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        assert member_key != admin_key
+
     def test_default_denied_resource_partitions_cache_without_access_control(self):
         self.organization.available_product_features = []
         self.organization.save()
