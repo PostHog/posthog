@@ -21,6 +21,7 @@ from ..message_formatter import (
     sanitize_surrogates,
     truncate_content,
 )
+from ..repeated_input import RepeatedInput
 
 
 class TestTruncateContent:
@@ -376,8 +377,8 @@ class TestFormatInputMessages:
             },
             {"role": "assistant", "content": "Repo a"},
         ]
-        lines = format_input_messages(messages, None, repeated_prefix=2)
-        assert "[1-3] Same as messages 1-3 of an earlier generation's input above" in lines
+        lines = format_input_messages(messages, None, RepeatedInput(messages=2, generation=1))
+        assert "[1-3] Same as messages 1-3 of the input to [GEN 1] above" in lines
         assert "[4] ASSISTANT" in lines
 
     def test_format_with_tool_calls(self):

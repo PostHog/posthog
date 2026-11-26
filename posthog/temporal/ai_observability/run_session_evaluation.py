@@ -395,6 +395,10 @@ def format_session_for_judge(traces: list[LLMTrace], media_marker: MediaMarker |
             rendered_length += len(header) + (2 if sections else 0)
             if preserve_generation_output:
                 options["max_render_length"] = JUDGE_SESSION_MAX_CHARS - rendered_length
+            if not preserve_generation_output:
+                # This pass samples each trace's lines, so a later trace must not point at a message an earlier
+                # trace's sample dropped. Generation numbers keep counting across traces.
+                options["repeated_input_history"] = RepeatedInputHistory(options["repeated_input_history"].generations)
             trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
             try:
                 text, _ = format_trace_text_repr(trace_dict, hierarchy, options)

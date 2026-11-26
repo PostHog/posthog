@@ -26,12 +26,14 @@ Message role headers, empty OpenTelemetry parts, and whitespace-only message bod
 Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
 Root-only traces with readable state still reach the judge, and Hog evaluations can grade root-only traces from their metadata.
 
-A generation whose input starts with the same messages as an earlier generation's input shows those messages as one line, such as `[1-17] Same as messages 1-17 of an earlier generation's input above`.
+Judge transcripts number each generation, as `[GEN 1]`, `[GEN 2]` and so on.
+A generation whose input starts with the same messages as an earlier generation's input shows those messages as one line that names the latest such generation, such as `[1-17] Same as messages 1-17 of the input to [GEN 4] above`.
 Its other messages keep their original numbers.
 Agent loops send the whole conversation again on every call, so without this a trace with seven generations repeats its first prompt seven times.
 The match is against every earlier generation, so sub-agent calls between two steps of an orchestrator do not break it.
 A session evaluation matches across all of the session's traces, so a chat that resends its history in every trace shows it once.
-Messages must be equal in every field except `cache_control`, `signature` and `caller`, which callers change between calls without changing the message.
+The last fallback, which samples lines in each trace, matches only within a trace, so no reference points at a line that another trace's sample dropped.
+Messages must be equal in every field except `cache_control`, `signature` and `caller` on the message or its content blocks, which callers change between calls without changing the message.
 A message that differs in any other field renders in full.
 
 Trace and session evaluations first render a text representation with message truncation and line sampling disabled.

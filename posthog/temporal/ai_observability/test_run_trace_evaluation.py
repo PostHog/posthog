@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 import tracemalloc
@@ -162,7 +163,7 @@ class TestFormatTraceForJudge:
 
         assert "MATH-AGENT" in transcript
         assert "TRACE HIERARCHY" in transcript
-        assert "[GEN]" in transcript
+        assert "[GEN 1]" in transcript
         assert "[SPAN]" in transcript
         assert "gpt-4o" in transcript
         assert "What is 2+2?" in transcript
@@ -314,10 +315,11 @@ class TestFormatTraceForJudge:
         assert not rendered.truncated
         assert rendered.text.count("critical evidence") == prompt_copies
         assert ("(revised)" in rendered.text) == (variant == "first_message_edited")
-        assert ("[1-2] Same as messages 1-2 of an earlier generation's input above" in rendered.text) == (
+        assert ("[1-2] Same as messages 1-2 of the input to [GEN 1] above" in rendered.text) == (
             variant != "first_message_edited"
         )
-        assert "[1-4] Same as messages 1-4 of an earlier generation's input above" in rendered.text
+        resent_generation = 3 if variant == "sub_agent_calls_between_steps" else 2
+        assert f"[1-4] Same as messages 1-4 of the input to [GEN {resent_generation}] above" in rendered.text
         assert "first tool result" in rendered.text
         assert "[6] USER" in rendered.text
         assert "second tool result" in rendered.text
@@ -984,7 +986,7 @@ class TestExecuteTraceLLMJudgeActivity:
                 request = mock_client.complete.call_args[0][0]
                 content = request.messages[0]["content"]
                 assert "AI trace" in request.system
-                assert content.count("[GEN]") == len(trace.events)
+                assert len(re.findall(r"\[\+\] \[GEN \d+\]", content)) == len(trace.events)
                 for fragment in expected_fragments:
                     assert fragment in content
 

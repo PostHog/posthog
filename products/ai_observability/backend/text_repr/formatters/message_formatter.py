@@ -34,7 +34,7 @@ from .constants import (
 )
 from .media_blocks import MediaMarker, parse_media_block
 from .otel_parts import MEDIA_PART_KEY, flatten_parts_message
-from .repeated_input import RepeatedInputHistory
+from .repeated_input import RepeatedInput, RepeatedInputHistory
 from .tool_formatter import format_tools
 
 
@@ -758,7 +758,7 @@ def has_message_content(messages: list[Any], *, is_output: bool = False) -> bool
 
 
 def format_messages_array(
-    messages: list[Any], options: FormatterOptions | None = None, repeated_prefix: int = 0
+    messages: list[Any], options: FormatterOptions | None = None, repeated: RepeatedInput | None = None
 ) -> list[str]:
     """
     Format an array of message objects without header.
@@ -769,8 +769,8 @@ def format_messages_array(
     Args:
         messages: List of message dictionaries with role, content, tool_calls
         options: Formatting options (truncation, etc.)
-        repeated_prefix: Number of leading entries of `messages` that an earlier generation's input starts with.
-            They render as one reference line, and the remaining messages keep their numbers.
+        repeated: The leading entries of `messages` that an earlier generation's input starts with. They render
+            as one line that names that generation, and the remaining messages keep their numbers.
 
     Returns:
         List of formatted lines (no header, starts directly with messages)
@@ -780,12 +780,13 @@ def format_messages_array(
 
     # Count without keeping the flattened messages, because flattening a parts message joins its text
     # into a new string and the repeated messages can be the largest part of the trace.
+    repeated_prefix = repeated.messages if repeated else 0
     repeated_count = sum(1 for _ in _flatten_parts_messages(messages[:repeated_prefix]))
-    if repeated_count:
+    if repeated and repeated_count:
         numbers = "1" if repeated_count == 1 else f"1-{repeated_count}"
         noun = "message" if repeated_count == 1 else "messages"
         lines.append("")
-        lines.append(f"[{numbers}] Same as {noun} {numbers} of an earlier generation's input above")
+        lines.append(f"[{numbers}] Same as {noun} {numbers} of the input to [GEN {repeated.generation}] above")
         needs_separator = True
 
     for i, msg in enumerate(_flatten_parts_messages(messages[repeated_prefix:]), start=repeated_count):
@@ -810,7 +811,7 @@ def format_messages_array(
 
 
 def format_input_messages(
-    ai_input: Any, options: FormatterOptions | None = None, repeated_prefix: int = 0
+    ai_input: Any, options: FormatterOptions | None = None, repeated: RepeatedInput | None = None
 ) -> list[str]:
     """Format input messages section."""
     lines: list[str] = []
@@ -830,7 +831,7 @@ def format_input_messages(
 
     # Handle array of message objects
     if isinstance(ai_input, list):
-        lines.extend(format_messages_array(ai_input, options, repeated_prefix))
+        lines.extend(format_messages_array(ai_input, options, repeated))
         return lines
 
     # Unknown format - show raw with data preservation

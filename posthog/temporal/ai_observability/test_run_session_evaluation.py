@@ -175,8 +175,23 @@ class TestFormatSessionForJudge:
 
         assert rendered is not None
         assert rendered.count("critical evidence") == 1
-        assert "[1-2] Same as messages 1-2 of an earlier generation's input above" in rendered
+        assert "[1-2] Same as messages 1-2 of the input to [GEN 1] above" in rendered
         assert "second question" in rendered
+
+    def test_a_sampled_session_shows_a_resent_prompt_again_in_the_next_trace(self):
+        traces = [_trace(f"t{i}", cost=0, latency=0) for i in range(2)]
+        prompt = {"role": "system", "content": "Answer from the docs. critical evidence"}
+        traces[0].events[0].properties["$ai_input"] = [
+            prompt,
+            *({"role": "user", "content": f"question {i} " + "x" * 900} for i in range(600)),
+        ]
+        traces[1].events[0].properties["$ai_input"] = [prompt, {"role": "user", "content": "last question"}]
+
+        rendered = format_session_for_judge(traces)
+
+        assert rendered is not None
+        assert "SAMPLED VIEW" in rendered
+        assert "critical evidence" in rendered.split("=== Trace 2 of 2")[1]
 
     def test_many_small_traces_are_judged_rather_than_skipped_on_count_alone(self):
         """The overflow check must measure the rendered transcript, not `per_trace_budget * n`.
