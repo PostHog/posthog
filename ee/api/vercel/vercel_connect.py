@@ -375,8 +375,6 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             return _redirect_through_vercel_install(
                 request,
                 {
-                    "access_token": marketplace_grant.access_token,
-                    "token_type": marketplace_grant.token_type,
                     "installation_id": marketplace_grant.installation_id,
                     "user_id": marketplace_grant.user_id,
                     "team_id": marketplace_grant.team_id,
@@ -530,12 +528,6 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     },
                     "user_mappings": {
                         cached_data["user_id"]: user.pk,
-                    },
-                },
-                sensitive_config={
-                    "credentials": {
-                        "access_token": cached_data["access_token"],
-                        "token_type": cached_data["token_type"],
                     },
                 },
                 created_by=user,
