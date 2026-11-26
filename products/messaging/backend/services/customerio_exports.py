@@ -43,6 +43,9 @@ UNVERIFIABLE_MESSAGE = (
     "Customer.io sent its people export without a size or checksum, so PostHog can't tell it's complete."
 )
 FIELD_TOO_LARGE_MESSAGE = "A value in Customer.io's people export is larger than PostHog reads."
+ROW_TOO_LARGE_MESSAGE = "A person in Customer.io's people export has more data than PostHog reads."
+# Customer.io caps a value at 1,000 bytes, so a line this long isn't a person.
+MAX_LINE_CHARS = 4 * 1024 * 1024
 
 
 class ExportError(CustomerIOAPIError):
@@ -231,7 +234,7 @@ def _stated_md5(header: str) -> bytes | None:
 
 
 def _read_file(file: IO[bytes], total: int, workspace_id: str) -> OpenExport:
-    reader = csv.reader(TextIOWrapper(file, encoding="utf-8-sig", newline=""), strict=True)
+    reader = csv.reader(_bounded_lines(TextIOWrapper(file, encoding="utf-8-sig", newline="")), strict=True)
     try:
         columns = next(reader, [])
     except (csv.Error, UnicodeDecodeError) as e:
@@ -269,6 +272,14 @@ def _read_people(
         raise _unreadable(e) from None
     if read != total:
         raise ExportGone(f"Customer.io's people export holds {read:,} people, but says it holds {total:,}.")
+
+
+def _bounded_lines(text: IO[str]) -> Iterator[str]:
+    """The file's lines, refusing one that would fill the worker's memory before the csv module checks its width."""
+    while line := text.readline(MAX_LINE_CHARS + 1):
+        if len(line) > MAX_LINE_CHARS:
+            raise ExportTooLarge(ROW_TOO_LARGE_MESSAGE)
+        yield line
 
 
 def _unreadable(error: Exception) -> ExportError:

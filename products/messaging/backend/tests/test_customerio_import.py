@@ -328,11 +328,20 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
         with patch.object(customerio_exports, "MAX_DOWNLOAD_BYTES", 10), self.assertRaises(ImportTooLarge):
             self._run_contacts()
 
-    def test_a_value_past_the_csv_field_limit_is_not_retried(self) -> None:
+    @parameterized.expand(
+        [
+            ("a_value_past_the_csv_field_limit", "csv_limit", "larger than PostHog reads"),
+            ("a_row_too_wide_to_hold", "line_limit", "more data than PostHog reads"),
+        ]
+    )
+    def test_a_person_too_large_to_read_is_not_retried(self, _name: str, limit: str, message: str) -> None:
         self.workspace.people = [person(1, note="x" * 200)]
-        self.addCleanup(csv.field_size_limit, csv.field_size_limit(100))
+        if limit == "csv_limit":
+            self.addCleanup(csv.field_size_limit, csv.field_size_limit(100))
+        else:
+            self.enterContext(patch.object(customerio_exports, "MAX_LINE_CHARS", 150))
 
-        with self.assertRaisesRegex(ImportTooLarge, "larger than PostHog reads"):
+        with self.assertRaisesRegex(ImportTooLarge, message):
             self._run_contacts()
 
     def test_a_key_that_cannot_export_stops_before_any_run(self) -> None:
