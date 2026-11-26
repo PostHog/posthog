@@ -175,7 +175,7 @@ class TestRenderSectionHtml(SimpleTestCase):
 
     def test_renders_agent_chosen_title(self):
         html = _render_section_html("Volume drop at 14:00", "body", project_id=1, citation_map={})
-        self.assertIn("<h2>Volume drop at 14:00</h2>", html)
+        self.assertIn("<h2>Volume drop at 14:00</h2>", html.replace("\u200b", ""))
 
     def test_escapes_html_in_title(self):
         html = _render_section_html(
@@ -201,6 +201,7 @@ class TestRenderSectionHtml(SimpleTestCase):
     @parameterized.expand(
         [
             ("title_url", "Action required: https://evil.example/login", "body", "https://evil.example/login"),
+            ("title_unicode_domain", "Sign in at постхог-вход.рф", "body", "вход.рф"),
             ("body_url", "Summary", "Sign in at https://evil.example/login", "https://evil.example/login"),
             ("body_domain", "Summary", "Sign in at evil.example/login", "evil.example"),
             ("body_code_block", "Summary", "```\nevil.example/login\n```", "evil.example"),
@@ -784,7 +785,7 @@ class TestDeliverSlackReport(SimpleTestCase):
         deliver_slack_report(
             self._make_report_run(title="Re-authenticate at https://evil.example/login"),
             [{"type": "slack", "integration_id": 3, "channel": "C0B5CHB0JQH"}],
-            evaluation_name="@here sign in at https://name.example <https://name.example|here>",
+            evaluation_name="@here sign in at https://name.example <https://name.example|here> or вход.рф",
             evaluation_id="eval-1",
             team_id=7,
             project_id=1,
@@ -796,6 +797,7 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.assertEqual(header["type"], "header")
         self.assertNotIn("https://evil.example", header["text"]["text"])
         self.assertNotIn("https://name.example", header["text"]["text"])
+        self.assertNotIn("вход.рф", header["text"]["text"])
         self.assertNotIn("<https://name.example", context["elements"][0]["text"])
         self.assertTrue(context["elements"][0]["verbatim"])
 

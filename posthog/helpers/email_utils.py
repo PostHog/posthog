@@ -230,9 +230,9 @@ def sanitize_email_fragment(value: str) -> str:
     return _break_separators(html.escape(_clean(value)))
 
 
-def defang_urls(value: str) -> str:
-    """`sanitize_email_string` without the HTML-escaping, for plain-text surfaces such as a Slack header."""
-    return _defang(_clean(value))
+def defang_text(value: str) -> str:
+    """`sanitize_email_fragment` without the HTML-escaping, for plain-text surfaces such as a Slack header."""
+    return _break_separators(_clean(value))
 
 
 def _clean(value: str) -> str:

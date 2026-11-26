@@ -17,7 +17,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
-from posthog.helpers.email_utils import defang_urls, sanitize_email_fragment, sanitize_email_string
+from posthog.helpers.email_utils import defang_text, sanitize_email_fragment
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
@@ -319,7 +319,7 @@ def _render_section_html(title: str, content: str, project_id: int, citation_map
     content_with_links = _linkify_citations(content, project_id, citation_map)
     md = _CitationLinksMarkdownIt({_make_citation_link(project_id, link) for link in citation_map.values()})
     html_content = _inline_email_styles(md.render(content_with_links))
-    return f"<h2>{sanitize_email_string(title)}</h2>\n{html_content}\n"
+    return f"<h2>{sanitize_email_fragment(title)}</h2>\n{html_content}\n"
 
 
 def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
@@ -457,8 +457,8 @@ def deliver_slack_report(
     failures: list[SlackDeliveryFailure] = []
 
     # Slack auto-links URLs even in the plain-text header, so the evaluation name and title are defanged.
-    name = defang_urls(evaluation_name)
-    header_text = f"{name}: {defang_urls(content.title)}" if content.title else f"Evaluation report: {name}"
+    name = defang_text(evaluation_name)
+    header_text = f"{name}: {defang_text(content.title)}" if content.title else f"Evaluation report: {name}"
     # Slack header blocks are limited to 150 chars, enforce that here.
     if len(header_text) > 150:
         header_text = header_text[:147] + "..."
