@@ -3,7 +3,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -101,7 +101,7 @@ class TestParseActionSettings(SimpleTestCase):
             parse_action_settings(kind, settings)
 
 
-class TestSeasonalCampaignItemForm(TestCase):
+class TestSeasonalCampaignItemForm(SimpleTestCase):
     def test_admin_refuses_settings_the_handler_cannot_run(self) -> None:
         form = SeasonalCampaignItemForm(
             data={
@@ -113,7 +113,7 @@ class TestSeasonalCampaignItemForm(TestCase):
                 "action_kind": "ask_ai",
                 "action_settings": '{"prompt": ""}',
             },
-            instance=SeasonalCampaignItem(campaign=make_campaign()),
+            instance=SeasonalCampaignItem(campaign=SeasonalCampaign(key="winter-2026")),
         )
 
         assert not form.is_valid()
