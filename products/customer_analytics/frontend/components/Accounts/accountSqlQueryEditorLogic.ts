@@ -34,6 +34,8 @@ import {
 import type { AccountViewTileConfig, AccountViewTileConfigEditorProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
+const UNAVAILABLE_CONNECTION_ID = '__unavailable_account_sql_connection__'
+
 export interface AccountSqlQueryEditorLogicProps extends AccountViewTileConfigEditorProps {
     tabId: string
 }
@@ -146,6 +148,9 @@ export const accountSqlQueryEditorLogic: LogicWrapper<accountSqlQueryEditorLogic
                         return queryInput === null ? config : { ...config, query: queryInput }
                     },
                     setSourceQuery: (config, { sourceQuery }) => {
+                        if (sourceQuery.source.connectionId === UNAVAILABLE_CONNECTION_ID) {
+                            return config
+                        }
                         const { connectionId: _connectionId, ...rest } = config
                         return {
                             ...rest,
@@ -178,7 +183,10 @@ export const accountSqlQueryEditorLogic: LogicWrapper<accountSqlQueryEditorLogic
                     props.onChange(values.config)
                 }
             },
-            setSourceQuery: () => {
+            setSourceQuery: ({ sourceQuery }) => {
+                if (sourceQuery.source.connectionId === UNAVAILABLE_CONNECTION_ID) {
+                    return
+                }
                 if (cache.connectionId !== values.config.connectionId) {
                     cache.connectionId = values.config.connectionId
                     posthog.capture(AccountsEvents.SqlQueryConnectionSelected, {
@@ -228,18 +236,15 @@ export const accountSqlQueryEditorLogic: LogicWrapper<accountSqlQueryEditorLogic
             loadAccountSuccess: () => actions.setAccountPlaceholder(),
             restoreEditor: () => {
                 const query = getAccountSqlQuery(values.config)
-                if (getAccountSqlQueryConnectionError(values.config.connectionId)) {
-                    actions.setQueryInput(query)
-                    return
-                }
+                const connectionId = getAccountSqlQueryConnectionError(values.config.connectionId)
+                    ? UNAVAILABLE_CONNECTION_ID
+                    : values.config.connectionId
                 actions.setSourceQuery(
                     createAccountSqlVisualizationNode(
                         {
                             kind: NodeKind.HogQLQuery,
                             query,
-                            ...(typeof values.config.connectionId === 'string'
-                                ? { connectionId: values.config.connectionId }
-                                : {}),
+                            ...(typeof connectionId === 'string' ? { connectionId } : {}),
                         },
                         values.config
                     )

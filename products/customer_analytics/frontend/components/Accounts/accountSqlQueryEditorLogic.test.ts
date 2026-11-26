@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -8,9 +9,16 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
+import {
+    getConnectionSelectOptions,
+    getConnectionSelectorValue,
+    POSTHOG_WAREHOUSE,
+} from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
+
 import { createAccountSqlVisualizationNode } from './accountSqlQuery'
 import { accountSqlQueryEditorLogic } from './accountSqlQueryEditorLogic'
 import type { AccountViewTileConfig } from './accountViewTileConfig'
+import { AccountsEvents } from './constants'
 
 jest.mock('lib/utils/kea-logic-builders', () => ({
     permanentlyMount: () => () => {},
@@ -42,7 +50,10 @@ describe('accountSqlQueryEditorLogic', () => {
         })
     })
 
-    afterEach(() => unmounts.reverse().forEach((unmount) => unmount()))
+    afterEach(() => {
+        unmounts.reverse().forEach((unmount) => unmount())
+        jest.restoreAllMocks()
+    })
 
     async function mountEditor(
         config: AccountViewTileConfig,
@@ -154,37 +165,66 @@ describe('accountSqlQueryEditorLogic', () => {
         }
     )
 
-    it.each([123, connectionId.replace(/-/g, ''), 'not-a-uuid'])(
-        'blocks saved connection %s across the restricted editor mount until a source is selected',
-        async (invalidId) => {
-            const config = { query, connectionId: invalidId }
-            const { logic, editor, onChange } = await mountEditor(config)
-            const restrictedBinding = sqlEditorLogic({
-                tabId: logic.props.tabId,
-                mode: SQLEditorMode.Embedded,
-                captureQueryTelemetry: false,
-                allowRawSql: false,
+    it.each(
+        [123, connectionId.replace(/-/g, ''), 'not-a-uuid', '', POSTHOG_WAREHOUSE].flatMap((invalidId) =>
+            [undefined, connectionId].map((nextId) => [invalidId, nextId] as const)
+        )
+    )('blocks saved connection %s across the restricted editor mount until selecting %s', async (invalidId, nextId) => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const config = { query, connectionId: invalidId, visualization }
+        const { logic, editor, onChange } = await mountEditor(config)
+        const restrictedBinding = sqlEditorLogic({
+            tabId: logic.props.tabId,
+            mode: SQLEditorMode.Embedded,
+            captureQueryTelemetry: false,
+            allowRawSql: false,
+        })
+        await expectLogic(logic, () => {
+            unmounts.push(restrictedBinding.mount())
+        }).toFinishAllListeners()
+        expect(restrictedBinding.values.rawSqlAllowed).toBe(false)
+        logic.actions.runPreview()
+        expect(logic.values.previewConfig).toBeNull()
+        expect(logic.values.config).toEqual(config)
+        expect(onChange).not.toHaveBeenCalled()
+        expect(editor.values.queryInput).toEqual(query)
+        const selectedValue = getConnectionSelectorValue(false, editor.values.selectedConnectionId)
+        const connectionOptions = getConnectionSelectOptions(
+            [{ options: [{ value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' }] }],
+            [],
+            false,
+            editor.values.selectedConnectionId,
+            { allowedEngines: ['clickhouse'], requireHogQL: true, showSourceActions: false }
+        )
+        expect(selectedValue).not.toBe(POSTHOG_WAREHOUSE)
+        expect(connectionOptions[0].options).toContainEqual(
+            expect.objectContaining({
+                value: selectedValue,
+                label: 'Selected connection (unavailable)',
+                disabled: true,
             })
-            await expectLogic(logic, () => {
-                unmounts.push(restrictedBinding.mount())
-            }).toFinishAllListeners()
-            expect(restrictedBinding.values.rawSqlAllowed).toBe(false)
-            logic.actions.runPreview()
-            expect(logic.values.previewConfig).toBeNull()
-            expect(logic.values.config).toEqual(config)
-            expect(onChange).not.toHaveBeenCalled()
-            expect(editor.values.queryInput).toEqual(query)
+        )
+        expect(capture).not.toHaveBeenCalledWith(AccountsEvents.SqlQueryConnectionSelected, expect.anything())
 
-            editor.actions.setSourceQuery({
-                kind: NodeKind.DataVisualizationNode,
-                source: { kind: NodeKind.HogQLQuery, query, connectionId },
-            })
-            logic.actions.runPreview()
-            expect(logic.values.previewConfig).toEqual({
-                query,
-                connectionId,
-                visualization: { display: ChartDisplayType.ActionsTable },
-            })
+        editor.actions.setSourceQuery({
+            ...editor.values.sourceQuery,
+            source: { ...editor.values.sourceQuery.source, connectionId: nextId },
+        })
+        logic.actions.runPreview()
+        const expectedConfig = {
+            query,
+            ...(nextId ? { connectionId: nextId } : {}),
+            visualization,
         }
-    )
+        expect(logic.values.config).toStrictEqual(expectedConfig)
+        expect(onChange.mock.calls.at(-1)?.[0]).toEqual(logic.values.config)
+        expect(logic.values.previewConfig).toEqual(expectedConfig)
+        expect(getConnectionSelectorValue(false, editor.values.selectedConnectionId)).toBe(nextId ?? POSTHOG_WAREHOUSE)
+        expect(editor.values.placeholders).toEqual([
+            { name: 'account_external_id', description: 'The current account', previewValue: 'example-org-one' },
+        ])
+        expect(capture).toHaveBeenCalledWith(AccountsEvents.SqlQueryConnectionSelected, {
+            source_kind: nextId ? 'clickhouse' : 'posthog',
+        })
+    })
 })

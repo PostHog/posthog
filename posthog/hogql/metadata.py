@@ -127,7 +127,7 @@ def get_hogql_metadata(
         response.errors = [HogQLNotice(message=INVALID_CONNECTION_ID_ERROR)]
         return response
 
-    if source:
+    if source and (database is None or database._connection_id != str(source.id)):
         database = Database.create_for(
             team=team,
             user=user,

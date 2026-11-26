@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -12,6 +13,7 @@ from rest_framework import status
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.sources_cache import clear_sources_cache
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
@@ -322,16 +324,18 @@ class TestAccountViews(APIBaseTest):
             job_inputs={"host": "example.com", "database": "example"},
         )
 
-    def _create_sql_table(self, source: ExternalDataSource, column_name: str = "account_id") -> DataWarehouseTable:
+    def _create_sql_table(
+        self, source: ExternalDataSource, column_name: str = "account_id", *, table_name: str = "engagements"
+    ) -> DataWarehouseTable:
         table = DataWarehouseTable.objects.create(
             team=source.team,
-            name="engagements",
+            name=table_name,
             format="Parquet",
             external_data_source=source,
             url_pattern="direct://clickhouse",
             columns={column_name: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
         )
-        ExternalDataSchema.objects.create(team=source.team, source=source, table=table, name="engagements")
+        ExternalDataSchema.objects.create(team=source.team, source=source, table=table, name=table_name)
         return table
 
     @parameterized.expand(
@@ -380,6 +384,7 @@ class TestAccountViews(APIBaseTest):
     def test_sql_widget_connection_checks_saving_user_access(self, resource: str) -> None:
         source = self._create_sql_source()
         table = self._create_sql_table(source)
+        self._create_sql_table(source, table_name="public_engagements")
         membership = OrganizationMembership.objects.get(user=self.editor, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
@@ -388,14 +393,19 @@ class TestAccountViews(APIBaseTest):
             access_level="none",
             organization_member=membership,
         )
-        self.client.force_login(self.editor)
-        config = {
-            "query": "SELECT account_id FROM engagements WHERE account_id = {account_external_id}",
-            "connectionId": str(source.id),
-        }
-        content = account_view_content(f'<SqlQuery nodeId="sql-one" config={{{json.dumps(config)}}} />')
+        content = account_view_content(
+            *(
+                f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps({"query": f"SELECT account_id FROM {name} WHERE account_id = {{account_external_id}}", "connectionId": str(source.id)})}}} />'
+                for index, name in enumerate(["public_engagements", "engagements"])
+            )
+        )
 
         with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            allowed_response = self.client.post(
+                self.endpoint, {"name": "Allowed SQL view", "content": content}, format="json"
+            )
+            assert allowed_response.status_code == status.HTTP_201_CREATED, allowed_response.json()
+            self.client.force_login(self.editor)
             response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
@@ -406,11 +416,14 @@ class TestAccountViews(APIBaseTest):
             ("same_source", status.HTTP_201_CREATED),
             ("matching_source", status.HTTP_201_CREATED),
             ("different_columns", status.HTTP_403_FORBIDDEN),
+            ("matching_source_distinct_query", status.HTTP_201_CREATED),
+            ("different_columns_distinct_query", status.HTTP_403_FORBIDDEN),
+            ("invalid_second_query", status.HTTP_403_FORBIDDEN),
             ("warehouse", status.HTTP_403_FORBIDDEN),
         ]
     )
     @patch("products.customer_analytics.backend.logic.account_views.ACCOUNT_VIEW_SQL_VALIDATION_SECONDS", 60)
-    def test_sql_widgets_authorize_identical_sql_per_connection(self, second_source: str, expected_status: int) -> None:
+    def test_sql_widgets_authorize_each_query_per_connection(self, second_source: str, expected_status: int) -> None:
         source = self._create_sql_source()
         self._create_sql_table(source)
         first_config = {
@@ -421,12 +434,18 @@ class TestAccountViews(APIBaseTest):
         second_config = {**first_config}
         if second_source == "warehouse":
             second_config.pop("connectionId")
+        elif second_source == "invalid_second_query":
+            second_config["query"] = "SELECT missing_column FROM engagements WHERE account_id = {account_external_id}"
         elif second_source != "same_source":
             other_source = self._create_sql_source()
             self._create_sql_table(
-                other_source, "other_account_id" if second_source == "different_columns" else "account_id"
+                other_source, "other_account_id" if second_source.startswith("different_columns") else "account_id"
             )
             second_config["connectionId"] = str(other_source.id)
+            if second_source.endswith("distinct_query"):
+                second_config["query"] = (
+                    "SELECT count(account_id) FROM engagements WHERE account_id = {account_external_id}"
+                )
         content = account_view_content(
             *(
                 f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps(config)}}} />'
@@ -447,7 +466,7 @@ class TestAccountViews(APIBaseTest):
         source = self._create_sql_source()
         self.addCleanup(clear_sources_cache)
         Database.create_for(team=self.team, user=self.user, connection_id=str(source.id), use_cached_sources=True)
-        self._create_sql_table(source)
+        table = self._create_sql_table(source)
         config = {
             "query": "SELECT account_id FROM engagements WHERE account_id = {account_external_id}",
             "connectionId": str(source.id),
@@ -459,16 +478,33 @@ class TestAccountViews(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert AccountView.objects.for_team(self.team.id).get(id=response.json()["id"]).content == content
 
-    def test_sql_widgets_share_one_catalog_per_save(self) -> None:
+        table.columns = {"other_account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
+        table.save()
+        response = self.client.post(self.endpoint, {"name": "Changed SQL view", "content": content}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not AccountView.objects.for_team(self.team.id).filter(name="Changed SQL view").exists()
+
+    @parameterized.expand([False, True])
+    @patch("products.customer_analytics.backend.logic.account_views.ACCOUNT_VIEW_SQL_VALIDATION_SECONDS", 60)
+    def test_sql_widgets_share_one_catalog_per_save(self, use_connection: bool) -> None:
+        connection_config = {}
+        queries = [
+            "SELECT name FROM system.accounts WHERE external_id = {account_external_id}",
+            "SELECT external_id FROM system.accounts WHERE external_id = {account_external_id}",
+        ]
+        if use_connection:
+            source = self._create_sql_source()
+            self._create_sql_table(source)
+            connection_config = {"connectionId": str(source.id)}
+            queries = [
+                "SELECT account_id FROM engagements WHERE account_id = {account_external_id}",
+                "SELECT count() FROM engagements WHERE account_id = {account_external_id}",
+            ]
         content = account_view_content(
             *(
-                f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps({"query": query})}}} />'
-                for index, query in enumerate(
-                    [
-                        "SELECT name FROM system.accounts WHERE external_id = {account_external_id}",
-                        "SELECT external_id FROM system.accounts WHERE external_id = {account_external_id}",
-                    ]
-                )
+                f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps({"query": query, **connection_config})}}} />'
+                for index, query in enumerate(queries)
             )
         )
         with patch.object(Database, "create_for", wraps=Database.create_for) as create_catalog:
@@ -477,8 +513,11 @@ class TestAccountViews(APIBaseTest):
         assert create_catalog.call_count == 1
         assert AccountView.objects.for_team(self.team.id).get(id=response.json()["id"]).content == content
 
-    @parameterized.expand([False, True])
-    def test_sql_validation_deadline_prevents_saving(self, use_connection: bool) -> None:
+    @parameterized.expand(
+        [(use_connection, boundary) for use_connection in [False, True] for boundary in ["catalog", "compiler"]]
+    )
+    @patch("products.customer_analytics.backend.logic.account_views.ACCOUNT_VIEW_SQL_VALIDATION_SECONDS", 5)
+    def test_sql_validation_deadline_prevents_saving(self, use_connection: bool, boundary: str) -> None:
         connection_config = {}
         query = "SELECT name FROM system.accounts WHERE external_id = {account_external_id}"
         if use_connection:
@@ -492,7 +531,26 @@ class TestAccountViews(APIBaseTest):
                 for index in range(3)
             )
         )
-        with patch("products.customer_analytics.backend.logic.account_views.monotonic", side_effect=[0, 0, 0, 3, 3, 6]):
+        clock = [0]
+        create_catalog = Database.create_for
+
+        def load_catalog(*args: Any, **kwargs: Any) -> Database:
+            database = create_catalog(*args, **kwargs)
+            if boundary == "catalog":
+                clock[0] = 6
+            return database
+
+        def compile_query(*args: Any, **kwargs: Any) -> object:
+            result = prepare_and_print_ast(*args, **kwargs)
+            if boundary == "compiler":
+                clock[0] += 3
+            return result
+
+        with (
+            patch("products.customer_analytics.backend.logic.account_views.monotonic", side_effect=lambda: clock[0]),
+            patch.object(Database, "create_for", side_effect=load_catalog),
+            patch("posthog.hogql.metadata.prepare_and_print_ast", side_effect=compile_query),
+        ):
             response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "SQL validation took too long" in str(response.json())

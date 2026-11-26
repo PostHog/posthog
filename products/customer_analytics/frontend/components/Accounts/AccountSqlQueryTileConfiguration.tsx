@@ -39,7 +39,9 @@ export function AccountSqlQueryTileConfiguration(props: AccountViewTileConfigEdi
                         relies on your column choice. Subqueries, UNION branches, and every OR branch must keep this
                         filter. Use the column directly, without a SELECT or WITH alias. INNER JOIN can connect other
                         tables to a filtered source. Give each table a unique alias and use qualified column equalities
-                        in ON. Deduplicate mapping rows when keys repeat to avoid multiplying counts.
+                        in ON. In mapping subqueries, explicitly select join keys from source columns. Choose keys that
+                        link rows to the account. The validator cannot infer these relationships. Deduplicate mapping
+                        rows when keys repeat to avoid multiplying counts.
                     </>
                 }
             >

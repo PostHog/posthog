@@ -1,5 +1,32 @@
 [
     {
+        "name": "inherited union scalar cannot forge mapping key",
+        "query": "SELECT e.event FROM example_events e JOIN (WITH 'other-account' AS forged_key SELECT external_id FROM system.accounts WHERE external_id = {account_external_id} UNION ALL SELECT forged_key FROM system.accounts WHERE external_id = {account_external_id}) a ON e.account_id = a.external_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "inherited union scalar cannot forge account filter",
+        "query": "WITH {account_external_id} AS account_id SELECT id FROM example_projects p WHERE p.account_id = {account_external_id} UNION ALL SELECT id FROM example_projects WHERE account_id = {account_external_id}",
+        "valid": false
+    },
+    {
+        "name": "identity alias preserves physical mapping key",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id AS id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "valid": true
+    },
+    {
+        "name": "unqualified physical key from joined mapping",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT project_id FROM example_projects p JOIN example_accounts a ON p.account_id = a.id WHERE a.external_id = {account_external_id}) m ON e.project_id = m.project_id",
+        "valid": true
+    },
+    {
+        "name": "unqualified key cannot choose a constant subquery projection",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT project_id FROM example_projects p JOIN (SELECT 1 AS project_id, external_id FROM system.accounts WHERE external_id = {account_external_id}) a ON p.account_id = a.external_id) m ON e.project_id = m.project_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
         "name": "system accounts external ID",
         "query": "SELECT * FROM system.accounts WHERE external_id = {account_external_id}",
         "valid": true
@@ -237,6 +264,81 @@
         "name": "joined scoped subquery column remapping",
         "query": "SELECT e.event FROM example_events e JOIN (SELECT id FROM example_projects WHERE account_id = {account_external_id}) p (other_id) ON e.project_id = p.other_id",
         "error": "SQL account widgets do not support table column aliases.",
+        "valid": false
+    },
+    {
+        "name": "constant projected join key",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT 'example_event' AS event FROM system.accounts WHERE external_id = {account_external_id}) a ON e.event = a.event",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "constant projected join key on the left",
+        "query": "SELECT e.event FROM (SELECT 1 AS project_id FROM example_projects WHERE account_id = {account_external_id}) p JOIN example_events e ON e.project_id = p.project_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "nested constant projected join key",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT p.project_id FROM (SELECT 1 AS project_id FROM example_projects WHERE account_id = {account_external_id}) p) a ON e.project_id = a.project_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "scalar alias projected join key",
+        "query": "SELECT e.event FROM example_events e JOIN (WITH 1 AS project_id SELECT project_id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.project_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "computed projected join key",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT toString(id) AS project_id FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.project_id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "constant join key in union branch",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT 1 AS id FROM other_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "union key matches by position instead of name",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id, account_id FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT 1 AS other_id, id FROM other_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "scoped union mapping with renamed columns",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT project_id FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT id FROM other_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.project_id",
+        "valid": true
+    },
+    {
+        "name": "computed values alongside a direct join key",
+        "query": "SELECT e.event, p.total FROM example_events e JOIN (SELECT id, count() AS total FROM example_projects WHERE account_id = {account_external_id} GROUP BY id) p ON e.project_id = p.id",
+        "valid": true
+    },
+    {
+        "name": "nested source column join key",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT p.id AS project_id FROM (SELECT id FROM example_projects WHERE account_id = {account_external_id}) p) a ON e.project_id = a.project_id",
+        "valid": true
+    },
+    {
+        "name": "wildcard mapping needs explicit join keys",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT * FROM example_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "expanding projection cannot shift union keys",
+        "query": "SELECT e.event FROM example_events e JOIN (SELECT id, account_id FROM example_projects WHERE account_id = {account_external_id} UNION ALL SELECT untuple(tuple(1)), id FROM other_projects WHERE account_id = {account_external_id}) p ON e.project_id = p.id",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
+        "valid": false
+    },
+    {
+        "name": "constant projection from cte table",
+        "query": "WITH mapping AS (SELECT 1 AS project_id, external_id FROM system.accounts WHERE external_id = {account_external_id}) SELECT e.event FROM example_events e JOIN mapping p ON e.project_id = p.project_id WHERE p.external_id = {account_external_id}",
+        "error": "Use INNER JOIN with unique table aliases and column equalities connecting every table to an account-filtered source.",
         "valid": false
     },
     {
