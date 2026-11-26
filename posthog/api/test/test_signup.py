@@ -28,6 +28,7 @@ from social_django.models import Partial
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
+from posthog.helpers.ai_signup_attribution import AI_SIGNUP_CLIENT_PROPERTY, AI_SIGNUP_SOURCE_PROPERTY
 from posthog.helpers.oauth_pending_connection import (
     PENDING_OAUTH_CONNECTION_COOKIE,
     PendingOAuthConnection,
@@ -54,6 +55,7 @@ MOCK_GITLAB_SSO_RESPONSE = {
 }
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
+AI_REFERRING_DOMAIN = "chatgpt.com"
 
 
 def _store_social_signup_partial(session: SessionBase) -> None:
@@ -1785,11 +1787,11 @@ class TestSignupAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain_signup", "plain", PendingOAuthFlow.AUTHORIZE, "connector", True),
-            ("device_login_signup", "plain", PendingOAuthFlow.DEVICE, "device_login", True),
-            ("social_signup", "social", PendingOAuthFlow.AUTHORIZE, "connector", True),
-            ("invite_signup", "invite", PendingOAuthFlow.AUTHORIZE, "connector", False),
-            ("delegated_invite_signup", "delegated_invite", PendingOAuthFlow.AUTHORIZE, None, False),
+            ("plain_signup", "plain", PendingOAuthFlow.AUTHORIZE, "connector", True, "connector"),
+            ("device_login_signup", "plain", PendingOAuthFlow.DEVICE, "device_login", True, "device_login"),
+            ("social_signup", "social", PendingOAuthFlow.AUTHORIZE, "connector", True, "connector"),
+            ("invite_signup", "invite", PendingOAuthFlow.AUTHORIZE, "connector", False, None),
+            ("delegated_invite_signup", "delegated_invite", PendingOAuthFlow.AUTHORIZE, None, False, None),
         ]
     )
     @patch("posthoganalytics.group_identify")
@@ -1801,6 +1803,7 @@ class TestSignupAPI(APIBaseTest):
         flow: PendingOAuthFlow,
         expected_skip_reason: str | None,
         expect_project_marked: bool,
+        expected_ai_signup_source: str | None,
         mock_capture,
         mock_group_identify,
     ):
@@ -1818,6 +1821,9 @@ class TestSignupAPI(APIBaseTest):
                     "email": email,
                     "password": VALID_TEST_PASSWORD,
                     "role_at_organization": "product",
+                    # The form prefills the client name, and the referrer is weaker evidence, so neither wins
+                    "referral_source": "Claude",
+                    "initial_referring_domain": AI_REFERRING_DOMAIN,
                 },
             )
         elif signup_path == "social":
@@ -1877,6 +1883,111 @@ class TestSignupAPI(APIBaseTest):
             )
         else:
             self.assertEqual(project_calls, [])
+
+        ai_organization_calls = [
+            c
+            for c in mock_group_identify.call_args_list
+            if c.args[0] == "organization" and AI_SIGNUP_SOURCE_PROPERTY in c.kwargs["properties"]
+        ]
+        if expected_ai_signup_source is not None:
+            assert user.organization is not None
+            expected_ai_properties = {
+                AI_SIGNUP_SOURCE_PROPERTY: expected_ai_signup_source,
+                AI_SIGNUP_CLIENT_PROPERTY: "Claude",
+            }
+            self.assertEqual(
+                ai_organization_calls,
+                [mock.call("organization", str(user.organization.id), properties=expected_ai_properties)],
+            )
+            self.assertLessEqual(expected_ai_properties.items(), properties.items())
+        else:
+            self.assertEqual(ai_organization_calls, [])
+            self.assertNotIn(AI_SIGNUP_SOURCE_PROPERTY, properties)
+
+    @parameterized.expand(
+        [
+            (
+                "said_ai",
+                "plain",
+                {"referral_source": "ChatGPT recommended it"},
+                {AI_SIGNUP_SOURCE_PROPERTY: "said_ai", AI_SIGNUP_CLIENT_PROPERTY: "chatgpt"},
+            ),
+            (
+                "ai_referring_domain",
+                "plain",
+                {"initial_referring_domain": AI_REFERRING_DOMAIN, "initial_utm_source": "newsletter"},
+                {AI_SIGNUP_SOURCE_PROPERTY: "ai_referrer", AI_SIGNUP_CLIENT_PROPERTY: AI_REFERRING_DOMAIN},
+            ),
+            (
+                "ai_utm_source_on_social_signup",
+                "social",
+                {"initial_referring_domain": "$direct", "initial_utm_source": "perplexity.ai"},
+                {AI_SIGNUP_SOURCE_PROPERTY: "ai_referrer", AI_SIGNUP_CLIENT_PROPERTY: "perplexity.ai"},
+            ),
+            (
+                "said_ai_beats_ai_referrer",
+                "plain",
+                {"referral_source": "Gemini", "initial_referring_domain": AI_REFERRING_DOMAIN},
+                {AI_SIGNUP_SOURCE_PROPERTY: "said_ai", AI_SIGNUP_CLIENT_PROPERTY: "gemini"},
+            ),
+            (
+                "non_ai_answer",
+                "plain",
+                {"referral_source": "a colleague", "initial_referring_domain": "www.google.com"},
+                None,
+            ),
+            ("no_signal", "social", {}, None),
+        ]
+    )
+    @patch("posthoganalytics.group_identify")
+    @patch("posthoganalytics.capture")
+    def test_api_sign_up_marks_organizations_ai_sent(
+        self,
+        _name: str,
+        signup_path: str,
+        signal_fields: dict[str, str],
+        expected_ai_properties: dict[str, str] | None,
+        mock_capture,
+        mock_group_identify,
+    ):
+        email = "ai-signup@example.com"
+
+        if signup_path == "plain":
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": "Jane",
+                    "email": email,
+                    "password": VALID_TEST_PASSWORD,
+                    "role_at_organization": "product",
+                    **signal_fields,
+                },
+            )
+        else:
+            session = self.client.session
+            session["backend"] = "google-oauth2"
+            session["email"] = email
+            _store_social_signup_partial(session)
+            session.save()
+            response = self.client.post(
+                "/api/social_signup/", {"first_name": "Jane", "organization_name": "Jane's Org", **signal_fields}
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email=email)
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        event_properties = signup_calls[0].kwargs["properties"]
+        organization_calls = [c for c in mock_group_identify.call_args_list if c.args[0] == "organization"]
+        if expected_ai_properties is None:
+            self.assertNotIn(AI_SIGNUP_SOURCE_PROPERTY, event_properties)
+            self.assertEqual(organization_calls, [])
+        else:
+            assert user.organization is not None
+            self.assertLessEqual(expected_ai_properties.items(), event_properties.items())
+            self.assertEqual(
+                organization_calls,
+                [mock.call("organization", str(user.organization.id), properties=expected_ai_properties)],
+            )
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")

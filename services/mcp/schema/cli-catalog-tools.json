@@ -37819,6 +37819,11 @@
                     "csv": false
                 },
                 {
+                    "param": "feedback_only",
+                    "key": "feedback_only",
+                    "csv": false
+                },
+                {
                     "param": "filter_test_accounts",
                     "key": "filter_test_accounts",
                     "csv": false
@@ -57459,6 +57464,10 @@
                 {
                     "param": "sensitive",
                     "key": "sensitive"
+                },
+                {
+                    "param": "click_tracking_enabled",
+                    "key": "click_tracking_enabled"
                 }
             ],
             "injectBody": {},
@@ -58459,6 +58468,11 @@
                     "csv": false
                 },
                 {
+                    "param": "created_by",
+                    "key": "created_by",
+                    "csv": false
+                },
+                {
                     "param": "limit",
                     "key": "limit",
                     "csv": false
@@ -58469,8 +58483,18 @@
                     "csv": false
                 },
                 {
+                    "param": "search",
+                    "key": "search",
+                    "csv": false
+                },
+                {
                     "param": "transactional",
                     "key": "transactional",
+                    "csv": false
+                },
+                {
+                    "param": "type",
+                    "key": "type",
                     "csv": false
                 }
             ],
@@ -59666,6 +59690,10 @@
                 {
                     "param": "sensitive",
                     "key": "sensitive"
+                },
+                {
+                    "param": "click_tracking_enabled",
+                    "key": "click_tracking_enabled"
                 }
             ],
             "injectBody": {},

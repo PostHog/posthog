@@ -359,7 +359,7 @@ set   = { testcode = true }
 # so a file in a new top folder reads unknown and a cross-package rule cannot pass it silently.
 [[assign]]
 match = "{top}/**"
-only  = { top = ["bin", "frontend", "livestream", "nodejs", "rust"] }
+only  = { top = ["bin", "frontend", "hog", "livestream", "nodejs", "rust"] }
 set   = { package = "{top}", tier = "tool" }
 
 [[assign]]

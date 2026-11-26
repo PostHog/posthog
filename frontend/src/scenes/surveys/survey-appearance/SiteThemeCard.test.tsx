@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -95,5 +96,25 @@ describe('SiteThemeCard', () => {
 
         expect(screen.getByText('Finding a recent visit')).toBeInTheDocument()
         expect(screen.getByText('1s')).toBeInTheDocument()
+    })
+
+    it.each([
+        ['a click', (link: HTMLElement) => fireEvent.click(link)],
+        ['a Ctrl-click', (link: HTMLElement) => fireEvent.click(link, { ctrlKey: true })],
+        ['a Cmd-click', (link: HTMLElement) => fireEvent.click(link, { metaKey: true })],
+        [
+            'a middle-click',
+            (link: HTMLElement) => fireEvent(link, new MouseEvent('auxclick', { bubbles: true, button: 1 })),
+        ],
+    ])('reports %s on the session replay link when replay is off', (_name, open) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, session_recording_opt_in: false })
+        render(<Card url="pricing" />)
+
+        open(screen.getByText('Turn on session replay'))
+
+        const reported = capture.mock.calls.filter(([event]) => event === 'survey site theme replay link clicked')
+        expect(reported).toEqual([['survey site theme replay link clicked', { survey_id: 'survey-id' }]])
+        capture.mockRestore()
     })
 })

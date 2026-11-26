@@ -2,13 +2,13 @@
 
 Read the placeholders and HogQL rules in [queries.md](queries.md) first.
 
-## First receipt
+## Earliest receipt
 
-Usage history starts no earlier than October 1, 2026, and a project's first receipt can be later.
-Check this before you compare months or estimate a run rate. A month that starts before the first receipt is a partial month.
+Receipts are deleted three calendar months after they are created, so the earliest receipt is the later of the project's first receipt and that cutoff.
+Check this before you compare months or estimate a run rate. A month that starts before the earliest receipt is a partial month.
 
 ```sql
-SELECT min(finalized_at) AS first_receipt, count() AS receipts
+SELECT min(finalized_at) AS earliest_receipt, count() AS receipts
 FROM system.signal_spend
 WHERE finalized_at IS NOT NULL
 ```
@@ -117,3 +117,36 @@ These costs cover execution only. Downstream work remains in the source breakdow
 Use `posthog:scout-runs-retrieve` for a run's findings and `posthog:inbox-reports-retrieve` for a report's lifetime spend; shared scout costs must not be summed across reports.
 Runs without receipts are unknown costs, not zero; the monthly tool reports `untracked_scout_run_count`.
 A run that a pre-check skipped has no run row and no receipt, so it is neither a cost nor a missing record.
+
+## Spend by scout and trigger
+
+A schedule and a pre-check control scheduled runs only. This splits each scout's execution spend by what started each run, so you know how much of it they can reduce.
+
+```sql
+SELECT
+    r.skill_name AS scout,
+    if(ifNull(r.matched, 0) = 1,
+        ifNull(nullIf(JSONExtractString(ifNull(r.metadata, '{}'), 'triggered_by'), ''), 'schedule'),
+        'run not found') AS triggered_by,
+    uniqExact(s.run_key) AS runs,
+    sum(s.credits) AS recorded_credits,
+    sumIf(s.credits, s.billing_exempt) AS exempt_credits
+FROM (
+    SELECT toString(scout_run_id) AS run_key, credits, billing_exempt
+    FROM system.signal_spend
+    WHERE kind = 'scout_run'
+        AND finalized_at >= {date_from} AND finalized_at < {date_to}
+) AS s
+LEFT JOIN (
+    SELECT toString(id) AS rid, skill_name, metadata, 1 AS matched
+    FROM system.scout_runs
+    WHERE created_at >= {date_from} - INTERVAL 7 DAY
+) AS r ON s.run_key = r.rid
+GROUP BY scout, triggered_by
+ORDER BY scout, recorded_credits DESC
+```
+
+`triggered_by` is absent on a scheduled run, so the query reads a missing value as `schedule`.
+The other values are `manual`, `workflow`, `check`, `monitoring`, and `onboarding`. "Runs a schedule does not control" in [controls.md](controls.md) says what starts each one and what reduces it.
+`run not found` means the receipt's run is older than the join window or deleted. Widen the window before you treat it as unknown.
+A workflow run also stores `trigger_workflow_id`, the workflow that started it. Extract it the same way to find which workflow spends the most.

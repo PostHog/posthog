@@ -129,7 +129,7 @@ RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
     # Evaluated by ReviewHog and offered in PostHog Code; no other product may select it.
     BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
     BASETEN_GLM53_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
-    BASETEN_GLM53_FLASH_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog", "slack_app"}),
     # The same model on Cloudflare keeps the reservation its Baseten id carries.
     "@cf/zai-org/glm-5.3": frozenset({"posthog_code", "review_hog"}),
 }

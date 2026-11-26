@@ -790,6 +790,8 @@ jobs:
             # below already degrade to "no base measurement" when the base reports are absent.
             - name: Build base branch for size comparison
               continue-on-error: true
+              # Bound the optional comparison before it can cancel the required job.
+              timeout-minutes: 5
               if: >-
                   github.event_name == 'pull_request' &&
                   !startsWith(github.head_ref, 'trunk-merge/') &&
