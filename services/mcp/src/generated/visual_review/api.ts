@@ -369,8 +369,6 @@ export const visualReviewRunsApproveCreateBodySnapshotsItemOldHashMax = 128
 
 export const visualReviewRunsApproveCreateBodyExpectedSeqMin = 0
 
-export const visualReviewRunsApproveCreateBodyOverrideRejectionDefault = false
-
 export const VisualReviewRunsApproveCreateBody = () => zod.object({
     snapshots: zod
         .array(
@@ -384,7 +382,7 @@ export const VisualReviewRunsApproveCreateBody = () => zod.object({
                     .max(visualReviewRunsApproveCreateBodySnapshotsItemNewHashMax)
                     .nullish()
                     .describe(
-                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot."
+                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
                     ),
                 old_hash: zod
                     .string()
@@ -404,12 +402,6 @@ export const VisualReviewRunsApproveCreateBody = () => zod.object({
         .nullish()
         .describe(
             'Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.'
-        ),
-    override_rejection: zod
-        .boolean()
-        .default(visualReviewRunsApproveCreateBodyOverrideRejectionDefault)
-        .describe(
-            'Accept a snapshot someone else rejected. Only for a person who read the rejection. An agent through MCP can never accept over a rejection.'
         ),
 })
 
@@ -587,7 +579,7 @@ export const VisualReviewRunsRejectCreateBody = () => zod.object({
                     .max(visualReviewRunsRejectCreateBodySnapshotsItemNewHashMax)
                     .nullish()
                     .describe(
-                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot."
+                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
                     ),
                 old_hash: zod
                     .string()

@@ -31,6 +31,7 @@ from . import (
     baseline_record,
     baselines,
     ci_status,
+    comment_markdown,
     errors,
     gating,
     github_api,
@@ -290,7 +291,7 @@ def _run_facts(run: Run, repo: Repo, ledger_mode: bool) -> RunFacts:
                 rejected_identifier = rejections[0].key.identifier
                 rejecter = rejections[0].by_id
                 if rejecter is not None:
-                    rejected_by = review_decisions.person_names({rejecter}).get(rejecter, "")
+                    rejected_by = comment_markdown.approver_labels({rejecter}).get(rejecter, "")
             if not (unresolved or awaiting or rejected):
                 hidden = gating.count_hidden_by_quarantine(run, WRITER_DB)
         elif not run.approved:

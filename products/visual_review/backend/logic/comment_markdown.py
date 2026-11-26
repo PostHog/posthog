@@ -12,6 +12,7 @@ from django.db import models as db_models
 from posthog.egress.limiter.policies import Priority
 
 from ..db import READER_DB
+from ..facade.contracts import REASON_MAX_LENGTH
 from ..facade.enums import ReviewState, SnapshotResult
 from ..models import Artifact, Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
@@ -328,6 +329,16 @@ def _resolve_approver(user_id: int | None) -> _Approver | None:
     return None
 
 
+def approver_labels(user_ids: set[int]) -> dict[int, str]:
+    """The names texts outside the PR comment use for these users, picked the way the PR comment picks them."""
+    labels: dict[int, str] = {}
+    for user_id in user_ids:
+        approver = _resolve_approver(user_id)
+        if approver is not None:
+            labels[user_id] = approver.label
+    return labels
+
+
 @dataclass(frozen=True)
 class OpenRejection:
     """One rejection that blocks the head run of a pull request, as the rejection comment lists it."""
@@ -337,9 +348,6 @@ class OpenRejection:
     rejecter: _Approver | None
     via_agent: bool
     reason: str
-
-
-_REASON_COMMENT_LIMIT = 500
 
 
 def _build_rejection_comment_body(run: Run, repo: Repo, rejections: list[OpenRejection]) -> str:
@@ -356,7 +364,7 @@ def _build_rejection_comment_body(run: Run, repo: Repo, rejections: list[OpenRej
         who = _approver_text(rejection.rejecter)
         if rejection.via_agent:
             who = f"an agent for {who}"
-        reason = _escape_markdown(_TABLE_BREAKING_CHARS_RE.sub(" ", rejection.reason[:_REASON_COMMENT_LIMIT]))
+        reason = _escape_markdown(_TABLE_BREAKING_CHARS_RE.sub(" ", rejection.reason[:REASON_MAX_LENGTH]))
         lines.append(
             f"- {_snapshot_name_cell(rejection.identifier)} on `{rejection.commit_sha[:7]}`, by {who}: {reason}"
         )

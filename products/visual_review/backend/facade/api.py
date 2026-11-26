@@ -39,6 +39,7 @@ from ..logic import (
     baseline_overview,
     baseline_record,
     baselines,
+    comments,
     commit_status,
     errors,
     flakiness,
@@ -70,6 +71,7 @@ from .enums import (
     RunReviewFilter,
     RunStatus,
     ShiftBandKind,
+    SnapshotResult,
 )
 
 User = get_user_model()
@@ -85,6 +87,7 @@ User = get_user_model()
 _RESERVED_RUN_METADATA_KEYS = frozenset(
     {
         "github_comment_id",
+        comments.REJECTION_COMMENT_KEY,
         "baseline_commit_sha",
         "baseline_healed_from_merge_base",
         # The frozen baseline record names the approvals a run counted. A client that could send it
@@ -107,6 +110,13 @@ def _sanitize_run_metadata(metadata: dict | None) -> dict:
         if cleaned.get(key) is not None:
             cleaned[key] = str(cleaned[key])
     return cleaned
+
+
+def _sanitize_snapshot_metadata(metadata: dict | None) -> dict:
+    """Drop the review decision history from a client's snapshot metadata. Only `decide` writes it."""
+    if not metadata:
+        return {}
+    return {k: v for k, v in metadata.items() if k != review_decisions.METADATA_KEY}
 
 
 # Re-export exceptions for callers
@@ -334,8 +344,6 @@ def _compute_unresolved(run) -> int:
     """
     if run.purpose == RunPurpose.OBSERVE:
         return 0
-    if review_decisions.decides_by_pull_request(run):
-        return gating.count_unresolved(run)
     # Use prefetched snapshots if available (detail view), skip for list views
     if "snapshots" in getattr(run, "_prefetched_objects_cache", {}):
         return sum(1 for s in run.snapshots.all() if gating._is_unresolved(s))
@@ -358,14 +366,24 @@ def _to_head_run(run) -> contracts.HeadRun:
     return contracts.HeadRun(id=run.id, commit_sha=run.commit_sha, status=run.status, approved=run.approved)
 
 
-def _can_finalize(run, head, progress: review_decisions.RunProgress) -> bool:
+def _can_finalize(run, head, review: review_decisions.RunReview) -> bool:
+    """Whether a finalize without `approve_all` would pass now.
+
+    Finalize accepts a removal nobody rejected by itself, so an undecided removal does not hold it
+    back, although it counts in `needs_review` and keeps the gate open until then.
+    """
+    open_changes = [
+        snapshot
+        for snapshot in review.with_standing(review_decisions.Standing.NEEDS_REVIEW)
+        if snapshot.result != SnapshotResult.REMOVED
+    ]
     return (
         run.id == head.id
         and run.purpose == RunPurpose.REVIEW
         and run.status == RunStatus.COMPLETED
         and not run.approved
-        and progress.rejected == 0
-        and progress.needs_review == 0
+        and review.rejected_count == 0
+        and not open_changes
     )
 
 
@@ -376,6 +394,7 @@ def _to_run(
     stale_approval_count: int = 0,
     progress: review_decisions.RunProgress | None = None,
     head=None,
+    can_finalize: bool = False,
 ) -> contracts.Run:
     approved_by = (user_basic_infos or {}).get(run.approved_by_id) if run.approved_by_id else None
     return contracts.Run(
@@ -411,7 +430,7 @@ def _to_run(
         stale_approval_count=stale_approval_count,
         progress=_to_progress(progress) if progress is not None else None,
         head_run=_to_head_run(head) if head is not None else None,
-        can_finalize=progress is not None and head is not None and _can_finalize(run, head, progress),
+        can_finalize=can_finalize,
     )
 
 
@@ -739,7 +758,11 @@ def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[s
 
 def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.CreateRunResult:
     # Sanitize metadata at the facade boundary before handing the DTO to logic.
-    input = replace(input, metadata=_sanitize_run_metadata(input.metadata))
+    input = replace(
+        input,
+        metadata=_sanitize_run_metadata(input.metadata),
+        snapshots=[replace(s, metadata=_sanitize_snapshot_metadata(s.metadata)) for s in input.snapshots],
+    )
     run, uploads = runs.create_run(input, team_id=team_id)
 
     upload_targets = [
@@ -771,7 +794,7 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
             "content_hash": s.content_hash,
             "width": s.width,
             "height": s.height,
-            "metadata": dict(s.metadata) if s.metadata else {},
+            "metadata": _sanitize_snapshot_metadata(s.metadata),
         }
         for s in input.snapshots
     ]
@@ -803,6 +826,7 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
     review = review_decisions.review_run(run)
+    head = review_decisions.head_run(run)
     return _to_run(
         run,
         user_basic_infos,
@@ -813,7 +837,8 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
         ),
         stale_approval_count=commit_status.stale_approval_count(run),
         progress=review.progress(),
-        head=review_decisions.head_run(run),
+        head=head,
+        can_finalize=_can_finalize(run, head, review),
     )
 
 
@@ -854,16 +879,30 @@ def get_run_snapshots(
     Filtering and paging stay in SQL, and only the page becomes DTOs, because each DTO
     signs a download URL per artifact and a large run holds thousands of rows.
     `quarantined_only` keeps only the quarantined snapshots and overrides `include_quarantined`.
-    A rejected snapshot is listed even when quarantined snapshots are left out, because it still
-    blocks finalize. `review_state` filters on the effective state, which can come from a decision
+    A rejected snapshot is listed even when quarantined or unchanged snapshots are left out, because
+    it still blocks finalize. `review_state` filters on the effective state, which can come from a decision
     made on another run of the pull request.
     """
     if (quarantined_only or not include_quarantined) and team_id is None:
         raise ValueError("team_id is required to filter snapshots by quarantine")
     run = run_queries.get_run(run_id, team_id=team_id)
-    snapshots = run_queries.run_snapshots(run, exclude_unchanged=exclude_unchanged, snapshot_id=snapshot_id)
     decisions = _SnapshotDecisions(
         decisions=review_decisions.pull_request_decisions(run), run_commit_sha=run.commit_sha
+    )
+    # Only ledger mode keeps a decision history. Elsewhere the decisions above are read back from
+    # the rows' own review state, which records no channel, so a read shows no decision.
+    shown_decisions = decisions if review_decisions.decides_by_pull_request(run) else None
+    rejected: set[str] = set()
+    if shown_decisions is not None and (exclude_unchanged or not include_quarantined):
+        rejected = {
+            snapshot.identifier
+            for snapshot in review_decisions.review_run(run, decisions.decisions).with_standing(
+                review_decisions.Standing.REJECTED
+            )
+        }
+    # A tolerated pair is unchanged, and still blocks the run when someone rejected it.
+    snapshots = run_queries.run_snapshots(
+        run, exclude_unchanged=exclude_unchanged, snapshot_id=snapshot_id, unchanged_kept=frozenset(rejected)
     )
 
     quarantined_count = 0
@@ -873,21 +912,15 @@ def get_run_snapshots(
         if quarantined_only:
             snapshots = snapshots.filter(identifier__in=quarantined)
         elif not include_quarantined:
-            rejected = {
-                snapshot.identifier
-                for snapshot in review_decisions.review_run(run, decisions.decisions).with_standing(
-                    review_decisions.Standing.REJECTED
-                )
-            }
             snapshots = snapshots.exclude(identifier__in=set(quarantined) - rejected)
     if review_state is not None:
         snapshots = snapshots.filter(identifier__in=_identifiers_in_review_state(snapshots, decisions, review_state))
 
     total_count = snapshots.count()
     page = list(snapshots[offset : offset + limit if limit is not None else None])
-    user_basic_infos = _fetch_user_basic_infos(_decision_user_ids(page, decisions))
+    user_basic_infos = _fetch_user_basic_infos(_decision_user_ids(page, shown_decisions))
     return contracts.RunSnapshots(
-        snapshots=[_to_snapshot(s, run.repo_id, user_basic_infos, decisions) for s in page],
+        snapshots=[_to_snapshot(s, run.repo_id, user_basic_infos, shown_decisions) for s in page],
         quarantined_count=quarantined_count,
         total_count=total_count,
     )
@@ -977,7 +1010,7 @@ def _to_decision_result(outcome: approvals.DecisionOutcome) -> contracts.Decisio
         run=_to_run(outcome.run),
         head_run=_to_head_run(outcome.head),
         progress=_to_progress(outcome.head_review.progress()),
-        already_approved=list(outcome.already_decided),
+        already_decided=list(outcome.already_decided),
     )
 
 

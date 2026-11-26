@@ -424,7 +424,7 @@ DECISION_BASELINE = {"X": "x0", "Y": "y0", "Z": "z0", "W": "w0"}
 # "accept-anyway" (an accept over someone else's rejection) work the same way, and "agent-accept" is an agent
 # through MCP for h1. "tolerate Y@1" and "quarantine Y" are h1 tolerating the pair or quarantining the story.
 # "finalize F" finalizes the newest run, and "finalize-all F" accepts everything nobody decided on first.
-# "redeliver 1" runs the diff task of run 1 again, and "retain" sweeps runs 4 days later.
+# "retain" sweeps runs 4 days later.
 DECISION_SCENARIOS = (
     DecisionScenario(
         key="partial_review_then_fix",
@@ -432,11 +432,10 @@ DECISION_SCENARIOS = (
         after={
             "ci F": (),
             "accept X@1 h1": ("ci F",),
-            "redeliver 1": ("ci F",),
             "push F Y=y2": ("ci F",),
             "ci F 2": ("push F Y=y2",),
             "accept Y@2 h1": ("ci F 2",),
-            "finalize F": ("accept X@1 h1", "accept Y@2 h1", "redeliver 1"),
+            "finalize F": ("accept X@1 h1", "accept Y@2 h1"),
         },
     ),
     DecisionScenario(
@@ -448,6 +447,17 @@ DECISION_SCENARIOS = (
             "tolerate Y@1": ("ci F",),
             "quarantine Y": (),
             "finalize-all F": ("reject Y@1 h2", "tolerate Y@1", "quarantine Y"),
+        },
+    ),
+    DecisionScenario(
+        key="decision_on_an_older_run_moves_the_head",
+        first_head={"X": "x0", "Y": "y1", "Z": "z0", "W": "w0"},
+        after={
+            "ci F": (),
+            "quarantine Y": (),
+            "push F": ("ci F",),
+            "ci F 2": ("push F",),
+            "reject Y@1 h2": ("ci F 2",),
         },
     ),
     DecisionScenario(

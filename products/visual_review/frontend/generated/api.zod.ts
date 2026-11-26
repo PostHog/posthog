@@ -173,7 +173,7 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
                     .max(visualReviewRunsApproveCreateBodySnapshotsItemNewHashMax)
                     .nullish()
                     .describe(
-                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot."
+                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
                     ),
                 old_hash: zod
                     .string()
@@ -321,7 +321,7 @@ export const VisualReviewRunsRejectCreateBody = /* @__PURE__ */ zod.object({
                     .max(visualReviewRunsRejectCreateBodySnapshotsItemNewHashMax)
                     .nullish()
                     .describe(
-                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot."
+                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
                     ),
                 old_hash: zod
                     .string()

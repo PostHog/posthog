@@ -17,9 +17,10 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
 
-from django.contrib.auth import get_user_model
 from django.db import connections
 from django.db.models import Q
+
+import structlog
 
 from posthog.dataclasses import frozen
 
@@ -35,6 +36,8 @@ from ..facade.enums import (
     SnapshotResult,
 )
 from ..models import Run, RunSnapshot
+
+logger = structlog.get_logger(__name__)
 
 METADATA_KEY = "review_decisions"
 
@@ -86,18 +89,32 @@ class Decision:
         }
 
 
-def _parse_entry(identifier: str, raw: dict, run_id: UUID, commit_sha: str) -> Decision:
-    return Decision(
-        action=DecisionAction(raw["action"]),
-        key=key_of(identifier, raw.get("old_hash", ""), raw.get("new_hash", "")),
-        by_id=raw.get("by"),
-        via=DecisionChannel(raw.get("via", DecisionChannel.WEB)),
-        reason=raw.get("reason", ""),
-        at=datetime.fromisoformat(raw["at"]),
-        seq=int(raw["seq"]),
-        run_id=run_id,
-        commit_sha=commit_sha,
-    )
+def _parse_entry(identifier: str, raw: object, run_id: UUID, commit_sha: str) -> Decision | None:
+    """One history entry, or None for an entry that is not a decision.
+
+    `decide` is the only writer, so a bad entry is a bug or a write that went around it. It is
+    logged and skipped, so one bad row cannot fail every read of its pull request.
+    """
+    try:
+        if not isinstance(raw, dict):
+            raise TypeError(f"entry is a {type(raw).__name__}")
+        by_id = raw.get("by")
+        if by_id is not None and not isinstance(by_id, int):
+            raise TypeError("by is not a user id")
+        return Decision(
+            action=DecisionAction(raw["action"]),
+            key=key_of(identifier, str(raw.get("old_hash") or ""), str(raw.get("new_hash") or "")),
+            by_id=by_id,
+            via=DecisionChannel(raw.get("via", DecisionChannel.WEB)),
+            reason=str(raw.get("reason") or ""),
+            at=datetime.fromisoformat(raw["at"]),
+            seq=int(raw["seq"]),
+            run_id=run_id,
+            commit_sha=commit_sha,
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        logger.warning("visual_review.review_decision_unreadable", run_id=str(run_id), error=str(error))
+        return None
 
 
 def changed_side(decision: Decision, key: DecisionKey) -> EarlierDecisionChange:
@@ -201,7 +218,13 @@ def _read_decisions(team_id: int, commits_by_run: dict[UUID, str]) -> list[Decis
         commit_sha = commits_by_run[run_id]
         entries = (metadata or {}).get(METADATA_KEY) or []
         if entries:
-            decisions.extend(_parse_entry(identifier, entry, run_id, commit_sha) for entry in entries)
+            if not isinstance(entries, list):
+                logger.warning("visual_review.review_decision_unreadable", run_id=str(run_id), error="not a list")
+                continue
+            for entry in entries:
+                decision = _parse_entry(identifier, entry, run_id, commit_sha)
+                if decision is not None:
+                    decisions.append(decision)
             continue
         if review_state == ReviewState.APPROVED:
             decisions.append(
@@ -285,7 +308,11 @@ class SnapshotReview:
 
 @frozen
 class RunProgress:
-    """How far the review of a run got. `total` is the sum of the four counts after it."""
+    """How far the review of a run got.
+
+    `total` is `approved + rejected + needs_review + tolerated`. The two `approved_*` counts are
+    subsets of `approved`.
+    """
 
     total: int
     approved: int
@@ -456,19 +483,6 @@ def append_decisions(decided: list[tuple[RunSnapshot, Decision]]) -> None:
 def has_decisions() -> Q:
     """Matches the rows that hold a decision history, for queries over `RunSnapshot`."""
     return Q(metadata__has_key=METADATA_KEY)
-
-
-def person_names(user_ids: set[int]) -> dict[int, str]:
-    """A short name per user for texts people read: the first name, or else the part of the email before the @."""
-    if not user_ids:
-        return {}
-    names: dict[int, str] = {}
-    for user in get_user_model().objects.filter(id__in=user_ids).only("id", "first_name", "email"):
-        if user.first_name:
-            names[user.id] = user.first_name
-        elif user.email:
-            names[user.id] = user.email.split("@", 1)[0]
-    return names
 
 
 @frozen

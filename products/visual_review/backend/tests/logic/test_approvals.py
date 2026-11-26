@@ -1,14 +1,18 @@
 """Unit tests for logic/approvals.py — Approving snapshots and finalizing a run."""
 
 from contextlib import ExitStack
+from datetime import timedelta
 
 import pytest
 from unittest.mock import MagicMock
 
 from django.db import connections, transaction
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from posthog.models import User
+from posthog.models.user_integration import UserIntegration
+from posthog.paging import PageRequest
 
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api
@@ -32,6 +36,7 @@ from products.visual_review.backend.logic import (
     gating,
     github_api,
     repos,
+    retention,
     run_queries,
     runs,
     toleration,
@@ -39,7 +44,7 @@ from products.visual_review.backend.logic import (
 from products.visual_review.backend.logic.github_api import PullRequestState
 from products.visual_review.backend.models import BaselineApproval, QuarantinedIdentifier, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
-from products.visual_review.backend.tests.logic.ledger_fakes import SEED, FakeGit, LedgerFlow, button_flow
+from products.visual_review.backend.tests.logic.ledger_fakes import SEED, FakeGit, LedgerFlow, approve, button_flow
 
 
 def _fake_github_job_api(method, repo, path, **kwargs):
@@ -425,6 +430,59 @@ class TestFinalizeByBaselineMode:
         assert not run.snapshots.filter(review_state=ReviewState.APPROVED).exists()
         assert not BaselineApproval.objects.filter(repo=repo).exists()
 
+    def test_finalize_refuses_when_the_mode_changed_before_it_took_its_locks(self, team, user, mocker):
+        repo, git, flow = button_flow(team.id, BaselineMode.LEDGER, mocker, external_id=99997)
+        run = _changed_run(git, flow)
+        # The mode finalize read before its transaction, which picks the locks it takes.
+        mocker.patch.object(
+            approvals,
+            "_read_finalize_context",
+            return_value=approvals._FinalizeContext(
+                repo_id=repo.id, mode=BaselineMode.YAML, run_type=run.run_type, pr_number=1
+            ),
+        )
+
+        with pytest.raises(errors.BaselineModeChangedError):
+            approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True)
+
+        run.refresh_from_db()
+        assert run.approved is False
+        assert not run.snapshots.filter(metadata__has_key="review_decisions").exists()
+
+    @pytest.mark.parametrize("mode", [BaselineMode.YAML, BaselineMode.SHADOW])
+    def test_an_accept_without_a_hash_outside_ledger_mode_is_refused_by_name(self, team, user, mocker, mode):
+        _repo, git, flow = button_flow(team.id, mode, mocker, external_id=99997)
+        git.open_pull_request(1, git.commit("p1a", SEED))
+        run = flow.run("p1a", {"Card": "b1"}, branch="feat", pr_number=1)
+
+        with pytest.raises(errors.DecisionRefusedError) as refused:
+            approvals.decide(
+                run.id,
+                user.id,
+                DecisionAction.ACCEPT,
+                [approvals.DecisionRequest(identifier="Button", new_hash=None)],
+                via=DecisionChannel.MCP,
+                team_id=run.team_id,
+            )
+
+        assert [(r.identifier, r.code) for r in refused.value.refusals] == [("Button", "hash_required")]
+
+    def test_a_snapshot_list_outside_ledger_mode_shows_no_decision(self, team, user, mocker):
+        _repo, git, flow = button_flow(team.id, BaselineMode.YAML, mocker, external_id=99997)
+        run = _changed_run(git, flow)
+        approvals.decide(
+            run.id,
+            user.id,
+            DecisionAction.ACCEPT,
+            [approvals.DecisionRequest(identifier="Button", new_hash="b1")],
+            via=DecisionChannel.MCP,
+            team_id=run.team_id,
+        )
+
+        listed = api.get_run_snapshots(run.id, team_id=team.id).snapshots[0]
+
+        assert (listed.review_state, listed.decision) == ("approved", None)
+
     def test_yaml_finalize_refuses_a_closed_pull_request(self, team, user, mocker):
         repo = repos.create_repo(team_id=team.id, repo_external_id=99997, repo_full_name="org/test-modes")
         run = Run.objects.create(
@@ -493,7 +551,15 @@ class TestReviewDecisions:
 
     @pytest.fixture
     def bob(self, team):
-        return User.objects.create_and_join(team.organization, "bob@example.com", None, first_name="bob")
+        bob = User.objects.create_and_join(team.organization, "bob@example.com", None, first_name="Robert")
+        UserIntegration.objects.create(
+            user=bob,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="4242",
+            config={"github_user": {"login": "bob-gh", "id": 4242}},
+            sensitive_config={"user_access_token": "ghu_fake"},
+        )
+        return bob
 
     @pytest.mark.parametrize(("picture", "finalizes"), [("b1", True), ("b2", False)])
     def test_an_accept_on_an_older_run_counts_while_the_pictures_match(
@@ -531,7 +597,8 @@ class TestReviewDecisions:
         with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
             _decide(run, bob, REJECT, new_hash="b1", reason="Too blue")
 
-        assert flow.statuses.call_args.kwargs["description"] == "Rejected by bob: Button"
+        # Named by GitHub login first, the way the PR comment names him.
+        assert flow.statuses.call_args.kwargs["description"] == "Rejected by bob-gh: Button"
         snapshot = run.snapshots.get(identifier="Button")
         with pytest.raises(errors.SnapshotRejectedError):
             toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, team.id)
@@ -572,6 +639,25 @@ class TestReviewDecisions:
                 "decided_since",
                 id="decided_since_the_read",
             ),
+            pytest.param(
+                "bob_rejects",
+                WEB,
+                ACCEPT,
+                {"new_hash": "b1", "override_rejection": True, "expected_seq": 1},
+                None,
+                id="decided_on_the_seq_it_read",
+            ),
+            pytest.param("user_agent_rejects", MCP, ACCEPT, {"new_hash": "b1"}, "rejected_by_other", id="agent_own"),
+            pytest.param("user_agent_rejects", MCP, CLEAR, {}, None, id="agent_undoes_its_own_reject"),
+            pytest.param("bob_agent_rejects", MCP, CLEAR, {}, "rejected_by_other", id="agent_undoes_other_agent"),
+            pytest.param(
+                "finalized_then_pushed",
+                WEB,
+                REJECT,
+                {"new_hash": "b1", "reason": "x"},
+                "run_finalized",
+                id="pair_of_a_finalized_run",
+            ),
             pytest.param("", WEB, ACCEPT, {"new_hash": "b2"}, "hash_mismatch", id="other_after_picture"),
             pytest.param("", WEB, ACCEPT, {"new_hash": "b1", "old_hash": "b9"}, "hash_mismatch", id="other_before"),
             pytest.param("", WEB, ACCEPT, {}, "hash_required", id="no_hash"),
@@ -585,15 +671,23 @@ class TestReviewDecisions:
         run = _changed_run(git, flow)
         if setup == "bob_rejects":
             _decide(run, bob, REJECT, new_hash="b1", reason="Too blue")
+        elif setup == "bob_agent_rejects":
+            _decide(run, bob, REJECT, via=MCP, new_hash="b1", reason="Too blue")
+        elif setup == "user_agent_rejects":
+            _decide(run, user, REJECT, via=MCP, new_hash="b1", reason="Too blue")
         elif setup == "bob_accepts":
             _decide(run, bob, ACCEPT, new_hash="b1")
+        elif setup == "finalized_then_pushed":
+            _decide(run, bob, ACCEPT, new_hash="b1")
+            approvals.finalize_run(run_id=run.id, user_id=bob.id)
+            _push(git, flow, "p1b", "p1a", {"Button": "b1"})
         elif setup == "merged":
             git.show_as_merged(1, "m1")
         history = _history(run)
 
         if code is None:
             _decide(run, user, action, via=via, **fields)
-            assert [entry["action"] for entry in _history(run)] == ["reject", "accept"]
+            assert [entry["action"] for entry in _history(run)] == [*(e["action"] for e in history), action.value]
             return
         with pytest.raises(errors.DecisionRefusedError) as refused:
             _decide(run, user, action, via=via, **fields)
@@ -625,3 +719,90 @@ class TestReviewDecisions:
         with pytest.raises(errors.RunNotFullyResolvedError) as not_resolved:
             approvals.finalize_run(run_id=head.id, user_id=user.id, approve_all=True)
         assert [r.identifier for r in not_resolved.value.rejected] == ["Button"]
+
+    def test_a_rejected_pair_that_a_toleration_makes_unchanged_can_be_undone_on_the_head(self, ledger, team, user, bob):
+        _repo, git, flow = ledger
+        first = _changed_run(git, flow)
+        toleration.mark_snapshot_as_tolerated(first.id, first.snapshots.get(identifier="Button").id, user.id, team.id)
+        _decide(first, bob, REJECT, new_hash="b1", reason="Too blue")
+        head = _push(git, flow, "p1b", "p1a", {"Button": "b1"})
+        assert head.snapshots.get(identifier="Button").result == SnapshotResult.UNCHANGED
+
+        listed = api.get_run_snapshots(head.id, team_id=team.id, exclude_unchanged=True).snapshots
+        assert [(s.identifier, s.review_state) for s in listed] == [("Button", "rejected")]
+        with pytest.raises(errors.RunNotFullyResolvedError):
+            approvals.finalize_run(run_id=head.id, user_id=user.id)
+
+        _decide(head, bob, CLEAR)
+        assert approvals.finalize_run(run_id=head.id, user_id=user.id).approved is True
+
+    def test_retention_keeps_a_newer_rejection_on_an_older_run_while_the_head_holds_an_accept(
+        self, ledger, team, user, bob
+    ):
+        repo, git, flow = ledger
+        first = _changed_run(git, flow)
+        head = _push(git, flow, "p1b", "p1a", {"Button": "b1"})
+        _decide(head, user, ACCEPT, new_hash="b1")
+        _decide(first, bob, REJECT, new_hash="b1", reason="Too blue")
+        # An open approval of the pull request keeps the head through the quiet-branch pass.
+        approve(repo, 1, "Card", "c1")
+
+        retention.sweep_repo_runs(repo, now=timezone.now() + timedelta(days=40))
+
+        assert Run.objects.filter(id=first.id).exists()
+        with pytest.raises(errors.RunNotFullyResolvedError) as not_resolved:
+            approvals.finalize_run(run_id=head.id, user_id=user.id)
+        assert [r.identifier for r in not_resolved.value.rejected] == ["Button"]
+
+    @pytest.mark.parametrize(
+        "entries",
+        [
+            pytest.param("accept", id="not_a_list"),
+            pytest.param(["accept"], id="entry_not_an_object"),
+            pytest.param([{"action": "accept", "seq": 1}], id="entry_without_a_time"),
+            pytest.param([{"action": "approve", "at": "2026-01-01T00:00:00+00:00", "seq": 1}], id="unknown_action"),
+        ],
+    )
+    def test_an_unreadable_decision_entry_is_skipped(self, ledger, team, user, entries):
+        _repo, git, flow = ledger
+        run = _changed_run(git, flow)
+        RunSnapshot.objects.filter(run=run, identifier="Button").update(metadata={"review_decisions": entries})
+
+        listed = api.get_run_snapshots(run.id, team_id=team.id).snapshots[0]
+
+        assert (listed.review_state, listed.decision) == ("pending", None)
+        _decide(run, user, ACCEPT, new_hash="b1")
+        assert approvals.finalize_run(run_id=run.id, user_id=user.id).approved is True
+
+    @pytest.mark.parametrize(("card_accepted", "can_finalize"), [(True, True), (False, False)])
+    def test_can_finalize_leaves_an_undecided_removal_to_finalize(
+        self, ledger, team, user, card_accepted, can_finalize
+    ):
+        _repo, _git, flow = ledger
+        flow.picture("c1", GREEN)
+        run = _push(_git, flow, "p1a", SEED, {"Card": "c1"})
+        if card_accepted:
+            _decide(run, user, ACCEPT, identifier="Card", new_hash="c1")
+
+        read = api.get_run(run.id, team_id=team.id)
+
+        assert read.progress is not None and read.progress.needs_review == (1 if card_accepted else 2)
+        assert read.can_finalize is can_finalize
+        if can_finalize:
+            assert approvals.finalize_run(run_id=run.id, user_id=user.id).approved is True
+
+    def test_a_run_list_reads_no_decisions(self, ledger, team, user):
+        repo, git, flow = ledger
+        first = _changed_run(git, flow)
+        _decide(first, user, ACCEPT, new_hash="b1")
+
+        def list_queries() -> int:
+            with CaptureQueriesContext(connections[WRITER_DB]) as queries:
+                api.list_runs(team.id, repo_id=repo.id, page=PageRequest(limit=100))
+            return len(queries)
+
+        one_run = list_queries()
+        _push(git, flow, "p1b", "p1a", {"Button": "b1"})
+        _push(git, flow, "p1c", "p1b", {"Button": "b1"})
+
+        assert list_queries() == one_run

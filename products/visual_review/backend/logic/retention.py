@@ -33,9 +33,9 @@ T = TypeVar("T")
 # A superseded run on a PR branch is history that no page reads after the next
 # push replaces it. Its last readers are the "stale" review-state filter and the
 # run detail page, so this window is a grace period for people who open an old
-# link, and for a flake someone debugs after a weekend. A superseded run that holds
-# a review decision is the exception: the decision counts on the newest run of the
-# pull request, so the run stays until its branch goes quiet.
+# link, and for a flake someone debugs after a weekend. A run that holds a review
+# decision is the exception: the decision counts on every run of the pull request, so
+# it goes only once the pull request is quiet, together with its other decided runs.
 SUPERSEDED_RUN_RETENTION_DAYS = 3
 
 # Default-branch runs feed the baseline overview (90 days) and the snapshot
@@ -178,13 +178,14 @@ class RetentionSweep:
     def _holds_decisions(self) -> Exists:
         return Exists(self._snapshots().filter(review_decisions.has_decisions(), run_id=OuterRef("id")))
 
+    def _quiet_cutoff(self) -> datetime:
+        return self.now - timedelta(days=QUIET_BRANCH_RETENTION_DAYS)
+
     def _recent_run_on_branch(self) -> Exists:
-        return Exists(
-            self._runs().filter(
-                branch=OuterRef("branch"),
-                created_at__gte=self.now - timedelta(days=QUIET_BRANCH_RETENTION_DAYS),
-            )
-        )
+        return Exists(self._runs().filter(branch=OuterRef("branch"), created_at__gte=self._quiet_cutoff()))
+
+    def _decided_runs_of_pull_request(self, pr_number: int, run_type: str) -> QuerySet[Run]:
+        return self._runs().filter(self._holds_decisions(), pr_number=pr_number, run_type=run_type)
 
     def _expired_superseded_run_ids(self, limit: int) -> list[UUID]:
         merge_queue = Q(branch__startswith=MERGE_QUEUE_BRANCH_PREFIX)
@@ -203,11 +204,22 @@ class RetentionSweep:
                 & Q(superseded_by__created_at__lt=self.now - timedelta(days=MERGE_QUEUE_RUN_RETENTION_DAYS))
             )
         )
+        # A decided run of a pull request whose latest run also holds a decision goes in the
+        # quiet-branch pass with that run, so this pass leaves it out of its bounded batch.
+        current_decided_run_of_pull_request = self._runs().filter(
+            self._holds_decisions(),
+            pr_number=OuterRef("pr_number"),
+            run_type=OuterRef("run_type"),
+            superseded_by__isnull=True,
+        )
         return list(
             self._runs()
             .filter(Q(superseded_by__isnull=False) & expired)
             .exclude(self._source_of_active_quarantine())
-            .filter(~self._holds_decisions() | ~self._recent_run_on_branch())
+            .filter(
+                ~self._holds_decisions()
+                | (~self._recent_run_on_branch() & ~Exists(current_decided_run_of_pull_request))
+            )
             .order_by("created_at")
             .values_list("id", flat=True)[:limit]
         )
@@ -257,11 +269,17 @@ class RetentionSweep:
         quiet_cutoff = self.now - timedelta(days=quiet_days)
         recent_run_on_branch = self._runs().filter(branch=OuterRef("branch"), created_at__gte=quiet_cutoff)
         # Every superseded run of a group points at the group's latest run, so
-        # the latest run can only go when none of them is left.
-        superseded_run_in_group = self._runs().filter(
-            branch=OuterRef("branch"),
-            run_type=OuterRef("run_type"),
-            superseded_by__isnull=False,
+        # the latest run can only go when none of them is left. A superseded run
+        # that holds a decision of the same pull request is the exception: it goes
+        # in one transaction with the latest run (see `_deletion_group`).
+        superseded_run_in_group = (
+            self._runs()
+            .filter(
+                branch=OuterRef("branch"),
+                run_type=OuterRef("run_type"),
+                superseded_by__isnull=False,
+            )
+            .exclude(self._holds_decisions(), pr_number=OuterRef("pr_number"))
         )
         # When the repo has no protected-history run, the snapshot rows of the
         # newest completed run of a run type are the only thing left that names
@@ -296,42 +314,40 @@ class RetentionSweep:
         self._runs().filter(superseded_by_id=run_id).update(superseded_by_id=successor_id)
 
     def _deletion_group(self, run: Run) -> list[UUID]:
-        """The runs to delete in one transaction with `run`, oldest first, or none to keep it.
+        """The runs to delete in one transaction with `run`, oldest first, or none to keep them all.
 
-        A superseded run that holds a review decision goes only together with every other such run
-        of its pull request, and only while their branches are quiet. Deleting one of them alone could
-        drop a newer clear and let an older accept count again. The caller holds the pull request lock,
-        so no decision lands on them between this check and the delete.
+        The decisions of a pull request count on every run of it, so deleting some of its decided
+        runs and keeping others can drop a newer reject or clear and let an older accept count again.
+        Its decided runs therefore go all together, with its latest run, and only once the branch is
+        quiet and nobody decided anything for as long. The caller holds the pull request lock, so no
+        decision lands on them between this check and the delete.
         """
-        if run.superseded_by_id is None or run.pr_number is None:
+        if run.pr_number is None:
             return [run.id]
-        decided = (
-            self._runs()
-            .filter(
-                self._holds_decisions(), superseded_by__isnull=False, pr_number=run.pr_number, run_type=run.run_type
-            )
-            .order_by("created_at")
-        )
-        decided_ids = list(decided.values_list("id", flat=True))
-        if run.id not in decided_ids:
+        decided_ids = set(self._decided_runs_of_pull_request(run.pr_number, run.run_type).values_list("id", flat=True))
+        if not decided_ids:
             return [run.id]
-        if (
-            decided.filter(self._recent_run_on_branch()).exists()
-            or decided.filter(self._source_of_active_quarantine()).exists()
-        ):
+        if run.superseded_by_id is not None and run.id not in decided_ids:
+            return [run.id]
+        members = self._runs().filter(id__in=decided_ids | {run.id})
+        # Another latest run holds a decision, so the group goes when the quiet-branch pass takes that run.
+        if members.filter(superseded_by__isnull=True).exclude(id=run.id).exists():
             return []
-        return decided_ids
+        if members.filter(self._recent_run_on_branch()).exists():
+            return []
+        recent_decision = self._snapshots().filter(
+            review_decisions.has_decisions(), run_id__in=decided_ids, updated_at__gte=self._quiet_cutoff()
+        )
+        if recent_decision.exists():
+            return []
+        return list(members.order_by("created_at").values_list("id", flat=True))
 
-    def _delete_one(self, run_id: UUID) -> int:
-        # A quarantine or an approval can name the run after the candidate query
-        # read it. A quarantine insert takes a key-share lock on the run row, and
-        # finalize locks the row before it writes approvals, so locking the row
-        # first makes the check and the delete see the same rows.
-        list(self._runs().select_for_update().filter(id=run_id).values_list("id", flat=True))
+    def _may_delete(self, run_id: UUID) -> bool:
         if self._runs().filter(self._source_of_active_quarantine(), id=run_id).exists():
-            return 0
-        if self._run_open_to_approvals(run_id):
-            return 0
+            return False
+        return not self._run_open_to_approvals(run_id)
+
+    def _delete(self, run_id: UUID) -> int:
         self._splice_out_of_chain(run_id)
         _total, per_model = self._runs().filter(id=run_id).delete()
         return per_model.get(Run._meta.label, 0)
@@ -355,6 +371,7 @@ class RetentionSweep:
                 break
             if run_id in handled:
                 continue
+            handled.add(run_id)
             run = self._runs().filter(id=run_id).only("id", "pr_number", "run_type", "superseded_by_id").first()
             if run is None:
                 continue
@@ -362,12 +379,20 @@ class RetentionSweep:
                 if run.pr_number is not None:
                     review_decisions.lock_pull_request(self.repo.id, run.run_type, run.pr_number)
                 group = self._deletion_group(run)
+                # A quarantine or an approval can name a run after the candidate query
+                # read it. A quarantine insert takes a key-share lock on the run row, and
+                # finalize locks the row before it writes approvals, so locking the rows
+                # first makes the check and the delete see the same rows. One run that
+                # has to stay keeps its whole group.
+                list(self._runs().select_for_update().filter(id__in=group).values_list("id", flat=True))
+                if not all(self._may_delete(member) for member in group):
+                    group = []
                 hash_by_run_id = dict(
                     self._runs()
                     .filter(id__in=group, metadata__has_key=story_index.METADATA_KEY)
                     .values_list("id", KeyTextTransform(story_index.METADATA_KEY, "metadata"))
                 )
-                deleted_ids = [member for member in group if self._delete_one(member)]
+                deleted_ids = [member for member in group if self._delete(member)]
             handled.update(group)
             deleted += len(deleted_ids)
             self.released_story_index_hashes.update(

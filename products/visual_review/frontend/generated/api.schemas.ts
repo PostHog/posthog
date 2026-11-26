@@ -376,7 +376,7 @@ export interface RunProgressApi {
     approved_via_mcp: number
     /** Rejected. Each one blocks finalize. */
     rejected: number
-    /** Not accepted, rejected or tolerated yet. */
+    /** Not accepted, rejected or tolerated yet. Includes removed snapshots nobody decided on, which finalize accepts by itself. */
     needs_review: number
     /** Tolerated as rendering noise. */
     tolerated: number
@@ -440,7 +440,7 @@ export interface RunApi {
     progress?: RunProgressApi | null
     /** The newest run of the pull request, which finalize needs. Only on the single-run read, null in lists. */
     head_run?: HeadRunApi | null
-    /** Whether this is the pull request's newest run, it is not finalized, and every change is accepted, tolerated or quarantined with none rejected. Only on the single-run read, false in lists. */
+    /** Whether a finalize without `approve_all` would pass now: this is the pull request's newest run, it is not finalized, nothing is rejected, and every changed and new snapshot is accepted, tolerated or quarantined. A removed snapshot nobody decided on does not hold it back, because finalize accepts it. Only on the single-run read, false in lists. */
     can_finalize?: boolean
     /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
      *
@@ -642,7 +642,7 @@ export interface ApproveSnapshotInputApi {
      */
     identifier: string
     /**
-     * The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot.
+     * The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself.
      * @maxLength 128
      * @nullable
      */
@@ -675,8 +675,8 @@ export interface DecisionResultApi {
     head_run: HeadRunApi
     /** How far the review of the newest run got after this call. */
     progress: RunProgressApi
-    /** Identifiers whose newest decision already was this one, so the call changed nothing for them and the first decider stays. */
-    already_approved: string[]
+    /** Identifiers whose newest decision already was the one requested, so nothing was written for them and the first decider stays. */
+    already_decided: string[]
 }
 
 export interface DecisionRefusalApi {
@@ -751,7 +751,7 @@ export const DecisionChannelEnumApi = {
 export interface FinalizeApproverApi {
     /** Who accepted. */
     user: UserBasicInfoApi | null
-    /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort.
+    /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
      *
      * * `web` - Visual Review page
      * * `api` - API key
@@ -784,7 +784,6 @@ export interface NotFullyResolvedDetailApi {
     rejected: RejectedSnapshotDetailApi[]
     /** Every snapshot that still needs a decision. */
     needs_review: string[]
-    progress?: RunProgressApi | null
 }
 
 export interface LiftOnMergeInputApi {
@@ -878,7 +877,7 @@ export interface RejectSnapshotInputApi {
      */
     identifier: string
     /**
-     * The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot.
+     * The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself.
      * @maxLength 128
      * @nullable
      */
@@ -946,7 +945,7 @@ export interface SnapshotDecisionApi {
     state: DecisionStateEnumApi
     /** Who made the decision. */
     by: UserBasicInfoApi | null
-    /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort.
+    /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
      *
      * * `web` - Visual Review page
      * * `api` - API key
@@ -989,7 +988,7 @@ export interface EarlierSnapshotDecisionApi {
     state: DecisionStateEnumApi
     /** Who made the earlier decision. */
     by: UserBasicInfoApi | null
-    /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort.
+    /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
      *
      * * `web` - Visual Review page
      * * `api` - API key

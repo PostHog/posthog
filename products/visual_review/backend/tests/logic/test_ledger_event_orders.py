@@ -34,7 +34,6 @@ from products.visual_review.backend.logic import (
 )
 from products.visual_review.backend.logic.baseline_record import record_for_run
 from products.visual_review.backend.models import BaselineApproval, BaselineEntry, Repo, Run, RunSnapshot
-from products.visual_review.backend.tasks.tasks import process_run_diffs
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 from products.visual_review.backend.tests.logic.ci_workflow import (
     FIXED_WORKFLOW,
@@ -894,7 +893,8 @@ DECISION_COLORS = {
 
 GUARANTEE_DECISION_RULES = (
     "A decision is refused exactly when the pull request's head run is finalized, an agent would change a "
-    "person's decision, or a person would accept over someone else's rejection without an override"
+    "person's decision or take back a rejection, or a person would accept over someone else's rejection without "
+    "an override"
 )
 GUARANTEE_FINALIZE = (
     "Finalize passes exactly when no pair of the head run is rejected, no rejected story is missing from a partial "
@@ -908,7 +908,6 @@ GUARANTEE_LEDGER_GAINS_ACCEPTED = (
     "Finalize records an approval for exactly the changed pairs whose newest decision is an accept"
 )
 GUARANTEE_DECIDED_RUNS_KEPT = "Retention keeps every run that holds a decision while its branch is active"
-GUARANTEE_FROZEN_RUN = "A redelivered diff task leaves the pairs of a completed run alone"
 
 Key = tuple[str, str, str]
 
@@ -945,13 +944,12 @@ class DecisionOracle:
             return "unchanged"
         if decision.agent and current is not None and not current.agent:
             return "refused"
-        over_rejection = (
-            decision.action == DecisionAction.ACCEPT
-            and current is not None
-            and current.action == DecisionAction.REJECT
-            and current.person != decision.person
-        )
-        if over_rejection and (decision.agent or not override):
+        if current is None or current.action != DecisionAction.REJECT:
+            return "written"
+        by_other = current.person != decision.person
+        if decision.agent and (decision.action == DecisionAction.ACCEPT or by_other):
+            return "refused"
+        if decision.action == DecisionAction.ACCEPT and by_other and not override:
             return "refused"
         return "written"
 
@@ -1171,23 +1169,6 @@ class DecisionPlayer:
             )
         return f"finalized run {latest.number}, rows {sorted(rows)}"
 
-    def redeliver(self, event: str, number: int) -> str:
-        run = self.runs[number].run
-
-        def pairs() -> list[tuple[str, str, str, str]]:
-            return list(
-                RunSnapshot.objects.using(WRITER_DB)
-                .filter(run_id=run.id)
-                .order_by("identifier")
-                .values_list("identifier", "result", "baseline_hash", "current_hash")
-            )
-
-        before = pairs()
-        process_run_diffs(self.repo.team_id, str(run.id))
-        if pairs() != before:
-            self._broken(GUARANTEE_FROZEN_RUN, event, f"pairs {before} became {pairs()}")
-        return "redelivered"
-
     def retain(self, event: str) -> str:
         decided = set(
             RunSnapshot.objects.using(WRITER_DB)
@@ -1234,8 +1215,6 @@ class DecisionPlayer:
             outcome = self.quarantine(rest[0])
         elif verb in ("finalize", "finalize-all"):
             outcome = self.finalize(event, approve_all=verb == "finalize-all")
-        elif verb == "redeliver":
-            outcome = self.redeliver(event, int(rest[0]))
         elif verb == "retain":
             outcome = self.retain(event)
         else:

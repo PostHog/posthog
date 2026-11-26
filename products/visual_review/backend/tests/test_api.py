@@ -9,6 +9,7 @@ from posthog.paging import PageRequest
 
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import (
+    AddSnapshotsInput,
     ApproveRunInput,
     ApproveSnapshotInput,
     CreateRunInput,
@@ -17,7 +18,7 @@ from products.visual_review.backend.facade.contracts import (
 )
 from products.visual_review.backend.facade.enums import RunType, SnapshotResult
 from products.visual_review.backend.logic import artifact_store, errors, quarantine, runs
-from products.visual_review.backend.models import Run
+from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -130,6 +131,7 @@ class TestRunAPI:
                 metadata={
                     "pr_title": "kept",
                     "github_comment_id": 99999,
+                    "github_rejection_comment_id": 99998,
                     "baseline_commit_sha": "deadbeef",
                     "baseline_healed_from_merge_base": 1,
                     "baseline": {"candidate_approval_ids": ["0190a1b2-0000-7000-8000-000000000001"]},
@@ -141,6 +143,37 @@ class TestRunAPI:
 
         run = Run.objects.get(id=result.run_id)
         assert run.metadata == {"pr_title": "kept", "github_check_run_id": "72855643533"}
+
+    @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
+    def test_snapshot_metadata_cannot_carry_review_decisions(self, mock_presigned, repo):
+        # Only `decide` writes the decision history. A forged one would count as a person's accept.
+        mock_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {}}
+        forged = {
+            "browser": "chromium",
+            "review_decisions": [{"action": "accept", "by": 1, "via": "web", "at": "2026-01-01T00:00:00", "seq": 1}],
+        }
+
+        result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="feat",
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="hash1", metadata=forged)],
+            ),
+            team_id=repo.team_id,
+        )
+        api.add_snapshots(
+            AddSnapshotsInput(
+                snapshots=[SnapshotManifestItem(identifier="Card", content_hash="hash2", metadata=forged)]
+            ),
+            run_id=result.run_id,
+            team_id=repo.team_id,
+        )
+
+        stored = dict(RunSnapshot.objects.filter(run_id=result.run_id).values_list("identifier", "metadata"))
+        assert stored == {"Button": {"browser": "chromium"}, "Card": {"browser": "chromium"}}
 
     @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
     def test_create_run_normalizes_github_ids_to_strings(self, mock_presigned, repo):

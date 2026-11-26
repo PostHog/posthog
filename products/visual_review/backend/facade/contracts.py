@@ -160,6 +160,10 @@ class ApproveRunInput:
     override_rejection: bool = False
 
 
+# The longest rejection reason a decision keeps. The PR comment and the API refusal texts quote it.
+REASON_MAX_LENGTH = 500
+
+
 @dataclass(frozen=True)
 class RejectSnapshotInput:
     """One snapshot to reject, with a reason the author can act on. `new_hash` is None for a removed snapshot."""
@@ -440,7 +444,11 @@ class RunSummary:
 
 @dataclass(frozen=True)
 class RunProgress:
-    """How far the review of a run got. `total` is the sum of the four counts after `approved_via_mcp`."""
+    """How far the review of a run got.
+
+    `total` is `approved + rejected + needs_review + tolerated`. The two `approved_*` counts are
+    subsets of `approved`.
+    """
 
     total: int
     approved: int
@@ -502,7 +510,7 @@ class DecisionResult:
     run: Run
     head_run: HeadRun
     progress: RunProgress
-    already_approved: list[str] = field(default_factory=list)
+    already_decided: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -528,7 +536,6 @@ class NotFullyResolvedDetail:
 
     rejected: list[RejectedSnapshotDetail]
     needs_review: list[str]
-    progress: RunProgress | None = None
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connections, transaction
+from django.db.models import Exists, F, JSONField, OuterRef, QuerySet, Value
+from django.db.models.expressions import CombinedExpression
+from django.db.models.functions import Coalesce
 
 import structlog
 
@@ -12,7 +15,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 
 from ..db import WRITER_DB
 from ..facade.enums import DecisionChannel, ReviewDecision, RunPurpose
-from ..models import Repo, Run
+from ..models import Repo, Run, RunSnapshot
 from . import comment_markdown, github_api, review_decisions, run_queries
 
 logger = structlog.get_logger(__name__)
@@ -81,6 +84,23 @@ def _retire_previous_comment(repo: Repo, previous_run: Run, comment_id: int) -> 
         )
 
 
+def _set_metadata_key(run: Run, key: str, value: object) -> None:
+    """Write one key of the run's metadata in place, keeping every other key.
+
+    A save of the whole dict from a copy read before another writer's update drops that writer's
+    key, and both comment IDs can land on the same run.
+    """
+    Run.objects.using(WRITER_DB).filter(id=run.id, team_id=run.team_id).update(
+        metadata=CombinedExpression(
+            Coalesce(F("metadata"), Value({}, output_field=JSONField())),
+            "||",
+            Value({key: value}, output_field=JSONField()),
+            output_field=JSONField(),
+        )
+    )
+    run.metadata = {**(run.metadata or {}), key: value}
+
+
 def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     """
     Post a PR comment prompting reviewers to approve visual changes.
@@ -128,8 +148,7 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
             return
 
         comment_id = response.json().get("id")
-        run.metadata["github_comment_id"] = comment_id
-        run.save(update_fields=["metadata"])
+        _set_metadata_key(run, "github_comment_id", comment_id)
     except Exception:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
         return
@@ -221,8 +240,7 @@ def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> No
         if create_response.status_code == 201:
             new_comment_id = create_response.json().get("id")
             if isinstance(new_comment_id, int):
-                run.metadata["github_comment_id"] = new_comment_id
-                run.save(update_fields=["metadata"], using=WRITER_DB)
+                _set_metadata_key(run, "github_comment_id", new_comment_id)
             return
 
         logger.warning(
@@ -265,24 +283,36 @@ def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None, add_
 REJECTION_COMMENT_KEY = "github_rejection_comment_id"
 
 
-def _rejection_comment(head: Run) -> tuple[Run, int] | None:
-    """The run of the pull request that holds the rejection comment's ID, and the ID."""
-    holder = (
-        Run.objects.using(WRITER_DB)
-        .filter(
-            team_id=head.team_id,
-            repo_id=head.repo_id,
-            pr_number=head.pr_number,
-            run_type=head.run_type,
-            metadata__has_key=REJECTION_COMMENT_KEY,
-        )
-        .order_by("-created_at")
-        .first()
+def _pull_request_runs(head: Run) -> QuerySet[Run]:
+    return Run.objects.using(WRITER_DB).filter(
+        team_id=head.team_id, repo_id=head.repo_id, pr_number=head.pr_number, run_type=head.run_type
     )
+
+
+def _rejection_comment_id(head: Run) -> int | None:
+    """The ID of the pull request's rejection comment, from whichever of its runs holds it."""
+    holder = _pull_request_runs(head).filter(metadata__has_key=REJECTION_COMMENT_KEY).order_by("-created_at").first()
     if holder is None:
         return None
     value = holder.metadata.get(REJECTION_COMMENT_KEY)
-    return (holder, value) if isinstance(value, int) else None
+    return value if isinstance(value, int) else None
+
+
+def _remember_rejection_comment(head: Run, comment_id: int) -> None:
+    """Keep the comment ID on the oldest run of the pull request that holds a decision.
+
+    Retention deletes the decided runs of a pull request only together, so the ID lasts as long as
+    any rejection it lists can.
+    """
+    holder = (
+        _pull_request_runs(head)
+        .filter(
+            Exists(RunSnapshot.objects.using(WRITER_DB).filter(review_decisions.has_decisions(), run_id=OuterRef("id")))
+        )
+        .order_by("created_at")
+        .first()
+    )
+    _set_metadata_key(holder or head, REJECTION_COMMENT_KEY, comment_id)
 
 
 def _open_rejections(head: Run) -> list[comment_markdown.OpenRejection]:
@@ -300,11 +330,44 @@ def _open_rejections(head: Run) -> list[comment_markdown.OpenRejection]:
     ]
 
 
-def _remember_rejection_comment(head: Run, comment_id: int) -> None:
-    with transaction.atomic(using=WRITER_DB):
-        locked = Run.objects.using(WRITER_DB).select_for_update(of=("self",)).get(id=head.id, team_id=head.team_id)
-        locked.metadata = {**(locked.metadata or {}), REJECTION_COMMENT_KEY: comment_id}
-        locked.save(using=WRITER_DB, update_fields=["metadata"])
+def _lock_rejection_comment(head: Run) -> None:
+    """Serialize the syncs of one pull request's rejection comment until the transaction ends.
+
+    Each sync reads the rejections once it holds the lock, so the last one to run posts the current
+    list, whatever order the tasks ran in, and a second reject never posts a second comment.
+    """
+    with connections[WRITER_DB].cursor() as db_cursor:
+        db_cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            [f"visual_review_rejection_comment:{head.repo_id}:{head.run_type}:{head.pr_number}"],
+        )
+
+
+def _sync_rejection_comment(run: Run, head: Run, repo: Repo) -> None:
+    rejections = _open_rejections(head)
+    body = comment_markdown._build_rejection_comment_body(head, repo, rejections)
+    comment_id = _rejection_comment_id(head)
+    if comment_id is not None:
+        response = github_api._github_api_request(
+            method="PATCH", repo=repo, path=f"issues/comments/{comment_id}", json={"body": body}
+        )
+        # Only a deleted comment is fixed by posting a new one.
+        if response.status_code != 404:
+            if response.status_code != 200:
+                logger.warning(
+                    "visual_review.rejection_comment_update_failed",
+                    run_id=str(run.id),
+                    status_code=response.status_code,
+                )
+            return
+    if not rejections:
+        return
+    response = github_api._github_api_request(
+        method="POST", repo=repo, path=f"issues/{head.pr_number}/comments", json={"body": body}
+    )
+    posted_id = response.json().get("id") if response.status_code == 201 else None
+    if isinstance(posted_id, int):
+        _remember_rejection_comment(head, posted_id)
 
 
 def sync_rejection_comment(run_id: UUID, team_id: int) -> None:
@@ -321,31 +384,10 @@ def sync_rejection_comment(run_id: UUID, team_id: int) -> None:
     if not repo.enable_pr_comments or not repo.repo_full_name:
         return
     head = review_decisions.head_run(run)
-    rejections = _open_rejections(head)
-    body = comment_markdown._build_rejection_comment_body(head, repo, rejections)
-    existing = _rejection_comment(head)
     try:
-        if existing is not None:
-            response = github_api._github_api_request(
-                method="PATCH", repo=repo, path=f"issues/comments/{existing[1]}", json={"body": body}
-            )
-            # Only a deleted comment is fixed by posting a new one.
-            if response.status_code != 404:
-                if response.status_code != 200:
-                    logger.warning(
-                        "visual_review.rejection_comment_update_failed",
-                        run_id=str(run.id),
-                        status_code=response.status_code,
-                    )
-                return
-        if not rejections:
-            return
-        response = github_api._github_api_request(
-            method="POST", repo=repo, path=f"issues/{head.pr_number}/comments", json={"body": body}
-        )
-        comment_id = response.json().get("id") if response.status_code == 201 else None
-        if isinstance(comment_id, int):
-            _remember_rejection_comment(head, comment_id)
+        with transaction.atomic(using=WRITER_DB):
+            _lock_rejection_comment(head)
+            _sync_rejection_comment(run, head, repo)
     except GitHubRateLimitError:
         raise
     except Exception:

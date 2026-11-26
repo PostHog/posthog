@@ -548,7 +548,10 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
                 f"{runs_url}/approve/", {"snapshots": [{**button, "new_hash": "b2"}]}, format="json"
             )
             listed = self.client.get(f"{runs_url}/snapshots/?review_state=rejected")
-            cleared = self.client.post(f"{runs_url}/clear/", {"identifiers": ["Button"]}, format="json")
+            seen_seq = listed.json()["results"][0]["decision"]["seq"]
+            cleared = self.client.post(
+                f"{runs_url}/clear/", {"identifiers": ["Button"], "expected_seq": seen_seq}, format="json"
+            )
 
         self.assertEqual(no_reason.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(rejected.status_code, status.HTTP_200_OK)

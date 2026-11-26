@@ -11,6 +11,7 @@ mode an accept marks the row of the run it was made on, as it always did.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime
 from uuid import UUID
 
@@ -23,6 +24,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from ..db import WRITER_DB
+from ..facade.contracts import REASON_MAX_LENGTH
 from ..facade.enums import (
     BaselineApprovalState,
     BaselineMode,
@@ -42,6 +44,7 @@ from . import (
     baseline_record,
     baselines,
     ci_status,
+    comment_markdown,
     commit_status,
     errors,
     gating,
@@ -54,7 +57,6 @@ from .review_decisions import Decision, DecisionKey, PullRequestDecisions, RunRe
 
 logger = structlog.get_logger(__name__)
 
-REASON_MAX_LENGTH = 500
 
 OBSERVE_RUN_MESSAGE = "This run records the default branch or the merge queue and takes no decisions."
 
@@ -295,6 +297,43 @@ def _settle_decisions(run: Run, user_id: int, via: DecisionChannel, approve_all:
         raise _not_fully_resolved(run, review)
 
 
+def _resolve_rows(run: Run, user_id: int, approve_all: bool, now: datetime) -> None:
+    """Finalize's check in yaml and shadow mode, where each row holds its own review state."""
+    actionable = [
+        s
+        for s in run.snapshots.using(WRITER_DB).all()
+        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW) and not s.is_quarantined
+    ]
+
+    if approve_all:
+        pending = [s for s in actionable if s.review_state not in (ReviewState.APPROVED, ReviewState.TOLERATED)]
+        _validate_approval(run, {s.identifier: s.current_hash for s in pending})
+        # One statement for all pending snapshots, because in ledger mode this runs under the repo-wide
+        # ledger lock. The objects get the same values, because the check below reads them.
+        run.snapshots.using(WRITER_DB).filter(id__in=[s.id for s in pending]).update(
+            review_state=ReviewState.APPROVED,
+            reviewed_at=now,
+            reviewed_by_id=user_id,
+            approved_hash=F("current_hash"),
+        )
+        for snapshot in pending:
+            snapshot.review_state = ReviewState.APPROVED
+            snapshot.reviewed_at = now
+            snapshot.reviewed_by_id = user_id
+            snapshot.approved_hash = snapshot.current_hash
+
+    # All-or-nothing: refuse to commit while any actionable snapshot is still unreviewed.
+    unresolved = sorted(
+        s.identifier for s in actionable if s.review_state not in (ReviewState.APPROVED, ReviewState.TOLERATED)
+    )
+    if unresolved:
+        raise errors.RunNotFullyResolvedError(
+            f"Cannot finalize run {_short_sha(run.commit_sha)}: "
+            f"{_count_text(len(unresolved), 'change needs', 'changes need')} review.",
+            needs_review=unresolved,
+        )
+
+
 def finalize_run(
     run_id: UUID,
     user_id: int,
@@ -376,9 +415,10 @@ def _finalize_run(
             logger.info("visual_review.shadow_approvals_skipped_ledger_busy", run_id=str(run_id))
     run = run_queries._get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
-    # Changing the mode takes the ledger lock, so a mode that differs here changed before finalize
-    # held that lock, and the lock order with `advance` is not guaranteed any more.
-    if ledger_locked and repo.baseline_mode != mode:
+    # The locks above follow the mode read before the transaction. A mode that differs now changed
+    # before finalize held them, so neither the lock order with `advance` nor the pull request lock
+    # that decision writes need is guaranteed.
+    if repo.baseline_mode != mode:
         raise errors.BaselineModeChangedError("The repo's baseline mode changed during the approval. Try again.")
 
     if run.purpose == RunPurpose.OBSERVE:
@@ -488,43 +528,6 @@ def _finalize_run(
     return run
 
 
-def _resolve_rows(run: Run, user_id: int, approve_all: bool, now: datetime) -> None:
-    """Finalize's check in yaml and shadow mode, where each row holds its own review state."""
-    actionable = [
-        s
-        for s in run.snapshots.using(WRITER_DB).all()
-        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW) and not s.is_quarantined
-    ]
-
-    if approve_all:
-        pending = [s for s in actionable if s.review_state not in (ReviewState.APPROVED, ReviewState.TOLERATED)]
-        _validate_approval(run, {s.identifier: s.current_hash for s in pending})
-        # One statement for all pending snapshots, because in ledger mode this runs under the repo-wide
-        # ledger lock. The objects get the same values, because the check below reads them.
-        run.snapshots.using(WRITER_DB).filter(id__in=[s.id for s in pending]).update(
-            review_state=ReviewState.APPROVED,
-            reviewed_at=now,
-            reviewed_by_id=user_id,
-            approved_hash=F("current_hash"),
-        )
-        for snapshot in pending:
-            snapshot.review_state = ReviewState.APPROVED
-            snapshot.reviewed_at = now
-            snapshot.reviewed_by_id = user_id
-            snapshot.approved_hash = snapshot.current_hash
-
-    # All-or-nothing: refuse to commit while any actionable snapshot is still unreviewed.
-    unresolved = sorted(
-        s.identifier for s in actionable if s.review_state not in (ReviewState.APPROVED, ReviewState.TOLERATED)
-    )
-    if unresolved:
-        raise errors.RunNotFullyResolvedError(
-            f"Cannot finalize run {_short_sha(run.commit_sha)}: "
-            f"{_count_text(len(unresolved), 'change needs', 'changes need')} review.",
-            needs_review=unresolved,
-        )
-
-
 @transaction.atomic(using=WRITER_DB)
 def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict], team_id: int | None = None) -> Run:
     """Approve specific snapshots within a run (DB only, no GitHub commit), in yaml and shadow mode.
@@ -629,7 +632,9 @@ def _check_pictures(call: _DecisionCall, request: DecisionRequest, row: RunSnaps
     """Refuse a request for a pair of pictures the run does not show."""
     run = call.run
     identifier = request.identifier
-    if row.result == SnapshotResult.UNCHANGED:
+    # A tolerated or absorbed difference is unchanged with two different pictures. It still takes a
+    # decision, because a rejection of that pair blocks the run and has to be undone where it shows.
+    if row.result == SnapshotResult.UNCHANGED and row.baseline_hash == row.current_hash:
         return errors.DecisionRefusal(
             identifier=identifier,
             code="not_a_change",
@@ -700,12 +705,21 @@ def _describe(decision: Decision, names: dict[int, str]) -> str:
     return f"{who} undid the decision on {where}"
 
 
+def _already_holds(action: DecisionAction, current: Decision | None) -> bool:
+    """Whether the pair's newest decision already is the one asked for, so nothing needs writing."""
+    if action == DecisionAction.CLEAR:
+        return current is None or current.action == DecisionAction.CLEAR
+    return current is not None and current.action == action
+
+
 def _check_against_current(
     call: _DecisionCall, identifier: str, current: Decision | None, covered: bool, names: dict[int, str]
-) -> errors.DecisionRefusal | bool:
-    """Whether the decision replaces the newest one on its pair: True to write, False when it already holds.
+) -> errors.DecisionRefusal | None:
+    """Refuse a decision that may not replace the newest one on its pair. None lets it stand.
 
     A pure function of the call and the pair's newest decision, so each rule is one row of a table test.
+    An agent never undoes or accepts over a rejection it did not make, and never accepts over its own:
+    taking a rejection back that way needs a person.
     """
 
     def refusal(code: str, detail: str) -> errors.DecisionRefusal:
@@ -728,28 +742,30 @@ def _check_against_current(
             "decided_since",
             f"{_describe(current, names)} after you read it. Read the snapshot again and decide on what it shows now.",
         )
-    if call.action == DecisionAction.ACCEPT and current is not None and current.action == DecisionAction.ACCEPT:
-        return False
-    if call.action == DecisionAction.CLEAR and (current is None or current.action == DecisionAction.CLEAR):
-        return False
+    if current is None or _already_holds(call.action, current):
+        return None
     agent = call.via == DecisionChannel.MCP
-    if agent and current is not None and current.by_person:
+    if agent and current.by_person:
         who = names.get(current.by_id, "the person") if current.by_id is not None else "the person"
         return refusal(
             "decided_by_person",
             f"{_describe(current, names)}. An agent cannot change a person's decision. "
             f"Fix the code and push, or ask {who} or the user to decide.",
         )
-    rejected_by_other = (
-        call.action == DecisionAction.ACCEPT
-        and current is not None
-        and current.action == DecisionAction.REJECT
-        and current.by_id != call.user_id
-    )
-    if current is not None and rejected_by_other and (agent or not call.override_rejection):
-        next_step = "Ask them or the user to decide." if agent else "Pass override_rejection to accept it anyway."
-        return refusal("rejected_by_other", f"{_describe(current, names)}. {next_step}")
-    return True
+    if current.action != DecisionAction.REJECT:
+        return None
+    by_other = current.by_id != call.user_id
+    if agent and (call.action == DecisionAction.ACCEPT or by_other):
+        return refusal(
+            "rejected_by_other",
+            f"{_describe(current, names)}. An agent cannot accept over a rejection or undo someone else's. "
+            "Ask the user to decide.",
+        )
+    if call.action == DecisionAction.ACCEPT and by_other and not call.override_rejection:
+        return refusal(
+            "rejected_by_other", f"{_describe(current, names)}. Pass override_rejection to accept it anyway."
+        )
+    return None
 
 
 def _keys_covered_by_approvals(run: Run, pr_number: int, identifiers: list[str]) -> set[DecisionKey]:
@@ -830,14 +846,7 @@ def _decide_on_pull_request(
     assert pr_number is not None
     review_decisions.lock_pull_request(call.run.repo_id, call.run.run_type, pr_number)
     run = _lock_run(call.run.id, call.run.team_id)
-    call = _DecisionCall(
-        action=call.action,
-        user_id=call.user_id,
-        via=call.via,
-        expected_seq=call.expected_seq,
-        override_rejection=call.override_rejection,
-        run=run,
-    )
+    call = dataclasses.replace(call, run=run)
     head = review_decisions.head_run(run, head_sha)
     if head.approved:
         raise _refused(
@@ -855,7 +864,7 @@ def _decide_on_pull_request(
         identifier: decisions.newest(review_decisions.key_of(identifier, row.baseline_hash, row.current_hash))
         for identifier, row in rows.items()
     }
-    names = review_decisions.person_names(
+    names = comment_markdown.approver_labels(
         {decision.by_id for decision in currents.values() if decision is not None and decision.by_id is not None}
     )
 
@@ -874,14 +883,14 @@ def _decide_on_pull_request(
             continue
         key = review_decisions.key_of(row.identifier, row.baseline_hash, row.current_hash)
         current = currents.get(request.identifier)
-        verdict = _check_against_current(call, request.identifier, current, key in covered, names)
-        if isinstance(verdict, errors.DecisionRefusal):
-            refusals.append(verdict)
-        elif verdict:
+        refusal = _check_against_current(call, request.identifier, current, key in covered, names)
+        if refusal is not None:
+            refusals.append(refusal)
+        elif _already_holds(call.action, current):
+            already.append(request.identifier)
+        else:
             writes.append((row, key))
             replaces_rejection = replaces_rejection or (current is not None and current.action == DecisionAction.REJECT)
-        else:
-            already.append(request.identifier)
     if call.action == DecisionAction.ACCEPT:
         refusals.extend(_missing_artifact_refusals(run, writes))
     if refusals:
@@ -957,10 +966,26 @@ def decide(
                 "Rejects and undos work in ledger mode only. This repo reads its baselines from the baseline file.",
                 conflict=False,
             )
+        without_hash = [request.identifier for request in requests if not request.new_hash]
+        if without_hash:
+            raise errors.DecisionRefusedError(
+                [
+                    errors.DecisionRefusal(
+                        identifier=identifier,
+                        code="hash_required",
+                        detail=(
+                            f"{identifier} needs its new_hash. In yaml and shadow mode finalize accepts removed "
+                            "snapshots by itself, so only changed and new snapshots take an accept."
+                        ),
+                        conflict=False,
+                    )
+                    for identifier in without_hash
+                ]
+            )
         approved = approve_snapshots(
             run_id,
             user_id,
-            [{"identifier": request.identifier, "new_hash": request.new_hash or ""} for request in requests],
+            [{"identifier": request.identifier, "new_hash": request.new_hash} for request in requests],
             team_id=team_id,
         )
         return DecisionOutcome(

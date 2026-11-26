@@ -16,6 +16,7 @@ from ..facade.contracts import (
     FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
+    REASON_MAX_LENGTH,
     TOLERATION_PILEUP_WINDOW_DAYS,
     VARIANT_PILEUP_MIN,
     AddSnapshotsInput,
@@ -161,7 +162,8 @@ class RowShiftSerializer(DataclassSerializer):
 
 _VIA_HELP = (
     "How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` "
-    "(an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort."
+    "(an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept "
+    "from before decisions kept a history shows `web`."
 )
 
 
@@ -265,7 +267,12 @@ class RunProgressSerializer(DataclassSerializer):
     )
     approved_via_mcp = serializers.IntegerField(help_text="Accepted by an agent through MCP.")
     rejected = serializers.IntegerField(help_text="Rejected. Each one blocks finalize.")
-    needs_review = serializers.IntegerField(help_text="Not accepted, rejected or tolerated yet.")
+    needs_review = serializers.IntegerField(
+        help_text=(
+            "Not accepted, rejected or tolerated yet. Includes removed snapshots nobody decided on, which finalize "
+            "accepts by itself."
+        )
+    )
     tolerated = serializers.IntegerField(help_text="Tolerated as rendering noise.")
 
     class Meta:
@@ -299,8 +306,10 @@ class RunSerializer(DataclassSerializer):
     can_finalize = serializers.BooleanField(
         required=False,
         help_text=(
-            "Whether this is the pull request's newest run, it is not finalized, and every change is accepted, "
-            "tolerated or quarantined with none rejected. Only on the single-run read, false in lists."
+            "Whether a finalize without `approve_all` would pass now: this is the pull request's newest run, it is "
+            "not finalized, nothing is rejected, and every changed and new snapshot is accepted, tolerated or "
+            "quarantined. A removed snapshot nobody decided on does not hold it back, because finalize accepts it. "
+            "Only on the single-run read, false in lists."
         ),
     )
     purpose = serializers.ChoiceField(
@@ -394,10 +403,10 @@ class DecisionResultSerializer(DataclassSerializer):
         help_text="The newest run of the pull request. A decision counts there when the pictures are the same."
     )
     progress = RunProgressSerializer(help_text="How far the review of the newest run got after this call.")
-    already_approved = serializers.ListField(
+    already_decided = serializers.ListField(
         child=serializers.CharField(),
         help_text=(
-            "Identifiers whose newest decision already was this one, so the call changed nothing for them and "
+            "Identifiers whose newest decision already was the one requested, so nothing was written for them and "
             "the first decider stays."
         ),
     )
@@ -522,7 +531,8 @@ class UpdateRepoInputSerializer(DataclassSerializer):
 
 _DECISION_IDENTIFIER_HELP = "The snapshot identifier, such as a Storybook story id plus theme."
 _NEW_HASH_HELP = (
-    "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot."
+    "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` "
+    "snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
 )
 _OLD_HASH_HELP = (
     "Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` "
@@ -589,7 +599,7 @@ class RejectSnapshotInputSerializer(DataclassSerializer):
     )
     reason = serializers.CharField(
         min_length=1,
-        max_length=500,
+        max_length=REASON_MAX_LENGTH,
         help_text="What is wrong with the new picture, so the author can fix it. Shown on the pull request.",
     )
 

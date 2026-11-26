@@ -159,25 +159,49 @@ class TestRetentionSweep:
 
         assert Run.objects.filter(id=superseded.id).exists() is survives
 
-    @pytest.mark.parametrize(("successor_age_days", "survive"), [(4, True), (31, False)])
-    def test_superseded_runs_with_a_decision_wait_for_the_branch_to_go_quiet(
-        self, successor_age_days, survive, repo, now
+    @pytest.mark.parametrize(
+        ("successor_age_days", "decision_age_days", "survive"),
+        [(4, 40, True), (31, 40, False), (31, 2, True)],
+        ids=["branch_active", "branch_and_decisions_quiet", "decided_recently"],
+    )
+    def test_superseded_runs_with_a_decision_wait_for_the_pull_request_to_go_quiet(
+        self, successor_age_days, decision_age_days, survive, repo, now
     ):
         latest = self._run(repo, now, age_days=successor_age_days)
         decided = [self._run(repo, now, age_days=age, superseded_by=latest) for age in (40, 35)]
         undecided = self._run(repo, now, age_days=33, superseded_by=latest)
         for run in decided:
-            RunSnapshot.objects.create(
+            snapshot = RunSnapshot.objects.create(
                 run=run,
                 team_id=repo.team_id,
                 identifier="Button",
                 metadata={"review_decisions": [{"action": "accept", "seq": 1}]},
             )
+            RunSnapshot.objects.filter(id=snapshot.id).update(updated_at=now - timedelta(days=decision_age_days))
 
         retention.sweep_repo_runs(repo, now=now)
 
         assert [Run.objects.filter(id=run.id).exists() for run in decided] == [survive, survive]
         assert Run.objects.filter(id=undecided.id).exists() is False
+
+    @pytest.mark.parametrize("latest_kept", [False, True])
+    def test_decided_runs_of_a_pull_request_go_together_with_its_latest_decided_run(self, latest_kept, repo, now):
+        # Deleting the older decided run alone would let the latest run's older accept count over its newer reject.
+        latest = self._run(repo, now, age_days=40)
+        older = self._run(repo, now, age_days=45, superseded_by=latest)
+        for run in (latest, older):
+            snapshot = RunSnapshot.objects.create(
+                run=run, team_id=repo.team_id, identifier="Button", metadata={"review_decisions": [{"seq": 1}]}
+            )
+            RunSnapshot.objects.filter(id=snapshot.id).update(updated_at=now - timedelta(days=40))
+        # The quiet-branch pass deletes a latest run only once a newer complete run names the baseline.
+        self._run(repo, now, age_days=1, branch="master", pr_number=None)
+        if latest_kept:
+            _open_approval(repo, now, {"content_hash": "h1"})
+
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert [Run.objects.filter(id=run.id).exists() for run in (older, latest)] == [latest_kept, latest_kept]
 
     def test_default_branch_latest_run_survives_any_age(self, repo, now):
         latest = self._run(repo, now, age_days=400, branch="master", pr_number=None)
