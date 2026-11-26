@@ -129,17 +129,18 @@ def viewable_alert_insights(
     a token when the insight is a metrics one."""
     from django.db.models import Q  # noqa: PLC0415
 
-    from posthog.models import Team, User  # noqa: PLC0415
     from posthog.schema_enums import NodeKind  # noqa: PLC0415
 
-    from products.access_control.backend.facade.user_access_control import UserAccessControl  # noqa: PLC0415
+    from products.authorization.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
+    from products.authorization.backend.facade.enums import ResourceType  # noqa: PLC0415
+    from products.authorization.backend.presentation.querysets import filter_queryset  # noqa: PLC0415
     from products.product_analytics.backend.facade.models import Insight  # noqa: PLC0415
 
-    user = User.objects.filter(id=reader.user_id).first()
-    if user is None:
-        return set()
-    access = UserAccessControl(user, team=Team.objects.get(id=team_id))
-    insights = access.filter_queryset_by_access_level(Insight.objects.filter(team_id=team_id, id__in=list(object_ids)))
+    insights = filter_queryset(
+        Insight.objects.filter(team_id=team_id, id__in=list(object_ids)),
+        resource=Resource(type=ResourceType.INSIGHT, project_id=team_id),
+        subject=Subject(user_id=reader.user_id),
+    )
     if key_scopes_lack_metrics(reader.key_scopes):
         # Filter, then exclude by id, because NOT over a JSON path also drops rows that lack the key.
         insights = insights.exclude(
