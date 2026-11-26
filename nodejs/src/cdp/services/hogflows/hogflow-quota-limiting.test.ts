@@ -47,20 +47,28 @@ describe('HogFlow Quota Limiting', () => {
             expect(result.isLimited).toBe(true)
         })
 
-        const transactionalEmail = {
+        // The workflow the transactional send API makes: an api trigger, its one email step, and an exit.
+        const transactionalSendEmail = {
             id: 'transactional_email',
             type: 'function_email',
             config: { message_category_type: 'transactional' },
         }
         const transactionalCategoryEmail = {
+            id: 'email_1',
             type: 'function_email',
             config: { message_category_type: 'transactional' },
         }
-        const marketingEmail = { type: 'function_email', config: { message_category_type: 'marketing' } }
-        const supportTrigger = (entryType: string | undefined): Record<string, unknown> => ({
-            type: 'internal-event',
-            filters: { events: [{ id: '$conversation_message_sent', type: entryType }] },
+        const marketingEmail = { id: 'email_2', type: 'function_email', config: { message_category_type: 'marketing' } }
+        const webhook = { id: 'webhook_1', type: 'function', config: {} }
+        const pageview = { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } }
+        const eventTrigger = (...events: Record<string, unknown>[]): Record<string, unknown> => ({
+            type: 'event',
+            filters: { events },
         })
+        const supportReply = {
+            type: 'internal-event',
+            filters: { source: 'internal-events', events: [{ id: '$conversation_message_sent', type: 'events' }] },
+        }
 
         it.each<{
             name: string
@@ -71,72 +79,106 @@ describe('HogFlow Quota Limiting', () => {
         }>([
             {
                 name: 'a team under every quota is not limited',
-                trigger: { type: 'event' },
-                actions: [marketingEmail, { type: 'function', config: {} }],
+                trigger: pageview,
+                actions: [marketingEmail, webhook],
                 limitedResources: [],
                 expected: false,
             },
             {
                 name: 'a webhook alone is not limited by the email quota',
-                trigger: { type: 'event' },
-                actions: [{ type: 'function', config: {} }],
+                trigger: pageview,
+                actions: [webhook],
                 limitedResources: ['workflow_emails'],
                 expected: false,
             },
             {
                 name: 'a push send alone is limited by the destination quota',
-                trigger: { type: 'event' },
-                actions: [{ type: 'function_push', config: {} }],
+                trigger: pageview,
+                actions: [{ id: 'push_1', type: 'function_push', config: {} }],
                 limitedResources: ['workflow_destinations_dispatched'],
                 expected: true,
             },
             {
-                name: 'only transactional emails are not limited',
-                trigger: { type: 'event' },
-                actions: [transactionalEmail, transactionalEmail],
+                name: 'a transactional send is not limited',
+                trigger: { type: 'api' },
+                actions: [transactionalSendEmail],
                 limitedResources: ['workflow_emails'],
                 expected: false,
             },
             {
+                name: 'an api trigger alone does not exempt an uncategorized email',
+                trigger: { type: 'api' },
+                actions: [{ id: 'email_1', type: 'function_email', config: {} }],
+                limitedResources: ['workflow_emails'],
+                expected: true,
+            },
+            {
                 name: 'a workflow email in a transactional category is limited',
-                trigger: { type: 'event' },
+                trigger: pageview,
                 actions: [transactionalCategoryEmail],
                 limitedResources: ['workflow_emails'],
                 expected: true,
             },
             {
                 name: 'a transactional support reply is not limited',
-                trigger: supportTrigger('events'),
+                trigger: supportReply,
                 actions: [transactionalCategoryEmail],
                 limitedResources: ['workflow_emails'],
                 expected: false,
             },
             {
-                name: 'a support trigger entry that matches any event does not exempt',
-                trigger: supportTrigger(undefined),
+                name: 'a transactional ticket update on an analytics trigger is not limited',
+                trigger: eventTrigger({ id: '$conversation_ticket_created', type: 'events' }),
+                actions: [transactionalCategoryEmail],
+                limitedResources: ['workflow_emails'],
+                expected: false,
+            },
+            {
+                name: 'an event named like a support event is limited',
+                trigger: eventTrigger({ id: '$conversation_spring_sale', type: 'events' }),
                 actions: [transactionalCategoryEmail],
                 limitedResources: ['workflow_emails'],
                 expected: true,
             },
             {
-                name: 'an api trigger alone does not exempt an uncategorized email',
-                trigger: { type: 'api' },
-                actions: [{ type: 'function_email', config: {} }],
+                name: 'an analytics entry without a type matches any event and is limited',
+                trigger: eventTrigger({ id: '$conversation_ticket_created' }),
+                actions: [transactionalCategoryEmail],
                 limitedResources: ['workflow_emails'],
                 expected: true,
             },
             {
-                name: 'a marketing email next to a transactional one is limited',
-                trigger: { type: 'event' },
-                actions: [transactionalEmail, marketingEmail],
+                name: 'a support event next to another event is limited',
+                trigger: eventTrigger(
+                    { id: '$conversation_ticket_created', type: 'events' },
+                    { id: '$pageview', type: 'events' }
+                ),
+                actions: [transactionalCategoryEmail],
                 limitedResources: ['workflow_emails'],
                 expected: true,
             },
             {
-                name: 'a destination next to transactional emails is still limited by the destination quota',
-                trigger: { type: 'event' },
-                actions: [transactionalEmail, { type: 'function', config: {} }],
-                limitedResources: ['workflow_emails', 'workflow_destinations_dispatched'],
+                name: 'a support event with an action filter is limited',
+                trigger: {
+                    type: 'event',
+                    filters: { events: [{ id: '$conversation_ticket_created', type: 'events' }], actions: [{ id: 1 }] },
+                },
+                actions: [transactionalCategoryEmail],
+                limitedResources: ['workflow_emails'],
+                expected: true,
+            },
+            {
+                name: 'a marketing email in a support workflow is limited',
+                trigger: supportReply,
+                actions: [transactionalCategoryEmail, marketingEmail],
+                limitedResources: ['workflow_emails'],
+                expected: true,
+            },
+            {
+                name: 'a webhook in a support workflow is still limited by the destination quota',
+                trigger: supportReply,
+                actions: [transactionalCategoryEmail, webhook],
+                limitedResources: ['workflow_destinations_dispatched'],
                 expected: true,
             },
         ])('$name', async ({ trigger, actions, limitedResources, expected }) => {
@@ -357,20 +399,25 @@ describe('HogFlow Quota Limiting', () => {
             expect(mockWorkflowsActivationReporter.report.mock.calls).toEqual(reports)
         })
 
-        it('should report a blocked email send when the destination quota stops transactional emails next to a webhook', async () => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
+        it('should report a blocked email send when the destination quota stops a support reply next to a webhook', async () => {
+            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((team, resource) =>
+                Promise.resolve(team === teamId && resource === 'workflow_destinations_dispatched')
+            )
 
             const item: CyclotronJobInvocationHogFlow = {
                 ...baseItem,
                 hogFlow: {
                     ...baseItem.hogFlow,
-                    actions: [
-                        {
-                            id: 'transactional_email',
-                            type: 'function_email',
-                            config: { message_category_type: 'transactional' },
+                    trigger: {
+                        type: 'internal-event',
+                        filters: {
+                            source: 'internal-events',
+                            events: [{ id: '$conversation_message_sent', type: 'events' }],
                         },
-                        { type: 'function', config: {} },
+                    },
+                    actions: [
+                        { id: 'email_1', type: 'function_email', config: { message_category_type: 'transactional' } },
+                        { id: 'webhook_1', type: 'function', config: {} },
                     ],
                     billable_action_types: ['function_email', 'function'],
                 } as unknown as HogFlow,

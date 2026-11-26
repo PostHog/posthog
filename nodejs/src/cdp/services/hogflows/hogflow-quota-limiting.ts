@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow, getInternalEventFilterEventIds } from '~/cdp/schema/hogflow'
 
 import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
 import { CyclotronJobInvocationHogFlow } from '../../types'
@@ -24,20 +24,33 @@ export interface HogFlowQuotaLimitResult {
 export const TRANSACTIONAL_EMAIL_ACTION_ID = 'transactional_email'
 
 // Support replies and ticket updates must reach the customer, so the API lets these workflows keep transactional email.
-const SUPPORT_EVENT_PREFIX = '$conversation_'
-const SUPPORT_TRIGGER_TYPES = ['event', 'internal-event']
+// Keep in step with SUPPORT_EVENTS in products/workflows/backend/services/transactional_steps.py.
+const SUPPORT_EVENTS = new Set([
+    '$conversation_ticket_created',
+    '$conversation_ticket_status_changed',
+    '$conversation_ticket_priority_changed',
+    '$conversation_ticket_assigned',
+    '$conversation_ticket_tag_added',
+    '$conversation_message_sent',
+    '$conversation_private_message_sent',
+    '$conversation_message_received',
+])
 
 function triggersOnlyOnSupportEvents(hogFlow: HogFlow): boolean {
-    const trigger = hogFlow.trigger as { type?: string; filters?: { events?: unknown[]; actions?: unknown[] } }
-    const events = trigger?.filters?.events ?? []
+    const trigger = hogFlow.trigger
+    if (trigger.type === 'internal-event') {
+        const eventIds = getInternalEventFilterEventIds(trigger.filters)
+        return !!eventIds && eventIds.every((eventId) => SUPPORT_EVENTS.has(eventId))
+    }
+    if (trigger.type !== 'event') {
+        return false
+    }
+    const events = trigger.filters?.events ?? []
+    // The filter compiler matches the event name only on entries of type `events`, so another entry matches any event.
     return (
-        SUPPORT_TRIGGER_TYPES.includes(trigger?.type ?? '') &&
         events.length > 0 &&
         !trigger.filters?.actions?.length &&
-        events.every((event) => {
-            const entry = event as { type?: string; id?: unknown }
-            return entry?.type === 'events' && String(entry.id ?? '').startsWith(SUPPORT_EVENT_PREFIX)
-        })
+        events.every((event) => event?.type === 'events' && SUPPORT_EVENTS.has(event?.id))
     )
 }
 
