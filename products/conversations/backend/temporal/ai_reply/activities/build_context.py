@@ -19,6 +19,8 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     LEARNED_CHUNK_NOTE,
     MAX_TICKET_CONTEXT_CHARS,
     PUBLISHABLE_TICKET_TYPES,
+    TRIGGER_FIRST_MESSAGE,
+    TRIGGER_MANUAL,
 )
 from products.conversations.backend.temporal.ai_reply.publish import channel_allows_bot_reply
 from products.conversations.backend.temporal.ai_reply.schemas import BuildContextOutput, SupportReplyInput
@@ -48,7 +50,7 @@ async def support_build_context_activity(input: SupportReplyInput) -> BuildConte
     """Build the full ticket context string reusing the existing suggest.py helper."""
     async with Heartbeater():
         return await database_sync_to_async(_build_context_sync, thread_sensitive=False)(
-            input.team_id, input.ticket_id, input.clarification_round
+            input.team_id, input.ticket_id, input.clarification_round, getattr(input, "trigger", TRIGGER_FIRST_MESSAGE)
         )
 
 
@@ -67,7 +69,9 @@ def _context_comments(comments: Iterable[Comment]) -> list[Comment]:
     return kept
 
 
-def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int = 0) -> BuildContextOutput:
+def _build_context_sync(
+    team_id: int, ticket_id: str, clarification_round: int = 0, trigger: str = TRIGGER_FIRST_MESSAGE
+) -> BuildContextOutput:
     try:
         UUID(str(ticket_id))
     except (ValueError, TypeError, AttributeError):
@@ -102,9 +106,12 @@ def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int =
     raw_custom = settings_dict.get("ai_reply_custom_instructions")
     custom_instructions = raw_custom if isinstance(raw_custom, str) else ""
 
-    auto_publish_ticket_types = [
-        tt for tt in PUBLISHABLE_TICKET_TYPES if channel_allows_bot_reply(ticket=ticket, ticket_type=tt)
-    ]
+    # A teammate asked for a manual run, so its output goes to that teammate and never to the customer.
+    auto_publish_ticket_types = (
+        []
+        if trigger == TRIGGER_MANUAL
+        else [tt for tt in PUBLISHABLE_TICKET_TYPES if channel_allows_bot_reply(ticket=ticket, ticket_type=tt)]
+    )
 
     triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else {}
     prior_ticket_type = triage.get("ticket_type") if isinstance(triage.get("ticket_type"), str) else ""

@@ -81,6 +81,30 @@ class TestSlackAppSettings(APIBaseTest):
         else:
             assert row is None
 
+    @parameterized.expand([("admin_in_both", True), ("member_in_the_other", False), ("outside_the_other", None)])
+    def test_workspace_settings_need_access_in_every_organization_on_the_workspace(
+        self, _name: str, admin_in_other: bool | None
+    ) -> None:
+        # One row holds the workspace settings, so an admin of one organization must not undo another's choice.
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        other_organization = Organization.objects.create(name="Other org")
+        self._slack_install(Team.objects.create(organization=other_organization))
+        if admin_in_other is not None:
+            OrganizationMembership.objects.create(
+                user=self.user,
+                organization=other_organization,
+                level=OrganizationMembership.Level.ADMIN if admin_in_other else OrganizationMembership.Level.MEMBER,
+            )
+
+        response = self.client.patch(self._url("workspace/"), {"external_channels_enabled": True}, format="json")
+
+        allowed = admin_in_other is True
+        assert response.status_code == (status.HTTP_200_OK if allowed else status.HTTP_403_FORBIDDEN)
+        assert self.client.get(self._url()).json()["can_edit_workspace"] is allowed
+        assert SlackSettings.objects.filter(slack_workspace_id=SLACK_TEAM_ID, slack_user_id__isnull=True).exists() is (
+            allowed
+        )
+
     @parameterized.expand([("no_approved_channel", False), ("approved_channel", True)])
     def test_external_channels_follow_existing_approvals_until_an_admin_picks(
         self, _name: str, has_approval: bool

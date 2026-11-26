@@ -1006,7 +1006,7 @@ describe('load', () => {
         expect(admission.load?.targets).toEqual(fullTraffic.load.targets)
     })
 
-    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept'])(
+    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept', 'cyclotron-enqueue-replay'])(
         'loads the chaos card %s on a profile with load and host admission',
         (id) => {
             const admitted = {

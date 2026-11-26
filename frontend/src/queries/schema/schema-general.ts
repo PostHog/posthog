@@ -5183,6 +5183,11 @@ export type ErrorTrackingIssueStatus = 'archived' | 'active' | 'resolved' | 'pen
 /** @title ErrorTrackingQueryStatus */
 export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
 
+// Matches IssueTagColor in products/error_tracking/backend/facade/contracts.py. Issue list results are validated
+// against this type, so a color added there and not here fails the issue list.
+/** @title ErrorTrackingIssueTagColor */
+export type ErrorTrackingIssueTagColor = 'blue' | 'teal' | 'green' | 'yellow' | 'orange' | 'red' | 'pink' | 'purple'
+
 export interface ErrorTrackingIssueTag {
     /** Key of the tag definition. */
     key: string
@@ -5190,6 +5195,8 @@ export interface ErrorTrackingIssueTag {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
+    /** Named color of the tag, or null for a color picked from the label. */
+    color?: ErrorTrackingIssueTagColor | null
     /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
     source?: string | null
 }

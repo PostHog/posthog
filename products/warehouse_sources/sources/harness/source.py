@@ -99,9 +99,10 @@ class HarnessSource(ResumableSource[HarnessSourceConfig, HarnessResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "In Harness, open **My Profile > My API Keys** to create an API key and token. "
-                "Paste the token below. Give it view permission for pipelines, executions, services, and environments in your project, "
+                "Paste the token below. Give it view permission for pipelines, executions, services, environments, and user groups in your project, "
                 "and for organizations and projects in your account. "
                 "The organizations and projects tables list your whole account. The other tables import the selected project. "
+                "The approval instances, execution notes, and execution annotations tables make one request for each execution. "
                 "All tables use full refresh."
             ),
             fields=cast(
