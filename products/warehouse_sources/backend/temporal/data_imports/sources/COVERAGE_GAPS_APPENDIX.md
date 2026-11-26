@@ -11624,7 +11624,7 @@ Note: The synced alerts table maps to GET /actions. Every high-value gap is a pe
 
 ## Pipedrive — gaps
 
-Today (28): `activities`, `activity_types`, `archived_deals`, `archived_projects`, `call_logs`, `currencies`, `deal_changelog`, `deal_fields`, `deal_products`, `deals`, `goals`, `lead_labels`, `leads`, `mail_messages`, `mail_threads`, `notes`, `organization_fields`, `organizations`, `person_fields`, `persons`, `pipelines`, `products`, `project_boards`, `project_phases`, `project_tasks`, `projects`, `stages`, `users`
+Today (36): `activities`, `activity_fields`, `activity_types`, `archived_deals`, `archived_leads`, `archived_projects`, `call_logs`, `currencies`, `deal_changelog`, `deal_fields`, `deal_participants`, `deal_products`, `deals`, `goals`, `lead_fields`, `lead_labels`, `leads`, `mail_messages`, `mail_threads`, `note_fields`, `notes`, `organization_fields`, `organization_relationships`, `organizations`, `person_fields`, `persons`, `pipelines`, `product_fields`, `products`, `project_boards`, `project_fields`, `project_phases`, `project_tasks`, `projects`, `stages`, `users`
 
 Diffed against: <https://developers.pipedrive.com/docs/api/v2/openapi.yaml>
 
@@ -11645,12 +11645,12 @@ Note: Diffed against both specs - v2 (https://developers.pipedrive.com/docs/api/
 
 Re-audited 2026-11-19 against: <https://developers.pipedrive.com/docs/api/v2/openapi.yaml>
 
-- [ ] `Archived leads (GET /leads/archived)` — the leads table excludes archived leads, so converted or dropped leads vanish from lead history (high)
+- [x] `Archived leads (GET /leads/archived)` — the leads table excludes archived leads, so converted or dropped leads vanish from lead history (high). Added as `archived_leads` (v1, offset pages).
 - [ ] `Deal discounts (GET /deals/{id}/discounts)` — discounts added to a deal, needed to explain gaps between product list price and deal value; fan-out per deal (medium)
 - [ ] `Deal installments (GET /deals/installments)` — payment installments per deal for revenue timing, batched over deal IDs (medium)
-- [ ] `Deal participants (GET /deals/{id}/participants)` — persons linked to a deal beyond the main contact; fan-out per deal (medium)
-- [ ] `Organization relationships (GET /organizationRelationships)` — parent and related links between organizations for account hierarchy (medium)
-- [ ] `Activity, product, lead, note and project field definitions (GET /activityFields; GET /productFields; GET /leadFields; GET /noteFields; GET /projectFields)` — custom field key to label lookups for tables we sync, matching deal_fields and person_fields (medium)
+- [x] `Deal participants (GET /deals/{id}/participants)` — persons linked to a deal beyond the main contact; fan-out per deal (medium). Added as `deal_participants`, read for every active and archived deal, keyed by `deal_id` and `id`.
+- [x] `Organization relationships (GET /organizationRelationships)` — parent and related links between organizations for account hierarchy (medium). Added as `organization_relationships`, read for every organization because the endpoint requires `org_id`, keyed by `org_id` and `id`.
+- [x] `Activity, product, lead, note and project field definitions (GET /activityFields; GET /productFields; GET /leadFields; GET /noteFields; GET /projectFields)` — custom field key to label lookups for tables we sync, matching deal_fields and person_fields (medium). Added as `activity_fields`, `product_fields`, `lead_fields` and `note_fields` (v1, the same shape as `deal_fields`) and `project_fields` (v2, the only version that has it).
 - [ ] `Product variations (GET /products/{id}/variations)` — price and variation rows per product; fan-out per product (low)
 - [ ] `Followers (GET /deals/{id}/followers; GET /persons/{id}/followers; GET /organizations/{id}/followers)` — who follows each record, for ownership and notification analysis; fan-out per record (low)
 - [ ] `Project templates (GET /projectTemplates)` — templates behind synced projects (low)
