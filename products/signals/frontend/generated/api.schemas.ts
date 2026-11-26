@@ -470,6 +470,25 @@ export const AnomalyIntervalEnumApi = {
 } as const
 
 /**
+ * * `spike` - Spike
+ * * `drop` - Drop
+ * * `flatline` - Flatline
+ * * `trend_break` - Trend break
+ * * `level_shift` - Level shift
+ * * `pattern_change` - Pattern change
+ */
+export type AnomalyJudgeKindEnumApi = (typeof AnomalyJudgeKindEnumApi)[keyof typeof AnomalyJudgeKindEnumApi]
+
+export const AnomalyJudgeKindEnumApi = {
+    Spike: 'spike',
+    Drop: 'drop',
+    Flatline: 'flatline',
+    TrendBreak: 'trend_break',
+    LevelShift: 'level_shift',
+    PatternChange: 'pattern_change',
+} as const
+
+/**
  * Detector-specific values for the bucket. The keys depend on the detector.
  * @nullable
  */
@@ -505,6 +524,20 @@ export interface AnomalyBucketApi {
      * @nullable
      */
     details: AnomalyBucketApiDetails
+    /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+     *
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change */
+    anomaly_kind: AnomalyJudgeKindEnumApi | null
+    /**
+     * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+     * @nullable
+     */
+    anomaly_reason: string | null
 }
 
 export interface AnomalyInsightSeriesApi {
@@ -643,6 +676,20 @@ export interface AnomalySeriesPointApi {
     value: number | null
     /** Whether the detector flagged the bucket. */
     flag: boolean
+    /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+     *
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change */
+    anomaly_kind: AnomalyJudgeKindEnumApi | null
+    /**
+     * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+     * @nullable
+     */
+    anomaly_reason: string | null
 }
 
 export interface AnomalySeriesPointsApi {
@@ -719,6 +766,20 @@ export interface AnomalyFlaggedPointApi {
      * @nullable
      */
     score: number | null
+    /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+     *
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change */
+    anomaly_kind: AnomalyJudgeKindEnumApi | null
+    /**
+     * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+     * @nullable
+     */
+    anomaly_reason: string | null
 }
 
 export interface AnomalyDashboardApi {
