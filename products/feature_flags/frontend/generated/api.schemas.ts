@@ -1110,6 +1110,11 @@ export interface FeatureFlagConditionGroupSchemaApi {
      * @nullable
      */
     aggregation_group_type_index?: number | null
+    /**
+     * Display-only name for this release condition group. It does not affect evaluation.
+     * @nullable
+     */
+    description?: string | null
 }
 
 export interface FeatureFlagMultivariateVariantSchemaApi {
