@@ -197,6 +197,8 @@ class ListingProof:
     # File name to ETag of the files at the highest position the listing saw. A file still carrying
     # that ETag holds exactly what the run read.
     tail: Mapping[str, str]
+    # The buffer generation the run read before it listed. None on a stamp written before generations existed.
+    generation_seen: int | None = None
 
 
 def read_completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | None:
@@ -241,7 +243,12 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | N
             continue
         if companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
             tail = (snapshot or {}).get(BUFFER_LISTED_TAIL_KEY)
-            return ListingProof(listed_at=stamped, tail=tail if isinstance(tail, dict) else {})
+            seen = (snapshot or {}).get(BUFFER_GENERATION_SEEN_KEY)
+            return ListingProof(
+                listed_at=stamped,
+                tail=tail if isinstance(tail, dict) else {},
+                generation_seen=seen if isinstance(seen, int) and not isinstance(seen, bool) else None,
+            )
     return None
 
 
