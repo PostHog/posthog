@@ -1443,7 +1443,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 visible = self._filter_by_access_control(
                     self._scope_by_project_and_environment(
                         FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-                    )
+                    ).exclude(type__in=UNFILED_FILE_SYSTEM_TYPES)
                 )
                 rows |= Q(path__startswith=f"{instance.path}/", pk__in=list(visible.values_list("pk", flat=True)))
             locked = self._lock_file_rows(rows)
@@ -1485,8 +1485,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 instance.depth = len(split_path(instance.path))
                 instance.save()
 
-        # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder)
-        leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{old_path}/"))
+        # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder).
+        # The tree hides unfiled rows, so an unfiled leftover gets no folder that would look empty.
+        leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{old_path}/")).exclude(
+            type__in=UNFILED_FILE_SYSTEM_TYPES
+        )
         first_leftover = leftovers.first()
         if first_leftover:
             created_by = instance.created_by or cast(User, request.user)
@@ -1788,7 +1791,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Parent folders show path segments to everyone who lists the tree, so they come only from rows this
         # caller can read, and each one goes in its source row's environment.
-        readable_files = self._filter_by_access_control(scoped_files)
+        readable_files = self._filter_by_access_control(scoped_files.exclude(type__in=UNFILED_FILE_SYSTEM_TYPES))
         scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
         if scoped_team_ids:
             readable_files = readable_files.filter(team_id__in=scoped_team_ids)

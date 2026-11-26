@@ -1861,6 +1861,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         target_id = folder.pk if target == "folder" else row.pk
         response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target_id}/{query}", headers=headers)
 
+        expected: int
         if target == "file":
             expected = status.HTTP_404_NOT_FOUND
         else:
@@ -1901,7 +1902,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         [
             (f"{file_type}_{write}", file_type, write)
             for file_type in ("hog_flow", "message_template")
-            for write in ("patch_to_shortcut", "move", "link_file", "link_folder")
+            for write in ("patch_to_shortcut", "move", "move_folder", "link_file", "link_folder")
         ]
     )
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -1916,14 +1917,37 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
         if write == "patch_to_shortcut":
             self.client.patch(f"{base}/{row.pk}/", {"shortcut": True}, format="json", headers=headers)
-        elif write == "move":
-            self.client.post(f"{base}/{row.pk}/move/", {"new_path": "Moved/Welcome"}, format="json", headers=headers)
+        elif write in ("move", "move_folder"):
+            source, new_path = (row, "Moved/Welcome") if write == "move" else (folder, "Moved")
+            self.client.post(f"{base}/{source.pk}/move/", {"new_path": new_path}, format="json", headers=headers)
         else:
             source, new_path = (row, "Copied/Welcome") if write == "link_file" else (folder, "Copied")
             self.client.post(f"{base}/{source.pk}/link/", {"new_path": new_path}, format="json", headers=headers)
 
         self.assertEqual(list(FileSystem.objects.filter(type=file_type).values_list("pk", flat=True)), [row.pk])
         self.assertTrue(FileSystem.objects.filter(pk=row.pk, path="Hand filed/Welcome", shortcut=False).exists())
+        if write == "move_folder":
+            self.assertFalse(FileSystem.objects.filter(path="Hand filed", type="folder").exists())
+
+    @parameterized.expand([("hog_flow",), ("message_template",)])
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_a_hand_filed_row_of_an_unfiled_type_gets_no_folder_from_the_tree_repair(
+        self, file_type: str, _mock_flag: MagicMock
+    ) -> None:
+        row = FileSystem.objects.create(
+            team=self.team,
+            path="Unlisted plans/Welcome",
+            depth=1,
+            type=file_type,
+            ref="0190a1b2-0000-7000-8000-000000000002",
+            created_by=self.other_user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertFalse(FileSystem.objects.filter(path="Unlisted plans").exists())
+        self.assertTrue(FileSystem.objects.filter(pk=row.pk, depth=1).exists())
 
     def _create_hand_filed_row(self, file_type: str, *, shortcut: bool = False) -> tuple[FileSystem, FileSystem]:
         folder = FileSystem.objects.create(
