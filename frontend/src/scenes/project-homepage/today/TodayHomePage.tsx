@@ -9,7 +9,6 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
-import { TodaySeasonalChecklist } from 'products/today/frontend/seasonal/TodaySeasonalChecklist'
 
 import { TodayExplore } from './TodayExplore'
 import { TodayFirstEventWatcher } from './TodayFirstEventWatcher'
@@ -27,6 +26,12 @@ import { TodaySampleBanner } from './TodaySampleBanner'
 // Its pickers bring in the PostHog AI 1.0 context and mode logic, so only people on 1.0 load them.
 const TodayHomeClassicComposer = lazyWithRetry(() =>
     import('./TodayHomeClassicComposer').then((m) => ({ default: m.TodayHomeClassicComposer }))
+)
+
+const TodaySeasonalChecklist = lazyWithRetry(() =>
+    import('products/today/frontend/seasonal/TodaySeasonalChecklist').then((m) => ({
+        default: m.TodaySeasonalChecklist,
+    }))
 )
 
 const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
@@ -122,7 +127,9 @@ export function TodayHomePage(): JSX.Element {
             <TodaySampleBanner />
             <TodayPromoBanner />
             {seasonalChecklist ? (
-                <TodaySeasonalChecklist key={seasonalChecklist.campaign} checklist={seasonalChecklist} />
+                <Suspense fallback={null}>
+                    <TodaySeasonalChecklist key={seasonalChecklist.campaign} checklist={seasonalChecklist} />
+                </Suspense>
             ) : null}
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">

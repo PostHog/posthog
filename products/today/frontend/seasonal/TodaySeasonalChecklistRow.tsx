@@ -1,6 +1,23 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    IconBell,
+    IconBug,
+    IconCheck,
+    IconFlag,
+    IconGraph,
+    IconLaptop,
+    IconMessage,
+    IconNotification,
+    IconPlug,
+    IconPulse,
+    IconRocket,
+    IconServer,
+    IconSparkles,
+    IconToggle,
+    IconWarning,
+} from '@posthog/icons'
+import {
     Badge,
     Button,
     Checkbox,
@@ -14,14 +31,32 @@ import {
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { SEASONAL_ITEM_ICONS, SeasonalChecklistItem } from './seasonalChecklist'
+import type { SeasonalChecklistItem, SeasonalItemIcon } from './seasonalChecklist'
 import { todaySeasonalChecklistLogic } from './todaySeasonalChecklistLogic'
+
+const ICONS: Record<SeasonalItemIcon, typeof IconBell> = {
+    bell: IconBell,
+    bug: IconBug,
+    check: IconCheck,
+    flag: IconFlag,
+    graph: IconGraph,
+    laptop: IconLaptop,
+    message: IconMessage,
+    notification: IconNotification,
+    plug: IconPlug,
+    pulse: IconPulse,
+    rocket: IconRocket,
+    server: IconServer,
+    sparkles: IconSparkles,
+    toggle: IconToggle,
+    warning: IconWarning,
+}
 
 export function TodaySeasonalChecklistRow({ item }: { item: SeasonalChecklistItem }): JSX.Element {
     const { doneKeys, nextItemKey } = useValues(todaySeasonalChecklistLogic)
     const { setItemDone, itemActionClicked } = useActions(todaySeasonalChecklistLogic)
     const done = doneKeys.has(item.key)
-    const Icon = item.icon ? SEASONAL_ITEM_ICONS[item.icon] : null
+    const Icon = item.icon ? ICONS[item.icon] : null
     const external = item.url?.startsWith('https://') ?? false
 
     return (

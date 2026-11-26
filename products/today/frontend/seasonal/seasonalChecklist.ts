@@ -1,42 +1,24 @@
-import {
-    IconBell,
-    IconBug,
-    IconCheck,
-    IconFlag,
-    IconGraph,
-    IconLaptop,
-    IconMessage,
-    IconNotification,
-    IconPlug,
-    IconPulse,
-    IconRocket,
-    IconServer,
-    IconSparkles,
-    IconToggle,
-    IconWarning,
-} from '@posthog/icons'
-
 import { isObject } from 'lib/utils/guards'
 
-export const SEASONAL_ITEM_ICONS = {
-    bell: IconBell,
-    bug: IconBug,
-    check: IconCheck,
-    flag: IconFlag,
-    graph: IconGraph,
-    laptop: IconLaptop,
-    message: IconMessage,
-    notification: IconNotification,
-    plug: IconPlug,
-    pulse: IconPulse,
-    rocket: IconRocket,
-    server: IconServer,
-    sparkles: IconSparkles,
-    toggle: IconToggle,
-    warning: IconWarning,
-} as const
+export const SEASONAL_ITEM_ICONS = [
+    'bell',
+    'bug',
+    'check',
+    'flag',
+    'graph',
+    'laptop',
+    'message',
+    'notification',
+    'plug',
+    'pulse',
+    'rocket',
+    'server',
+    'sparkles',
+    'toggle',
+    'warning',
+] as const
 
-export type SeasonalItemIcon = keyof typeof SEASONAL_ITEM_ICONS
+export type SeasonalItemIcon = (typeof SEASONAL_ITEM_ICONS)[number]
 
 export const SEASONAL_HOG_ACCESSORIES = [
     'beret',
@@ -112,7 +94,7 @@ function parseItem(value: unknown): SeasonalChecklistItem | null {
     if (actionLabel === null || url === null ? actionLabel !== url : !isSafeUrl(url)) {
         return null
     }
-    if (icon !== null && !(typeof icon === 'string' && icon in SEASONAL_ITEM_ICONS)) {
+    if (icon !== null && !SEASONAL_ITEM_ICONS.includes(icon as SeasonalItemIcon)) {
         return null
     }
     return { key, title, description, icon: icon as SeasonalItemIcon | null, actionLabel, url }

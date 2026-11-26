@@ -8,10 +8,10 @@
 }
 
 .TodaySeasonalLights__wire {
+    opacity: 0.5;
     fill: none;
     stroke: var(--muted-foreground);
     stroke-width: 1;
-    opacity: 0.5;
 }
 
 .TodaySeasonalLights__cap {
@@ -19,7 +19,7 @@
 }
 
 .TodaySeasonalLights__bulb {
-    animation: today-seasonal-twinkle 2.4s ease-in-out infinite;
+    animation: TodaySeasonalLights__twinkle 2.4s ease-in-out infinite;
 
     &--destructive {
         fill: var(--destructive-foreground);
@@ -58,7 +58,7 @@
     background-size: 17px 17px;
     border-radius: inherit;
     transition: width 0.4s ease;
-    animation: today-seasonal-cane 1s linear infinite;
+    animation: TodaySeasonalProgress__cane 1s linear infinite;
 }
 
 .TodaySeasonalHog {
@@ -106,13 +106,13 @@
     box-shadow: var(--shadow-sm, 0 1px 2px var(--border));
 }
 
-@keyframes today-seasonal-twinkle {
+@keyframes TodaySeasonalLights__twinkle {
     50% {
         opacity: 0.5;
     }
 }
 
-@keyframes today-seasonal-cane {
+@keyframes TodaySeasonalProgress__cane {
     to {
         background-position: 17px 0;
     }
@@ -121,7 +121,7 @@
 @media (prefers-reduced-motion: reduce) {
     .TodaySeasonalLights__bulb,
     .TodaySeasonalProgress__fill {
-        animation: none;
         transition: none;
+        animation: none;
     }
 }
