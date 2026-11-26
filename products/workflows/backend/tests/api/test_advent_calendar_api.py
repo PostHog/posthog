@@ -12,7 +12,10 @@ from posthog.models import Organization, Team, User
 class TestAdventCalendarAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag_patch = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
+        flag_patch = patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == "workflows-advent-calendar",
+        )
         flag_patch.start()
         self.addCleanup(flag_patch.stop)
 
