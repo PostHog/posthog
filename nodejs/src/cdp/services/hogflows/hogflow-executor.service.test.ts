@@ -100,6 +100,7 @@ class SesV2Fake {
             region: 'us-east-1',
             endpoint: this.endpoint,
             credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
+            maxAttempts: 1,
         })
     }
 
@@ -3912,7 +3913,7 @@ describe('Hogflow Executor', () => {
                 .mockResolvedValueOnce(fcmResponse(503))
                 .mockResolvedValueOnce(fcmResponse(200))
             const ses = await startSes()
-            ses.answerInTurn('accept', 'throttle', 'throttle', 'throttle')
+            ses.answerInTurn('accept', 'throttle')
             const { executor: runner } = createExecutor(createEmailService({ ses }))
 
             await insertHogFunctionTemplate(hub.postgres, {
