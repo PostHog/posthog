@@ -26,12 +26,7 @@ import { Breadcrumb } from '~/types'
 import type { TeamPublicType } from '~/types'
 
 import { platformAlertsPartialUpdate, platformAlertsRetrieve, platformAlertsSnoozeGroupCreate } from './generated/api'
-import {
-    GroupingModeEnumApi,
-    PlatformAlertApi,
-    PlatformAlertConfigurationApi,
-    PlatformAlertOwnerEnumApi,
-} from './generated/api.schemas'
+import { PlatformAlertApi, PlatformAlertConfigurationApi, PlatformAlertOwnerEnumApi } from './generated/api.schemas'
 import {
     RuleMetadataForm,
     errorMessage,
@@ -39,6 +34,7 @@ import {
     ruleMetadataEntries,
     ruleMetadataEntriesError,
     ruleMetadataRecord,
+    canSnoozeGroups,
 } from './platformAlertFormat'
 import { PLATFORM_ALERTS_BREADCRUMB, reloadWhenSnoozeEnds } from './platformAlertsLogic'
 
@@ -332,12 +328,10 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                     ? configuration.snooze_until
                     : null,
         ],
-        // The API refuses a group snooze on a source-owned alert (409) and on an ungrouped one (400).
         canSnoozeGroups: [
             (s) => [s.configuration],
             (configuration: PlatformAlertConfigurationApi | null): boolean =>
-                configuration?.owner === PlatformAlertOwnerEnumApi.Platform &&
-                configuration.grouping.mode === GroupingModeEnumApi.ByResultLabels,
+                configuration !== null && canSnoozeGroups(configuration),
         ],
         // The API refuses an edit to a source-owned alert (409). Its source product edits it.
         canEditRuleMetadata: [

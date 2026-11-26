@@ -20,9 +20,11 @@ from datetime import datetime
 from typing import Any, TypeVar
 
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Q, QuerySet, TextField, Value
+from django.db.models import Count, Q, QuerySet, TextField, Value
 from django.db.models.functions import Left
 from django.utils import timezone
+
+from posthog.dataclasses import frozen
 
 from products.signals.backend.constants import SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.models import SignalScoutRun, SignalScratchpad, SignalScratchpadRevision
@@ -274,6 +276,36 @@ def has_live_entry_created_by(*, team_id: int, skill_name: str) -> bool:
         .filter(_creator_filter(team_id=team_id, skill_name=skill_name))
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
         .exists()
+    )
+
+
+@frozen
+class ScratchpadCounts:
+    live: int
+    without_expiry: int
+    not_updated_since_cutoff: int
+
+
+def count_live_entries_created_by(*, team_id: int, skill_name: str, updated_before: datetime) -> ScratchpadCounts:
+    """How many unexpired entries `skill_name` created on the team, in one aggregate query.
+
+    Not an agent tool. The run prompt shows a scout these counts so it can judge the state of its
+    own memory. It matches the creator the same indexed way `has_live_entry_created_by` does.
+    """
+    counts = (
+        SignalScratchpad.objects.filter(team_id=team_id)
+        .filter(_creator_filter(team_id=team_id, skill_name=skill_name))
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+        .aggregate(
+            live=Count("id"),
+            without_expiry=Count("id", filter=Q(expires_at__isnull=True)),
+            not_updated_since_cutoff=Count("id", filter=Q(updated_at__lt=updated_before)),
+        )
+    )
+    return ScratchpadCounts(
+        live=counts["live"],
+        without_expiry=counts["without_expiry"],
+        not_updated_since_cutoff=counts["not_updated_since_cutoff"],
     )
 
 

@@ -6,6 +6,10 @@ name: Turbo CI
 on:
     workflow_call:
 
+env:
+    # Turbo sends usage events to telemetry.vercel.com on every run, CI included, unless this is set.
+    TURBO_TELEMETRY_DISABLED: '1'
+
 jobs:
     turbo-affected-4:
         timeout-minutes: 30

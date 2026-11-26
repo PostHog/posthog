@@ -15,6 +15,8 @@ class DockerhubEndpointConfig:
     partitions on every sync."""
     org_scoped: bool = False
     """Reads from /v2/orgs or /v2/auditlogs, which only answer for an organization namespace."""
+    publisher_scoped: bool = False
+    """Reads from the DVP Data API, which only answers for a Docker Verified Publisher namespace."""
 
 
 # Docker Hub management API v2 list endpoints (https://docs.docker.com/reference/api/hub/latest/).
@@ -28,6 +30,10 @@ DOCKERHUB_ENDPOINTS: dict[str, DockerhubEndpointConfig] = {
     "tags": DockerhubEndpointConfig(name="tags", primary_keys=["namespace", "repository_name", "name"]),
     "org_members": DockerhubEndpointConfig(name="org_members", primary_keys=["id"], org_scoped=True),
     "org_groups": DockerhubEndpointConfig(name="org_groups", primary_keys=["id"], org_scoped=True),
+    # Member ids are user ids, so one user appears once per group they belong to.
+    "org_group_members": DockerhubEndpointConfig(
+        name="org_group_members", primary_keys=["group_id", "id"], org_scoped=True
+    ),
     "audit_logs": DockerhubEndpointConfig(
         name="audit_logs",
         # Audit events carry no id of their own, so the transport hashes each row's contents into
@@ -48,11 +54,21 @@ DOCKERHUB_ENDPOINTS: dict[str, DockerhubEndpointConfig] = {
         primary_keys=["action_group", "name"],
         org_scoped=True,
     ),
+    # Weekly pull and unique IP counts per repository from the DVP Data API. The endpoint only
+    # takes a relative period (at most the last 12 months), not a start date, so it is full refresh.
+    "repository_pulls": DockerhubEndpointConfig(
+        name="repository_pulls",
+        primary_keys=["namespace", "repo", "start"],
+        partition_key="start",
+        publisher_scoped=True,
+    ),
 }
 
 ENDPOINTS = tuple(DOCKERHUB_ENDPOINTS.keys())
 
 ORG_SCOPED_ENDPOINTS = tuple(name for name, config in DOCKERHUB_ENDPOINTS.items() if config.org_scoped)
+
+PUBLISHER_SCOPED_ENDPOINTS = tuple(name for name, config in DOCKERHUB_ENDPOINTS.items() if config.publisher_scoped)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in DOCKERHUB_ENDPOINTS.items() if config.incremental_fields

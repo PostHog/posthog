@@ -46,7 +46,8 @@ export function QuillSceneStaticName({ name, icon, description, className }: Qui
                     : undefined
             }
             className={cn(
-                'm-0 min-w-0 text-foreground',
+                // Buttons don't shrink by default. A long name has to, or it pushes the scene's actions out of the row.
+                'm-0 min-w-0 shrink text-foreground',
                 !copyableName && 'cursor-default hover:bg-transparent active:[translate:none]',
                 className
             )}

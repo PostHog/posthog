@@ -229,7 +229,6 @@ async def explain_log_with_openai(log_data: dict, team_id: int) -> LogExplanatio
 
     try:
         client = build_async_openai_client(
-            "django",
             ai_product="logs",
             properties={"ai_feature": "explain-log", "team_id": str(team_id)},
             distinct_id=team_distinct_id(team_id),

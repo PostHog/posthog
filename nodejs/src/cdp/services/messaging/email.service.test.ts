@@ -2342,7 +2342,7 @@ describe('EmailService', () => {
             sesRejects()
             invocation.hogFunction.metadata = { message_category_type: 'transactional', tracking_enabled: false }
         }
-        const codeSendTracked = (): void => {
+        const codeSendClicksOff = (): void => {
             sesAcceptsTracked()
             invocation.state.send = { tracking: { captureEngagement: true, clicks: false } }
         }
@@ -2620,6 +2620,50 @@ describe('EmailService', () => {
                     },
                 ])
             })
+
+            it.each([
+                [
+                    'a transactional email with click tracking off',
+                    { click_tracking_enabled: false },
+                    undefined,
+                    'clicks_untracked',
+                ],
+                ['a sensitive transactional email', { sensitive: true }, undefined, 'clicks_untracked'],
+                [
+                    'a sensitive transactional email that turns click tracking back on',
+                    { sensitive: true, click_tracking_enabled: true },
+                    undefined,
+                    '',
+                ],
+                [
+                    'a code send with opens on and clicks off',
+                    {},
+                    { tracking: { captureEngagement: true, clicks: false } },
+                    'clicks_untracked',
+                ],
+            ])(
+                'publishes the click tracking reason on the sent row of %s',
+                async (_case, metadata, sendState, reason) => {
+                    send([])
+                    sendAsTransactionalEmail()
+                    invocation.hogFunction.metadata = { message_category_type: 'transactional', ...metadata }
+                    if (sendState) {
+                        invocation.state.send = sendState
+                    }
+
+                    const result = await sender().executeSendEmail(invocation)
+
+                    expect(result.error).toBeUndefined()
+                    expect(await recordedEmailStatuses()).toEqual([
+                        expect.objectContaining({
+                            team_id: team.id,
+                            message_id: invocation.id,
+                            status: 'sent',
+                            reason,
+                        }),
+                    ])
+                }
+            )
 
             it.each([
                 ['with files that SES accepts', (): StoredFile[] => [pdf], sesAccepts, 'success', 'true', 'false'],
@@ -3209,9 +3253,9 @@ describe('EmailService', () => {
                 'a code send that SES accepts with opens on and clicks off',
                 TRANSACTIONAL_EMAIL_EVENT,
                 false,
-                codeSendTracked,
+                codeSendClicksOff,
                 'sent',
-                '',
+                'clicks_untracked',
             ],
             [
                 'a code send that SES accepts with opens off',
@@ -4194,6 +4238,44 @@ describe('EmailService', () => {
             }
         )
 
+        it('threads a reply under a long thread, keeping its root and newest IDs within the SES header limit', async () => {
+            const ids = Array.from({ length: 30 }, (_, i) => `<message-${String(i).padStart(2, '0')}@mail.example.com>`)
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                thread: { inReplyTo: ids[29], references: ids },
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const [sent] = ses.sent
+            expect(sent.headers['In-Reply-To']).toEqual(ids[29])
+            const references = sent.headers['References'].split(' ')
+            expect(sent.headers['References'].length).toBeLessThanOrEqual(870)
+            expect(references[0]).toEqual(ids[0])
+            expect(references.slice(1)).toEqual(ids.slice(30 - references.length + 1))
+            expect(references.length).toBeLessThan(ids.length)
+        })
+
+        it.each([
+            [[], '<parent@mail.example.com>'],
+            [['<root@mail.example.com>'], '<root@mail.example.com> <parent@mail.example.com>'],
+            [
+                ['<root@mail.example.com>', '<parent@mail.example.com>', '<other@mail.example.com>'],
+                '<root@mail.example.com> <other@mail.example.com> <parent@mail.example.com>',
+            ],
+        ])('ends References %j with the parent a reply answers', async (references, expected) => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                thread: { inReplyTo: '<parent@mail.example.com>', references },
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].headers['References']).toEqual(expected)
+        })
+
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the
             // bounded backwards-compat fallback). It rides on every outbound message,
@@ -4382,6 +4464,7 @@ describe('EmailService', () => {
                 clickTrackingEnabled?: boolean
                 send?: { sensitive?: boolean; tracking?: { clicks: boolean } }
                 teamOptedOut?: boolean
+                storedRunLinkTag?: unknown
                 href: string
             }>([
                 {
@@ -4409,6 +4492,24 @@ describe('EmailService', () => {
                     teamOptedOut: true,
                     href: STRIPPED_HREF,
                 },
+                {
+                    case: 'drops the run ids of earlier sends from the links of an email that turned link tagging off',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    storedRunLinkTag: false,
+                    href: STRIPPED_HREF,
+                },
+                ...['false', 0, null].map((storedRunLinkTag) => ({
+                    case: `treats a saved ${JSON.stringify(storedRunLinkTag)} as turning link tagging off`,
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    storedRunLinkTag,
+                    href: STRIPPED_HREF,
+                })),
                 {
                     case: 'leaves the links of an untracked send',
                     trackingEnabled: false,
@@ -4488,6 +4589,7 @@ describe('EmailService', () => {
                     clickTrackingEnabled,
                     send,
                     teamOptedOut,
+                    storedRunLinkTag,
                     href,
                 }) => {
                     if (teamOptedOut) {
@@ -4508,6 +4610,9 @@ describe('EmailService', () => {
                         tracking_enabled: trackingEnabled,
                         sensitive,
                         ...(clickTrackingEnabled !== undefined ? { click_tracking_enabled: clickTrackingEnabled } : {}),
+                        ...(storedRunLinkTag !== undefined
+                            ? { run_link_tag_enabled: storedRunLinkTag as boolean }
+                            : {}),
                     }
                     invocation.state.send = send && {
                         ...send,

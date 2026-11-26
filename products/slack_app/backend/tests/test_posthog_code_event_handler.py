@@ -1513,6 +1513,12 @@ class TestChannelApprovalGate(TestCase):
         from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
+        # The shared channels switch applies only behind the flag, which a test case turns on itself.
+        flag = patch(
+            "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enforced", return_value=False
+        )
+        flag.start()
+        self.addCleanup(flag.stop)
         self.factory = RequestFactory()
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
@@ -1589,6 +1595,62 @@ class TestChannelApprovalGate(TestCase):
         mock_sync_connect.assert_called_once()
         mock_sync_connect.return_value.start_workflow.assert_called_once()
         mock_asyncio_run.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("switch_ignored_without_the_flag", False, False, True, "workflow"),
+            ("switch_off_beats_an_approval", True, False, True, "turned_off"),
+            ("switch_on_still_needs_an_approval", True, True, False, "prompt"),
+            ("unset_switch_keeps_existing_approvals", True, None, True, "workflow"),
+            ("unset_switch_without_approvals_is_off", True, None, False, "turned_off"),
+        ]
+    )
+    @patch("products.slack_app.backend.api._post_slack_user_ephemeral", return_value=True)
+    @patch("products.slack_app.backend.api._post_channel_approval_prompt")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_workspace_switch_for_shared_channels(
+        self,
+        _name: str,
+        flag_on: bool,
+        switch: bool | None,
+        approved: bool,
+        expected: str,
+        mock_sync_connect,
+        mock_asyncio_run,
+        mock_prompt,
+        mock_ephemeral,
+    ):
+        from django.utils import timezone
+
+        from products.slack_app.backend.logic.shared_channels import SHARED_CHANNELS_TURNED_OFF_MESSAGE
+        from products.slack_app.backend.models import SlackChannel
+
+        if switch is not None:
+            SlackSettings.objects.create(slack_workspace_id="T12345", external_channels_enabled=switch)
+        if approved:
+            SlackChannel.objects.create(
+                slack_workspace_id="T12345", slack_channel_id="C_EXT", approved_at=timezone.now(), approved_by=self.user
+            )
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        with patch(
+            "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enforced",
+            return_value=flag_on,
+        ):
+            result = route_posthog_code_event_to_relevant_region(
+                request, {**self.event, "thread_ts": "1234.5678"}, "T12345", is_ext_shared_channel=True
+            )
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_sync_connect.return_value.start_workflow.called is (expected == "workflow")
+        assert mock_prompt.called is (expected == "prompt")
+        # The notice lands in the thread the person mentioned PostHog in.
+        notices = [(c.args[3], c.args[4]) for c in mock_ephemeral.call_args_list]
+        assert (("1234.5678", SHARED_CHANNELS_TURNED_OFF_MESSAGE) in notices) is (expected == "turned_off")
 
     @patch("products.slack_app.backend.api._post_channel_approval_prompt")
     @patch("products.slack_app.backend.api.asyncio.run")

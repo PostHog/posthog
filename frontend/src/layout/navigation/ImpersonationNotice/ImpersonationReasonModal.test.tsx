@@ -7,6 +7,30 @@ import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 describe('ImpersonationReasonModal', () => {
     afterEach(cleanup)
 
+    it('keeps the modal open while confirming and allows cancellation after loading ends', () => {
+        const onClose = (): void => rerender(<></>)
+        const { rerender } = render(
+            <ImpersonationReasonModal
+                inline
+                isOpen
+                loading
+                onClose={onClose}
+                onConfirm={jest.fn()}
+                title="Log in as user"
+            />
+        )
+
+        expect(screen.getByText('Cancel').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(screen.getByText('Cancel'))
+        expect(screen.getByText('Log in as user')).toBeInTheDocument()
+
+        rerender(
+            <ImpersonationReasonModal inline isOpen onClose={onClose} onConfirm={jest.fn()} title="Log in as user" />
+        )
+        fireEvent.click(screen.getByText('Cancel'))
+        expect(screen.queryByText('Log in as user')).not.toBeInTheDocument()
+    })
+
     it('pre-fills the reason input with the initial reason', () => {
         render(
             <ImpersonationReasonModal

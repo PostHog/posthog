@@ -92,6 +92,7 @@ import type {
     EvaluationsRunsRetrieveParams,
     EvaluationsScoreDistributionRetrieveParams,
     ExperimentReceiptApi,
+    ExperimentScorePreviewApi,
     ExperimentSubmissionApi,
     InstrumentationCheckActionApi,
     InstrumentationChecklistApi,
@@ -868,6 +869,27 @@ export const aiObservabilityOfflineExperimentsResultsPayloadDestroy = async (
         {
             ...options,
             method: 'DELETE',
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsScorePreviewsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/score_previews/`
+}
+
+export const aiObservabilityOfflineExperimentsScorePreviewsCreate = async (
+    projectId: string,
+    id: string,
+    compositeValidationApi: CompositeValidationApi,
+    options?: RequestInit
+): Promise<ExperimentScorePreviewApi> => {
+    return apiMutator<ExperimentScorePreviewApi>(
+        getAiObservabilityOfflineExperimentsScorePreviewsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(compositeValidationApi),
         }
     )
 }
@@ -2130,7 +2152,7 @@ export const getDatasetsExtendRetentionCreateUrl = (projectId: string, id: strin
 }
 
 /**
- * Refresh retention for a dataset and optionally one revision, with the same access required to read them.
+ * Refresh retention for a dataset and optionally one revision. Project secret API keys require dataset:write. Users need read access to the dataset.
  */
 export const datasetsExtendRetentionCreate = async (
     projectId: string,

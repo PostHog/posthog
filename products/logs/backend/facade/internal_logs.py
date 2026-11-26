@@ -5,5 +5,6 @@ from products.logs.backend.internal_logs_producer import (
     InternalLogsProducer,
     InternalLogsProducerConfig,
 )
+from products.logs.backend.internal_logs_thread import send_internal_logs
 
-__all__ = ["InternalLogEntry", "InternalLogsProducer", "InternalLogsProducerConfig"]
+__all__ = ["InternalLogEntry", "InternalLogsProducer", "InternalLogsProducerConfig", "send_internal_logs"]

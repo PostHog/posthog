@@ -22,6 +22,7 @@ from pydantic import ValidationError as PydanticValidationError
 from structlog.testing import capture_logs
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
+from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
@@ -88,6 +89,7 @@ from .evaluation_workflow_activities import (
     capture_evaluation_run_usage,
     emit_internal_telemetry_activity,
 )
+from .metrics import EvalsMetricsInterceptor
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
@@ -2770,16 +2772,17 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "change,skip_reason", [({"enabled": False}, "evaluation_disabled"), ({"deleted": True}, "evaluation_deleted")]
+        "change,skip_reason,evaluation_type",
+        [({"enabled": False}, "evaluation_disabled", "llm_judge"), ({"deleted": True}, "evaluation_deleted", "hog")],
     )
-    async def test_backfill_run_skips_the_judge_for_a_disabled_evaluation(
-        self, change: dict[str, bool], skip_reason: str
+    async def test_backfill_run_fails_before_the_judge_for_a_disabled_evaluation(
+        self, change: dict[str, bool], skip_reason: str, evaluation_type: str
     ) -> None:
         @activity.defn(name="run_local_evaluation_activity")
         async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
             evaluation = {
                 "id": inputs.evaluation_id,
-                "evaluation_type": "llm_judge",
+                "evaluation_type": evaluation_type,
                 "output_type": "boolean",
                 "team_id": 1,
                 "enabled": True,
@@ -2799,19 +2802,27 @@ class TestRunEvaluationWorkflow:
                 workflows=[RunEvaluationWorkflow],
                 activities=[mock_run_local_evaluation, mock_judge],
                 workflow_runner=UnsandboxedWorkflowRunner(),
+                interceptors=[EvalsMetricsInterceptor()],
             ):
-                result: WorkflowResult = await env.client.execute_workflow(
-                    RunEvaluationWorkflow.run,
-                    RunEvaluationInputs(
-                        evaluation_id=str(uuid.uuid4()), event_data=create_mock_event_data(team_id=1), backfill_id="B"
-                    ),
-                    id=str(uuid.uuid4()),
-                    task_queue=task_queue,
-                    execution_timeout=timedelta(minutes=5),
-                )
+                with (
+                    patch("posthog.temporal.ai_observability.metrics.increment_workflow_finished") as finished,
+                    pytest.raises(WorkflowFailureError) as failure,
+                ):
+                    await env.client.execute_workflow(
+                        RunEvaluationWorkflow.run,
+                        RunEvaluationInputs(
+                            evaluation_id=str(uuid.uuid4()),
+                            event_data=create_mock_event_data(team_id=1),
+                            backfill_id="B",
+                        ),
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue,
+                        execution_timeout=timedelta(minutes=5),
+                    )
 
-        assert result["skipped"] is True
-        assert result["skip_reason"] == skip_reason
+        assert isinstance(failure.value.cause, ApplicationError)
+        assert failure.value.cause.type == skip_reason
+        finished.assert_called_once_with("SKIPPED", evaluation_type)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("evaluation_type", ["hog", "llm_judge"])
