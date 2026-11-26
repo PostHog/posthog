@@ -379,14 +379,15 @@ class TestSeriesValuesRewrite(ClickhouseTestMixin, APIBaseTest):
         with patch.object(Database, "create_for", wraps=Database.create_for) as full_database:
             first, _ = self._served(query)
             jobs = PreaggregationJob.objects.filter(team_id=self.team.pk).count()
-            full_databases_with_builds = full_database.call_count
+            full_databases_with_a_build = full_database.call_count
             second, request = self._served(query)
+            full_databases_without_a_build = full_database.call_count - full_databases_with_a_build
 
         assert first == second
         assert jobs > 1
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == jobs
         assert request.built == [False]
-        assert full_database.call_count == 2 * full_databases_with_builds
+        assert full_databases_with_a_build - full_databases_without_a_build == 1
         rows = sync_execute(
             """
             SELECT toString(time_window_start), toString(time_window_end), series_key, value

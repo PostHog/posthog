@@ -19,6 +19,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import field
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import ClassVar, Literal
 from zoneinfo import ZoneInfo
 
@@ -27,6 +28,7 @@ from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.compilation import compilation_budget
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import hogql_select_rewrite
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -463,36 +465,37 @@ class _Rewriter(CloningVisitor):
             return None
         jobs = query.job_range(stored_until)
         filters = [clone_expr(condition) for condition in query.filters]
+        ensure = partial(
+            ensure_precomputed,
+            team=team,
+            insert_query=INSERT_QUERY_TEMPLATE,
+            time_range_start=jobs.start,
+            time_range_end=jobs.end,
+            ttl_seconds=parse_ttl_schedule(
+                TTL_SECONDS,
+                team.timezone,
+                max_window_days=MAX_WINDOW_DAYS,
+                settling_period_seconds=LATE_EVENTS_SETTLING_SECONDS,
+            ),
+            table=LazyComputationTable.SERIES_VALUES_PREAGGREGATED,
+            placeholders={"filters": ast.And(exprs=filters) if filters else ast.Constant(value=True)},
+            query_type="series_values_insert",
+            wait_timeout_seconds=seconds_left,
+            read_after_write=True,
+            cache_key_context={"engine": "series_values_v1"},
+            # The wait only stops the next INSERT from starting. Without a limit of its own, an INSERT
+            # that starts late runs on while the query waits to compile.
+            insert_settings=None if seconds_left is None else {"max_execution_time": max(1, math.ceil(seconds_left))},
+        )
         # The build compiles queries of its own, which must reach ClickHouse as the executor wrote them.
         hook = hogql_select_rewrite.set(None)
         try:
-            result = ensure_precomputed(
-                team=team,
-                insert_query=INSERT_QUERY_TEMPLATE,
-                time_range_start=jobs.start,
-                time_range_end=jobs.end,
-                ttl_seconds=parse_ttl_schedule(
-                    TTL_SECONDS,
-                    team.timezone,
-                    max_window_days=MAX_WINDOW_DAYS,
-                    settling_period_seconds=LATE_EVENTS_SETTLING_SECONDS,
-                ),
-                table=LazyComputationTable.SERIES_VALUES_PREAGGREGATED,
-                placeholders={"filters": ast.And(exprs=filters) if filters else ast.Constant(value=True)},
-                query_type="series_values_insert",
-                run_inserts=True,
-                wait_timeout_seconds=seconds_left,
-                read_after_write=True,
-                cache_key_context={"engine": "series_values_v1"},
-                # The INSERT reads only `events`. One database of the built-in tables serves every window
-                # of the build, without the Postgres reads the full database costs for each job.
-                database=Database.create_for_posthog_tables(team, timings=self.context.timings),
-                # The wait only stops the next INSERT from starting. Without a limit of its own, an INSERT
-                # that starts late runs on while the query waits to compile.
-                insert_settings=None
-                if seconds_left is None
-                else {"max_execution_time": max(1, math.ceil(seconds_left))},
-            )
+            # An INSERT is printed against the team's full database, which costs Postgres reads to build.
+            # The first call only looks for stored values, so a query that finds them all builds no
+            # database, and a build makes one database for all of its windows.
+            result = ensure(run_inserts=False)
+            if not result.ready:
+                result = ensure(run_inserts=True, database=_insert_database(team))
         finally:
             hogql_select_rewrite.reset(hook)
         # A job can expire while the executor collects its result. A day that no returned job covers would
@@ -610,6 +613,15 @@ def _covers(windows: tuple[ServedWindow, ...], jobs: _JobRange) -> bool:
             return False
         covered_until = max(covered_until, window.end)
     return covered_until >= jobs.end
+
+
+def _insert_database(team: Team) -> Database:
+    # What the executor builds for an INSERT when it gets no database: no user, warehouse access control
+    # bypassed and the team's default modifiers. It resolves `events` as the live query does. The database
+    # of built-in tables alone does not, because it never reads flag calls from `flag_evaluations`.
+    return Database.create_for(
+        team=team, modifiers=create_default_modifiers_for_team(team), bypass_warehouse_access_control=True
+    )
 
 
 def _hour_start(instant: datetime) -> datetime:
