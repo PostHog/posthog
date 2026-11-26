@@ -1722,6 +1722,46 @@ class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
         assert str(deleted_canvas_id) not in ids
 
 
+class TestSystemTablesFileSystemCanvasVisibility(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _canvas_refs(self, user: User) -> set[str]:
+        response = execute_hogql_query(
+            "SELECT ref FROM system.file_system WHERE type = 'canvas'", team=self.team, user=user
+        )
+        return {row[0] for row in response.results}
+
+    def test_canvas_rows_follow_canvas_visibility(self):
+        other = User.objects.create_and_join(self.organization, "file-system-other@example.com", "pwd")
+        with team_scope(self.team.pk):
+            public = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+            personal = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=self.user
+            )
+        public_canvas = canvas_testing.create_canvas(
+            team_id=self.team.pk, channel_id=public.id, name="Shared", created_by_id=self.user.pk
+        )
+        canvas_testing.create_canvas(
+            team_id=self.team.pk, channel_id=personal.id, name="Mine", created_by_id=self.user.pk
+        )
+
+        assert self._canvas_refs(other) == {str(public_canvas)}
+
+    def test_canvas_rows_are_dropped_when_the_canvas_resource_is_denied(self):
+        with team_scope(self.team.pk):
+            public = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+        canvas_testing.create_canvas(team_id=self.team.pk, channel_id=public.id, name="Shared")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="canvas", access_level="none")
+
+        assert self._canvas_refs(self.user) == set()
+
+
 class TestSystemTablesReplayScannersInlineExclusion(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 

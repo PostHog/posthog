@@ -2130,17 +2130,33 @@ exports: PostgresTable = PostgresTable(
     },
 )
 
+_CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES = parse_expr(
+    f"NOT (type = 'canvas' AND ref NOT IN (SELECT toString(id) FROM {CANVASES_TABLE}))"
+)
+_CANVAS_ROWS_HIDDEN = parse_expr("type != 'canvas'")
+
+
+def _canvases_readable(context: Optional[HogQLContext]) -> bool:
+    return context is not None and context.database is not None and context.database.has_table(CANVASES_TABLE)
+
+
+class _FileSystemTable(PostgresTable):
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        canvas_rows = _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES if _canvases_readable(context) else _CANVAS_ROWS_HIDDEN
+        return [*self.predicates, canvas_rows]
+
+
 # The project's virtual file tree (posthog_filesystem). Channels are folders and
 # tasks/canvases are filed under them by `path`; `surface` separates products
 # (e.g. "web" vs "desktop"). Scoped to a channel via startsWith(path, ...).
-file_system: PostgresTable = PostgresTable(
+file_system: _FileSystemTable = _FileSystemTable(
     name="file_system",
     postgres_table_name="posthog_filesystem",
     # Workflow and email template rows follow workflow access, which this table cannot check per row,
     # so they are left out. The list matches WORKFLOW_FILE_SYSTEM_TYPES in posthog/models/file_system/constants.py.
     predicates=[parse_expr("type NOT IN ('hog_flow', 'message_template')")],
     push_team_guard_with_predicates=True,
-    description="The project's virtual file tree backing the navigation/'products' UI; one row per node (folder or item) addressed by path.",
+    description="The project's virtual file tree backing the navigation/'products' UI; one row per node (folder or item) addressed by path. Canvas rows are limited to the canvases in system.canvases.",
     fields={
         "id": StringDatabaseField(name="id", description="File-system node UUID."),
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
@@ -2173,10 +2189,7 @@ class _ActivityLogsTable(PostgresTable):
     def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         # The Canvas rule reads `system.canvases`, which access control removes from the schema for a
         # caller denied the canvas resource; without the table it drops Canvas rows instead.
-        canvases_readable = (
-            context is not None and context.database is not None and context.database.has_table(CANVASES_TABLE)
-        )
-        return list(activity_visibility_predicates(canvases_readable))
+        return list(activity_visibility_predicates(_canvases_readable(context)))
 
     def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
         from posthog.models.activity_logging.retention import activity_log_retention_start_for_team  # noqa: PLC0415
