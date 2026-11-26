@@ -406,7 +406,7 @@ const claimRate = (samples: readonly MetricSample[], queue: string, phase: Phase
 
 function scrapedSeconds(samples: readonly MetricSample[], phase: Phase): number {
     const spans = replicasOf(samples)
-        .map((ofReplica) => spanning(ofReplica, phase))
+        .map((ofReplica) => openedAt(ofReplica, phase).window)
         .filter((window) => window.length > 0)
         .map((window) => seconds(spanOf(window)))
     return spans.length === 0 ? 0 : Math.min(...spans)

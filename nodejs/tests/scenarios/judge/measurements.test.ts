@@ -870,7 +870,7 @@ describe('measurements', () => {
 
         expect(baselineOf(recorded)).toEqual({
             seconds: 40,
-            scrapedSeconds: 40,
+            scrapedSeconds: 35,
             claimsPerSecond: { email: 400 },
             newJobsPerSecond: 10,
             hostBusyShare: 0.5,
