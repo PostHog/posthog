@@ -4,11 +4,11 @@
 //! team's count across the fleet. A slot is taken before the wait for a pool connection and is
 //! released with the connection, so the count includes calls that wait for the pool.
 //!
-//! In `log` mode the count is only measured. A team whose count goes over its limit is marked hot
+//! In `shadow` mode the count is only measured. A team whose count goes over its limit is marked hot
 //! for a short window, and the events that arrive for it in that window are counted.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -31,17 +31,22 @@ use crate::{
 
 const SWEEP_INTERVAL: Duration = Duration::from_secs(1);
 const WARN_INTERVAL: Duration = Duration::from_secs(60);
+// Each labelled team keeps its metric series until the pod restarts, so the number of teams that
+// get one is capped. Later hot teams share the `other` series.
+const MAX_LABELLED_TEAMS: usize = 50;
 
 pub struct TeamDbSlots {
     default_limit: usize,
     overrides: HashMap<TeamId, usize>,
     hot_window: Duration,
+    max_labelled_teams: usize,
     state: Mutex<State>,
 }
 
 struct State {
     teams: HashMap<TeamId, TeamUsage>,
     last_sweep: Instant,
+    labelled_teams: HashSet<TeamId>,
 }
 
 #[derive(Default)]
@@ -79,8 +84,7 @@ impl DerefMut for TeamConnection {
     }
 }
 
-/// Checks out a pool connection that holds one of the team's slots. With `slots` off, it is a
-/// plain pool checkout.
+/// Checks out a pool connection that holds a team slot. With `slots` off, it is a plain checkout.
 pub async fn acquire_connection(
     slots: Option<&TeamDbSlots>,
     pool: &PgPool,
@@ -95,10 +99,10 @@ impl TeamDbSlots {
     pub fn from_config(config: &ProcessingConfig) -> Result<Option<Arc<Self>>, UnhandledError> {
         match config.team_db_slots_mode.as_str() {
             "off" => return Ok(None),
-            "log" => {}
+            "shadow" => {}
             other => {
                 return Err(UnhandledError::Other(format!(
-                    "invalid CYMBAL_TEAM_DB_SLOTS_MODE: {other} (expected off or log)"
+                    "invalid CYMBAL_TEAM_DB_SLOTS_MODE: {other} (expected off or shadow)"
                 )))
             }
         }
@@ -120,9 +124,11 @@ impl TeamDbSlots {
             default_limit,
             overrides,
             hot_window,
+            max_labelled_teams: MAX_LABELLED_TEAMS,
             state: Mutex::new(State {
                 teams: HashMap::new(),
                 last_sweep: Instant::now(),
+                labelled_teams: HashSet::new(),
             }),
         }
     }
@@ -131,9 +137,14 @@ impl TeamDbSlots {
         self.is_hot_at(team_id, Instant::now())
     }
 
-    /// Counts the events whose team is hot.
     pub fn record_hot_arrivals(&self, team_ids: impl IntoIterator<Item = TeamId>) {
-        self.record_hot_arrivals_at(team_ids, Instant::now());
+        for (team_id, events) in self.hot_arrivals_at(team_ids, Instant::now()) {
+            let team: Arc<str> = match team_id {
+                Some(team_id) => Arc::from(team_id.to_string()),
+                None => Arc::from("other"),
+            };
+            metrics::counter!(TEAM_DB_SLOTS_HOT_EVENTS, "team_id" => team).increment(events);
+        }
     }
 
     fn acquire_at(&self, team_id: TeamId, now: Instant) -> SlotGuard {
@@ -171,21 +182,23 @@ impl TeamDbSlots {
         self.lock(now).is_hot(team_id, now)
     }
 
-    fn record_hot_arrivals_at(&self, team_ids: impl IntoIterator<Item = TeamId>, now: Instant) {
+    fn hot_arrivals_at(
+        &self,
+        team_ids: impl IntoIterator<Item = TeamId>,
+        now: Instant,
+    ) -> Vec<(Option<TeamId>, u64)> {
         let mut events_per_team: HashMap<TeamId, u64> = HashMap::new();
         for team_id in team_ids {
             *events_per_team.entry(team_id).or_default() += 1;
         }
-        let state = self.lock(now);
-        let hot_events: u64 = events_per_team
-            .iter()
-            .filter(|(team_id, _)| state.is_hot(**team_id, now))
-            .map(|(_, events)| events)
-            .sum();
-        drop(state);
-        if hot_events > 0 {
-            metrics::counter!(TEAM_DB_SLOTS_HOT_EVENTS).increment(hot_events);
-        }
+        let mut state = self.lock(now);
+        let hot: Vec<(TeamId, u64)> = events_per_team
+            .into_iter()
+            .filter(|(team_id, _)| state.is_hot(*team_id, now))
+            .collect();
+        hot.into_iter()
+            .map(|(team_id, events)| (state.label(team_id, self.max_labelled_teams), events))
+            .collect()
     }
 
     fn lock(&self, now: Instant) -> MutexGuard<'_, State> {
@@ -214,6 +227,16 @@ impl TeamDbSlots {
 }
 
 impl State {
+    fn label(&mut self, team_id: TeamId, max_labelled_teams: usize) -> Option<TeamId> {
+        if self.labelled_teams.contains(&team_id) || self.labelled_teams.len() < max_labelled_teams
+        {
+            self.labelled_teams.insert(team_id);
+            Some(team_id)
+        } else {
+            None
+        }
+    }
+
     fn is_hot(&self, team_id: TeamId, now: Instant) -> bool {
         self.teams
             .get(&team_id)
@@ -289,6 +312,41 @@ mod tests {
 
         assert!(slots.is_hot_at(1, now + WINDOW - Duration::from_millis(1)));
         assert!(!slots.is_hot_at(1, now + WINDOW));
+    }
+
+    #[test]
+    fn hot_arrivals_count_the_events_of_hot_teams_only() {
+        let slots = slots(1, &[]);
+        let now = Instant::now();
+        {
+            let _a = slots.acquire_at(1, now);
+            let _b = slots.acquire_at(1, now);
+        }
+
+        assert_eq!(slots.hot_arrivals_at([1, 2, 1], now), vec![(Some(1), 2)]);
+    }
+
+    #[test]
+    fn hot_teams_past_the_label_cap_share_one_series() {
+        let mut slots = slots(1, &[]);
+        slots.max_labelled_teams = 1;
+        let now = Instant::now();
+        for team_id in [1, 2] {
+            let _a = slots.acquire_at(team_id, now);
+            let _b = slots.acquire_at(team_id, now);
+        }
+
+        assert_eq!(slots.hot_arrivals_at([1], now), vec![(Some(1), 1)]);
+        assert_eq!(
+            slots.hot_arrivals_at([2], now),
+            vec![(None, 1)],
+            "a team past the cap got its own series"
+        );
+        assert_eq!(
+            slots.hot_arrivals_at([1], now),
+            vec![(Some(1), 1)],
+            "a labelled team lost its series"
+        );
     }
 
     #[test]

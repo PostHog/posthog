@@ -250,9 +250,7 @@ async fn resolve_issue(
     let fingerprint = event_properties.fingerprint().value().to_string();
 
     // This runs only on an issue-cache miss, and once per fingerprint in a batch, so the team's
-    // slot count follows its new fingerprints and not its event volume. Grouping refills the cache
-    // only for automatic fingerprints, so a known client or grouping-rule fingerprint lands here
-    // again after its cache entry expires.
+    // slot count follows its new fingerprints and not its event volume.
     let mut conn = acquire_connection(
         context.team_db_slots.as_deref(),
         &context.posthog_pool,

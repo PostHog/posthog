@@ -228,7 +228,6 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ERROR_TRACKING_ISSUE_CHANGE_LOG_ENABLED", default = "false")]
     pub issue_change_log_enabled: bool,
 
-    // `off` or `log`. See `team_db_slots`.
     #[envconfig(from = "CYMBAL_TEAM_DB_SLOTS_MODE", default = "off")]
     pub team_db_slots_mode: String,
 
@@ -240,7 +239,6 @@ pub struct ProcessingConfig {
     #[envconfig(from = "CYMBAL_TEAM_DB_SLOTS_OVERRIDES", default = "")]
     pub team_db_slots_overrides: String,
 
-    // How long a team stays hot after its calls go over its limit.
     #[envconfig(from = "CYMBAL_TEAM_HOT_WINDOW_SECS", default = "10")]
     pub team_hot_window_secs: u64,
 

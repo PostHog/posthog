@@ -77,6 +77,34 @@ Cymbal removes incoming properties with the `$adaptive_ingestion_` prefix, so on
 When the counters fail, the exception is kept and gets no property.
 `cymbal_adaptive_ingestion_events_total` counts exceptions by outcome: `seen`, `over_issue_line`, `over_project_line`, `no_baseline`, and `error`.
 
+## Team database slots (processing mode)
+
+Team database slots measure how many Postgres connections one team holds on a pod. It runs in shadow mode only: it never delays or drops an exception.
+It is off by default.
+
+A slot is the connection that Linking holds to find or create an issue when the issue cache does not know the fingerprint.
+Linking takes it once for each distinct fingerprint in a batch, so a team's slot count follows its new fingerprints, not its exception volume.
+The slot is taken before the wait for a pool connection, so a call that waits for the pool also counts.
+The error tracking consumer sends each team to one Cymbal pod, so a pod's count is the team's count across the fleet.
+
+When a team goes over its limit, it is hot for a window.
+The exceptions that arrive for a hot team in that window are counted.
+A warning log names the team, at most once a minute for each team.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CYMBAL_TEAM_DB_SLOTS_MODE` | `off` | Set to `shadow` to record slot use. Any other value stops startup. |
+| `CYMBAL_TEAM_DB_SLOTS` | `8` | The limit for each team on each pod. It must be at least 1. |
+| `CYMBAL_TEAM_DB_SLOTS_OVERRIDES` | empty | Comma-separated `team_id:limit` pairs that replace the limit for those teams. A malformed or duplicate entry stops startup. |
+| `CYMBAL_TEAM_HOT_WINDOW_SECS` | `10` | How long a team stays hot after it goes over its limit. |
+
+| Metric | Records |
+| --- | --- |
+| `cymbal_team_db_slots_calls_total` | slot calls, by `outcome`: `within` or `over_limit` |
+| `cymbal_team_db_slots_in_flight` | the team's count when a call takes a slot |
+| `cymbal_team_db_slots_hot_events_total` | exceptions that arrive for a hot team, by `team_id`. Only hot teams get a series, up to 50 teams per pod. Later hot teams share `team_id="other"`. |
+| `cymbal_team_db_slots_teams` | the teams that the pod tracks |
+
 ## Issue-created rate limit (notifications mode)
 
 Notifications mode caps issue-created workflow starts per team. One Redis token

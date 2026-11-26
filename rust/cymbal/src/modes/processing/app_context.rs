@@ -65,7 +65,6 @@ pub struct AppContext {
     // per-event lookup doesn't re-hit Postgres for the same release, including the negative result
     // for apps that never bound one. Lives here so it survives across batches.
     pub release_cache: ReleaseCache,
-    // `None` when CYMBAL_TEAM_DB_SLOTS_MODE is `off`.
     pub team_db_slots: Option<Arc<TeamDbSlots>>,
 }
 
