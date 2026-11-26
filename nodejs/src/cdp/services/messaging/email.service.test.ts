@@ -2808,11 +2808,32 @@ describe('EmailService', () => {
 
                 type FailTheTry = (emailService: EmailService) => void
                 const aDequeueAfterTheDueTimeMs = 250
-                const untilDue = (retry: CyclotronJobInvocationHogFunction): Promise<number> => {
+                const untilDue = (retry: CyclotronJobInvocationHogFunction): number => {
                     const msToDue = Math.max(0, (retry.queueScheduledAt?.toMillis() ?? 0) - Date.now())
-                    return new Promise((resolve) =>
-                        setTimeout(() => resolve(msToDue), msToDue + aDequeueAfterTheDueTimeMs)
-                    )
+                    jest.setSystemTime(Date.now() + msToDue + aDequeueAfterTheDueTimeMs)
+                    return msToDue
+                }
+                const onTheTestClock = async (run: () => Promise<void>): Promise<void> => {
+                    jest.useFakeTimers({
+                        now: Date.now(),
+                        doNotFake: [
+                            'nextTick',
+                            'queueMicrotask',
+                            'setImmediate',
+                            'clearImmediate',
+                            'setTimeout',
+                            'clearTimeout',
+                            'setInterval',
+                            'clearInterval',
+                            'hrtime',
+                            'performance',
+                        ],
+                    })
+                    try {
+                        await run()
+                    } finally {
+                        jest.useRealTimers()
+                    }
                 }
                 const downloadFails: FailTheTry = () => {
                     bucket.answer = 'refuse'
@@ -2837,7 +2858,7 @@ describe('EmailService', () => {
                         bucket.answer = 'pass'
                         emailService.checkJobOwnershipBeforeSend(() => Promise.resolve(true))
                         next = tried.invocation
-                        await untilDue(next)
+                        untilDue(next)
                     }
                     return emailService.executeSendEmail(next)
                 }
@@ -2856,11 +2877,19 @@ describe('EmailService', () => {
                     async (_cause, sendsLeftInTheBudget, failedTries) => {
                         const emailService = sender({ teamDailyCap: 2 })
                         invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 10, period: 'minute' } }
+                        let parked!: Awaited<ReturnType<EmailService['executeSendEmail']>>
+                        let sentBeforeTheNextSlot = 0
+                        let msToTheNextSlot = 0
+                        let retried!: Awaited<ReturnType<EmailService['executeSendEmail']>>
+                        let sendsLeft = 0
 
-                        const parked = await sendAfterFailedTries(emailService, failedTries)
-                        const sentBeforeTheNextSlot = deliveredTo(ses, recipient).length
-                        const msToTheNextSlot = await untilDue(parked.invocation)
-                        const retried = await emailService.executeSendEmail(parked.invocation)
+                        await onTheTestClock(async () => {
+                            parked = await sendAfterFailedTries(emailService, failedTries)
+                            sentBeforeTheNextSlot = deliveredTo(ses, recipient).length
+                            msToTheNextSlot = untilDue(parked.invocation)
+                            retried = await emailService.executeSendEmail(parked.invocation)
+                            sendsLeft = await sendsLeftInTheTeamBudget(emailService)
+                        })
 
                         expect({
                             parked: parked.finished,
@@ -2868,7 +2897,7 @@ describe('EmailService', () => {
                             nextSlotWithinSeconds: msToTheNextSlot < 10_000,
                             retried: retried.finished,
                             delivered: deliveredTo(ses, recipient),
-                            sendsLeftInTheBudget: await sendsLeftInTheTeamBudget(emailService),
+                            sendsLeftInTheBudget: sendsLeft,
                         }).toEqual({
                             parked: false,
                             sentBeforeTheNextSlot: 0,
@@ -2898,8 +2927,13 @@ describe('EmailService', () => {
                     'sends the retry after %s once, with %s sends left in a team budget of two',
                     async (_cause, sendsLeftInTheBudget, failedTries) => {
                         const emailService = sender({ teamDailyCap: 2 })
+                        let result!: Awaited<ReturnType<EmailService['executeSendEmail']>>
+                        let sendsLeft = 0
 
-                        const result = await sendAfterFailedTries(emailService, failedTries)
+                        await onTheTestClock(async () => {
+                            result = await sendAfterFailedTries(emailService, failedTries)
+                            sendsLeft = await sendsLeftInTheTeamBudget(emailService)
+                        })
 
                         expect(deliveredTo(ses, recipient)).toEqual([
                             {
@@ -2909,7 +2943,7 @@ describe('EmailService', () => {
                         ])
                         expect(result.error).toBeUndefined()
                         expect(result.finished).toBe(true)
-                        expect(await sendsLeftInTheTeamBudget(emailService)).toBe(sendsLeftInTheBudget)
+                        expect(sendsLeft).toBe(sendsLeftInTheBudget)
                     }
                 )
             })
