@@ -12,7 +12,7 @@ const progress = (overrides: Partial<RunProgressApi>): RunProgressApi => ({
     ...overrides,
 })
 
-const noRejections = { count: 0, rejecter: null, commitSha: null }
+const noRejections = { count: 0, rejecter: null, byAgent: false, commitSha: null }
 
 const ledgerRun = (overrides: Partial<RunApi>): RunApi =>
     ({
@@ -52,13 +52,25 @@ describe('reviewDecisions', () => {
         {
             name: 'a rejection blocks finalize',
             input: progress({ approved: 18, approved_on_earlier_commits: 12, rejected: 1, needs_review: 1 }),
-            rejections: { count: 1, rejecter: 'bob', commitSha: '5e6f7a8' },
+            rejections: { count: 1, rejecter: 'bob', byAgent: false, commitSha: '5e6f7a8' },
             expected: {
                 label: 'Accept 1 and finalize',
                 note: '18 accepted, 1 rejected, 1 to review',
                 tooltip: null,
                 disabledReason:
                     'bob rejected 1 change. Finalize works once it has a new picture or bob undoes the rejection.',
+            },
+        },
+        {
+            name: "an agent's rejection names the agent",
+            input: progress({ approved: 18, rejected: 2 }),
+            rejections: { count: 2, rejecter: 'alice', byAgent: true, commitSha: null },
+            expected: {
+                label: 'Finalize run',
+                note: '18 accepted, 2 rejected',
+                tooltip: null,
+                disabledReason:
+                    'An agent for alice rejected 2 changes. Finalize works once they have new pictures or alice undoes the rejections.',
             },
         },
         {

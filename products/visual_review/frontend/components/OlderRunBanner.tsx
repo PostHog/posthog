@@ -24,23 +24,29 @@ export function OlderRunBanner({
             View newest run
         </Link>
     )
+    // Each text is the only child of its element, so a page translator that replaces text nodes cannot break the banner.
     return (
         <LemonBanner type="warning" className="mb-4">
             {situation === 'head_processing' ? (
-                <>
+                <span>
                     A newer commit of this PR is being checked. Decisions you make here count on it where the pictures
                     are the same.
-                </>
+                </span>
             ) : situation === 'head_finalized' ? (
                 <>
-                    PR #{prNumber} was finalized on <code>{shortSha(headRun.commit_sha)}</code>. Decisions on this pull
-                    request are fixed until the next push. {viewNewest}
+                    <span>{`PR #${prNumber} was finalized on `}</span>
+                    <code>{shortSha(headRun.commit_sha)}</code>
+                    <span>{'. Decisions on this pull request are fixed until the next push. '}</span>
+                    {viewNewest}
                 </>
             ) : (
                 <>
-                    This is an older commit of PR #{prNumber} (<code>{shortSha(commitSha)}</code>). Decisions you make
-                    here count on the newest commit (<code>{shortSha(headRun.commit_sha)}</code>) where the pictures are
-                    the same. {viewNewest}
+                    <span>{`This is an older commit of PR #${prNumber} (`}</span>
+                    <code>{shortSha(commitSha)}</code>
+                    <span>). Decisions you make here count on the newest commit (</span>
+                    <code>{shortSha(headRun.commit_sha)}</code>
+                    <span>{') where the pictures are the same. '}</span>
+                    {viewNewest}
                 </>
             )}
         </LemonBanner>

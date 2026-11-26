@@ -1,10 +1,9 @@
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-
 import type { SnapshotApi } from '../generated/api.schemas'
 import { isRejectedByOther, personName } from '../lib/reviewDecisions'
 import type { DecidingAction } from '../scenes/visualReviewRunSceneLogic'
+import { openOverrideRejectionDialog } from './openOverrideRejectionDialog'
 import { openRejectChangeDialog } from './openRejectChangeDialog'
 
 export interface SnapshotDecisionActionsProps {
@@ -18,38 +17,6 @@ export interface SnapshotDecisionActionsProps {
     onReject: (reason: string) => void
     onUndo: (overrideRejection: boolean) => void
     onTolerate: () => void
-}
-
-// A dialog stays clickable during its close transition, so a double click would send the call twice.
-function openConfirm(
-    title: string,
-    reason: string,
-    description: string,
-    confirmLabel: string,
-    dataAttr: string,
-    onConfirm: () => void
-): void {
-    let submitted = false
-    LemonDialog.open({
-        title,
-        description: (
-            <div className="flex flex-col gap-2">
-                <blockquote className="m-0 border-l-2 border-danger pl-2 break-words">{reason}</blockquote>
-                <p className="m-0">{description}</p>
-            </div>
-        ),
-        primaryButton: {
-            children: confirmLabel,
-            onClick: () => {
-                if (!submitted) {
-                    submitted = true
-                    onConfirm()
-                }
-            },
-            'data-attr': dataAttr,
-        },
-        secondaryButton: { children: 'Cancel' },
-    })
 }
 
 /** Accept, reject and undo on a story of a ledger-mode pull request run, where decisions count across its runs. */
@@ -94,14 +61,14 @@ export function SnapshotDecisionActions({
                     size="small"
                     onClick={() =>
                         byOther
-                            ? openConfirm(
-                                  `Undo ${rejecter}'s rejection?`,
+                            ? openOverrideRejectionDialog({
+                                  title: `Undo ${rejecter}'s rejection?`,
                                   reason,
-                                  'Undoing it unblocks finalize, and the change needs review again.',
-                                  'Undo rejection',
-                                  'visual-review-snapshot-undo-reject-confirm',
-                                  () => onUndo(true)
-                              )
+                                  description: 'Undoing it unblocks finalize, and the change needs review again.',
+                                  confirmLabel: 'Undo rejection',
+                                  dataAttr: 'visual-review-snapshot-undo-reject-confirm',
+                                  onConfirm: () => onUndo(true),
+                              })
                             : onUndo(false)
                     }
                     loading={decidingAction === 'clear'}
@@ -115,19 +82,19 @@ export function SnapshotDecisionActions({
                     size="small"
                     onClick={() =>
                         byOther
-                            ? openConfirm(
-                                  'Accept this change anyway?',
+                            ? openOverrideRejectionDialog({
+                                  title: 'Accept this change anyway?',
                                   reason,
-                                  `This replaces ${rejecter}'s rejection.`,
-                                  'Accept anyway',
-                                  'visual-review-snapshot-accept-anyway-confirm',
-                                  () => onAccept(true)
-                              )
+                                  description: `This replaces ${rejecter}'s rejection.`,
+                                  confirmLabel: 'Accept anyway',
+                                  dataAttr: 'visual-review-snapshot-accept-anyway-confirm',
+                                  onConfirm: () => onAccept(true),
+                              })
                             : onAccept(false)
                     }
                     loading={decidingAction === 'accept'}
                     disabledReason={disabledReason}
-                    data-attr="visual-review-snapshot-accept-anyway"
+                    data-attr={byOther ? 'visual-review-snapshot-accept-anyway' : 'visual-review-snapshot-accept'}
                 >
                     {byOther ? 'Accept anyway' : 'Accept change'}
                 </LemonButton>

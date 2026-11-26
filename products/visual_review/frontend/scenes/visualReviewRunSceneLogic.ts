@@ -90,7 +90,7 @@ export interface visualReviewRunSceneLogicValues {
     filteredChangedSnapshots: SnapshotApi[]
     finalizeButton: FinalizeButtonCopy | null
     hasChanges: boolean
-    headPictureKeys: Record<string, string> | null
+    headPictureKeys: HeadPictureKeys | null
     headPictureKeysLoading: boolean
     isCancellingLift: boolean
     isFinalizing: boolean
@@ -102,6 +102,7 @@ export interface visualReviewRunSceneLogicValues {
     isRunProcessing: boolean
     liftRequestByIdentifier: Record<string, QuarantineLiftEntryApi>
     olderRunSituation: OlderRunSituation | null
+    pullRequestClosed: boolean
     quarantineLifts: QuarantineLiftEntryApi[]
     quarantineLiftsLoadFailed: boolean
     quarantineLiftsLoading: boolean
@@ -212,12 +213,18 @@ export interface visualReviewRunSceneLogicActions {
     }
     loadHeadPictureKeysSuccess: (
         headPictureKeys: {
-            [k: string]: string
+            headRunId: string
+            keys: {
+                [k: string]: string
+            }
         } | null,
         payload?: any
     ) => {
         headPictureKeys: {
-            [k: string]: string
+            headRunId: string
+            keys: {
+                [k: string]: string
+            }
         } | null
         payload?: any
     }
@@ -329,6 +336,9 @@ export interface visualReviewRunSceneLogicActions {
     markAsTolerated: (snapshot: SnapshotApi) => {
         snapshot: SnapshotApi
     }
+    markPullRequestClosed: () => {
+        value: true
+    }
     markThumbnailFailed: (identifier: string) => {
         identifier: string
     }
@@ -353,9 +363,6 @@ export interface visualReviewRunSceneLogicActions {
     }
     recomputeRunSuccess: () => {
         value: true
-    }
-    refreshSnapshotDecision: (snapshotId: string) => {
-        snapshotId: string
     }
     rejectSnapshot: (
         snapshot: SnapshotApi,
@@ -442,17 +449,20 @@ export interface visualReviewRunSceneLogicMeta {
         isRunProcessing: (run: RunApi | null) => boolean
         isReportingOnly: (run: RunApi | null) => boolean
         decidesByPullRequest: (run: RunApi | null) => boolean
-        currentUserId: (user: any) => number | null
+        currentUserId: (user: UserType | null) => number | null
         olderRunSituation: (run: RunApi | null) => OlderRunSituation | null
-        decisionsLockedReason: (run: RunApi | null) => string | null
+        decisionsLockedReason: (run: RunApi | null, pullRequestClosed: boolean) => string | null
         isHeadRun: (run: RunApi | null) => boolean
         rejectionSummary: (snapshots: SnapshotApi[]) => RejectionSummary
-        finalizeButton: (run: RunApi | null, rejectionSummary: any) => FinalizeButtonCopy | null
-        filteredChangedSnapshots: (sortedChangedSnapshots: SnapshotApi[], decisionFilter: any) => SnapshotApi[]
+        finalizeButton: (run: RunApi | null, rejectionSummary: RejectionSummary) => FinalizeButtonCopy | null
+        filteredChangedSnapshots: (
+            sortedChangedSnapshots: SnapshotApi[],
+            decisionFilter: DecisionFilter | null
+        ) => SnapshotApi[]
         selectedHeadPictureLine: (
             selectedSnapshot: SnapshotApi | null,
-            headPictureKeys: any,
-            olderRunSituation: any
+            headPictureKeys: HeadPictureKeys | null,
+            olderRunSituation: OlderRunSituation | null
         ) => string | null
         breadcrumbs: (repo: RepoApi | null, repoFullName: string | null) => Breadcrumb[]
     }
@@ -466,6 +476,12 @@ export type visualReviewRunSceneLogicType = MakeLogicType<
 >
 
 export type DecidingAction = 'accept' | 'reject' | 'clear'
+
+/** The picture key of each identifier on the pull request's newest run, and which run they were read from. */
+export interface HeadPictureKeys {
+    headRunId: string
+    keys: Record<string, string>
+}
 
 function loadSelectedSnapshotIfMissing(
     values: visualReviewRunSceneLogicType['values'],
@@ -509,7 +525,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         }),
         decideSnapshotSuccess: true,
         decideSnapshotFailure: true,
-        refreshSnapshotDecision: (snapshotId: string) => ({ snapshotId }),
+        markPullRequestClosed: true,
         setDecisionFilter: (filter: DecisionFilter | null) => ({ filter }),
         markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
         quarantineSnapshot: (
@@ -590,6 +606,13 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             null as DecisionFilter | null,
             {
                 setDecisionFilter: (_, { filter }) => filter,
+            },
+        ],
+        // The run read does not carry the pull request state, so a `pr_closed` refusal is the first sign of it.
+        pullRequestClosed: [
+            false,
+            {
+                markPullRequestClosed: () => true,
             },
         ],
         isRecomputing: [
@@ -811,8 +834,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             },
         ],
         // The pictures the newest run of the pull request shows, so an older run can say where a decision counts.
+        // Unchanged rows stay in, because a decision counts on a pair the newest run tolerates.
         headPictureKeys: [
-            null as Record<string, string> | null,
+            null as HeadPictureKeys | null,
             {
                 loadHeadPictureKeys: async () => {
                     const headRunId = values.run?.head_run?.id
@@ -822,9 +846,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), headRunId, {
                         limit: 10000,
                         include_quarantined: true,
-                        exclude_unchanged: true,
                     })
-                    return Object.fromEntries(response.results.map((s) => [s.identifier, pictureKey(s)]))
+                    return {
+                        headRunId,
+                        keys: Object.fromEntries(response.results.map((s) => [s.identifier, pictureKey(s)])),
+                    }
                 },
             },
         ],
@@ -855,9 +881,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             (toleratedHashes: ToleratedHashEntryApi[], toleratedHashesLoading: boolean): RecentTolerations | null =>
                 toleratedHashesLoading ? null : countRecentTolerations(toleratedHashes, dayjs()),
         ],
+        // A rejected unchanged row is a tolerated pair that still blocks finalize, so it stays in view to be undone.
         changedSnapshots: [
             (s) => [s.snapshots],
-            (snapshots: SnapshotApi[]): SnapshotApi[] => snapshots.filter((s) => s.result !== 'unchanged'),
+            (snapshots: SnapshotApi[]): SnapshotApi[] =>
+                snapshots.filter((s) => s.result !== 'unchanged' || s.review_state === 'rejected'),
         ],
         sortedChangedSnapshots: [
             (s) => [s.changedSnapshots],
@@ -1022,7 +1050,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         decidesByPullRequest: [(s) => [s.run], (run: RunApi | null): boolean => decidesByPullRequest(run)],
         currentUserId: [(s) => [s.user], (user: UserType | null): number | null => user?.id ?? null],
         olderRunSituation: [(s) => [s.run], (run: RunApi | null): OlderRunSituation | null => olderRunSituation(run)],
-        decisionsLockedReason: [(s) => [s.run], (run: RunApi | null): string | null => decisionsLockedReason(run)],
+        decisionsLockedReason: [
+            (s) => [s.run, s.pullRequestClosed],
+            (run: RunApi | null, pullRequestClosed: boolean): string | null =>
+                decisionsLockedReason(run, pullRequestClosed),
+        ],
         // The run whose finalize gates the pull request, which is the only run that shows the finalize button.
         isHeadRun: [
             (s) => [s.run],
@@ -1048,11 +1080,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             (s) => [s.selectedSnapshot, s.headPictureKeys, s.olderRunSituation],
             (
                 selectedSnapshot: SnapshotApi | null,
-                headPictureKeys: Record<string, string> | null,
+                headPictureKeys: HeadPictureKeys | null,
                 situation: OlderRunSituation | null
             ): string | null =>
                 selectedSnapshot && headPictureKeys && situation === 'head_ready'
-                    ? headPictureLine(selectedSnapshot, headPictureKeys)
+                    ? headPictureLine(selectedSnapshot, headPictureKeys.keys)
                     : null,
         ],
         // The branch names the run in the page's own trail, so the top bar stops at the repository like the tabs do.
@@ -1071,6 +1103,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             if (outcome.code) {
                 posthog.capture('visual_review_decision_refused', { code: outcome.code })
             }
+            if (outcome.code === 'pr_closed') {
+                actions.markPullRequestClosed()
+            }
             if (outcome.refresh) {
                 actions.loadRun()
                 actions.loadSnapshots()
@@ -1083,8 +1118,32 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         }
         const decisionProperties = (snapshot: SnapshotApi): Record<string, unknown> => ({
             snapshot_result: snapshot.result,
-            on_older_run: values.olderRunSituation !== null,
+            decides_by_pull_request: values.decidesByPullRequest,
+            on_older_run: !!values.run?.head_run && values.run.head_run.id !== values.run.id,
         })
+        // Reads the new decision back, because the next decision on this snapshot sends its `seq`.
+        // Only the review fields are patched in, so the pictures do not reload.
+        const readDecisionBack = async (snapshotId: string): Promise<void> => {
+            let fresh: SnapshotApi | undefined
+            try {
+                const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
+                    include_quarantined: true,
+                    snapshot_id: snapshotId,
+                })
+                fresh = response.results[0]
+            } catch {
+                return
+            }
+            if (!fresh) {
+                return
+            }
+            const { review_state, decision, earlier_decision } = fresh
+            actions.loadSnapshotsSuccess(
+                values.snapshots.map((s) =>
+                    s.id === snapshotId ? { ...s, review_state, decision, earlier_decision } : s
+                )
+            )
+        }
 
         return {
             setSelectedSnapshotId: () => {
@@ -1108,7 +1167,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.loadQuarantinedIdentifiers()
                 actions.loadQuarantineLifts()
                 actions.loadQuarantinedRunSnapshots()
-                if (values.olderRunSituation === 'head_ready') {
+                // The newest run's pictures change only with a newer run, not with a decision on this one.
+                if (
+                    values.olderRunSituation === 'head_ready' &&
+                    values.headPictureKeys?.headRunId !== run.head_run?.id
+                ) {
                     actions.loadHeadPictureKeys()
                 }
             },
@@ -1195,6 +1258,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 } catch (e: any) {
                     actions.finalizeRunFailure()
                     lemonToast.error(e?.detail || e?.message || 'Failed to finalize run')
+                    if (decisionErrorOutcome(e, '').code === 'pr_closed') {
+                        actions.markPullRequestClosed()
+                    }
                     // A rejection or a newer run since the page loaded refuses finalize, and the page should show why.
                     if (e?.status === 409) {
                         actions.loadRun()
@@ -1233,7 +1299,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
 
                 try {
                     await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)
-                    actions.decideSnapshotSuccess()
                     posthog.capture('visual_review_change_accepted', {
                         ...decisionProperties(snapshot),
                         override_rejection: overrideRejection,
@@ -1243,12 +1308,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     // Patch only the accepted snapshot — refetching the whole list flashed
                     // the entire viewer and dropped the user's place.
                     patchReviewState(snapshot.id, 'approved')
-                    if (values.decidesByPullRequest) {
-                        actions.refreshSnapshotDecision(snapshot.id)
-                    }
                     if (nextPending) {
                         actions.setSelectedSnapshotId(nextPending.id)
                     }
+                    // The buttons stay busy until the new `seq` is read back, so a quick undo does not send an old one.
+                    if (values.decidesByPullRequest) {
+                        await readDecisionBack(snapshot.id)
+                    }
+                    actions.decideSnapshotSuccess()
                 } catch (e) {
                     reportDecisionError(e, 'Could not accept the change. Try again.')
                 }
@@ -1265,12 +1332,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         ],
                         expected_seq: expectedSeq(snapshot),
                     })
-                    actions.decideSnapshotSuccess()
                     posthog.capture('visual_review_change_rejected', decisionProperties(snapshot))
                     lemonToast.success('Change rejected. The author gets a comment on the PR.')
                     actions.loadRun()
                     patchReviewState(snapshot.id, 'rejected')
-                    actions.refreshSnapshotDecision(snapshot.id)
+                    await readDecisionBack(snapshot.id)
+                    actions.decideSnapshotSuccess()
                 } catch (e) {
                     reportDecisionError(e, 'Could not reject the change. Try again.')
                 }
@@ -1283,7 +1350,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         expected_seq: expectedSeq(snapshot),
                         override_rejection: overrideRejection,
                     })
-                    actions.decideSnapshotSuccess()
                     posthog.capture('visual_review_decision_undone', {
                         ...decisionProperties(snapshot),
                         undone,
@@ -1292,33 +1358,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     lemonToast.success(undone === 'rejected' ? 'Rejection undone' : 'Accept undone')
                     actions.loadRun()
                     patchReviewState(snapshot.id, 'pending')
-                    actions.refreshSnapshotDecision(snapshot.id)
+                    await readDecisionBack(snapshot.id)
+                    actions.decideSnapshotSuccess()
                 } catch (e) {
                     reportDecisionError(e, 'Could not undo the decision. Try again.')
                 }
-            },
-            // Reads the new decision back, because the next decision on this snapshot sends its `seq`.
-            // Only the review fields are patched in, so the pictures do not reload.
-            refreshSnapshotDecision: async ({ snapshotId }) => {
-                let fresh: SnapshotApi | undefined
-                try {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
-                        include_quarantined: true,
-                        snapshot_id: snapshotId,
-                    })
-                    fresh = response.results[0]
-                } catch {
-                    return
-                }
-                if (!fresh) {
-                    return
-                }
-                const { review_state, decision, earlier_decision } = fresh
-                actions.loadSnapshotsSuccess(
-                    values.snapshots.map((s) =>
-                        s.id === snapshotId ? { ...s, review_state, decision, earlier_decision } : s
-                    )
-                )
             },
             markAsTolerated: async ({ snapshot }) => {
                 try {

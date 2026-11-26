@@ -293,19 +293,23 @@ export function SnapshotDiffViewer({
                         classificationReason={snapshot.classification_reason}
                     />
 
-                    {reviewDecisions && !reviewDecisions.finalized && hasChanges && !isReportingOnly && (
-                        <SnapshotDecisionActions
-                            snapshot={snapshot}
-                            isQuarantined={isQuarantined}
-                            onTolerate={openTolerateDialog}
-                            currentUserId={reviewDecisions.currentUserId}
-                            lockedReason={reviewDecisions.lockedReason}
-                            decidingAction={reviewDecisions.decidingAction}
-                            onAccept={reviewDecisions.onAccept}
-                            onReject={reviewDecisions.onReject}
-                            onUndo={reviewDecisions.onUndo}
-                        />
-                    )}
+                    {/* A rejected unchanged pair is tolerated, but its rejection still blocks finalize until undone here. */}
+                    {reviewDecisions &&
+                        !reviewDecisions.finalized &&
+                        (hasChanges || snapshot.review_state === 'rejected') &&
+                        !isReportingOnly && (
+                            <SnapshotDecisionActions
+                                snapshot={snapshot}
+                                isQuarantined={isQuarantined}
+                                onTolerate={openTolerateDialog}
+                                currentUserId={reviewDecisions.currentUserId}
+                                lockedReason={reviewDecisions.lockedReason}
+                                decidingAction={reviewDecisions.decidingAction}
+                                onAccept={reviewDecisions.onAccept}
+                                onReject={reviewDecisions.onReject}
+                                onUndo={reviewDecisions.onUndo}
+                            />
+                        )}
                     {needsAction && !reviewDecisions && (
                         <>
                             <LemonButton

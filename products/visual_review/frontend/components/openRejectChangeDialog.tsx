@@ -3,9 +3,11 @@ import { LemonTextArea } from '@posthog/lemon-ui'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-export const REJECT_REASON_MAX_LENGTH = 500
+import { visualReviewRunsRejectCreateBodySnapshotsItemReasonMax as REJECT_REASON_MAX_LENGTH } from '../generated/api.zod'
 
 export function openRejectChangeDialog(onReject: (reason: string) => void): void {
+    // A dialog stays clickable during its close transition, so a double click would send the reject twice.
+    let submitted = false
     LemonDialog.openForm({
         title: 'Reject this change?',
         description:
@@ -24,7 +26,12 @@ export function openRejectChangeDialog(onReject: (reason: string) => void): void
                 return undefined
             },
         },
-        onSubmit: ({ reason }) => onReject(reason.trim()),
+        onSubmit: ({ reason }) => {
+            if (!submitted) {
+                submitted = true
+                onReject(reason.trim())
+            }
+        },
         primaryButtonProps: { children: 'Reject', status: 'danger' },
         content: (
             <LemonField name="reason" label="What is wrong">

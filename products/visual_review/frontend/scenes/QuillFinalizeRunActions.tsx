@@ -9,6 +9,8 @@ export interface QuillFinalizeRunActionsProps {
     isFinalizing: boolean
     finalizeRun: () => void
     button: FinalizeButtonCopy
+    /** Set when some changes were accepted by an agent, to filter the strip to them. */
+    onShowAgentAccepts?: () => void
 }
 
 export function QuillFinalizeRunActions({
@@ -17,12 +19,23 @@ export function QuillFinalizeRunActions({
     isFinalizing,
     finalizeRun,
     button,
+    onShowAgentAccepts,
 }: QuillFinalizeRunActionsProps): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
             {button.note && (
-                <span className="text-xs text-secondary" data-attr="visual-review-finalize-progress">
-                    {button.note}
+                <span className="flex items-center gap-1 text-xs text-secondary">
+                    <span data-attr="visual-review-finalize-progress">{button.note}</span>
+                    {onShowAgentAccepts && (
+                        <Button
+                            variant="link"
+                            size="xs"
+                            onClick={onShowAgentAccepts}
+                            data-attr="visual-review-show-agent-accepts"
+                        >
+                            Show them
+                        </Button>
+                    )}
                 </span>
             )}
             <div className="flex items-center gap-2">

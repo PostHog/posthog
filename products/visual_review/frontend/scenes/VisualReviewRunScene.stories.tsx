@@ -333,7 +333,7 @@ const ledgerSnapshots = {
 export const LedgerHeadRunWithDecisions: StoryObj = {
     parameters: {
         pageUrl: `/visual-review/repos/PostHog/posthog/runs/${RUN_ID}#snapshot=snapshot-changed`,
-        testOptions: { waitForSelector: '[data-attr="visual-review-decision-line"]' },
+        testOptions: { waitForSelector: '[data-attr="visual-review-decision-line"]', snapshotBrowsers: [] },
     },
     decorators: [
         mswDecorator({
@@ -349,7 +349,7 @@ export const LedgerHeadRunWithDecisions: StoryObj = {
 export const LedgerOlderRun: StoryObj = {
     parameters: {
         pageUrl: `/visual-review/repos/PostHog/posthog/runs/${RUN_ID}#snapshot=snapshot-layout-shift`,
-        testOptions: { waitForSelector: '[data-attr="visual-review-decision-line"]' },
+        testOptions: { waitForSelector: '[data-attr="visual-review-decision-line"]', snapshotBrowsers: [] },
     },
     decorators: [
         mswDecorator({

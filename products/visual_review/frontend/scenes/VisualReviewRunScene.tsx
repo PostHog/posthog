@@ -30,7 +30,7 @@ import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import { VisualReviewTrail } from '../components/VisualReviewTrail'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { repoFullNameFromParams, runPath, splitRepoFullName } from '../lib/repoPaths'
-import { type DecisionFilter, type FinalizeButtonCopy, personName } from '../lib/reviewDecisions'
+import { type DecisionFilter, type FinalizeButtonCopy, countChanges, personName } from '../lib/reviewDecisions'
 import { QuillFinalizeRunActions } from './QuillFinalizeRunActions'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
@@ -231,9 +231,7 @@ function DecisionFilterNotice({
 }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2 text-xs text-secondary">
-            <span>
-                Showing {count} {count === 1 ? 'change' : 'changes'} {DECISION_FILTER_LABELS[filter]}.
-            </span>
+            <span>{`Showing ${countChanges(count)} ${DECISION_FILTER_LABELS[filter]}.`}</span>
             <Link onClick={onClear} data-attr="visual-review-clear-decision-filter">
                 Show all
             </Link>
@@ -333,6 +331,7 @@ export function VisualReviewRunScene(): JSX.Element {
         decidesByPullRequest,
         olderRunSituation,
         decisionsLockedReason,
+        pullRequestClosed,
         isHeadRun,
         finalizeButton,
         rejectionSummary,
@@ -515,6 +514,7 @@ export function VisualReviewRunScene(): JSX.Element {
     const showLedgerFinalize =
         decidesByPullRequest &&
         isHeadRun &&
+        !pullRequestClosed &&
         !run.approved &&
         !!progress &&
         progress.approved + progress.rejected + progress.needs_review > 0
@@ -555,6 +555,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                 isFinalizing={isFinalizing}
                                 finalizeRun={finalizeRun}
                                 button={finalizeButtonCopy}
+                                onShowAgentAccepts={showAgentAccepts ? () => setDecisionFilter('agent') : undefined}
                             />
                         ) : (
                             <div className="flex flex-wrap items-center gap-2">
@@ -567,21 +568,17 @@ export function VisualReviewRunScene(): JSX.Element {
                                     data-attr="visual-review-add-images-to-comment"
                                 />
                                 {finalizeButtonCopy.note && (
-                                    <span
-                                        className="text-xs text-secondary"
-                                        data-attr="visual-review-finalize-progress"
-                                    >
-                                        {finalizeButtonCopy.note}
+                                    <span className="flex items-center gap-1 text-xs text-secondary">
+                                        <span data-attr="visual-review-finalize-progress">
+                                            {finalizeButtonCopy.note}
+                                        </span>
                                         {showAgentAccepts && (
-                                            <>
-                                                {' '}
-                                                <Link
-                                                    onClick={() => setDecisionFilter('agent')}
-                                                    data-attr="visual-review-show-agent-accepts"
-                                                >
-                                                    Show them
-                                                </Link>
-                                            </>
+                                            <Link
+                                                onClick={() => setDecisionFilter('agent')}
+                                                data-attr="visual-review-show-agent-accepts"
+                                            >
+                                                Show them
+                                            </Link>
                                         )}
                                     </span>
                                 )}
@@ -612,7 +609,11 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {olderRunSituation && run.head_run ? (
+            {decidesByPullRequest && pullRequestClosed ? (
+                <LemonBanner type="warning" className="mb-4">
+                    {decisionsLockedReason}
+                </LemonBanner>
+            ) : olderRunSituation && run.head_run ? (
                 <OlderRunBanner
                     situation={olderRunSituation}
                     headRun={run.head_run}
@@ -638,9 +639,7 @@ export function VisualReviewRunScene(): JSX.Element {
 
             {run.stale_approval_count > 0 && (
                 <LemonBanner type="warning" className="mb-4">
-                    The baseline of {run.stale_approval_count} approved{' '}
-                    {run.stale_approval_count === 1 ? 'snapshot' : 'snapshots'} changed after the approval. Update the
-                    branch from the default branch to get a new run, then review it.
+                    {`The baseline of ${run.stale_approval_count} accepted ${run.stale_approval_count === 1 ? 'snapshot' : 'snapshots'} changed after ${run.stale_approval_count === 1 ? 'it was' : 'they were'} accepted. Update the branch from the default branch to get a new run, then review it.`}
                 </LemonBanner>
             )}
 

@@ -13,28 +13,38 @@ function Commit({ sha }: { sha: string }): JSX.Element {
     return <code className="text-xs">{shortSha(sha)}</code>
 }
 
+// Each text is the only child of its element. A page translator replaces text nodes, and React cannot update or
+// remove a text node it no longer finds next to its siblings.
 function CurrentDecision({ decision }: { decision: SnapshotDecisionApi }): JSX.Element {
     const name = personName(decision.by)
+    const actor = decision.via === 'mcp' ? `an agent for ${name}` : name
     if (decision.state === 'rejected') {
         return (
             <span>
-                <span className="font-semibold text-danger">Rejected</span> by {name} on{' '}
-                <Commit sha={decision.commit_sha} />: {decision.reason}
+                <span className="font-semibold text-danger">Rejected</span>
+                <span>{` by ${actor} on `}</span>
+                <Commit sha={decision.commit_sha} />
+                <span className="whitespace-pre-line">{`: ${decision.reason}`}</span>
             </span>
         )
     }
     if (decision.state === 'approved') {
         return (
             <span>
-                <span className="font-semibold text-success">Accepted</span> by{' '}
-                {decision.via === 'mcp' ? `an agent for ${name}` : name} on <Commit sha={decision.commit_sha} />,{' '}
+                <span className="font-semibold text-success">Accepted</span>
+                <span>{` by ${actor} on `}</span>
+                <Commit sha={decision.commit_sha} />
+                <span>{', '}</span>
                 <TZLabel time={decision.at} />
             </span>
         )
     }
     return (
         <span>
-            {name} undid a decision on <Commit sha={decision.commit_sha} />, <TZLabel time={decision.at} />
+            <span>{`${decision.via === 'mcp' ? `An agent for ${name}` : name} undid a decision on `}</span>
+            <Commit sha={decision.commit_sha} />
+            <span>{', '}</span>
+            <TZLabel time={decision.at} />
         </span>
     )
 }
@@ -46,8 +56,9 @@ function EarlierDecision({ decision }: { decision: EarlierSnapshotDecisionApi })
     const verb = decision.state === 'rejected' ? 'rejected' : 'accepted'
     return (
         <span>
-            {personName(decision.by)} {verb} an earlier picture of this story on <Commit sha={decision.commit_sha} />.{' '}
-            {EARLIER_CHANGE_TEXT[decision.changed]}
+            <span>{`${personName(decision.by)} ${verb} an earlier picture of this story on `}</span>
+            <Commit sha={decision.commit_sha} />
+            <span>{`. ${EARLIER_CHANGE_TEXT[decision.changed]}`}</span>
         </span>
     )
 }
@@ -65,7 +76,10 @@ export function SnapshotDecisionLine({
         return null
     }
     return (
-        <div className="flex flex-col gap-1 mb-4 text-sm text-secondary" data-attr="visual-review-decision-line">
+        <div
+            className="flex flex-col gap-1 mb-4 text-sm text-secondary break-words"
+            data-attr="visual-review-decision-line"
+        >
             {decision ? (
                 <CurrentDecision decision={decision} />
             ) : earlier_decision ? (

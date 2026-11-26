@@ -1,4 +1,4 @@
-import type { RunApi, RunProgressApi, SnapshotApi, UserBasicInfoApi } from '../generated/api.schemas'
+import type { DecisionErrorApi, RunApi, RunProgressApi, SnapshotApi, UserBasicInfoApi } from '../generated/api.schemas'
 import { decidesByPullRequest } from './runPredicates'
 
 /** "1 change" or "3 changes", with the same plain digits as the other counts on the page. */
@@ -43,6 +43,8 @@ export interface RejectionSummary {
     count: number
     /** Set when one person made every rejection. */
     rejecter: string | null
+    /** Whether an agent made every rejection on that person's behalf. */
+    byAgent: boolean
     /** Set when every rejection was made on the same commit. */
     commitSha: string | null
 }
@@ -56,6 +58,7 @@ export function summarizeRejections(snapshots: SnapshotApi[]): RejectionSummary 
     return {
         count: rejected.length,
         rejecter: rejecters.size === 1 ? rejecter : null,
+        byAgent: rejected.length > 0 && rejected.every((s) => s.decision?.via === 'mcp'),
         commitSha: commits.size === 1 && commitSha ? commitSha : null,
     }
 }
@@ -91,10 +94,11 @@ function progressNote(progress: RunProgressApi): string | null {
 
 export function rejectionBlocksFinalizeText(rejections: RejectionSummary, rejectedCount: number): string {
     if (rejections.rejecter && rejections.count === rejectedCount) {
-        const who = rejections.rejecter
+        const person = rejections.rejecter
+        const who = rejections.byAgent ? `An agent for ${person}` : person
         return rejectedCount === 1
-            ? `${who} rejected 1 change. Finalize works once it has a new picture or ${who} undoes the rejection.`
-            : `${who} rejected ${rejectedCount} changes. Finalize works once they have new pictures or ${who} undoes the rejections.`
+            ? `${who} rejected 1 change. Finalize works once it has a new picture or ${person} undoes the rejection.`
+            : `${who} rejected ${rejectedCount} changes. Finalize works once they have new pictures or ${person} undoes the rejections.`
     }
     return rejectedCount === 1
         ? '1 change is rejected. Finalize works once it has a new picture or the rejection is undone.'
@@ -143,9 +147,12 @@ export function olderRunSituation(run: RunApi | null): OlderRunSituation | null 
 }
 
 /** Why decisions cannot change on this run, or null when they can. */
-export function decisionsLockedReason(run: RunApi | null): string | null {
+export function decisionsLockedReason(run: RunApi | null, pullRequestClosed: boolean): string | null {
     if (!run || !decidesByPullRequest(run)) {
         return null
+    }
+    if (pullRequestClosed) {
+        return `PR #${run.pr_number} is merged or closed. This run is read only.`
     }
     if (run.approved) {
         return 'This run is finalized, so its decisions are fixed until the next push.'
@@ -186,7 +193,7 @@ interface DecisionCallError {
     status?: number
     code?: string | null
     detail?: string | null
-    data?: { snapshots?: { code?: string }[] }
+    data?: Partial<DecisionErrorApi>
 }
 
 export function decisionErrorOutcome(error: unknown, fallback: string): DecisionErrorOutcome {
