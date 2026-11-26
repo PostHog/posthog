@@ -3,6 +3,8 @@ the workflows the transactional send APIs make may use those ids, and other work
 
 from typing import Any, Final
 
+from posthog.dataclasses import frozen
+
 from products.workflows.backend.facade.contracts import TRANSACTIONAL_EMAIL_ACTION_ID, TRANSACTIONAL_PUSH_ACTION_ID
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.models.hog_flow.hog_flow import SANDBOX_EMAIL_ACTION_TYPE
@@ -65,12 +67,18 @@ def keeps_transactional_shape(origin_product: str, actions: list[dict[str, Any]]
 def new_reserved_steps(actions: list[dict[str, Any]], *stored_step_lists: list[dict[str, Any]] | None) -> list[str]:
     """The reserved step ids in `actions` that no stored step of the same type already has."""
     stored = {_reserved_step(step) for steps in stored_step_lists for step in steps or []}
-    return sorted({key[0] for action in actions if (key := _reserved_step(action)) and key not in stored})
+    return sorted({step.id for action in actions if (step := _reserved_step(action)) and step not in stored})
 
 
-def _reserved_step(step: Any) -> tuple[str, str] | None:
+@frozen
+class _ReservedStep:
+    id: str
+    type: str
+
+
+def _reserved_step(step: Any) -> _ReservedStep | None:
     if isinstance(step, dict) and step.get("id") in RESERVED_STEP_IDS:
-        return (str(step["id"]), str(step.get("type")))
+        return _ReservedStep(id=str(step["id"]), type=str(step.get("type")))
     return None
 
 
