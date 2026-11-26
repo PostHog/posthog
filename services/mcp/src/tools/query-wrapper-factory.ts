@@ -64,6 +64,31 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
 
 const TEST_ACCOUNT_FILTER_FIELD = 'filterTestAccounts'
 
+const COMPLETE_PERIOD_COMPARE_KINDS = new Set(['WebOverviewQuery', 'WebStatsTableQuery'])
+
+/**
+ * An open-ended `-7d` holds a partial day, so a comparison sets ~7.5 days against a different
+ * weekday mix and overstates the change several times over. Clip to complete days unless the
+ * caller chose a `date_to`.
+ */
+export function applyCompletePeriodCompare(kind: string, query: Record<string, unknown>): void {
+    if (!COMPLETE_PERIOD_COMPARE_KINDS.has(kind)) {
+        return
+    }
+    const compareFilter = query.compareFilter as { compare?: boolean } | undefined
+    if (!compareFilter?.compare) {
+        return
+    }
+    const dateRange = (query.dateRange ?? {}) as Record<string, unknown>
+    if (dateRange.date_to !== undefined && dateRange.date_to !== null) {
+        return
+    }
+    if (dateRange.excludeIncompletePeriods !== undefined) {
+        return
+    }
+    query.dateRange = { ...dateRange, excludeIncompletePeriods: true }
+}
+
 function hasTestAccountFilterField(schema: ZodObjectAny): schema is z.ZodObject<z.ZodRawShape> {
     return schema instanceof z.ZodObject && TEST_ACCOUNT_FILTER_FIELD in schema.shape
 }
@@ -203,6 +228,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             if (hasTestAccountFilterField(schema)) {
                 await applyProjectTestAccountDefault(context, query)
             }
+            applyCompletePeriodCompare(config.kind, query)
             const baseUrl = context.api.getProjectBaseUrl(projectId)
             const effectiveOutputFormat = callerOutputFormat ?? config.outputFormat
 
