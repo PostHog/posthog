@@ -383,17 +383,21 @@ describe('emailTemplaterLogic', () => {
 
         const mountDocumentEditor = async (
             value: Record<string, any>,
-            onChange: jest.Mock
+            onChange: jest.Mock,
+            layout: 'inline' | 'modal' = 'inline'
         ): Promise<{ editor: TiptapEditor }> => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
                 [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
             })
             logic = emailTemplaterLogic({
                 ...makeProps({ value: { ...blankEmail, ...value } as any }),
-                layout: 'inline',
+                layout,
                 onChange,
             })
             logic.mount()
+            if (layout === 'modal') {
+                logic.actions.setIsModalOpen(true)
+            }
             await expectLogic(logic).toFinishAllListeners()
             const editor = new TiptapEditor({
                 extensions: buildEmailExtensions(''),
@@ -421,6 +425,29 @@ describe('emailTemplaterLogic', () => {
             await logic.asyncActions.flushPendingDesignEdit()
             expect(onChange).toHaveBeenLastCalledWith(
                 expect.objectContaining({ html, text: 'Written by hand, café ✨' })
+            )
+            editor.destroy()
+        })
+
+        it('keeps text typed in the plain text tab as the email own when the editor modal saves from the canvas', async () => {
+            const onChange = jest.fn()
+            const { editor } = await mountDocumentEditor({ html: '<p>Old</p>', text: 'Old' }, onChange, 'modal')
+
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setEmailTemplateValue('text', 'Written by hand')
+            logic.actions.setActiveContentTab('visual')
+            await logic.asyncActions.submitEmailTemplate()
+
+            expect(onChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    html: expect.stringContaining('Old'),
+                    text: 'Written by hand',
+                    design: expect.objectContaining({
+                        emailDocument: expect.objectContaining({
+                            doc: expect.objectContaining({ attrs: expect.objectContaining({ ownPlainText: true }) }),
+                        }),
+                    }),
+                })
             )
             editor.destroy()
         })

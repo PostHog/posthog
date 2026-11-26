@@ -1005,10 +1005,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 }
 
                 // The new editor keeps the html and the typed plain text side by side, so its save goes on below.
-                if (
-                    values.activeContentTab === 'plaintext' &&
-                    !newEditorKeepsHtml(values, formValues.text !== props.value?.text)
-                ) {
+                // Text typed in the plain text tab stays the email's own, whichever tab the save happens on.
+                const keepsHtml = newEditorKeepsHtml(values, formValues.text !== props.value?.text)
+                if (values.activeContentTab === 'plaintext' && !keepsHtml) {
                     const finalValues: EmailTemplate = {
                         ...formValues,
                         html: '',
@@ -1316,7 +1315,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
             const design = editorDesignForEmail(emailTemplateContent)
             if (values.isEmailEditorReady && design) {
-                // The email it replaces may be text-only, which says nothing about the template's own text.
+                // The email it replaces may be text-only, which says nothing about the template's own text. The new
+                // editor reports the load before loadDesign returns, so the flag only covers this load.
                 cache.templateApplied = true
                 cache.lastEditorDesign = design
                 cache.baselineConfirmedBy = null
@@ -1325,6 +1325,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     emailTemplateContent.html,
                     plainTextFromOutside(emailTemplateContent)
                 )
+                cache.templateApplied = false
             }
         },
 
@@ -1479,7 +1480,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     emailContent = {
                         ...currentValues,
                         html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                        text: plainTextBesideHtml ? currentValues.text : textData.text,
+                        text: plainTextForEdit(textData, htmlData.design, currentValues),
                         design: htmlData.design,
                     }
                 }
