@@ -55,6 +55,8 @@ _SOURCE = "stamphog"
 _MAX_FINDINGS = 5
 _MAX_FINDING_CHARS = 300
 _MAX_TITLE_CHARS = 200
+# The length of ExpressRequestDelivery.permalink.
+_MAX_PERMALINK_CHARS = 512
 # Slack renders a mention only for an id of this shape, so any other stored value is shown as text.
 _SLACK_USER_ID = re.compile(r"^[UW][A-Z0-9]{2,}$")
 
@@ -342,6 +344,25 @@ def post_card(card: ExpressRequestCard, channel_id: str, channel_name: str) -> s
     if not ts:
         raise ExpressRequestSlackError(f"Slack returned no ts for the card in {channel_id}")
     return ts
+
+
+def card_permalink(card: ExpressRequestCard, channel_id: str, ts: str) -> str:
+    """The link Slack gives for the posted card, or "" when Slack does not give one. Never raises.
+
+    The caller has posted the card but has not recorded it yet. An exception here would make the task
+    retry and post a second card.
+    """
+    try:
+        response = _slack(card.team_id, card.integration_id).client.chat_getPermalink(channel=channel_id, message_ts=ts)
+        permalink = response.get("permalink") if response.get("ok") else None
+    except Exception:
+        logger.warning("stamphog_express_card_permalink_failed", express_request_id=card.request_id, exc_info=True)
+        return ""
+    # The API returns this link as is, so only a plain https link is kept.
+    if not isinstance(permalink, str) or not permalink.startswith("https://") or len(permalink) > _MAX_PERMALINK_CHARS:
+        logger.warning("stamphog_express_card_permalink_unusable", express_request_id=card.request_id)
+        return ""
+    return permalink
 
 
 def update_card(card: ExpressRequestCard, channel_id: str, ts: str) -> None:

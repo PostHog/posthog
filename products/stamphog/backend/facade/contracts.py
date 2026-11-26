@@ -105,7 +105,8 @@ class ExpressRequestDeliveryDTO:
     """Where an Express request was posted."""
 
     kind: ExpressRequestDeliveryKind
-    url: str
+    # The link Slack returned for the message. None when Slack gave none.
+    url: str | None
 
 
 @dataclass(frozen=True)

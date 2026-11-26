@@ -501,36 +501,44 @@ class TestDispatchCommentCommand(BaseTest):
             (
                 "pending",
                 ExpressRequestStatus.PENDING,
-                False,
+                [],
                 "reviews",
                 "If it doesn't approve, this goes to #reviews.",
             ),
             (
                 "pending_without_a_channel_name",
                 ExpressRequestStatus.PENDING,
-                False,
+                [],
                 "",
                 "If it doesn't approve, this goes to the repository's Slack channel.",
             ),
-            ("open", ExpressRequestStatus.OPEN, False, "reviews", "Stamphog didn't approve, so this goes to #reviews."),
+            ("open", ExpressRequestStatus.OPEN, [], "reviews", "Stamphog didn't approve, so this goes to #reviews."),
             (
                 "already_posted",
                 ExpressRequestStatus.OPEN,
-                True,
+                ["https://example.slack.com/archives/C1/p100200"],
                 "reviews",
-                "Already asked in #reviews: https://app.slack.com/archives/C1/p100200",
+                "Already asked in #reviews: https://example.slack.com/archives/C1/p100200",
+            ),
+            # Slack gave no link for the message, so the reply names only the channel.
+            (
+                "already_posted_without_a_link",
+                ExpressRequestStatus.OPEN,
+                [None],
+                "reviews",
+                "Already asked in #reviews.",
             ),
             (
                 "stamphog_approved",
                 ExpressRequestStatus.STAMPHOG_APPROVED,
-                False,
+                [],
                 "reviews",
                 "Stamphog approved. No one else needs to look.",
             ),
         ]
     )
     def test_stamp_express_replies_with_where_the_request_stands(
-        self, _name: str, status: ExpressRequestStatus, posted: bool, channel_name: str, expected: str
+        self, _name: str, status: ExpressRequestStatus, urls: list[str | None], channel_name: str, expected: str
     ) -> None:
         express_request = ExpressRequestDTO(
             id=uuid4(),
@@ -539,12 +547,8 @@ class TestDispatchCommentCommand(BaseTest):
             requested_via=ExpressRequestSource.SLACK,
             note="ask Jane about billing",
             deliveries=[
-                ExpressRequestDeliveryDTO(
-                    kind=ExpressRequestDeliveryKind.SLACK_MESSAGE, url="https://app.slack.com/archives/C1/p100200"
-                )
-            ]
-            if posted
-            else [],
+                ExpressRequestDeliveryDTO(kind=ExpressRequestDeliveryKind.SLACK_MESSAGE, url=url) for url in urls
+            ],
         )
         context = CommandContext(
             request=dataclasses.replace(self._command_request(verb="stamp"), channel="slack"),

@@ -121,6 +121,7 @@ class Migration(migrations.Migration):
                 ("integration_id", models.BigIntegerField(blank=True, null=True)),
                 ("channel_id", models.CharField(blank=True, default="", max_length=64)),
                 ("message_ts", models.CharField(blank=True, default="", max_length=32)),
+                ("permalink", models.CharField(blank=True, default="", max_length=512)),
                 (
                     "state",
                     models.CharField(

@@ -615,12 +615,14 @@ class FakeSlackClient:
         needs_join: set[str],
         joined: list[str],
         fail_thread_replies: bool,
+        fail_permalinks: bool = False,
     ) -> None:
         self._posted = posted
         self._updated = updated
         self._needs_join = needs_join
         self._joined = joined
         self._fail_thread_replies = fail_thread_replies
+        self._fail_permalinks = fail_permalinks
 
     def chat_postMessage(self, *, channel: str, blocks: list[dict], text: str, **kwargs: Any) -> dict[str, Any]:
         if channel in self._needs_join and channel not in self._joined:
@@ -638,9 +640,21 @@ class FakeSlackClient:
         self._updated.append({"channel": channel, "ts": ts, "blocks": blocks, "text": text})
         return {"ok": True, "ts": ts}
 
+    def chat_getPermalink(self, *, channel: str, message_ts: str) -> dict[str, Any]:
+        if self._fail_permalinks:
+            raise SlackApiError("ratelimited", {"ok": False, "error": "ratelimited"})
+        if not any(post["channel"] == channel and post["ts"] == message_ts for post in self._posted):
+            raise SlackApiError("message_not_found", {"ok": False, "error": "message_not_found"})
+        return {"ok": True, "permalink": slack_permalink(channel, message_ts)}
+
     def conversations_join(self, *, channel: str) -> dict[str, Any]:
         self._joined.append(channel)
         return {"ok": True}
+
+
+def slack_permalink(channel: str, ts: str) -> str:
+    """The link the fake Slack gives for a posted message, on a workspace domain like Slack's own."""
+    return f"https://example.slack.com/archives/{channel}/p{ts.replace('.', '')}"
 
 
 class FakeSlackIntegration:
@@ -660,6 +674,8 @@ class FakeSlackIntegration:
     # Makes the threaded reply fail while the lead still succeeds, which is the only Slack failure
     # the digest is expected to swallow.
     fail_thread_replies: bool = False
+    # Makes every permalink lookup fail, as Slack does when it rate limits the call.
+    fail_permalinks: bool = False
 
     def __init__(self, integration: Any, *, source: str = "integration") -> None:
         self.integration = integration
@@ -672,6 +688,7 @@ class FakeSlackIntegration:
             FakeSlackIntegration.channels_needing_join,
             FakeSlackIntegration.joined_channels,
             FakeSlackIntegration.fail_thread_replies,
+            FakeSlackIntegration.fail_permalinks,
         )
 
     def list_channels(self, should_include_private_channels: bool = False, authed_user: str = "") -> list[dict]:
@@ -693,6 +710,7 @@ class FakeSlackIntegration:
         cls.channels_needing_join = set(needs_join)
         cls.joined_channels = []
         cls.fail_thread_replies = fail_thread_replies
+        cls.fail_permalinks = False
 
 
 # --- Sandbox fake at the ``get_sandbox_class_for_backend`` seam ---

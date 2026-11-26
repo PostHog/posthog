@@ -496,7 +496,11 @@ class ExpressRequestDeliverySerializer(DataclassSerializer):
         read_only=True,
         help_text="Where the request was posted. 'slack_message' is a message in the repository's Slack channel.",
     )
-    url = serializers.CharField(read_only=True, help_text="Link that opens the posted message.")
+    url = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Link that opens the posted message, as Slack returned it. Null when Slack did not return one.",
+    )
 
     class Meta:
         dataclass = contracts.ExpressRequestDeliveryDTO

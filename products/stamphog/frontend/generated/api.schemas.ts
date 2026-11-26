@@ -245,8 +245,11 @@ export interface CodeReviewApprovalExpressRequestDeliveryApi {
      *
      * * `slack_message` - Slack message */
     readonly kind: ExpressRequestDeliveryKindEnumApi
-    /** Link that opens the posted message. */
-    readonly url: string
+    /**
+     * Link that opens the posted message, as Slack returned it. Null when Slack did not return one.
+     * @nullable
+     */
+    readonly url: string | null
 }
 
 export interface CodeReviewApprovalExpressRequestApi {

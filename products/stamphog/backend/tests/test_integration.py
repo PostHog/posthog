@@ -26,7 +26,7 @@ from posthog.slack.block_actions import block_action_handler_for
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.models import SignalReport
-from products.stamphog.backend.facade.api import check_approval_gates
+from products.stamphog.backend.facade.api import check_approval_gates, express_request_to_dto
 from products.stamphog.backend.facade.contracts import ApprovalGateCheck, StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     AudienceReason,
@@ -4482,17 +4482,27 @@ def _refresh(request: ExpressRequest) -> ExpressRequest:
 
 
 @pytest.mark.parametrize(
-    "files, engine_output, reviewer_exit_code, expect_status, expect_card",
+    "files, engine_output, reviewer_exit_code, permalinks_fail, expect_status, expect_card",
     [
-        pytest.param(_pr_files(), _refused_engine_output(), 0, ExpressRequestStatus.OPEN, True, id="refused"),
-        pytest.param(_pr_files(), _escalated_engine_output(), 0, ExpressRequestStatus.OPEN, True, id="escalate"),
-        pytest.param([_big_api_file("lib/big.py", 1300)], None, 0, ExpressRequestStatus.OPEN, True, id="gated"),
-        pytest.param(_pr_files(), None, 1, ExpressRequestStatus.OPEN, True, id="failed"),
+        pytest.param(_pr_files(), _refused_engine_output(), 0, False, ExpressRequestStatus.OPEN, True, id="refused"),
+        pytest.param(_pr_files(), _escalated_engine_output(), 0, False, ExpressRequestStatus.OPEN, True, id="escalate"),
+        pytest.param([_big_api_file("lib/big.py", 1300)], None, 0, False, ExpressRequestStatus.OPEN, True, id="gated"),
+        pytest.param(_pr_files(), None, 1, False, ExpressRequestStatus.OPEN, True, id="failed"),
         pytest.param(
-            _pr_files(), fakes.approved_engine_output(), 0, ExpressRequestStatus.STAMPHOG_APPROVED, False, id="approved"
+            _pr_files(),
+            fakes.approved_engine_output(),
+            0,
+            False,
+            ExpressRequestStatus.STAMPHOG_APPROVED,
+            False,
+            id="approved",
         ),
         # A visible WAIT gets another review of the head, so nobody is asked yet.
-        pytest.param(_pr_files(), _waiting_engine_output(), 0, ExpressRequestStatus.PENDING, False, id="wait"),
+        pytest.param(_pr_files(), _waiting_engine_output(), 0, False, ExpressRequestStatus.PENDING, False, id="wait"),
+        # The card is out once Slack takes it. A failed link lookup must not post it again on a retry.
+        pytest.param(
+            _pr_files(), _refused_engine_output(), 0, True, ExpressRequestStatus.OPEN, True, id="refused_without_a_link"
+        ),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -4502,10 +4512,12 @@ def test_a_express_request_posts_one_card_when_stamphog_does_not_approve(
     files: list[dict],
     engine_output: str | None,
     reviewer_exit_code: int,
+    permalinks_fail: bool,
     expect_status: ExpressRequestStatus,
     expect_card: bool,
 ) -> None:
     _express_repo_config(team.id)
+    fakes.FakeSlackIntegration.fail_permalinks = permalinks_fail
     stamphog_chain.recorder.register_pr(
         REPO, 170, _silent_review_pr(170, "sha170a", changed_files=len(files), additions=12, deletions=3), files
     )
@@ -4519,6 +4531,7 @@ def test_a_express_request_posts_one_card_when_stamphog_does_not_approve(
     assert request.status == expect_status
     cards = _cards()
     assert len(cards) == int(expect_card)
+    links = [delivery.url for delivery in express_request_to_dto(team.id, request.id).deliveries]
     if expect_card:
         blocks = _rendered(cards[0]["blocks"])
         assert "Touches billing." in blocks
@@ -4526,8 +4539,10 @@ def test_a_express_request_posts_one_card_when_stamphog_does_not_approve(
         assert "+12 −3" in blocks
         assert ("couldn't finish its review" in blocks) is (reviewer_exit_code != 0)
         assert [m["ts"] for m in fakes.FakeSlackIntegration.updated_messages] == [cards[0]["ts"]]
+        assert links == [None if permalinks_fail else fakes.slack_permalink(EXPRESS_CHANNEL, cards[0]["ts"])]
     else:
         assert fakes.FakeSlackIntegration.updated_messages == []
+        assert links == []
 
 
 @pytest.mark.parametrize("silent", [False, True], ids=["visible_refusal", "withheld_silent_refusal"])
@@ -4648,6 +4663,48 @@ def test_a_push_refreshes_a_express_request_once_stamphog_decided_the_new_head(
 
     request.refresh_from_db()
     assert (request.status, request.head_sha) == (expect_status, "sha176b")
+    assert len(_cards()) == expect_cards
+
+
+@pytest.mark.parametrize(
+    "approval_dismissed, expect_status, expect_cards",
+    [
+        # Retention kept the approval over a push that left the diff unchanged, so the new head has no run.
+        pytest.param(False, ExpressRequestStatus.STAMPHOG_APPROVED, 0, id="approval_retained"),
+        pytest.param(True, ExpressRequestStatus.OPEN, 1, id="retained_approval_dismissed"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_head_that_kept_stamphogs_approval_asks_nobody(
+    team,
+    stamphog_chain: StamphogChain,
+    approval_dismissed: bool,
+    expect_status: ExpressRequestStatus,
+    expect_cards: int,
+) -> None:
+    repo_config = _express_repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=177, author_login="devex-dev"
+    )
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha177a",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.APPROVED,
+        verdict_posted_at=timezone.now(),
+        posted_review_id=9,
+        approval_dismissed_at=timezone.now() if approval_dismissed else None,
+        output={"retained_head_shas": ["sha177b"]},
+    )
+    request = ExpressRequest.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha177a", requested_via=ExpressRequestSource.API
+    )
+    stamphog_chain.recorder.register_pr(REPO, 177, _silent_review_pr(177, "sha177b"), _pr_files())
+
+    request = _refresh(request)
+
+    assert (request.status, request.head_sha) == (expect_status, "sha177b")
     assert len(_cards()) == expect_cards
 
 

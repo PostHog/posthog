@@ -528,6 +528,9 @@ class ExpressRequestDelivery(ProductTeamModel):
     integration_id = models.BigIntegerField(null=True, blank=True)
     channel_id = models.CharField(max_length=64, blank=True, default="")
     message_ts = models.CharField(max_length=32, blank=True, default="")
+    # The link Slack itself returned for the posted message, so the API never builds a Slack URL.
+    # Blank when the lookup failed.
+    permalink = models.CharField(max_length=512, blank=True, default="")
     state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

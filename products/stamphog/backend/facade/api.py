@@ -176,11 +176,6 @@ def _routing_to_dto(record: object) -> contracts.PullRequestRoutingDTO | None:
 _EXPRESS_REQUESTS_ATTR = "prefetched_express_requests"
 
 
-def _express_request_delivery_url(delivery: ExpressRequestDelivery) -> str:
-    # The archives permalink resolves the workspace from the channel, so no workspace domain is stored.
-    return f"https://app.slack.com/archives/{delivery.channel_id}/p{delivery.message_ts.replace('.', '')}"
-
-
 def _express_request_to_dto(obj: ExpressRequest) -> contracts.ExpressRequestDTO:
     """Expects the looking participants and the posted deliveries that _with_express_requests prefetches."""
     return contracts.ExpressRequestDTO(
@@ -193,7 +188,7 @@ def _express_request_to_dto(obj: ExpressRequest) -> contracts.ExpressRequestDTO:
         approved_by_login=obj.approved_by_login,
         deliveries=[
             contracts.ExpressRequestDeliveryDTO(
-                kind=ExpressRequestDeliveryKind(delivery.kind), url=_express_request_delivery_url(delivery)
+                kind=ExpressRequestDeliveryKind(delivery.kind), url=delivery.permalink or None
             )
             for delivery in obj.deliveries.all()
         ],

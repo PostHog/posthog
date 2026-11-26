@@ -200,7 +200,7 @@ It is read from the default branch too, so a PR cannot redirect its own digest.
 
 `@posthog stamp --express [note]`, or a review request with `express: true`, asks Stamphog for a review and opens an Express request for the pull request.
 A manager turns it on per repository with `express_enabled` and a Slack channel on the repo config API.
-If Stamphog approves, nothing is posted.
+If Stamphog approves, or approval retention keeps its approval over a push, nothing is posted.
 If Stamphog refuses, escalates, is gated or fails, one message goes to the channel, with an "I'll take a look" button.
 That message changes as the pull request does: a person's approval of the current head, a push that makes it stale, a later Stamphog approval, a merge or a close.
 Each pull request has at most one active request, so asking again returns it.

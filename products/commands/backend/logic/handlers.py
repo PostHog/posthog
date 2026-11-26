@@ -161,7 +161,8 @@ def _express_request_reply(result: stamphog_contracts.ReviewRequestResultDTO) ->
     if status == stamphog_enums.ExpressRequestStatus.STAMPHOG_APPROVED:
         return "Stamphog approved. No one else needs to look."
     if express_request.deliveries:
-        return f"Already asked in {channel}: {express_request.deliveries[0].url}"
+        url = express_request.deliveries[0].url
+        return f"Already asked in {channel}: {url}" if url else f"Already asked in {channel}."
     if status == stamphog_enums.ExpressRequestStatus.PENDING:
         return f"Stamphog is reviewing. If it doesn't approve, this goes to {channel}."
     if status == stamphog_enums.ExpressRequestStatus.OPEN:

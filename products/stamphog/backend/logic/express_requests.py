@@ -34,6 +34,7 @@ from .express_request_slack import (
     ExpressRequestCard,
     ExpressRequestSlackError,
     LookClick,
+    card_permalink,
     card_workspace,
     find_card_integration,
     ping_lookers,
@@ -41,6 +42,7 @@ from .express_request_slack import (
     update_card,
 )
 from .github_client import StamphogGitHubClient
+from .merge_approval import retained_at_head
 from .rerun_evidence import is_person
 from .reviewer import parse_reviewer_output
 from .scrubbing import neutralize_active_markdown, scrub_credentials
@@ -162,19 +164,18 @@ def stamphog_status_at_head(
     posted its approval. Until then it can show nothing, and no stamphog verdict follows a withheld one.
 
     The review path queues the refresh for a push only after it created the head's run or decided to
-    skip the head, so "no run" here means that no run is coming.
+    skip the head, so "no run" here means that no run is coming. A head that approval retention kept
+    also has no run, because the push skipped the review, and the retained approval approves it.
     """
-    runs = (
-        ReviewRun.objects.for_team(pull_request.team_id)
-        .using(using)
-        .filter(pull_request=pull_request, head_sha=head_sha)
-        .exclude(status=ReviewRunStatus.SUPERSEDED)
-        .order_by("-created_at")
-    )
-    for run in runs:
+    runs = ReviewRun.objects.for_team(pull_request.team_id).using(using).filter(pull_request=pull_request)
+    at_head = runs.filter(head_sha=head_sha).exclude(status=ReviewRunStatus.SUPERSEDED).order_by("-created_at")
+    for run in at_head:
         if run.is_silent and run.verdict_posted_at is None:
             continue
         return status_for_run(run), run
+    retained = runs.filter(retained_at_head(head_sha)).order_by("-created_at").first()
+    if retained is not None:
+        return ExpressRequestStatus.STAMPHOG_APPROVED, retained
     return ExpressRequestStatus.OPEN, None
 
 
@@ -334,8 +335,9 @@ def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str,
         delivery.integration_id = card.integration_id
         delivery.channel_id = repo_config.express_slack_channel_id
         delivery.message_ts = ts
+        delivery.permalink = card_permalink(card, delivery.channel_id, ts)
         delivery.state = ExpressRequestDelivery.State.POSTED
-        delivery.save(update_fields=["integration_id", "channel_id", "message_ts", "state", "updated_at"])
+        delivery.save(update_fields=["integration_id", "channel_id", "message_ts", "permalink", "state", "updated_at"])
         # The people who look later see the card at this head, so only a later head pings them.
         ExpressRequest.objects.for_team(request.team_id).using(using).filter(id=request.id).update(
             pinged_head_sha=head_sha, updated_at=timezone.now()
