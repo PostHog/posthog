@@ -25,6 +25,7 @@ logs-count-ranges
 logs-patterns
 logs-patterns-diff
 logs-sparkline-query
+metric-describe
 notebooks-add-cell
 notebooks-create-markdown
 notebooks-update-cell
@@ -59,11 +60,11 @@ view-run-history
 vision-observations-create-task
 vision-observations-retry
 vision-scanners-estimate
+vision-scanners-highlight-feed
 vision-scanners-observations-stats
 vision-scanners-scan-session
 vision-scanners-scan-sessions
 vision-scanners-self-driving-stats
-vision-scanners-highlight-feed
 web-analytics-weekly-digest
 workflows-global-stats
 workflows-list-invocations

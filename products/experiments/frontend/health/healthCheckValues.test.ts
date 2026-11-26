@@ -129,6 +129,30 @@ describe('healthCheckValues', () => {
                 { label: 'Users so far', text: '9,602 of 14,800 planned' },
             ],
         },
+        {
+            name: 'the start of a significant run reads as a date after the sample',
+            values: { sample_count: 9602, significant_since_at: '2026-11-14T20:00:00+00:00' },
+            expected: [
+                { label: 'Users so far', text: '9,602' },
+                { label: 'Significant since', time: '2026-11-14T20:00:00+00:00', asDate: true },
+            ],
+        },
+        {
+            name: 'a billing limit that is not reached still shows',
+            values: { events_billing_limit_reached: false },
+            expected: [{ label: 'Product analytics billing limit', text: 'Not reached' }],
+        },
+        {
+            name: 'a reached billing limit shows when it lifts as a date',
+            values: {
+                feature_flags_billing_limit_reached: true,
+                feature_flags_billing_limit_ends_at: '2026-12-01T00:00:00+00:00',
+            },
+            expected: [
+                { label: 'Feature flags billing limit', text: 'Reached' },
+                { label: 'Limited until', time: '2026-12-01T00:00:00+00:00', asDate: true },
+            ],
+        },
     ])('healthCheckReadings: $name', ({ values, expected }) => {
         expect(healthCheckReadings(values, 'users')).toEqual(expected)
     })

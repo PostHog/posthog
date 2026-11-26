@@ -35,3 +35,37 @@ export function dailyReasonSentence(realtime: CohortRealtimeReadinessApi): strin
             return null
     }
 }
+
+/** Why PostHog can't prepare a cohort's criteria in realtime, as a sentence, or null when the reason is not one of those. */
+export function unpreparableReasonSentence(realtime: CohortRealtimeReadinessApi): string | null {
+    switch (realtime.reason) {
+        case 'unsupported_time_range':
+            return "One of its event criteria uses a time range realtime cohorts don't support. Use a range of whole days back from today, such as the last 7 days, then save the cohort."
+        case 'history_over_limit':
+            return realtime.history_limit_days === null
+                ? null
+                : `Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn realtime on.`
+        default:
+            return null
+    }
+}
+
+/** What feature flags can't do with an `off` cohort that can't be turned on or a `needs_attention` cohort PostHog can't prepare, and why, or null for any other cohort. */
+export function unpreparableExplanation(realtime: CohortRealtimeReadinessApi): string | null {
+    switch (realtime.state) {
+        case 'off':
+            return realtime.reason
+                ? `Realtime can't be turned on for this cohort, so feature flags can't target it. ${unpreparableReasonSentence(realtime) ?? ''}`.trim()
+                : null
+        case 'needs_attention': {
+            const sentence = unpreparableReasonSentence(realtime)
+            return sentence ? `Feature flags can't target this cohort. ${sentence}` : null
+        }
+        default:
+            return null
+    }
+}
+
+/** Whether to offer the switch on an `off` cohort. The server refuses one with a reason, and can still refuse one without. False for every other state. */
+export const canTurnOnRealtime = (realtime: CohortRealtimeReadinessApi | null | undefined): boolean =>
+    realtime?.state === 'off' && !realtime.reason

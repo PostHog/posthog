@@ -423,14 +423,28 @@ jobs:
                   # and object-tag renderers import posthog/__init__.py, which pulls in Django,
                   # so they need the full synced dependency set, not just stdlib.
                   # Skip on unrebased branches: the build:projections command may not exist yet.
+                  # The CI tier sets Django up and imports every warehouse source, which makes this
+                  # the slowest step of the group. Its only projection reads and writes files under
+                  # the warehouse_sources filter, and the registry and runner sit under the hogli
+                  # one, so a pull request that matches neither checks the preflight tier alone.
+                  # The merge queue, master and the hourly run keep every tier. A new CI-tier
+                  # projection whose inputs sit elsewhere needs its paths added to this condition.
                   - name: Check if the generated projections are up to date
                     shell: bash
+                    env:
+                        ALL_TIERS: ${{ github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/') || needs.changes.outputs.warehouse_sources != 'false' || needs.changes.outputs.hogli != 'false' }}
                     run: |
                         if [ ! -f tools/hogli-commands/hogli_commands/projections.py ]; then
                             echo "hogli build:projections not present on this branch yet — skipping (rebase to pick it up)"
                             exit 0
                         fi
-                        ./bin/hogli build:projections --check
+                        if [ "$ALL_TIERS" = "true" ]; then
+                            echo "Checking every projection tier"
+                            ./bin/hogli build:projections --check
+                        else
+                            echo "No warehouse source or hogli change: checking the preflight tier only"
+                            ./bin/hogli build:projections --check --tier preflight
+                        fi
 
                   - name: Check for syntax errors, import sort, and code style violations
                     shell: bash
@@ -840,21 +854,15 @@ jobs:
                   VENDORS: ${{ steps.select.outputs.vendors }}
               run: |
                   narrow=()
-                  targets=(products/warehouse_sources/backend/temporal/data_imports/sources/tests)
                   if [ "$MODE" = "vendors" ]; then
                       narrow=("--source-vendors=${VENDORS// /,}")
-                  else
-                      credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
-                      targets+=("$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py")
                   fi
-                  pytest -p no:cacheprovider "${targets[@]}" --tb=short "${narrow[@]}"
+                  pytest -p no:cacheprovider products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short "${narrow[@]}"
 
             # These suites check that every vendor declares a valid, unique credential kind and an
             # auth type. A vendors run skips Backend CI, so they run in both modes. The check that
             # the committed maps are current is `hogli build:projections --check` in code-quality.
             - name: Run credential map tests
-              # The catalog's vendor filter would deselect credential cases in a shared session.
-              if: steps.select.outputs.mode == 'vendors'
               run: |
                   credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
                   pytest -p no:cacheprovider "$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py" --tb=short

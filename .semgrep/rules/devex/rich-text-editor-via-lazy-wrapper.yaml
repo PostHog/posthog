@@ -39,6 +39,8 @@ rules:
               - /products/conversations/frontend/components/Editor
               - /products/conversations/frontend/components/Macros/MacroSuggestionExtension.tsx
               - /products/dashboards/frontend/components/ImageTile/imageTileMarkdown.ts
+              - /products/dashboards_v2/frontend/widgets/markdown/MarkdownWidget.tsx
+              - /products/dashboards_v2/frontend/widgets/markdown/markdownContent.ts
               - /products/data_catalog/frontend/components/MetricMarkdownEditor.tsx
               - /products/data_catalog/frontend/components/metricMarkdown.ts
               - /products/data_catalog/frontend/components/metricMarkdownSlashCommands.tsx

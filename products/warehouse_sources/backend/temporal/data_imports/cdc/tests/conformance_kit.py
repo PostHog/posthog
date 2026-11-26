@@ -625,7 +625,11 @@ class ConformanceKit:
         async def drain() -> None:
             lanes, floor = await build_output_lanes(schema, MagicMock(), self._log, HISTORY_NAMING)
             manager = CDCSourceManager(
-                cast(SourceInputs, inputs), self._log, deletion_floor=floor, proof=self._proofs.get(table.name)
+                cast(SourceInputs, inputs),
+                self._log,
+                deletion_floor=floor,
+                proof=self._proofs.get(table.name),
+                generation_seen=0,
             )
             async for batch in manager.get_items():
                 for lane in lanes:

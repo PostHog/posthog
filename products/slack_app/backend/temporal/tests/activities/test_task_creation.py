@@ -82,6 +82,30 @@ def test_build_description_keeps_the_prompt_bare_without_a_context_block(thread_
 
 
 @pytest.mark.parametrize(
+    "thread_messages",
+    [
+        [SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="do something", ts="1234.5678")],
+        [
+            SlackThreadMessage(user="alice", user_id="U_ALICE", text="background", ts="1000.0000"),
+            SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="do something", ts="1234.5678"),
+        ],
+    ],
+)
+def test_build_description_names_the_channel_ahead_of_the_prompt(thread_messages):
+    out = _build_posthog_code_task_description(
+        "do something",
+        thread_messages,
+        "1234.5678",
+        mentioner_slack_user_id="U_GEORGIY",
+        channel_name="inc-2026-01-01-example",
+    )
+
+    context, prompt = out.split(f"</{_THREAD_CONTEXT_TAG}>\n\n")
+    assert "#inc-2026-01-01-example" in context
+    assert prompt == "do something"
+
+
+@pytest.mark.parametrize(
     "granted_scopes,expected_mode",
     [
         ("chat:write,canvases:write,files:write", "canvas_file"),

@@ -175,7 +175,7 @@ export type ClientCapabilities = {
     // clients inject into the model's system prompt. Codex discards it, so
     // we skip sending it (saving the payload cost) for those sessions.
     supportsInstructions: boolean
-    // Set only from a client's documented limit: even `truncate: false` cannot lift it.
+    // Set only from a client's documented limit; a client without one gets its results whole.
     toolResultTokenLimit?: number
 }
 

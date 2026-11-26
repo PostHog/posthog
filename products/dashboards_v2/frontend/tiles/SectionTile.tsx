@@ -1,19 +1,20 @@
 import './SectionTile.css'
-import './TileHoverReveal.css'
 
+import clsx from 'clsx'
 import { type ReactNode, useCallback, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconDrag } from '@posthog/icons'
-import { Button, Card, CardAction, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
+import { IconChevronRight } from '@posthog/icons'
+import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
 
-import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/dashboardTypes'
-import { useDashboardV2 } from '../dashboard/dashboardV2Context'
+import { useDashboard } from '../dashboard/dashboardContext'
+import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/document/dashboardTypes'
 import type { OnSectionRows } from '../grid/TileGrid'
-import { AddTileMenu } from './AddTileMenu'
-import { TileContextMenu, hasTileMenu, useSectionActions } from './TileContextMenu'
-import { TileMenuButton } from './TileMenuButton'
+import { showsBorder } from '../presentation/tileAppearance'
+import { AddTileMenu } from './menu/AddTileMenu'
+import { TileActions } from './menu/TileActions'
+import { TileContextMenu, hasTileMenu, useSectionActions } from './menu/TileContextMenu'
 
-export interface SectionGridProps {
+export type SectionGridProps = {
     gridId: string
     tiles: Tile[]
     cols: number
@@ -25,22 +26,21 @@ export interface SectionGridProps {
 export function SectionTile({
     id,
     widget,
-    columns,
-    columnPx,
+    layout,
     editable,
     onSectionRows,
     renderGrid,
 }: {
     id: string
     widget: SectionWidget
-    columns: number
-    columnPx: number
+    /** The section's width in grid columns, and the width of one column in pixels. */
+    layout: { columns: number; columnPx: number }
     editable: boolean
     onSectionRows: OnSectionRows
     /** Draws the section's own grid. Passed in because that grid draws sections too. */
     renderGrid: (grid: SectionGridProps) => ReactNode
 }): JSX.Element {
-    const { onEdit, onSectionFoldedChange, can } = useDashboardV2()
+    const { onEdit, onSectionFoldedChange, can } = useDashboard()
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
     const actions = useSectionActions(id, widget, () => setDraft(widget.title))
@@ -62,15 +62,11 @@ export function SectionTile({
 
     return (
         <TileContextMenu actions={actions}>
-            <Section collapsed={collapsed}>
+            <Section border={showsBorder(widget)}>
                 <SectionHeader
-                    draggable={editable}
                     actions={
                         (showAdd || hasMenu) && (
-                            <SectionActions>
-                                {showAdd && <AddTileMenu gridId={id} />}
-                                {hasMenu && <TileMenuButton />}
-                            </SectionActions>
+                            <TileActions menu={hasMenu}>{showAdd && <AddTileMenu gridId={id} />}</TileActions>
                         )
                     }
                 >
@@ -90,8 +86,8 @@ export function SectionTile({
                         {renderGrid({
                             gridId: id,
                             tiles: widget.tiles,
-                            cols: columns,
-                            width: spanPx(columns, columnPx) - 2 * GRID.sectionInsetPx,
+                            cols: layout.columns,
+                            width: spanPx(layout.columns, layout.columnPx) - 2 * GRID.sectionInsetPx,
                             editable,
                             onLiveRows,
                         })}
@@ -103,12 +99,12 @@ export function SectionTile({
 }
 
 /** A section is a quill card, so it reads like a tile that holds tiles. */
-export function Section({ collapsed, children }: { collapsed: boolean; children: ReactNode }): JSX.Element {
+export function Section({ border = true, children }: { border?: boolean; children: ReactNode }): JSX.Element {
     return (
         <Card
             size="sm"
             role="group"
-            className={collapsed ? 'SectionTile SectionTile--collapsed' : 'SectionTile'}
+            className={border ? 'SectionTile' : 'SectionTile SectionTile--no-border'}
             data-attr="dashboard-v2-section"
         >
             {children}
@@ -117,21 +113,10 @@ export function Section({ collapsed, children }: { collapsed: boolean; children:
 }
 
 /** The section's title bar, which is also what the section is dragged by. */
-export function SectionHeader({
-    draggable,
-    actions,
-    children,
-}: {
-    draggable: boolean
-    actions?: ReactNode
-    children: ReactNode
-}): JSX.Element {
+export function SectionHeader({ actions, children }: { actions?: ReactNode; children: ReactNode }): JSX.Element {
     return (
         <CardHeader className="SectionTile__header TileGrid__handle">
-            <div className="flex items-center gap-1 min-w-0">
-                {draggable && <IconDrag className="TileHoverReveal size-4 shrink-0 text-muted-foreground" />}
-                {children}
-            </div>
+            <div className="flex items-center gap-1 min-w-0">{children}</div>
             {actions}
         </CardHeader>
     )
@@ -184,7 +169,7 @@ export function SectionTitle({
         label = (
             <Button
                 size="xs"
-                className="quill-card__title min-w-0 max-w-full"
+                className="quill-card__title min-w-0 max-w-full shrink"
                 tooltip="Rename"
                 data-attr="dashboard-v2-section-rename"
                 onClick={() => setDraft(title)}
@@ -193,19 +178,23 @@ export function SectionTitle({
             </Button>
         )
     } else {
-        label = <CardTitle className="truncate">{title}</CardTitle>
+        label = <CardTitle className="TileGrid__text truncate">{title}</CardTitle>
     }
 
     return (
         <div className="flex items-center gap-1 min-w-0">
             <Button
                 size="icon-xs"
+                className="SectionTile__toggle"
                 aria-label={collapsed ? 'Expand' : 'Collapse'}
                 aria-expanded={!collapsed}
                 data-attr="dashboard-v2-section-toggle"
                 onClick={onToggle}
             >
-                {collapsed ? <IconChevronRight /> : <IconChevronDown />}
+                {/* One icon turned, because the down chevron's glyph is drawn smaller than the right one. */}
+                <IconChevronRight
+                    className={clsx('transition-transform motion-reduce:transition-none', !collapsed && 'rotate-90')}
+                />
             </Button>
             {label}
         </div>
@@ -214,11 +203,6 @@ export function SectionTitle({
 
 export function SectionCount({ count }: { count: number }): JSX.Element {
     return <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{count}</span>
-}
-
-/** Pushed to the end of the header, and shown only while the header is hovered or focused. */
-export function SectionActions({ children }: { children: ReactNode }): JSX.Element {
-    return <CardAction className="TileHoverReveal flex items-center gap-1">{children}</CardAction>
 }
 
 export function SectionBody({ emptyLabel, children }: { emptyLabel: string | null; children: ReactNode }): JSX.Element {

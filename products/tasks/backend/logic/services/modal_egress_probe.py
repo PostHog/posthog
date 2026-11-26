@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import shlex
 from ipaddress import IPv4Address
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
@@ -17,6 +18,7 @@ from modal.exception import (
 )
 from modal.stream_type import StreamType
 
+from products.tasks.backend.logic.services.agent_egress_git_setup import GIT_HELPER_PATH, git_credential_helper
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     SandboxConfig,
@@ -462,6 +464,42 @@ class ModalEgressProbe:
             temporary,
             self.capability_path,
         )
+
+    def configure_git_read(self, repository: str) -> None:
+        helper = git_credential_helper(
+            relay_name=self.relay_name, capability_path=self.capability_path, repository=repository.lower()
+        )
+        guest = self.sandbox._sandbox
+        guest.filesystem.write_text(helper, GIT_HELPER_PATH)
+        self._execute(guest, "chmod", "600", GIT_HELPER_PATH)
+        endpoint = f"http://{self.relay_name}:8080/v1/git/{repository.lower()}.git"
+        commands = []
+        for key, value in (
+            (f"credential.{endpoint}.helper", ""),
+            (f"credential.{endpoint}.useHttpPath", "true"),
+            (f"http.{endpoint}.followRedirects", "false"),
+            (f"url.{endpoint}.insteadOf", f"https://github.com/{repository.lower()}.git"),
+        ):
+            commands.append(["git", "config", "--global", "--replace-all", key, value])
+        if repository != repository.lower():
+            commands.append(
+                [
+                    "git",
+                    "config",
+                    "--global",
+                    "--add",
+                    f"url.{endpoint}.insteadOf",
+                    f"https://github.com/{repository}.git",
+                ]
+            )
+        commands.append(
+            ["git", "config", "--global", "--add", f"credential.{endpoint}.helper", f"!python3 {GIT_HELPER_PATH}"]
+        )
+        command = " && ".join(shlex.join(args) for args in commands)
+        self._execute(guest, "sh", "-c", command)
+        result = self.sandbox.execute_in_task_filesystem(command, timeout_seconds=60)
+        if result.exit_code != 0:
+            raise RuntimeError("Git egress route setup failed")
 
     def probe(self, *, count: int = 1, concurrency: int = 1) -> dict[int, int]:
         if not 1 <= count <= 1000 or not 1 <= concurrency <= 32:

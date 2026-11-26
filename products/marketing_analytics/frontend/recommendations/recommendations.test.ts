@@ -1,4 +1,5 @@
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
+import { ExternalDataSource } from '~/types'
 
 import {
     RecommendationsLoadStatus,
@@ -7,6 +8,7 @@ import {
     reconcileResolutionOverrides,
     recommendationsShownState,
     sectionRecommendations,
+    serverDataGaps,
     summarizeImpact,
     unresolved,
     withResolutionOverrides,
@@ -37,7 +39,51 @@ function recommendation(overrides: Partial<MarketingAnalyticsRecommendation>): M
     }
 }
 
+function googleAdsSource(id: string, prefix: string): ExternalDataSource {
+    const schema = (name: string): ExternalDataSource['schemas'][number] =>
+        ({
+            name,
+            should_sync: true,
+            table: { name: `${prefix}.google_ads.${name}` },
+        }) as ExternalDataSource['schemas'][number]
+    return {
+        id,
+        prefix,
+        source_type: 'GoogleAds',
+        schemas: [schema('campaign'), schema('campaign_stats')],
+    } as ExternalDataSource
+}
+
 describe('recommendations', () => {
+    describe('serverDataGaps', () => {
+        const sources = [googleAdsSource('source-a', 'us'), googleAdsSource('source-b', 'eu')]
+
+        it.each([
+            {
+                name: 'a conversion action gap manages the ad account it names',
+                gap: { kind: 'conversion_action_tables_not_synced' as const, campaignTable: 'eu.google_ads.campaign' },
+                utmAuditEnabled: true,
+                expected: { action: 'manage_source', sourceId: 'source-b', sourceName: 'eu' },
+            },
+            {
+                name: 'a conversion action gap of an unselected account has nothing to manage',
+                gap: { kind: 'conversion_action_tables_not_synced' as const, campaignTable: 'other.campaign' },
+                utmAuditEnabled: true,
+                expected: { action: null, sourceName: null },
+            },
+            {
+                name: 'unmatched campaigns have no action while the UTM audit is off',
+                gap: { kind: 'posthog_campaigns_unmatched' as const },
+                utmAuditEnabled: false,
+                expected: { action: null, sourceName: null },
+            },
+        ])('$name', ({ gap, utmAuditEnabled, expected }) => {
+            expect(serverDataGaps([{ ...gap, message: 'm' }], sources, utmAuditEnabled)).toEqual([
+                { kind: gap.kind, message: 'm', ...expected },
+            ])
+        })
+    })
+
     describe('groupRecommendations', () => {
         const rows = [
             recommendation({ rule: 'brand_overlap', key: 'keep', impactDirection: 'keep' }),

@@ -4,10 +4,18 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
 
+import { startRadarSignals } from 'scenes/authentication/shared/radarSignals'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { signupLogic } from './signupLogic'
+
+jest.mock('scenes/authentication/shared/radarSignals', () => ({
+    startRadarSignals: jest.fn(),
+    getRadarSignalsId: jest.fn(() => Promise.resolve('signals_abc')),
+    markRadarSignalsIdSent: jest.fn(),
+}))
 
 describe('signupLogic — email error surfacing', () => {
     let logic: ReturnType<typeof signupLogic.build>
@@ -517,5 +525,53 @@ describe('signupLogic - pending OAuth connection', () => {
             signupPanelOnboarding: expect.objectContaining({ referral_source: expected }),
         })
         logic.unmount()
+    })
+})
+
+describe('signupLogic — radar signals', () => {
+    let logic: ReturnType<typeof signupLogic.build>
+
+    afterEach(() => {
+        logic.unmount()
+        jest.clearAllMocks()
+    })
+
+    it.each([
+        [
+            'sends the signals token when the precheck names a radar client',
+            { radar_client_id: 'client_123' },
+            [['client_123']],
+            'signals_abc',
+        ],
+        ['sends no token when the precheck names none', {}, [], undefined],
+    ])('%s', async (_name, precheckExtra, expectedStartCalls, expectedToken) => {
+        const captured: { body: Record<string, any> | null } = { body: null }
+        useMocks({
+            post: {
+                '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null, ...precheckExtra }],
+                // 400 so that the submit handler never assigns `location.href`, which jsdom does not implement
+                '/api/signup/': async (info) => {
+                    captured.body = (await info.request.clone().json()) as Record<string, any>
+                    return [400, { type: 'validation_error', code: 'error', detail: 'Mocked failure', attr: null }]
+                },
+            },
+        })
+        initKeaTests()
+        router.actions.push('/signup')
+        logic = signupLogic()
+        logic.mount()
+
+        logic.actions.precheckSignupEmail('test@example.com')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSignupPanelAuthValue('password', 'Str0ng-Test-Pass!')
+        logic.actions.submitSignupPanelAuth()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSignupPanelOnboardingValues({ name: 'John', role_at_organization: 'engineer' })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(jest.mocked(startRadarSignals).mock.calls).toEqual(expectedStartCalls)
+        expect(captured.body).toMatchObject({ email: 'test@example.com' })
+        expect(captured.body?.radar_signals_id).toEqual(expectedToken)
     })
 })

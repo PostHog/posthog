@@ -4,8 +4,9 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode, execute_hog, to_bytecode
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError, SyntaxError
-from posthog.hogql.parser import parse_program
+from posthog.hogql.parser import parse_expr, parse_program
 
 from common.hogvm.python.operation import (
     HOGQL_BYTECODE_IDENTIFIER as _H,
@@ -575,6 +576,47 @@ class TestBytecode(BaseTest):
             create_bytecode(parse_program(source))
         self.assertEqual(
             str(e.exception), "Variable `output` cannot be used inside its own declaration. Rename the new variable."
+        )
+
+    @parameterized.expand(
+        [
+            ("NOT (properties.x ILIKE '%a%')", "not(properties.x ILIKE '%a%')"),
+            ("Not(properties.x)", "not(properties.x)"),
+            ("COALESCE(properties.a, properties.b) = 'x'", "coalesce(properties.a, properties.b) = 'x'"),
+            ("IF(properties.a, 1, 2)", "if(properties.a, 1, 2)"),
+        ]
+    )
+    def test_bytecode_call_in_any_case_compiles_like_its_lowercase_spelling(self, typed: str, lowercase: str):
+        context = HogQLContext(team_id=None)
+        self.assertEqual(
+            create_bytecode(parse_expr(typed), context=context).bytecode,
+            create_bytecode(parse_expr(lowercase)).bytecode,
+        )
+        self.assertEqual(context.errors, [])
+
+    @parameterized.expand(
+        [
+            ("TOSTRING",),
+            ("TYPEOF",),
+            ("MD5",),
+        ]
+    )
+    def test_bytecode_call_in_any_case_without_a_library_function_is_not_implemented(self, name: str):
+        context = HogQLContext(team_id=None)
+        create_bytecode(parse_expr(f"{name}(properties.a)"), context=context)
+        self.assertEqual([error.message for error in context.errors], [f"Hog function `{name}` is not implemented"])
+
+    def test_bytecode_null_safe_comparison_calls_isNull(self):
+        context = HogQLContext(team_id=None)
+        bytecode = create_bytecode(parse_expr("properties.a > 1"), context=context, null_safe_comparisons=True).bytecode
+        self.assertIn("isNull", bytecode)
+        self.assertNotIn("isnull", bytecode)
+        self.assertEqual(context.errors, [])
+
+    def test_bytecode_declared_function_wins_over_a_library_function_in_another_case(self):
+        self.assertEqual(
+            execute_hog("fun COALESCE(a, b) { return 'own' }\nreturn COALESCE(null, 'library')", team=self.team).result,
+            "own",
         )
 
     def test_bytecode_lambda_can_reference_itself(self):

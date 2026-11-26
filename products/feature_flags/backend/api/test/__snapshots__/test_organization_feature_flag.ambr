@@ -11,6 +11,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -388,7 +389,8 @@
          "posthog_integration"."sensitive_config",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
-         "posthog_integration"."created_by_id"
+         "posthog_integration"."created_by_id",
+         "posthog_integration"."row_version"
   FROM "posthog_integration"
   WHERE (("posthog_integration"."kind" = 'vercel'
           AND (("posthog_integration"."config" -> 'auth_type') IS NULL
@@ -511,7 +513,6 @@
          "posthog_organizationintegration"."kind",
          "posthog_organizationintegration"."integration_id",
          "posthog_organizationintegration"."config",
-         "posthog_organizationintegration"."sensitive_config",
          "posthog_organizationintegration"."created_by_id",
          "posthog_organizationintegration"."created_at",
          "posthog_organizationintegration"."updated_at"
@@ -1266,6 +1267,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
@@ -1519,6 +1521,7 @@
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
+         "posthog_user"."type",
          "posthog_user"."email",
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",

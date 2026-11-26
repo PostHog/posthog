@@ -314,6 +314,10 @@ services:
             CDP_VALKEY_HOST: valkey
             CDP_VALKEY_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # Seals login codes and reset links on the intake topic.
+            CDP_SEALED_STATE_KEYS: ${CDP_SEALED_STATE_KEYS:-}
+            # An unreadable intake record parks on the dead-letter topic instead of restarting every CDP service.
+            CDP_DLQ_ENABLED: 'true'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             # The CDP workers keep their jobs in this database and refuse to start without it.

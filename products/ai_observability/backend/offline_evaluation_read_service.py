@@ -16,6 +16,7 @@ from django.db.models.functions import Coalesce
 from posthog.dataclasses import frozen
 
 from products.ai_observability.backend.composite_scorers import CompositeScorers
+from products.ai_observability.backend.experiment_scores import calculate_experiment_score
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
@@ -24,8 +25,13 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItemPayload,
     PayloadState,
 )
-from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
+from products.ai_observability.backend.models.score_definitions import (
+    ExperimentScoreSuiteDefault,
+    ScoreDefinition,
+    ScoreDefinitionVersion,
+)
 from products.ai_observability.backend.offline_evaluation_read_types import (
+    ExperimentScore,
     OfflineCategorySummary,
     OfflineExperimentAuthor,
     OfflineExperimentRead,
@@ -140,18 +146,19 @@ class OfflineEvaluationReadService:
         # nosemgrep: idor-lookup-without-user -- Versions inherit the authorized definitions' exact environment.
         return CompositeScorers.accessible_versions(self._definitions(), team_id=self.team_id)
 
-    def _validate_scorer_selection(self, query: OfflineReadQuery) -> None:
-        if (
-            query.scorer_definition_id is not None
-            and not self._definitions().filter(id=query.scorer_definition_id).exists()
-        ):
-            raise OfflineEvaluationNotFound
+    def _validate_scorer_selection(self, query: OfflineReadQuery) -> str | None:
+        scope = None
+        if query.scorer_definition_id is not None:
+            scope = self._definitions().filter(id=query.scorer_definition_id).values_list("scope", flat=True).first()
+            if scope is None:
+                raise OfflineEvaluationNotFound
         if query.scorer_version_ids:
             versions = self._versions().filter(id__in=query.scorer_version_ids)
             if query.scorer_definition_id is not None:
                 versions = versions.filter(definition_id=query.scorer_definition_id)
             if versions.count() != len(query.scorer_version_ids):
                 raise OfflineEvaluationNotFound
+        return scope
 
     def _results(
         self, query: OfflineReadQuery | None = None, *, model_version: str | None = None
@@ -182,7 +189,9 @@ class OfflineEvaluationReadService:
             raise OfflineEvaluationNotFound
         return item
 
-    def _filter_experiments(self, query: OfflineReadQuery, *, history: bool = False) -> QuerySet[OfflineExperiment]:
+    def _filter_experiments(
+        self, query: OfflineReadQuery, *, history: bool = False, experiment_scorer: bool = False
+    ) -> QuerySet[OfflineExperiment]:
         experiments = ResourceTags.filter(self._experiments(), self.team_id, query.tags, query.tag_match)
         if query.date_from is not None:
             experiments = experiments.filter(started_at__gte=query.date_from)
@@ -213,10 +222,18 @@ class OfflineEvaluationReadService:
             value = getattr(query, field)
             if value is not None:
                 experiments = experiments.filter(**{field: value})
-        if query.model_version is not None and not history:
+        if query.model_version is not None and (not history or experiment_scorer):
             experiments = experiments.filter(model_version=query.model_version)
-        if query.scorer_definition_id is not None or query.scorer_version_ids:
-            experiments = experiments.filter(Exists(self._results(query).filter(item__experiment_id=OuterRef("id"))))
+        if experiment_scorer:
+            versions = self._versions().filter(definition_id=query.scorer_definition_id)
+            if query.scorer_version_ids:
+                versions = versions.filter(id__in=query.scorer_version_ids)
+            experiments = experiments.filter(experiment_scorer_version__in=versions)
+        elif query.scorer_definition_id is not None or query.scorer_version_ids:
+            matches = Q(Exists(self._results(query).filter(item__experiment_id=OuterRef("id"))))
+            if query.scorer_definition_id is None:
+                matches |= Q(experiment_scorer_version_id__in=query.scorer_version_ids)
+            experiments = experiments.filter(matches)
         return experiments
 
     def _cursor_scope(self, query: OfflineReadQuery, scope: str) -> str:
@@ -318,12 +335,14 @@ class OfflineEvaluationReadService:
         prefetch_related_objects(experiments, ResourceTags.prefetch())
         ids = [experiment.id for experiment in experiments]
         visible_counts = self._experiment_counts(ids)
+        scores = self._experiment_scores(experiments)
         output = []
         for experiment in experiments:
             counts = visible_counts.get(experiment.id, _ExperimentCounts())
             author = experiment.created_by
             output.append(
                 OfflineExperimentRead(
+                    experiment_score=scores.get(experiment.id),
                     tags=tuple(ResourceTags.names(experiment)),
                     created_by=OfflineExperimentAuthor(
                         id=author.id,
@@ -373,9 +392,13 @@ class OfflineEvaluationReadService:
         return output
 
     def list_experiments(self, query: OfflineReadQuery) -> CursorPage[OfflineExperimentRead]:
-        self._validate_scorer_selection(query)
-        scope = "experiments"
-        experiments = self._filter_experiments(query)
+        scope = self._validate_scorer_selection(query)
+        experiments = self._filter_experiments(query, experiment_scorer=scope == ScoreDefinition.Scope.EXPERIMENT)
+        return self._experiment_page(query, experiments, "experiments")
+
+    def _experiment_page(
+        self, query: OfflineReadQuery, experiments: QuerySet[OfflineExperiment], scope: str
+    ) -> CursorPage[OfflineExperimentRead]:
         count = experiments.count()
         position = self._time_cursor(query, scope)
         if position is not None:
@@ -394,7 +417,19 @@ class OfflineEvaluationReadService:
         return CursorPage(count=page.count, next_cursor=page.next_cursor, results=self._experiment_reads(page.results))
 
     def get_experiment(self, experiment_id: UUID) -> OfflineExperimentRead:
-        return self._experiment_reads([self._require_experiment(experiment_id)])[0]
+        run = self._experiment_reads([self._require_experiment(experiment_id)])[0]
+        if run.suite_key and self.can_read_scores:
+            has_default = (
+                ExperimentScoreSuiteDefault.objects.for_team(self.team_id)
+                .filter(
+                    suite_key=run.suite_key,
+                    scorer_version__definition__archived=False,
+                    scorer_version__in=self._versions(),
+                )
+                .exists()
+            )
+            return replace(run, suite_has_score=has_default)
+        return run
 
     def _version_read(self, version: ScoreDefinitionVersion) -> OfflineScorerVersionRead:
         definition = version.definition
@@ -763,6 +798,133 @@ class OfflineEvaluationReadService:
                 for row in cursor.fetchall()
             }
 
+    def _experiment_scores(self, experiments: list[OfflineExperiment]) -> dict[UUID, ExperimentScore]:
+        selected = {run.id: run.experiment_scorer_version_id for run in experiments if run.experiment_scorer_version_id}
+        if not selected or not self.can_read_scores:
+            return {}
+        versions = {
+            version.id: version
+            for version in self._versions().filter(pk__in=selected.values()).select_related("definition")
+        }
+        anchors = {
+            str(pk): definition_id
+            for pk, definition_id in self._versions()
+            .filter(
+                id__in={spec["scorer_version_id"] for version in versions.values() for spec in version.formula_inputs}
+            )
+            .values_list("pk", "definition_id")
+        }
+        targets = {run_id: versions[version_id] for run_id, version_id in selected.items() if version_id in versions}
+        complete = {
+            run.id for run in experiments if run.status == OfflineExperiment.Status.COMPLETED and run.id in targets
+        }
+        scores = self._calculate_scores(targets, complete, anchors)
+        for run in experiments:
+            if run.status == OfflineExperiment.Status.FAILED and run.id in scores:
+                scores[run.id] = replace(scores[run.id], status="failed")
+        return scores
+
+    def preview_experiment_score(
+        self, experiment_id: UUID, *, composition: dict, kind: str, config: dict
+    ) -> ExperimentScore:
+        self._require_experiment(experiment_id)
+        CompositeScorers.validate(
+            composition=composition,
+            scope="experiment",
+            calculation="composite",
+            kind=kind,
+            config=config,
+            team_id=self.team_id,
+            user_access_control=self._user_access_control,
+        )
+        anchors = {
+            str(pk): definition_id
+            for pk, definition_id in self._versions()
+            .filter(id__in=[spec["scorer_version_id"] for spec in composition["inputs"]])
+            .values_list("pk", "definition_id")
+        }
+        draft = ScoreDefinitionVersion(
+            definition=ScoreDefinition(
+                team_id=self.team_id, name="Preview", kind=kind, scope="experiment", calculation="composite"
+            ),
+            version=0,
+            composition=composition,
+            config=config,
+        )
+        result = self._calculate_scores({experiment_id: draft}, {experiment_id}, anchors).get(experiment_id)
+        if result is None:
+            raise OfflineEvaluationNotFound
+        return result
+
+    def _calculate_scores(
+        self, targets: dict[UUID, ScoreDefinitionVersion], complete: set[UUID], anchors: dict[str, UUID]
+    ) -> dict[UUID, ExperimentScore]:
+        targets_by_definition = {
+            run_id: {anchors[spec["scorer_version_id"]] for spec in version.formula_inputs}
+            for run_id, version in targets.items()
+        }
+        grouped: dict[tuple[UUID, UUID], list[OfflineScorerSummary]] = defaultdict(list)
+        required_versions = {
+            run_id: {
+                (
+                    anchors[spec["scorer_version_id"]],
+                    UUID(spec["scorer_version_id"]) if spec.get("version_policy") == "exact" else None,
+                )
+                for spec in version.formula_inputs
+            }
+            for run_id, version in targets.items()
+        }
+        overlapping: dict[UUID, set[UUID]] = defaultdict(set)
+        if complete:
+            results = OfflineEvaluationResult.objects.for_team(self.team_id).filter(
+                item__experiment_id__in=complete, scorer_definition_id__in=set(anchors.values())
+            )
+            observed = list(
+                results.order_by()
+                .values_list("item__experiment_id", "scorer_definition_id", "scorer_version_id")
+                .distinct()
+            )
+            allowed = set(self._versions().filter(pk__in={row[2] for row in observed}).values_list("pk", flat=True))
+            identities = []
+            for run_id, definition_id, version_id in observed:
+                if (definition_id, None) not in required_versions[run_id] and (
+                    definition_id,
+                    version_id,
+                ) not in required_versions[run_id]:
+                    continue
+                if version_id not in allowed:
+                    targets.pop(run_id, None)
+                else:
+                    identities.append(_SummaryIdentity(experiment_id=run_id, version_id=version_id))
+            for identity, row in self._summaries(identities).items():
+                grouped[identity.experiment_id, row.scorer.definition_id].append(row)
+            combine = {
+                anchors[spec["scorer_version_id"]]
+                for version in targets.values()
+                for spec in version.formula_inputs
+                if spec.get("version_policy") == "combine"
+            }
+            if combine:
+                duplicates = (
+                    results.filter(scorer_definition_id__in=combine, status=OfflineEvaluationResult.Status.OK)
+                    .order_by()
+                    .values("item__experiment_id", "scorer_definition_id")
+                    .annotate(results=Count("pk"), items=Count("item_id", distinct=True))
+                    .filter(results__gt=F("items"))
+                )
+                for duplicate in duplicates:
+                    overlapping[duplicate["item__experiment_id"]].add(duplicate["scorer_definition_id"])
+        return {
+            run_id: calculate_experiment_score(
+                version,
+                anchors,
+                {definition_id: grouped[run_id, definition_id] for definition_id in targets_by_definition[run_id]},
+                overlapping[run_id],
+                complete=run_id in complete,
+            )
+            for run_id, version in targets.items()
+        }
+
     def _summaries(
         self,
         identities: list[_SummaryIdentity],
@@ -869,8 +1031,24 @@ class OfflineEvaluationReadService:
 
     def scorer_history(self, definition_id: UUID, query: OfflineReadQuery) -> CursorPage[OfflineHistoryPoint]:
         query = replace(query, scorer_definition_id=definition_id)
-        self._validate_scorer_selection(query)
+        scorer_scope = self._validate_scorer_selection(query)
         scope = f"history:{definition_id}"
+        if scorer_scope == ScoreDefinition.Scope.EXPERIMENT:
+            runs = self._experiment_page(
+                query, self._filter_experiments(query, history=True, experiment_scorer=True), scope
+            )
+            return CursorPage(
+                count=runs.count,
+                next_cursor=runs.next_cursor,
+                results=[
+                    OfflineHistoryPoint(
+                        experiment=run,
+                        summary=None,
+                        breakdown_value=getattr(run, query.breakdown) if query.breakdown else None,
+                    )
+                    for run in runs.results
+                ],
+            )
         results = self._results(query, model_version=query.model_version).filter(
             scorer_definition_id=definition_id, item__experiment__in=self._filter_experiments(query, history=True)
         )

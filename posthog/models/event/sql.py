@@ -1036,13 +1036,12 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 # Distributed sink sends those columns and the shard rejects the insert.
 _SHARD_LOCAL_COPY_SETTINGS = "SETTINGS parallel_distributed_insert_select = 2"
 
-COPY_EVENTS_BETWEEN_TEAMS = (
-    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
-        table_name="events",
-        columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,
+COPY_EVENT_COLUMNS = """uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,
     person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties,
-     group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, person_mode""",
-    )
+    group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, person_mode"""
+
+COPY_EVENTS_BETWEEN_TEAMS = (
+    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(table_name="events", columns_except_team_id=COPY_EVENT_COLUMNS)
     + _SHARD_LOCAL_COPY_SETTINGS
 )
 
