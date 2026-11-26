@@ -15,12 +15,14 @@ import time_machine
 from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 from django.utils import timezone
 
 import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.test.utils import native_stored_document
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
@@ -37,6 +39,7 @@ from posthog.dags.data_deletion_requests import (
     PersonRemovalContext,
     PropertyRemovalTarget,
     _cleaned_select_list,
+    _event_removal_placements,
     _json_drop_keys_expr,
     _presence_params,
     _property_removal_where,
@@ -71,6 +74,7 @@ from posthog.dags.data_deletion_requests import (
 )
 from posthog.dags.deletes import deletes_job
 from posthog.dags.tests.conftest import insert_flag_evaluations
+from posthog.data_deletion import QUERY_BACKED_MAX_EXECUTION_TIME, preview_event_deletion
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
@@ -84,6 +88,8 @@ from posthog.models.deletion_targets import (
     AI_EVENTS,
     EVENTS,
     EVENTS_JSON,
+    EXPERIMENT_EXPOSURES,
+    EXPERIMENT_METRIC_EVENTS,
     FLAG_EVALUATIONS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
@@ -384,6 +390,48 @@ def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_
     assert params["_deletion_request_id"] == request_id
     assert execute.call_args.kwargs["team_id"] == team.pk
     assert execute.call_args.kwargs["ch_user"].value == "deletion_executor"
+    assert execute.call_args.kwargs["settings"]["max_execution_time"] == QUERY_BACKED_MAX_EXECUTION_TIME
+
+
+@pytest.mark.django_db
+def test_query_deletion_selects_flag_evaluations_rows_older_than_the_coverage_start(team, user):
+    distinct_id = f"erase-{uuid4()}"
+    timestamp = datetime.now(UTC) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS + 10)
+    sync_execute(
+        "INSERT INTO writable_flag_evaluations (team_id, distinct_id, person_id, uuid, timestamp) VALUES",
+        [(team.pk, distinct_id, uuid4(), uuid4(), timestamp)],
+    )
+
+    with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+        count = preview_event_deletion(
+            query=f"SELECT uuid FROM posthog.flag_evaluations WHERE distinct_id = '{distinct_id}'",
+            variables={},
+            team=team,
+            user=user,
+        )
+
+    assert count == 1
+
+
+@pytest.mark.django_db
+def test_query_deletion_selects_events_older_than_the_events_retention_window(team, user):
+    distinct_id = f"erase-{uuid4()}"
+    team.event_retention_months = 12
+    team.save()
+    sync_execute(
+        "INSERT INTO writable_events (team_id, event, uuid, timestamp, distinct_id) VALUES",
+        [(team.pk, "old event", uuid4(), datetime.now(UTC) - timedelta(days=400), distinct_id)],
+    )
+
+    with override_settings(EVENTS_DATA_RETENTION_ENFORCED=True):
+        count = preview_event_deletion(
+            query=f"SELECT uuid FROM events WHERE distinct_id = '{distinct_id}'",
+            variables={},
+            team=team,
+            user=user,
+        )
+
+    assert count == 1
 
 
 @pytest.mark.django_db
@@ -4178,3 +4226,23 @@ def test_json_drop_keys_expr_changes_only_the_member_that_holds_the_key(keys: li
     before = json.loads(stored)
     after = json.loads(rewritten)
     assert {key: after.get(key) for key in before} == {**before, **changed}
+
+
+def test_event_removal_resolves_no_placement_for_a_target_of_derived_rows() -> None:
+    # Resolving a placement probes the target's cluster. Event removal never reads or sweeps a target
+    # of derived rows, so probing its cluster would only make the request fail while that cluster is
+    # down. The target has to be left out before the resolution, not filtered from its result.
+    ctx = DeletionRequestContext(
+        request_id="derived",
+        team_id=1,
+        start_time=datetime(2026, 1, 1, tzinfo=UTC),
+        end_time=datetime(2026, 1, 2, tzinfo=UTC),
+        events=["$pageview"],
+    )
+
+    with patch("posthog.dags.data_deletion_requests.resolve_placements", return_value=[]) as resolve:
+        _event_removal_placements(Mock(), ctx)
+
+    targets = resolve.call_args.args[1]
+    assert EXPERIMENT_EXPOSURES not in targets and EXPERIMENT_METRIC_EVENTS not in targets
+    assert EVENTS in targets and FLAG_EVALUATIONS in targets

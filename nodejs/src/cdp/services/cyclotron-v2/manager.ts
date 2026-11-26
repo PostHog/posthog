@@ -165,6 +165,8 @@ const dbWriteFailureCounter = new Counter({
 
 // Outlives the intake topics' 72h retention, so a message read twice from Kafka still finds its key.
 export const IDEMPOTENCY_KEY_TTL_MS = 96 * 60 * 60 * 1000
+// An email caller can retry for days, such as the support reply outbox's 5, and must still send once.
+export const EMAIL_IDEMPOTENCY_KEY_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 const idempotentInsertsCounter = new Counter({
     name: 'cdp_cyclotron_v2_idempotent_inserts_total',
@@ -576,7 +578,11 @@ export class CyclotronV2Manager {
                     entries.map((entry) => entry.job.teamId),
                     entries.map((entry) => entry.fingerprint),
                     entries.map(
-                        ({ job }) => new Date(Math.max(now, job.scheduled?.getTime() ?? now) + IDEMPOTENCY_KEY_TTL_MS)
+                        ({ job }) =>
+                            new Date(
+                                Math.max(now, job.scheduled?.getTime() ?? now) +
+                                    (job.queueName === 'email' ? EMAIL_IDEMPOTENCY_KEY_TTL_MS : IDEMPOTENCY_KEY_TTL_MS)
+                            )
                     ),
                     entries.map((entry) => (entry.reply ? JSON.stringify(entry.reply) : null)),
                 ]
@@ -1120,7 +1126,7 @@ export class CyclotronV2Manager {
                 // lasts as long past the new time as it did past the old one.
                 await client.query(
                     `UPDATE cyclotron_idempotency_keys SET expires_at = GREATEST(expires_at, $2) WHERE id = $1`,
-                    [id, new Date(scheduled.getTime() + IDEMPOTENCY_KEY_TTL_MS)]
+                    [id, new Date(scheduled.getTime() + EMAIL_IDEMPOTENCY_KEY_TTL_MS)]
                 )
                 await client.query('COMMIT')
                 return { outcome: 'rescheduled', job: unclaimedJob({ ...row, scheduled, state }), rescheduledAt }

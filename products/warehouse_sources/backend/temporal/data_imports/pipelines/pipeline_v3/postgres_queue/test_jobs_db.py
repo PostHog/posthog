@@ -906,6 +906,7 @@ class TestQueueFreshnessProbe:
     async def test_probe_uses_the_partial_indexes_and_probes_each_run_and_group_once(self, conn):
         # An inlined CTE copies each EXISTS into every FILTER that reads it,
         # which ran the failed-run probe up to three times per pending batch in production.
+        # The executing check is a join, so the failed-run probe is the only SubPlan.
         await _seed_gate_probe_population(conn)
         await conn.execute("SET enable_seqscan = off")
         try:
@@ -917,7 +918,7 @@ class TestQueueFreshnessProbe:
         assert "sb_claimable_idx" in plan
         assert "sb_run_gate_idx" in plan
         assert "sb_schema_busy_idx" in plan
-        assert plan.count("SubPlan") == 2
+        assert plan.count("SubPlan") == 1
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("probe", ["freshness", "depth"])
@@ -1495,6 +1496,30 @@ class TestGetStaleStrandedRuns:
         # which is the quadratic blowup this assertion exists to prevent.
         assert "sb_run_gate_idx" in plan
         assert "SubPlan" in plan
+
+    @pytest.mark.asyncio
+    async def test_candidate_scan_can_use_the_partial_state_indexes(self, conn):
+        # Each arm of the candidate scan must match a partial index. A single IN list
+        # over the four non-terminal states matches none, and the planner seq-scans
+        # every retained partition on each sweep.
+        from products.warehouse_sources_queue.backend.core.jobs_db import _stranded_candidate_runs_sql
+
+        await self._stale_pending(conn, batch_index=0, run_uuid="claimable")
+        executing = await self._stale_pending(conn, batch_index=1, run_uuid="busy")
+        await BatchQueue.update_status(conn, batch_id=executing, job_state="executing", attempt=1)
+        await conn.execute(f"ANALYZE {BATCH_TABLE}")
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute(
+                "EXPLAIN (FORMAT TEXT) " + _stranded_candidate_runs_sql(),
+                {"stale": self.STALE, "limit": 100},
+            )
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+
+        assert "sb_claimable_idx" in plan
+        assert "sb_schema_busy_idx" in plan
 
 
 @pytest.mark.django_db(transaction=True)
@@ -2927,7 +2952,8 @@ class TestGetQueueDepth:
         # sb_claimable_idx, and the per-run and per-group gates must stay index
         # probes; a predicate edit that widens either falls back to scanning
         # every retained partition on every pod, every reconcile interval.
-        #
+        # A per-group executing EXISTS adds a second SubPlan, and can plan on the
+        # full sb_team_schema_idx and read every batch of each group.
         await _seed_gate_probe_population(conn)
         await conn.execute("SET enable_seqscan = off")
         try:
@@ -2939,6 +2965,7 @@ class TestGetQueueDepth:
         assert "sb_claimable_idx" in plan
         assert "sb_run_gate_idx" in plan
         assert "sb_schema_busy_idx" in plan
+        assert plan.count("SubPlan") == 1
 
     @pytest.mark.asyncio
     async def test_headline_count_is_an_index_only_walk_of_the_claimable_index(self, conn):

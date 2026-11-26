@@ -323,4 +323,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "author": "The user who created the note.",
         },
     },
+    "close_reasons": {
+        "description": "A reason a job or opening can be closed in Ashby, including archived reasons.",
+        "docs_url": "https://developers.ashbyhq.com/reference/closereasonlist",
+        "columns": {
+            "id": "Unique identifier for the close reason.",
+            "reasonText": "The text of the close reason.",
+            "isArchived": "Whether the close reason has been archived.",
+        },
+    },
+    "application_criteria_evaluations": {
+        "description": "An AI evaluation of how well an application meets one job criterion. Needs the AI Application Review feature in Ashby.",
+        "docs_url": "https://developers.ashbyhq.com/reference/applicationlistcriteriaevaluations",
+        "columns": {
+            "id": "Unique identifier for the criteria evaluation.",
+            "applicationId": "ID of the application that was evaluated.",
+            "criterion": "The criterion that was evaluated: its version ID, title, type and prompt.",
+            "status": "Status of the evaluation (Pending, Completed, Failed, Skipped).",
+            "outcome": "The evaluation outcome, for example Meets or Does Not Meet.",
+            "reasoning": "The reasoning for the evaluation outcome.",
+            "skipReason": "Why the evaluation was skipped, if its status is Skipped.",
+            "outcomeNumber": "A numerical score for the outcome, from 0.0 to 1.0.",
+            "evaluatedAt": "Time at which the evaluation was completed.",
+        },
+    },
+    "take_home_assignments": {
+        "description": "A Take-home exercise assigned to a candidate, with its submission and reviewers.",
+        "docs_url": "https://developers.ashbyhq.com/reference/takehomeassignmentlist",
+        "columns": _columns(
+            applicationId="ID of the associated application.",
+            candidateId="ID of the associated candidate.",
+            interviewStageId="ID of the interview stage associated with the assignment, if any.",
+            interviewId="ID of the interview that defines the assigned Take-home exercise.",
+            status="Lifecycle status of the assignment (WaitingOnSubmission, WaitingOnFeedback, Complete, Cancelled).",
+            submission="The candidate's submission with its notes and files, or null until the candidate submits.",
+            feedbackFormDefinitionId="ID of the feedback form definition that reviewers use.",
+            reviewers="The users assigned to review the assignment.",
+        ),
+    },
+    "source_tracking_links": {
+        "description": "A custom tracking link for a candidate source in Ashby, including disabled links.",
+        "docs_url": "https://developers.ashbyhq.com/reference/sourcetrackinglinklist-1",
+        "columns": {
+            "id": "Unique identifier for the tracking link.",
+            "code": "The tracking code appended to the link as a UTM source.",
+            "enabled": "Whether the tracking link is enabled.",
+            "sourceId": "ID of the source the tracking link is associated with.",
+            "link": "The candidate-facing URL with the tracking code applied.",
+        },
+    },
 }

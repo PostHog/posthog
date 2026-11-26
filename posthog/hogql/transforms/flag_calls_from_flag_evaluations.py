@@ -13,7 +13,7 @@ resolved query.
 
 import json
 from collections import Counter
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from fractions import Fraction
 from functools import partial
@@ -44,6 +44,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     unwrap_table_alias_type,
 )
 from posthog.hogql.errors import BaseHogQLError, QueryError
+from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_function
 from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.property_metadata import PropertyMetadata, load_property_metadata
@@ -209,6 +210,7 @@ def swap_flag_calls(
     resolve: Resolve[_T_AST],
     *,
     scope: FlagCallScope | None = None,
+    enclosing_ctes: Mapping[str, ast.CTE] | None = None,
 ) -> FlagCallSwap[_T_AST]:
     """`node` resolved with `resolve`, with each `events` scan that `can_read_flag_evaluations` accepts reading
     `posthog.flag_evaluations` instead. When the flag-call union is on, each other scan that reads flag calls with
@@ -239,6 +241,11 @@ def swap_flag_calls(
     that body already checked them. A top-level query raises when it reads a view whose resolved body still reads
     only flag calls from `events`, such as a body that filters with `matchesAction`.
 
+    Before any rule reads the query, each `matchesAction` call on an `events` scan becomes the condition of its
+    action, as the resolver would expand it. The rules then see the events that the action names. `enclosing_ctes`
+    holds the CTEs that the resolver puts in scope around a saved view's body, so that a CTE named `posthog.events`
+    there does not count as the events table.
+
     `read_flag_calls_in_lazy_join` runs this on the subquery of a lazy join, with `scope` naming that join. A swap
     with a `scope` records no literal spans, because that part's offsets are not offsets in the query text.
     """
@@ -249,7 +256,7 @@ def swap_flag_calls(
     database = swap_database(context)
     if database is None:
         return FlagCallSwap(source=node, resolved=resolve(node))
-    node = _flag_called_lists_as_arrays(node)
+    node = _flag_called_lists_as_arrays(_matches_action_expanded(node, context, enclosing_ctes or {}))
     if names_flag_called_event(node):
         swap = _resolve_with_swaps(node, context, resolve, database, scope)
     else:
@@ -289,7 +296,7 @@ def _resolve_with_swaps(
         rewritten = clone_expr(node)
         clones = _join_clones(node, rewritten) if only_in_flag_evaluations else {}
         swapper = _EventsScanSwapper(
-            now=datetime.now(UTC),
+            now=context.flag_calls_now(),
             timezone=ZoneInfo(database.get_timezone()),
             only_in_flag_evaluations=only_in_flag_evaluations,
             flag_key_compares_as_string=compares_as_string,
@@ -473,16 +480,15 @@ class EventsScan:
         resolver reads a CTE when one has the table's dotted name. Without `database`, no joined table counts as one
         that folds identifier case."""
         join = node.select_from
-        if join is None or not isinstance(join.table, ast.Field):
+        if join is None:
             return None
-        parts = [str(part) for part in join.table.chain]
-        table_name = ".".join(parts)
-        if table_name not in EVENTS_NAMES or table_name in ctes:
+        alias = _events_join_alias(join, ctes)
+        if alias is None:
             return None
         cte_names = frozenset(ctes)
         scan = cls(
             join=join,
-            alias=join.alias or "__".join(parts),
+            alias=alias,
             # The resolver reads the head of a chain of two or more parts as one of these tables first.
             other_tables=cte_names.union(_join_names(join.next_join)),
             folded_tables=frozenset(_folded_join_names(join.next_join, database)),
@@ -1088,6 +1094,39 @@ def _as_expr(value: list | tuple, source: ast.Constant) -> ast.Expr:
     return container(start=source.start, end=source.end, exprs=items)
 
 
+def _matches_action_expanded(node: _T_AST, context: HogQLContext, enclosing_ctes: Mapping[str, ast.CTE]) -> _T_AST:
+    """`node` with each `matchesAction` call on an `events` scan replaced by the condition of its action. The
+    resolver builds the same condition in the same scope, so the query selects the same rows."""
+    finder = _MatchesActionFinder(enclosing_ctes)
+    finder.visit(node)
+    if not finder.events_aliases:
+        return node
+    return _MatchesActionExpander(finder.events_aliases, context).visit(node)
+
+
+def _events_join_alias(join: ast.JoinExpr, ctes: Collection[str]) -> str | None:
+    """The name that the resolver gives `join` in its scope when `join` reads the events table, or None when it
+    reads another table. The resolver reads a CTE when one has the table's dotted name."""
+    if not isinstance(join.table, ast.Field):
+        return None
+    parts = [str(part) for part in join.table.chain]
+    table_name = ".".join(parts)
+    if table_name not in EVENTS_NAMES or table_name in ctes:
+        return None
+    return join.alias or "__".join(parts)
+
+
+def _events_alias(node: ast.SelectQuery, ctes: Collection[str]) -> str | None:
+    """The name that the resolver gives the first `events` table in the FROM of `node`, or None when it reads none."""
+    join = node.select_from
+    while join is not None:
+        alias = _events_join_alias(join, ctes)
+        if alias is not None:
+            return alias
+        join = join.next_join
+    return None
+
+
 class ScanVisitor(SyntaxVisitor):
     """Calls `visit_scan_query` for each SELECT. `ctes` then holds the CTEs in scope by name, which `EventsScan.of`
     needs. A subclass reads `ctes` only during the call, because a later CTE of the same WITH changes it in place."""
@@ -1127,6 +1166,49 @@ class ScanVisitor(SyntaxVisitor):
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
         raise NotImplementedError
+
+
+class _MatchesActionFinder(ScanVisitor):
+    """The alias of the `events` table that each `matchesAction` call reads, by the id of the call."""
+
+    def __init__(self, enclosing_ctes: Mapping[str, ast.CTE]) -> None:
+        super().__init__()
+        self.ctes = dict(enclosing_ctes)
+        self.scope_alias: str | None = None
+        self.events_aliases: dict[int, str] = {}
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        outer = self.scope_alias
+        super().visit_select_query(node)
+        self.scope_alias = outer
+
+    def visit_scan_query(self, node: ast.SelectQuery) -> None:
+        self.scope_alias = _events_alias(node, self.ctes)
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        # The resolver reads a lambda in a scope without tables, where `matchesAction` raises.
+        outer = self.scope_alias
+        self.scope_alias = None
+        super().visit_lambda(node)
+        self.scope_alias = outer
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name == "matchesAction" and len(node.args) == 1 and self.scope_alias is not None:
+            self.events_aliases[id(node)] = self.scope_alias
+        super().visit_call(node)
+
+
+class _MatchesActionExpander(CloningVisitor):
+    def __init__(self, events_aliases: dict[int, str], context: HogQLContext) -> None:
+        super().__init__(clear_types=False)
+        self.events_aliases = events_aliases
+        self.context = context
+
+    def visit_call(self, node: ast.Call) -> ast.Expr:
+        events_alias = self.events_aliases.get(id(node))
+        if events_alias is None:
+            return super().visit_call(node)
+        return matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
 
 
 class _FeaturePropertyFinder(SyntaxVisitor):

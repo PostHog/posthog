@@ -11,15 +11,25 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/PostHog/posthog/products/tasks/services/egress-proxy/internal/gitread"
 	"github.com/PostHog/posthog/products/tasks/services/egress-proxy/internal/identity"
 	"github.com/PostHog/posthog/products/tasks/services/egress-proxy/internal/registry"
 	"github.com/PostHog/posthog/products/tasks/services/egress-proxy/internal/telemetry"
 )
 
 type proxyState struct {
-	verifier  *identity.Verifier
-	tls       *tls.Config
-	transport *http.Transport
+	verifier      *identity.Verifier
+	tls           *tls.Config
+	transport     *http.Transport
+	git           *gitread.Adapter
+	gitTransports []*http.Transport
+}
+
+func (s *proxyState) close() {
+	s.transport.CloseIdleConnections()
+	for _, transport := range s.gitTransports {
+		transport.CloseIdleConnections()
+	}
 }
 
 type Proxy struct {
@@ -92,8 +102,16 @@ func (p *Proxy) Reload() error {
 		ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: clientCAs,
 		NextProtos: []string{"h2", "http/1.1"},
 	}}
+	if p.config.GitRead != nil {
+		state.git, state.gitTransports, err = newGitRead(*p.config.GitRead, p.config.RegistryRegion,
+			time.Duration(p.config.LookupTimeoutSeconds)*time.Second, p.config.requestTimeout())
+		if err != nil {
+			state.close()
+			return err
+		}
+	}
 	if old := p.state.Swap(state); old != nil {
-		old.transport.CloseIdleConnections()
+		old.close()
 	}
 	return nil
 }
@@ -116,7 +134,7 @@ func (p *Proxy) Ready() bool {
 }
 
 func (p *Proxy) Close() {
-	p.state.Load().transport.CloseIdleConnections()
+	p.state.Load().close()
 }
 
 func currentPeer(r *http.Request, roots *x509.CertPool) *http.Request {
@@ -194,12 +212,24 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.metrics.Request(event.Outcome, time.Since(started))
 	}()
 	state := p.state.Load()
+	gitRoute := state.git != nil && strings.HasPrefix(r.URL.Path, "/v1/git/")
+	if gitRoute && len(r.Header.Values("Authorization")) == 1 {
+		if username, capability, ok := r.BasicAuth(); ok && username == "egress" && capability != "" && len(capability) <= 8192 {
+			r = r.Clone(r.Context())
+			r.Header.Set("Authorization", "Bearer "+capability)
+		}
+	}
 	registration, err := state.verifier.Authorize(currentPeer(r, state.tls.ClientCAs))
 	if errors.Is(err, identity.ErrUnavailable) || !certificateActive(state.tls.Certificates[0].Leaf) {
 		event.Outcome, event.Status = "unavailable", http.StatusServiceUnavailable
 	} else if err == nil {
 		event.TeamID, event.RunID, event.ExecutionID = registration.TeamID, registration.RunID, registration.ExecutionID
 		event.ActorID, event.ActorEpoch = registration.ActorID, registration.ActorEpoch
+		if gitRoute {
+			admitted = true
+			serveGit(w, r, state.git, registration, record, &event)
+			return
+		}
 		event.Outcome, event.Status = "not_found", http.StatusNotFound
 		if r.Method == http.MethodGet && r.URL.Path == "/v1/probe" && r.URL.RawPath == "" &&
 			r.URL.RawQuery == "" && !r.URL.ForceQuery && !r.URL.IsAbs() && r.URL.Host == "" && r.Header.Get("Upgrade") == "" {
@@ -219,6 +249,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	record.Emit(event)
 	admitted = true
+	if gitRoute && event.Status == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", `Basic realm="agent-egress"`)
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(event.Status)
 }

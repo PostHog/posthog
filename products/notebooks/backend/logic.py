@@ -18,8 +18,9 @@ from asgiref.sync import sync_to_async
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
-from posthog.models.tag import Tag, tagify
+from posthog.models.tag import Tag, tag_assignment_transaction, tagify
 from posthog.models.tagged_item import TaggedItem
+from posthog.tag_management import delete_unused_tags
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authorization.backend.facade import api as authorization
@@ -359,22 +360,21 @@ def update_account_notebook(
 
 def set_notebook_tags(notebook: Notebook, tags: Iterable[str]) -> None:
     """Replace a notebook's tags. Rows are written one by one so each change lands in the activity log."""
-    deduped = sorted({tagify(t) for t in tags if tagify(t)})
-    kept: list[TaggedItem] = []
-    for name in deduped:
-        tag, _ = Tag.objects.get_or_create(name=name, team_id=notebook.team_id)
-        item, _ = notebook.tagged_items.get_or_create(tag_id=tag.id)
-        item.tag = tag
-        kept.append(item)
-    removed = list(notebook.tagged_items.exclude(tag__name__in=deduped).select_related("tag__team"))
-    for item in removed:
-        item.uuid_object = notebook
-        item.delete()
-    if removed:
-        Tag.objects.filter(
-            team_id=notebook.team_id, id__in=[item.tag_id for item in removed], tagged_items__isnull=True
-        ).delete()
-    notebook.prefetched_tags = kept  # type: ignore[attr-defined]
+    with tag_assignment_transaction([notebook.team_id]):
+        deduped = sorted({tagify(t) for t in tags if tagify(t)})
+        kept: list[TaggedItem] = []
+        for name in deduped:
+            tag, _ = Tag.objects.get_or_create(name=name, team_id=notebook.team_id)
+            item, _ = notebook.tagged_items.get_or_create(tag_id=tag.id)
+            item.tag = tag
+            kept.append(item)
+        removed = list(notebook.tagged_items.exclude(tag__name__in=deduped).select_related("tag__team"))
+        for item in removed:
+            item.uuid_object = notebook
+            item.delete()
+        if removed:
+            delete_unused_tags(notebook.team_id, [item.tag_id for item in removed])
+        notebook.prefetched_tags = kept  # type: ignore[attr-defined]
 
 
 def delete_account_notebook(account_id: str | UUID, short_id: str) -> bool:

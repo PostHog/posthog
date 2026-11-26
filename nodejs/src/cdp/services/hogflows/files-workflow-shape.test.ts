@@ -158,4 +158,14 @@ describe('filesWorkflowShape', () => {
             expect(shape.refused.reason).toContain(`"${expected.step}"`)
         }
     })
+
+    it('holds back files on a send in a marketing category, which the team sending cap can hold', () => {
+        const generated = flowOf({ trigger, email: email(), exit }, [step('trigger', 'email'), step('email', 'exit')])
+
+        const shape = filesWorkflowShape(generated, {
+            category: { id: 'newsletter', type: 'marketing' },
+        })
+
+        expect(shape).toEqual({ refused: expect.objectContaining({ error: 'workflow_can_wait' }) })
+    })
 })

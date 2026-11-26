@@ -66,6 +66,7 @@
             "type": "boolean"
         },
         "limit": {
+            "default": 10,
             "description": "Number of results to return per page.",
             "maximum": 1000,
             "type": "number"
@@ -123,6 +124,7 @@
             "type": "string"
         },
         "sort": {
+            "default": "recommended",
             "description": "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended and personal put the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in priority order. With scope=teammate they read the teammate's stored ranking, else yours. They only read the stored ranking and never start a build. With no stored personal ranking, or a teammate outside the organization, they give the priority order. The response's ranker field names the order used, and its ranking_pill field says whether to show score pills.",
             "type": "string"
         },
@@ -171,7 +173,7 @@
             "type": "boolean"
         },
         "view": {
-            "description": "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, monitoring_recent, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. monitoring_recent adds the resolved and closed reports whose Monitoring ended in the last 14 days, each with its `monitoring_outcome` and the final state of every check. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.",
+            "description": "Inbox view. `for_you` is the user's own inbox: the open, actionable reports that wait for their input, that they claimed, or that name them as a suggested reviewer. Unless you are a scout run, pass `for_you` when the user does not ask for the whole project. The other views are `actionable`, `needs_input`, `needs_decision` (also every failed report), `monitoring` (the fix shipped and its outcome is being verified), `monitoring_recent` (also the resolved and closed reports whose Monitoring ended in the last 14 days), `resolved`, `closed`, `dismissed` (a person or agent dismissed it, it was merged, or its pull request closed without merging), `held_back` (the safety or actionability judge suppressed it before anyone saw it), `not_actionable`, and `all` (suppressed reports included). Each view applies the matching status, actionability, and pull request filters. Without `view`, the list holds every report in the project except the suppressed ones.",
             "type": "string"
         }
     },

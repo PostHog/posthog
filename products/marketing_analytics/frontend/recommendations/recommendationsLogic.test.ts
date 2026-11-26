@@ -1,7 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import {
+    MarketingAnalyticsTab,
+    SetupSection,
+    marketingAnalyticsLogic,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -159,6 +165,40 @@ describe('recommendationsLogic', () => {
         }
     )
 
+    it.each([
+        {
+            action: 'edit_conversion_goals' as const,
+            setup: true,
+            tab: MarketingAnalyticsTab.SETUP,
+            section: SetupSection.CONVERSION_GOALS,
+        },
+        {
+            action: 'open_utm_audit' as const,
+            setup: true,
+            tab: MarketingAnalyticsTab.SETUP,
+            section: SetupSection.INTEGRATION_HEALTH,
+        },
+        {
+            action: 'open_utm_audit' as const,
+            setup: false,
+            tab: MarketingAnalyticsTab.INTEGRATION_HEALTH,
+            section: undefined,
+        },
+    ])('$action with Setup $setup leaves the modal for $tab', ({ action, setup, tab, section }) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: setup,
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]: true,
+        })
+        logic.actions.openRecommendations('review_campaign', 'button', 1)
+        logic.actions.openDataGapTarget(action, 'modal_data_gaps')
+
+        expect(logic.values.selectedRule).toBeNull()
+        expect(marketingAnalyticsLogic.values.activeTab).toEqual(tab)
+        if (section) {
+            expect(marketingAnalyticsLogic.values.setupSection).toEqual(section)
+        }
+    })
+
     it('keeps a dismissal hidden when a response that started before it arrives', async () => {
         await expectLogic(logic)
             .toDispatchActions(['loadDataSuccess'])
@@ -184,13 +224,19 @@ describe('recommendationsLogic', () => {
         expect(logic.values.selectedGroup).toMatchObject({
             rule: 'spend_without_conversions',
             recommendations: [],
-            activeCount: 0,
+        })
+
+        logic.actions.setShowResolved(true)
+        expect(logic.values).toMatchObject({
+            showingResolved: true,
+            resolvedRecommendations: [{ key: RECOMMENDATION.key }],
         })
 
         await expectLogic(marketingAnalyticsLogic, () => logic.actions.selectRule('keyword_gap', 1)).toDispatchActions([
             marketingAnalyticsLogic.actionCreators.reportRecommendationsRuleSelected('keyword_gap', 1),
         ])
         expect(logic.values.groups.map((group) => group.rule)).toEqual(['keyword_gap'])
+        expect(logic.values.showingResolved).toBe(false)
     })
 
     it.each([

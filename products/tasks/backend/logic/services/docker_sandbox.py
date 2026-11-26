@@ -105,7 +105,6 @@ STREAMLIT_AUTH_PROXY_PORT = 8080
 _DOCKER_URL_ENV_KEYS = frozenset(
     {
         "AI_GATEWAY_URL",
-        "LLM_GATEWAY_URL",
         "POSTHOG_API_URL",
         "POSTHOG_SITE_URL",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
@@ -1055,7 +1054,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
         # (Node fetch) honors it for local-host traffic unless NO_PROXY says otherwise. The
         # per-session port can go stale and cause ECONNREFUSED on otherwise-valid local URLs,
-        # so route host.docker.internal traffic (llm-gateway, MCP) around the proxy.
+        # so route host.docker.internal traffic (ai-gateway, MCP) around the proxy.
         no_proxy_export = (
             'export NO_PROXY="host.docker.internal,${NO_PROXY:-localhost,127.0.0.1}"; export no_proxy="$NO_PROXY"; '
         )

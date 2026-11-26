@@ -1,6 +1,7 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
@@ -15,14 +16,13 @@ export const ContentAutopilotOpenInsightButton = ({
     query: DataVisualizationNode | DataTableNode | InsightVizNode
     'data-attr': string
 }): JSX.Element => (
-    <LemonButton
-        size="small"
-        icon={<IconOpenInNew />}
-        to={urls.insightNew({ query: insightQuery(query) })}
-        targetBlank
+    <Button
+        nativeButton={false}
+        render={<LinkPrimitive to={urls.insightNew({ query: insightQuery(query) })} target="_blank" />}
         tooltip="Open as a new insight to save it or add it to a dashboard"
         data-attr={dataAttr}
     >
+        <IconOpenInNew />
         Open as insight
-    </LemonButton>
+    </Button>
 )

@@ -2,29 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 
 import updatePathCleaning, {
     applyOperations,
-    expandAlias,
     normalizePathCleaningFilters,
     type PathCleaningRule,
     renumber,
     updatePathCleaningHandler,
 } from '@/tools/projects/updatePathCleaning'
 import type { Context } from '@/tools/types'
-
-describe('expandAlias', () => {
-    // The sample preview has to agree with ClickHouse, whose re2 replacement rules differ from
-    // JavaScript's: `$` is literal, `\10` is group 1 then `0` rather than group 10, and a group the
-    // pattern never filled substitutes as empty.
-    it.each<[string, string, (string | undefined)[], string]>([
-        ['substitutes a group', '/u/\\1', ['/users/42', '42'], '/u/42'],
-        ['substitutes the whole match', '[\\0]', ['/users/42', '42'], '[/users/42]'],
-        ['keeps a dollar literal', '/u/$1', ['/users/42', '42'], '/u/$1'],
-        ['reads \\10 as group 1 then a literal', '\\10', ['ab', 'a', 'b'], 'a0'],
-        ['substitutes an unfilled group as empty', '/u/\\2', ['/users/42', '42', undefined], '/u/'],
-        ['keeps an escaped backslash literal', '\\\\1', ['/users/42', '42'], '\\1'],
-    ])('%s', (_name, alias, groups, expected) => {
-        expect(expandAlias(alias, groups)).toBe(expected)
-    })
-})
 
 describe('normalizePathCleaningFilters', () => {
     it('preserves stored array order (not the order field) and drops only entries with no regex', () => {
@@ -123,18 +106,6 @@ describe('applyOperations', () => {
         )
     })
 
-    it('throws on an invalid regex before anything is saved', () => {
-        expect(() => applyOperations(base, [{ action: 'append', alias: '/bad', regex: '/users/(' }])).toThrow(
-            /Invalid regex/
-        )
-    })
-
-    it('accepts a valid re2 inline-flag regex that JS RegExp alone would reject', () => {
-        // (?i) is valid re2 and documented for case-insensitive path cleaning, but throws in JS.
-        const { rules } = applyOperations(base, [{ action: 'append', alias: '/ci', regex: '(?i)/ci/[0-9]+' }])
-        expect(rules[rules.length - 1]).toEqual({ alias: '/ci', regex: '(?i)/ci/[0-9]+' })
-    })
-
     it('does not mutate the input array', () => {
         applyOperations(base, [{ action: 'remove', target_alias: '/users/<id>' }])
         expect(base.map((r) => r.alias)).toEqual(['/users/<id>', '/signup/<id>'])
@@ -192,10 +163,15 @@ describe('applyOperations', () => {
     })
 })
 
+function previewResponse(before: string[], after: string[]): unknown {
+    return { success: true, data: { results: [[before, after]] } }
+}
+
 function createMockContext(overrides: {
     currentFilters: unknown
     getMock?: ReturnType<typeof vi.fn>
     updateMock?: ReturnType<typeof vi.fn>
+    queryMock?: ReturnType<typeof vi.fn>
 }): Context {
     const getMock =
         overrides.getMock ??
@@ -206,9 +182,11 @@ function createMockContext(overrides: {
             success: true,
             data: { path_cleaning_filters: filters },
         }))
+    const queryMock = overrides.queryMock ?? vi.fn()
     return {
         api: {
             projects: () => ({ get: getMock, updatePathCleaningFilters: updateMock }),
+            insights: () => ({ query: queryMock }),
             getProjectBaseUrl: () => 'https://us.posthog.com/project/2',
         } as any,
         stateManager: { getProjectId: vi.fn().mockResolvedValue('2') } as any,
@@ -225,7 +203,8 @@ describe('path-cleaning-rules-update handler', () => {
 
     it('previews without saving when confirm is not set', async () => {
         const updateMock = vi.fn()
-        const context = createMockContext({ currentFilters: current, updateMock })
+        const queryMock = vi.fn().mockResolvedValue(previewResponse(['/shared/abc123'], ['/shared/<hash>']))
+        const context = createMockContext({ currentFilters: current, updateMock, queryMock })
 
         const result = await updatePathCleaningHandler(context, {
             operations: [{ action: 'append', alias: '/shared/<hash>', regex: '^/shared/[^/]+$' }],
@@ -266,57 +245,71 @@ describe('path-cleaning-rules-update handler', () => {
         expect(result.applied).toBe(true)
     })
 
-    it('previews before against the OLD rules and after against the NEW rules', async () => {
-        // Existing rule already rewrites the sample path (before is a non-trivial rewrite);
-        // the appended rule then matches that output and rewrites further, so after differs.
-        // Guards against before/after being swapped or both computed from the same rule set.
+    it('runs one HogQL query that chains the current and resulting rules in order, passing every input as a value', async () => {
         const existing = [{ alias: '/users/<id>', regex: '/users/[0-9]+', order: 0 }]
-        const context = createMockContext({ currentFilters: existing })
+        const queryMock = vi.fn().mockResolvedValue(previewResponse(['/users/<id>'], ['/users/<id>/anon']))
+        const context = createMockContext({ currentFilters: existing, queryMock })
 
-        const result = await updatePathCleaningHandler(context, {
-            operations: [{ action: 'append', alias: '/users/<id>/anon', regex: '/users/<id>$' }],
+        await updatePathCleaningHandler(context, {
+            operations: [{ action: 'append', alias: '/users/<id>/anon', regex: "/users/<id>$') --" }],
             sample_paths: ['/users/42'],
             confirm: false,
         })
 
-        expect(result.sample_preview).toEqual([{ path: '/users/42', before: '/users/<id>', after: '/users/<id>/anon' }])
+        expect(queryMock.mock.calls[0]![0]).toEqual({
+            query: {
+                kind: 'HogQLQuery',
+                query:
+                    'SELECT arrayMap(path -> replaceRegexpAll(path, {before_regex_0}, {before_alias_0}), {sample_paths}), ' +
+                    'arrayMap(path -> replaceRegexpAll(replaceRegexpAll(path, {after_regex_0}, {after_alias_0}), {after_regex_1}, {after_alias_1}), {sample_paths})',
+                values: {
+                    sample_paths: ['/users/42'],
+                    before_regex_0: '/users/[0-9]+',
+                    before_alias_0: '/users/<id>',
+                    after_regex_0: '/users/[0-9]+',
+                    after_alias_0: '/users/<id>',
+                    after_regex_1: "/users/<id>$') --",
+                    after_alias_1: '/users/<id>/anon',
+                },
+            },
+        })
     })
 
-    it('keeps a literal $ in an alias through the preview', async () => {
-        const context = createMockContext({ currentFilters: [] })
-        const result = await updatePathCleaningHandler(context, {
-            operations: [{ action: 'append', alias: '/price/$amount', regex: '/price/[0-9]+' }],
-            sample_paths: ['/price/500'],
-            confirm: false,
+    it('surfaces a query failure from an invalid regex as a tool error', async () => {
+        const queryMock = vi.fn().mockResolvedValue({
+            success: false,
+            error: new Error('Cannot compile the regular expression. Check RE2 syntax'),
         })
-        // Not "/price/$&" or "/price/" — the alias $ must survive JS String.replace semantics.
-        expect(result.sample_preview).toEqual([{ path: '/price/500', before: '/price/500', after: '/price/$amount' }])
+        const updateMock = vi.fn()
+        const context = createMockContext({ currentFilters: [], queryMock, updateMock })
+
+        await expect(
+            updatePathCleaningHandler(context, {
+                operations: [{ action: 'append', alias: '/bad', regex: '/users/(' }],
+                sample_paths: ['/users/42'],
+                confirm: true,
+            })
+        ).rejects.toThrow(
+            'The sample_paths preview failed to run (Cannot compile the regular expression. Check RE2 syntax). Check that every regex is valid re2, or retry without sample_paths.'
+        )
+        expect(updateMock).not.toHaveBeenCalled()
     })
 
-    it('reflects a (?i) inline-flag rule in the preview instead of dropping it', async () => {
-        // (?i) throws under a naive JS RegExp; the preview must translate it to the JS `i`
-        // flag so an accepted rule doesn't silently vanish from before/after.
-        const context = createMockContext({ currentFilters: [] })
-        const result = await updatePathCleaningHandler(context, {
-            operations: [{ action: 'append', alias: '/user/<id>', regex: '(?i)/USER/[0-9]+' }],
-            sample_paths: ['/user/42'],
-            confirm: false,
-        })
-        expect(result.sample_preview).toEqual([{ path: '/user/42', before: '/user/42', after: '/user/<id>' }])
-    })
+    it('leaves regex validation to the backend, so a backend-valid \\C pattern saves', async () => {
+        const updateMock = vi.fn().mockImplementation(async ({ filters }: { filters: unknown }) => ({
+            success: true,
+            data: { path_cleaning_filters: filters },
+        }))
+        const context = createMockContext({ currentFilters: [], updateMock })
 
-    it('chains preview rules in order, each feeding the next', async () => {
-        const context = createMockContext({ currentFilters: [] })
-        const result = await updatePathCleaningHandler(context, {
-            operations: [
-                { action: 'append', alias: '/a/<id>', regex: '/a/[0-9]+' },
-                // Second rule only matches the output of the first — proves sequential chaining.
-                { action: 'append', alias: '/a/<id>/clean', regex: '/a/<id>$' },
-            ],
-            sample_paths: ['/a/7'],
-            confirm: false,
+        await updatePathCleaningHandler(context, {
+            operations: [{ action: 'append', alias: '/files/<blob>', regex: '/files/\\C+' }],
+            confirm: true,
         })
-        expect(result.sample_preview![0]!.after).toBe('/a/<id>/clean')
+
+        expect(updateMock.mock.calls[0]![0].filters).toEqual([
+            { alias: '/files/<blob>', regex: '/files/\\C+', order: 0 },
+        ])
     })
 
     it('surfaces a read failure without attempting a write', async () => {

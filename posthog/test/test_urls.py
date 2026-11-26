@@ -23,6 +23,7 @@ from posthog.frontend_views import (
     region_host_from_current_instance,
 )
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.user import User, UserType
 from posthog.temporal.codec_server import decode_payloads
 from posthog.views import handler500, metrics_view
 
@@ -30,6 +31,16 @@ from products.ai_observability.backend.api.personal_spend import PersonalSpendEU
 
 
 class TestUrls(APIBaseTest):
+    @override_settings(AUTO_LOGIN=True)
+    def test_auto_login_skips_service_accounts(self) -> None:
+        self.client.logout()
+        User.objects.all().update(type=UserType.SERVICE_ACCOUNT)
+
+        response = self.client.get("/")
+
+        self.assertRedirects(response, "/login", fetch_redirect_response=False)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
 

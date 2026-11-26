@@ -17,10 +17,14 @@ export type ScoreDefinitionModalMode = 'create' | 'duplicate' | 'metadata' | 'co
 export type CategoricalSelectionMode = 'single' | 'multiple'
 
 export interface ScoreDefinitionDraft {
+    scope: 'item' | 'experiment'
+    suiteKeys: string[]
+    previewExperimentId?: string
     calculation: 'reported' | 'composite'
     expression: string
     expressionIsCustom: boolean
-    inputs: CompositeInputReadApi[]
+    inputs: (CompositeInputReadApi &
+        Pick<CompositeConfigApi['inputs'][number], 'statistic' | 'version_policy' | 'category'>)[]
     name: string
     shortName: string
     description: string
@@ -162,10 +166,16 @@ export function createDraft(
     const duplicatedName = baseDefinition ? `${baseDefinition.name} copy` : ''
 
     return {
+        scope: baseDefinition?.scope || 'item',
+        suiteKeys: mode === 'duplicate' ? [] : [...(baseDefinition?.suite_keys ?? [])],
         calculation: baseDefinition?.calculation || 'reported',
         expression: baseDefinition?.composition?.expression || '',
         expressionIsCustom: !!baseDefinition?.composition,
-        inputs: baseDefinition?.input_scorers?.map((input) => ({ ...input })) || [],
+        inputs:
+            baseDefinition?.input_scorers?.map((input) => ({
+                ...input,
+                ...baseDefinition.composition?.inputs.find((spec) => spec.alias === input.alias),
+            })) || [],
         name: mode === 'duplicate' ? duplicatedName : baseDefinition?.name || '',
         shortName: baseDefinition?.short_name || '',
         description: baseDefinition?.description || '',
@@ -384,7 +394,17 @@ export function buildCompositionFromDraft(draft: ScoreDefinitionDraft): Composit
         ? {
               expression: draft.expression.trim(),
               inputs: draft.inputs
-                  .map(({ alias, scorer_version_id }) => ({ alias, scorer_version_id }))
+                  .map(({ alias, scorer_version_id, statistic, version_policy, category }) => ({
+                      alias,
+                      scorer_version_id,
+                      ...(draft.scope === 'experiment'
+                          ? {
+                                statistic,
+                                version_policy: version_policy ?? 'run',
+                                ...(statistic === 'category_rate' ? { category } : {}),
+                            }
+                          : {}),
+                  }))
                   .sort((a, b) => a.alias.localeCompare(b.alias)),
           }
         : null

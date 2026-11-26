@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import structlog
 from pydantic import BaseModel
 
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, trace_id_from_seed
+from posthog.llm.gateway_client import build_anthropic_client, trace_id_from_seed
 
 from ...merge_check.sources import GitHubReader, LandedChange, read_diff_by_path, read_page_sources
 from .docs_pages import added_page_lines, is_quoted, quotable_source
@@ -100,7 +100,7 @@ def grounded_lines(page_lines: list[str], source_text: str, commit_sha: str) -> 
     sent_lines = page_lines[:MAX_GROUNDED_LINES]
     numbered_lines = "\n".join(f"{line_id}: {line}" for line_id, line in enumerate(sent_lines, start=1))
     reply = parse_structured_output(
-        build_ai_gateway_anthropic_client(
+        build_anthropic_client(
             ai_product=JUDGE_AI_PRODUCT,
             trace_id=trace_id_from_seed(f"knowledge_writer:grounding:{commit_sha}"),
             properties={"commit_sha": commit_sha},

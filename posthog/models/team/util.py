@@ -18,7 +18,7 @@ from posthog.models.utils import transaction_with_timeouts
 from products.ai_training.backend.facade.api import queue_training_deletion
 from products.dashboards.backend.facade.api import delete_widget_tiles_for_teams
 from products.error_tracking.backend.facade import api as error_tracking_facade
-from products.event_definitions.backend.logic.event_property_purge import delete_event_properties_for_team
+from products.event_definitions.backend.facade.api import delete_event_properties_for_team
 from products.event_definitions.backend.models import EventDefinition
 from products.ui_customization.backend.facade.api import delete_fragments_for_teams
 

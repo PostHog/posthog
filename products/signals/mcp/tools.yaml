@@ -500,11 +500,16 @@ tools:
             user who holds it and since when, and ask first. That takeover also needs takeover_claim_id, and the person
             is notified. When there is no user to ask, as in a scheduled run, do not take over: leave the report to its
             holder and work on another one. Add pull_requests (GitHub PR URLs) in the same call, including when you
-            start work. When every linked PR is closed or merged and at least one merged, the report resolves. Where the
-            organization has Monitoring on and the report has open follow-up checks, it enters monitoring instead, and
-            the checks verify the fix. It is suppressed when all closed without merging. Open, draft, unknown, or no PRs
-            do not complete it. Repositories without a connected GitHub integration keep unknown PR state, so resolve
-            those reports with inbox-reports-set-state.
+            start work, and link every pull request of the fix, stacked and cross-repository ones included. Put the
+            report's `_posthogUrl` in each pull request's description so that reviewers can see the context. When every
+            linked PR is closed or merged and at least one merged, the report resolves. Where the organization has
+            Monitoring on and the report has open follow-up checks, it enters monitoring instead, and the checks verify
+            the fix. It is suppressed when all closed without merging. Open, draft, unknown, or no PRs do not complete
+            it. Repositories without a connected GitHub integration keep unknown PR state, so resolve those reports, and
+            the reports fixed without a pull request, with inbox-reports-set-state.
+        agent_note: >
+            Put this report's `_posthogUrl` in the description of each pull request that fixes it, so that reviewers can
+            see the context. Then attach each pull request to the report with `pull_requests` on this tool.
         param_overrides:
             id:
                 aliases:
@@ -633,81 +638,68 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         list: true
-        title: List inbox reports
+        title: List Self-driving inbox reports
         description: >
-            List inbox reports in the current project. A report groups related findings into one issue or trend. Each
-            parameter's description says how it filters. To find the reports about a topic, an error message or an
-            entity name, use inbox-reports-search: the `search` filter here matches the exact text only.
+            List inbox reports in the current project. A report groups related findings into one issue or trend. A page
+            holds 10 reports in the recommended order unless you pass `limit`, `sort`, or `ordering`. Each row is a
+            compact view with the opening of the summary in `summary_lead`: read a report in full with
+            inbox-reports-retrieve. To find the reports about a topic, an error message or an entity name, use
+            inbox-reports-search: the `search` filter here matches the exact text only.
+
+            Without `view`, the list holds reports from the whole project, not only the user's. Unless you are a scout
+            run, pass `view=for_you` for the user's own inbox, and leave `view` out only when the user asks for the
+            whole project. For the next fixable work across the project, pass `view=actionable` with
+            `use_priority_preference=true` and `sort=priority`, and add `unclaimed=true` to leave out the reports that
+            someone already works on. Each parameter's description says how it filters.
 
             A report is a finding, and it does not mean that someone is working on the problem. Each row's `work_state`
             says whether someone is. `unclaimed` means no active claim and no pull request in progress, so the report is
             free to take. `working` means an active claim. `in_review` means a draft, open, or unknown-state pull
             request, also when `assignee` is null because the holder released the claim. `done` means the report is
             resolved, closed, or in monitoring. None of those three is free. A report with `status` `suppressed` can be
-            `unclaimed` too, but it is not free: it cannot be claimed until inbox-reports-set-state restores it.
-            `suggested_reviewers` and `is_suggested_reviewer` route a report to the people who should read it, and are
-            not claims. For the reports that are free to work on, pass `unclaimed=true`. The `dismissed`, `held_back`,
-            and `all` views also return suppressed reports. Claim a report with inbox-reports-claim before you change
-            code for it.
+            `unclaimed` too, but it cannot be claimed until inbox-reports-set-state restores it. `suggested_reviewers`
+            and `is_suggested_reviewer` route a report to the people who should read it, and are not claims.
 
-            Without `view`, the list holds reports from the whole project, not only the user's. When the user says "my
-            inbox", "my top 10", or "what should I look at", pass `view=for_you` with `sort=personal` and `limit=10`. Do
-            not pass `ordering` with it, because `ordering` replaces `sort`. The response's `ranker` is `personal` when
-            the user's stored personal ranking ordered the page, and each row the ranking placed carries `personal_tier`
-            and `personal_reason`. Any other `ranker` means no stored ranking applied and the page is in the recommended
-            order. For later pages, pass the first page's `ranking_id` with `offset`, because the `next` link does not
-            carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use
-            inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page.
-            For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`,
-            `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`. For the reports that
-            need the user, waiting on their input or claimed by them, pass `needs_you=true`, with `sort=personal` to
-            keep their personal order.
-
-            Without `limit`, a page holds up to 100 reports. Each row carries `summary_lead`, the opening of the
-            report's summary; inbox-reports-retrieve returns the whole summary. Read a report's work log with
-            inbox-report-artefacts-list before you act on it.
+            The response's `ranker` is `personal` when the user's stored personal ranking ordered the page, and each row
+            the ranking placed carries `personal_tier` and `personal_reason`. Any other `ranker` means no stored ranking
+            ordered the page. An `ordering` replaces `sort` and its ranking. For later pages, pass the first page's
+            `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking: for
+            a newer, focused, or refreshed list, use inbox-reports-for-me.
 
             Each row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and
-            `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status:
-            unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.
-
-            `source_products` and `scout_name` come from a separate read with a short time limit. When the response has
-            `source_metadata_available: false`, that read did not finish, and an empty `source_products` or a null
-            `scout_name` does not mean the report has none. Say so instead of reporting them as values.
-
-            A report in `monitoring` has shipped its fix, and its follow-up checks are verifying the outcome.
-            `view=monitoring` lists those reports. On each one, `monitoring_started_at` says when the period began and
-            `monitoring_summary` says where it stands, for example whether the latest reading meets its target. Rows
-            outside Monitoring have no `monitoring_summary`. Its interim readings are left out: read them as
-            `check_observation` entries in inbox-report-artefacts-list, and each check's timing and result in
-            inbox-report-checks-list. `monitoring_summary.checks` gives every check's state at a glance.
-
-            `view=monitoring_recent` also lists the resolved and closed reports whose Monitoring ended in the last 14
-            days. Each of those has `monitoring_ended_at` and a `monitoring_outcome` that says how it ended and, for a
-            closed report, the follow-up report researching why. To list only the reports tied to the user, pass
-            `connected=assigned,suggested_reviewer`.
+            `fix`. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score.
+            inbox-ranking-outcomes-list explains each outcome. When the response has `source_metadata_available: false`,
+            an empty `source_products` or a null `scout_name` does not mean the report has none. A report in
+            `monitoring` has shipped its fix, and its `monitoring_summary` says where the verification stands: read each
+            check's timing and result with inbox-report-checks-list.
         agent_note: >
-            You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
-            A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming
-            a report, read the report and its work log. If you decide to begin working to fix the issues identified in
-            the report, call inbox-reports-claim to record that you are working on it, before you change any code. If
-            the report's `assignee` shows that another person or their agent is working on it, tell your user and ask
-            before you take it over. With no user to ask, leave it and work on another report. Taking ownership from
-            another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by
-            your user, directly or through another of their agents, is already yours: resume it without takeover and
-            without asking.
-
-            If you create a pull request implementing the remediation, call inbox-reports-claim with the returned
-            `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and
-            cross-repository changes. Release the claim if you stop work without completing the report. If the report
-            should be considered resolved without a pull request, or PostHog cannot observe the pull request merge,
-            resolve it with inbox-reports-set-state.
+            A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before you
+            change code for a report, read it with inbox-reports-retrieve and claim it with inbox-reports-claim. Put the
+            report's `_posthogUrl` in your pull request description so that reviewers can see the context, then attach
+            the pull request with inbox-reports-claim and `pull_requests`.
+        param_overrides:
+            view:
+                description: >
+                    Inbox view. `for_you` is the user's own inbox: the open, actionable reports that wait for their
+                    input, that they claimed, or that name them as a suggested reviewer. Unless you are a scout run,
+                    pass `for_you` when the user does not ask for the whole project. The other views are `actionable`,
+                    `needs_input`, `needs_decision` (also every failed report), `monitoring` (the fix shipped and its
+                    outcome is being verified), `monitoring_recent` (also the resolved and closed reports whose
+                    Monitoring ended in the last 14 days), `resolved`, `closed`, `dismissed` (a person or agent
+                    dismissed it, it was merged, or its pull request closed without merging), `held_back` (the safety or
+                    actionability judge suppressed it before anyone saw it), `not_actionable`, and `all` (suppressed
+                    reports included). Each view applies the matching status, actionability, and pull request filters.
+                    Without `view`, the list holds every report in the project except the suppressed ones.
+            sort:
+                default: recommended
+            limit:
+                default: 10
         response:
             include:
                 - id
                 - title
                 - summary_lead
-                - metrics
+                - repo_slug
                 - tags
                 - status
                 - priority
@@ -863,7 +855,7 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}'
-        title: Get inbox report
+        title: Get Self-driving inbox report
         description: >
             Get a single inbox report by ID, with its work_state, current assignee, attached pull requests and their
             latest known state, and typed impact metrics. Each metric holds a bounded live Trends query built only from
@@ -881,24 +873,10 @@ tools:
             them to add or remove a step, and inbox-reports-plan-step-dependencies-update to change what a step builds
             on.
         agent_note: >
-            You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
-            A report with `work_state` `unclaimed` is free to take, unless its `status` is `suppressed`. Before claiming
-            a report, read the report and its work log. If you decide to begin working to fix the issues identified in
-            the report, call inbox-reports-claim to record that you are working on it, before you change any code. If
-            the report's `assignee` shows that another person or their agent is working on it, tell your user and ask
-            before you take it over. With no user to ask, leave it and work on another report. Taking ownership from
-            another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by
-            your user, directly or through another of their agents, is already yours: resume it without takeover and
-            without asking.
-
-            Before work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current
-            state before work and the outcome after the chosen resolution.
-
-            If you create a pull request implementing the remediation, call inbox-reports-claim with the returned
-            `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and
-            cross-repository changes. Release the claim if you stop work without completing the report. If the report
-            should be considered resolved without a pull request, or PostHog cannot observe the pull request merge,
-            resolve it with inbox-reports-set-state.
+            Before you change code, claim the report with inbox-reports-claim and read its work log with
+            inbox-report-artefacts-list. If `assignee` shows another person or their agent, ask your user before you
+            take it over. Put this report's `_posthogUrl` in your pull request description so that reviewers can see the
+            context, then attach the pull request with inbox-reports-claim and `pull_requests`.
         param_overrides:
             id:
                 aliases:
@@ -1289,14 +1267,32 @@ tools:
         list: true
         title: List scout configs
         description: >
-            List the per-scout configs for this project. Each scout has one row with the `display_name` people read, the
-            `skill_name` that is its permanent identity, its schedule (rolling `run_interval_minutes`, or a
-            project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture, and output
-            destinations. A freshly authored scout appears once its config is registered: immediately via
-            `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next
-            tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those
-            findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name.
-            Pair with `scout-config-update` to tune them.
+            List the per-scout configs for this project. Each scout has one compact row with the `display_name` people
+            read, the `skill_name` that is its permanent identity, its schedule (rolling `run_interval_minutes`, or a
+            project-local cron `run_cron_schedule` when set), `enabled` flag, `emit` (dry-run) posture, and `status`. A
+            freshly authored scout appears once its config is registered: immediately via `scout-config-create` (one
+            skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which
+            scouts run, how often, and whether they emit findings to the inbox. Pass `search` to narrow the list to the
+            scouts matching a substring of either name. Read one config in full with `scout-config-retrieve`, for its
+            output destinations, write scopes, failure streak, pre-check queries and their last outcome, structured
+            output schema, and owners. Pair with `scout-config-update` to tune them.
+        response:
+            include:
+                - id
+                - skill_name
+                - display_name
+                - description
+                - scout_origin
+                - scout_role
+                - enabled
+                - status
+                - pause_reason
+                - emit
+                - run_interval_minutes
+                - run_cron_schedule
+                - last_run_at
+                - tags
+                - source_product
     scout-config-precheck-test:
         operation: signals_scout_config_precheck_test
         enabled: true
@@ -1315,6 +1311,22 @@ tools:
             `{now}` values the next scheduled run would get. `would_run` and `reason` say whether that run would start
             (`rows`, `query_error`) or skip (`no_rows`, `false_value`). `rows_text` is the text the scout reads, one
             JSON object per line. A query error comes back in `error`: fix the query and test again.
+    scout-config-retrieve:
+        operation: signals_scout_config_retrieve
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a scout config
+        description: >
+            Return one scout config by its `id` from `scout-config-list`, with every field: schedule, `enabled`, `emit`,
+            `status`, output destinations, write scopes, report actions, MCP servers, repositories, pre-check queries
+            and their last outcome, structured output schema, model, owners, and who last turned it on or off. Use it
+            when the compact list row does not carry the field you need.
+        feature_flag: scout-config-retrieve-mcp
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -1854,17 +1866,34 @@ tools:
         title: List recent scout runs
         description: >
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
-            to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the
-            run surfaced to the inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored
-            directly via `emit_report`) and `edited_report_ids` (reports the run mutated via `edit_report`) for the
-            report channel; and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus
-            `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope
-            the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist
-            dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding
-            (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on
-            the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` /
-            `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results
-            capped at 100.
+            to dedupe against work other runs already covered. Each row is a compact view: `summary_lead` (the start of
+            the run's close-out, at most 600 characters), `emitted_count` (how many findings the run surfaced to the
+            inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored directly via `emit_report`)
+            and `edited_report_ids` (reports the run mutated via `edit_report`) for the report channel; and
+            `failure_reason` (a concise one-liner) for runs that didn't complete cleanly. Read one run in full with
+            `scout-runs-retrieve`, for the whole `summary`, the full `error`, `metadata`, and `task_url`. Pass
+            `skill_name` (optionally with `skill_version`) to scope the dump to a single scout instead of every scout on
+            the team — the primary scoping path when a specialist dedupes against its own past runs. Pass
+            `exclude_skill_name` with your own skill name to leave your own runs out of a fleet-wide search. Pass
+            `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that
+            surfaced nothing). Pass `text` for a case-insensitive substring match on the run's whole `summary` (the
+            primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive
+            lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.
+        response:
+            include:
+                - run_id
+                - skill_name
+                - skill_version
+                - status
+                - created_at
+                - started_at
+                - completed_at
+                - summary_lead
+                - failure_reason
+                - emitted_count
+                - emitted_finding_ids
+                - emitted_report_ids
+                - edited_report_ids
     scout-runs-recent-emissions:
         operation: signals_scout_runs_recent_emissions
         enabled: true
@@ -1975,7 +2004,9 @@ tools:
             creator. When the entry exists but has expired, a `key` search returns it with `expired=true`, a blank
             `content` and its `expires_at`, and the two fields name who set the expiry when known. That means another
             writer or a time limit retired the entry on purpose: read it with `include_expired=true` and weigh that
-            before you rebuild it.
+            before you rebuild it. A search that returns bodies gives each entry `content_total_length` and
+            `content_next_offset`. When `content_next_offset` is set, `content` stopped before the end of the entry:
+            read the rest with the same `key` and `content_offset` set to that value.
     scout-trial-archive:
         operation: signals_scout_config_trial_comparison_archive
         enabled: true

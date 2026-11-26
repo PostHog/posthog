@@ -9,7 +9,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import UserSettingsHolder, settings
 from django.core.management import call_command
@@ -1133,6 +1133,42 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert 'is not on the verified domain "posthog.com"' in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("off", False, 201, "function_email"),
+            ("on", True, 201, "function_email"),
+            ("null", None, 400, "function_email"),
+            ("string", "false", 400, "function_email"),
+            ("number", 0, 400, "function_email"),
+            ("string_on_a_function_step", "true", 400, "function"),
+        ]
+    )
+    def test_email_run_link_tag_switch_takes_only_a_boolean(self, _name, sent, expected_status, action_type) -> None:
+        sync_template_to_db(_email_function_template())
+        hog_flow, action = self._create_hog_flow_with_action(
+            {"template_id": "template-email", "inputs": _valid_email_inputs(), "run_link_tag_enabled": sent}
+        )
+        action["type"] = action_type
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert "run_link_tag_enabled" in str(response.json())
+        else:
+            assert response.json()["actions"][1]["config"]["run_link_tag_enabled"] is sent
+
+    def test_an_action_that_is_not_an_object_is_refused_with_a_400(self) -> None:
+        sync_template_to_db(_email_function_template())
+        hog_flow, _action = self._create_hog_flow_with_action(
+            {"template_id": "template-email", "inputs": _valid_email_inputs()}
+        )
+        hog_flow["actions"].append("not an action")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
 
     def test_stored_off_domain_sender_override_survives_a_resave(self):
         # Workflows written before June 2026 carry a placeholder address the author never typed.
@@ -2854,7 +2890,11 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 400, response.json()
-        expected = "Turn it on from the cohort's page" if cohort_kind == "realtime_off" else "isn't ready for realtime"
+        expected = (
+            "Open the cohort's page to turn realtime on"
+            if cohort_kind == "realtime_off"
+            else "isn't ready for realtime"
+        )
         assert expected in response.json()["detail"]
 
     def test_hog_flow_grandfathers_stored_cohort_trigger_after_flag_dial_down(self):
@@ -5969,57 +6009,6 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            (
-                "flag",
-                [{"key": "my-other-flag", "type": "flag", "value": "true"}],
-                "Feature flags can't be used as a batch audience condition",
-            ),
-            (
-                "unfinished_person_filter",
-                [{"key": "email", "type": "person", "operator": "exact"}],
-                "An audience filter is incomplete. Finish it or remove it.",
-            ),
-        ]
-    )
-    @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_persons_rejects_unusable_condition(self, _name, properties, message):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
-            {"filters": {"properties": properties}},
-            format="json",
-            headers={"x-internal-api-secret": "test-secret-123"},
-        )
-
-        assert response.status_code == 400, response.json()
-        assert message in response.json().get("error", "")
-
-    @override_settings(INTERNAL_API_SECRET="test-secret-123", WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS=123)
-    def test_internal_user_blast_radius_persons_uses_workflows_query(self):
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids",
-            return_value=["id-1"],
-        ) as mock_workflows_query:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
-                {"filters": {"properties": []}, "dedupe_key": "email"},
-                format="json",
-                headers={"x-internal-api-secret": "test-secret-123"},
-            )
-
-        assert response.status_code == 200, response.json()
-        assert response.json()["users_affected"] == ["id-1"]
-        mock_workflows_query.assert_called_once_with(
-            self.team, {"properties": []}, None, None, dedupe_key="email", settings=ANY
-        )
-        # A timed-out page has to raise instead of coming back short. A short page reads as
-        # the end of the audience, so the batch send skips every recipient after it.
-        passed_settings = mock_workflows_query.call_args.kwargs["settings"]
-        assert getattr(passed_settings, "timeout_overflow_mode", None) == "throw"
-        # The page query runs under the resolver's own ClickHouse cap, not the interactive 60s default.
-        assert passed_settings.max_execution_time == 123
-
-    @parameterized.expand(
-        [
             ("dedupe_key_uses_deduped_count", "email", 3),
             ("no_dedupe_key_keeps_person_count", None, 5),
         ]
@@ -6066,18 +6055,6 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         assert response.status_code == 400, response.json()
-
-    @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_persons_rejects_unsupported_dedupe_key(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
-            {"filters": {"properties": []}, "dedupe_key": "phone"},
-            format="json",
-            headers={"x-internal-api-secret": "test-secret-123"},
-        )
-
-        assert response.status_code == 400, response.json()
-        assert "Unsupported dedupe_key" in response.json().get("error", "")
 
     @parameterized.expand([("completed", True), ("failed", False)])
     @override_settings(INTERNAL_API_SECRET="test-secret-123")

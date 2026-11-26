@@ -272,6 +272,7 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
         timeReading('Limited until', values, 'feature_flags_billing_limit_ends_at', true),
         reading('Metric', typeof values?.metric_name === 'string' ? values.metric_name : null),
         sampleReading(values, units),
+        timeReading('Significant since', values, 'significant_since_at', true),
         numberReading('Release conditions that force a variant', values, 'forced_condition_count', formatCount),
         numberReading(
             `${capitalizeFirstLetter(units)} the release conditions served`,
