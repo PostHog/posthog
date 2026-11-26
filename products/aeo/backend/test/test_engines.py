@@ -329,8 +329,8 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_post(_session, url, _headers, payload, **_kwargs):
-        captured.update(url=url, payload=payload)
+    def fake_post(_session, url, headers, payload, **_kwargs):
+        captured.update(url=url, headers=headers, payload=payload)
         return body
 
     with (
@@ -338,7 +338,6 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
             "products.aeo.backend.engines.resolve_ai_gateway_config",
             return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
         ),
-        patch("products.aeo.backend.engines.ai_gateway_headers", return_value={}),
         patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
     ):
         engine = engine_class(search=search)
@@ -355,6 +354,7 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
         target_domains=["posthog.com"],
     )
     assert (captured["url"], captured["payload"]["model"]) == (f"https://gw.test/v1{path}", web_search_model)
+    assert captured["headers"]["X-PostHog-Product"] == "ai_visibility"
     assert check.error is None and fields["answer_text"]
     assert (fields["engine"], fields["mode"]) == (expected_engine, "web_search" if search else "no_search")
     assert captured["payload"].get("tools") == expected_tools
@@ -785,7 +785,12 @@ def test_perplexity_engine_sends_the_configured_model_with_web_search_to_the_gat
     assert url == "https://gw.test/v1/responses"
     assert headers["Authorization"] == "Bearer k"
     assert headers["X-PostHog-Trace-Id"] == "t1"
-    assert json.loads(headers["X-PostHog-Properties"]) == {"aeo_prompt_id": "p1", "aeo_run_id": "r1"}
+    assert headers["X-PostHog-Product"] == "ai_visibility"
+    assert json.loads(headers["X-PostHog-Properties"]) == {
+        "aeo_prompt_id": "p1",
+        "aeo_run_id": "r1",
+        "ai_product": "ai_visibility",
+    }
     assert payload["model"] == "perplexity/sonar-pro"
     assert payload["tools"] == [{"type": "web_search", "search_type": "fast"}]
     assert check.error is None

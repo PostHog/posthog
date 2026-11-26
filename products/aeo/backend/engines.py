@@ -38,6 +38,7 @@ from products.aeo.backend.brand import names_brand
 from products.aeo.backend.facade.contracts import CheckMode
 
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
+AI_VISIBILITY_AI_PRODUCT = "ai_visibility"
 # Engine ids are stored on every check, so renaming one splits its history in two.
 CLAUDE_WEB_SEARCH = "claude-web-search"
 OPENAI_WEB_SEARCH = "openai-web-search"
@@ -177,6 +178,18 @@ class _SharedBackoff:
 
 
 GATEWAY_BACKOFF = _SharedBackoff()
+
+
+def gateway_request_headers(
+    gateway: AIGatewayConfig, *, trace_id: str, properties: dict[str, str], anthropic: bool = False
+) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {gateway.api_key}",
+        **(ai_gateway_headers(ai_product=AI_VISIBILITY_AI_PRODUCT, trace_id=trace_id, properties=properties) or {}),
+    }
+    if anthropic:
+        headers["anthropic-version"] = "2023-06-01"
+    return headers
 
 
 def gateway_post_json(
@@ -568,11 +581,9 @@ class ClaudeWebSearchEngine:
                     "allowed_callers": ["direct"],
                 }
             ]
-        headers = {
-            "Authorization": f"Bearer {self._gateway.api_key}",
-            "anthropic-version": "2023-06-01",
-            **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
-        }
+        headers = gateway_request_headers(
+            self._gateway, trace_id=trace_id, properties=custom_properties, anthropic=True
+        )
         try:
             body = gateway_post_json(
                 self._sessions.get(), self._gateway.url.rstrip("/") + "/messages", headers, payload
@@ -596,10 +607,7 @@ def _post_gateway_responses(
     trace_id: str,
     custom_properties: dict[str, str],
 ) -> dict[str, Any]:
-    headers = {
-        "Authorization": f"Bearer {gateway.api_key}",
-        **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
-    }
+    headers = gateway_request_headers(gateway, trace_id=trace_id, properties=custom_properties)
     return gateway_post_json(sessions.get(), gateway.url.rstrip("/") + "/responses", headers, payload)
 
 
