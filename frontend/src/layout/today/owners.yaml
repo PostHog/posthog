@@ -12,4 +12,5 @@ rules:
     - match:
           - '/todayPhoneTabsLogic.test.ts'
           - '/todayHelpMenuRedirectLogic.test.ts'
+          - '/todayHome.ts'
       owners: platform-ux

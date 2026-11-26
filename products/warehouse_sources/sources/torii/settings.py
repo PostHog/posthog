@@ -1,6 +1,15 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import Any
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, EndpointResource, IncrementalField
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    EndpointResource,
+    IncrementalField,
+    IncrementalFieldType,
+    format_datetime,
+    resolve_incremental_start,
+)
 
 TORII_BASE_URL = "https://api.toriihq.com/v1.0"
 # Contracts only gains cursor pagination, search, sort, and filters under API version 1.1 (the
@@ -9,6 +18,11 @@ TORII_BASE_URL = "https://api.toriihq.com/v1.0"
 TORII_API_VERSION = "1.1"
 
 PAGE_SIZE = 500
+# Torii answers HTTP 413 when an audit page is too large, and audit events carry free-form
+# `properties`, so the audit log reads smaller pages.
+AUDIT_PAGE_SIZE = 200
+# The audit `startTime` filter takes a date, not a time, so an incremental read starts a day early.
+AUDIT_LOOKBACK = timedelta(days=1)
 
 ENDPOINTS = (
     "Apps",
@@ -19,12 +33,23 @@ ENDPOINTS = (
     "Roles",
     "ActionExecutions",
     "FieldsMetadata",
+    "Workflows",
+    "Audit",
 )
 
-# Torii's public API reference documents no server-side "updated since" / "created since" filter on
-# any of these list endpoints, so every endpoint is full-refresh only (an empty entry means
-# full-refresh — see `build_endpoint_schemas`).
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
+# Only the audit log documents a server-side time filter (`startTime`) with an ascending sort on
+# `creationTime`. Every other endpoint is full-refresh only (an absent entry means full-refresh,
+# see `build_endpoint_schemas`).
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    "Audit": [
+        {
+            "label": "creationTime",
+            "type": IncrementalFieldType.DateTime,
+            "field": "creationTime",
+            "field_type": IncrementalFieldType.DateTime,
+        }
+    ],
+}
 
 PRIMARY_KEYS: dict[str, list[str]] = {
     "Apps": ["id"],
@@ -36,6 +61,9 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     "Roles": ["id"],
     "ActionExecutions": ["id"],
     "FieldsMetadata": ["entity", "systemKey"],
+    "Workflows": ["id"],
+    # Audit events have no id of their own; `id` is a hash of the event's stable fields.
+    "Audit": ["id"],
 }
 
 # Stable, never-changing datetime field to partition each table on. Contracts has no documented
@@ -49,6 +77,8 @@ PARTITION_KEYS: dict[str, str | None] = {
     "Roles": None,
     "ActionExecutions": "creationTime",
     "FieldsMetadata": None,
+    "Workflows": None,
+    "Audit": "creationTime",
 }
 
 # Entities whose `/{entity}/metadata` endpoint lists their predefined and custom field definitions.
@@ -103,7 +133,21 @@ _TRANSACTION_FIELDS = (
 )
 
 
-def get_resource(name: str) -> EndpointResource:
+def _audit_params(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> dict[str, Any]:
+    params: dict[str, Any] = {"size": AUDIT_PAGE_SIZE, "sort": "asc"}
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        start = resolve_incremental_start(
+            True, db_incremental_field_last_value, default=timedelta(0), lookback=AUDIT_LOOKBACK
+        )
+        params["startTime"] = format_datetime(start, "date")
+    return params
+
+
+def get_resource(
+    name: str,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "Apps": {
             "name": "Apps",
@@ -187,6 +231,31 @@ def get_resource(name: str) -> EndpointResource:
                 "params": {
                     "size": PAGE_SIZE,
                 },
+            },
+        },
+        # GET /workflows has no pagination; without a `type` it returns the regular workflows.
+        "Workflows": {
+            "name": "Workflows",
+            "table_name": "workflows",
+            "write_disposition": "replace",
+            "table_format": "delta",
+            "endpoint": {
+                "data_selector": "workflows",
+                "path": "/workflows",
+                "paginator": "single_page",
+            },
+        },
+        "Audit": {
+            "name": "Audit",
+            "table_name": "audit",
+            "write_disposition": {"disposition": "merge", "strategy": "upsert"}
+            if should_use_incremental_field
+            else "replace",
+            "table_format": "delta",
+            "endpoint": {
+                "data_selector": "audit",
+                "path": "/audit",
+                "params": _audit_params(should_use_incremental_field, db_incremental_field_last_value),
             },
         },
     }

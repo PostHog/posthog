@@ -89,7 +89,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
         shared.execute.side_effect = run_shared_query
         if fail:
             executors[0].execute.side_effect = ValueError("one bad tile")
-        with patch("products.dashboards.backend.query_sharing._CancellableExecutor", return_value=shared):
+        with patch("posthog.hogql.multi_query_execution._CancellableExecutor", return_value=shared):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 futures = [pool.submit(run, index) for index in range(2)]
                 if fail:

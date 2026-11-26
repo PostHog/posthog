@@ -226,6 +226,26 @@ describe('redirectMessageToOutput', () => {
         expect(mockPromiseScheduler.schedule).toHaveBeenCalled()
     })
 
+    it('lets the headers of the redirect result replace the original ones', async () => {
+        mockMessage.headers = [{ attempts: Buffer.from('1') }]
+
+        await redirectMessageToOutput(
+            mockOutputs,
+            TEST_REDIRECT,
+            mockPromiseScheduler,
+            mockMessage,
+            'test-step',
+            true,
+            true,
+            { attempts: '2' }
+        )
+
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            TEST_REDIRECT,
+            expect.objectContaining({ headers: expect.objectContaining({ attempts: '2' }) })
+        )
+    })
+
     it('should handle preserveKey = false', async () => {
         const stepName = 'test-step'
 

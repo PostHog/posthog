@@ -1358,7 +1358,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(
                 response=EmitReportResponseSerializer,
-                description="Report authored (READY/PENDING_INPUT/suppressed), or skipped by a preflight gate.",
+                description=(
+                    "Report authored (READY/PENDING_INPUT/suppressed), skipped by a preflight gate, or refused "
+                    "because an open report already names a source issue."
+                ),
             ),
             400: OpenApiResponse(description="Invalid report shape (empty title/summary/evidence, bad actionability)."),
             404: OpenApiResponse(description="Run not found for this project."),
@@ -1371,7 +1374,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "behaves like a pipeline report. Safe to retry: resending an emission returns the report the first "
             "call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, "
             "without one, on the report's content. Use `reports` to find a report from an earlier run and "
-            "`edit-report` to update it instead of authoring a near-duplicate."
+            "`edit-report` to update it instead of authoring a near-duplicate. A report for a GitHub issue "
+            "that an open report already names is refused with `source_issue_already_reported` and that "
+            "report's id, unless a `follow_up_of`, `part_of`, `depends_on` or `recurrence_of` link names it."
         ),
         operation_id="signals_scout_emit_report",
     )

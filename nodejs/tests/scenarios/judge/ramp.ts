@@ -1,5 +1,5 @@
 import type { Named, Step } from '../cards'
-import type { Profile } from '../cards/schema'
+import type { AdmissionTargets } from '../cards/load-targets'
 import { pause } from '../duration'
 import type { DrivenStep, StepGate, StepWindow } from '../generator/generator'
 import { type Admission, admissionsOf } from '../runner/status'
@@ -71,7 +71,7 @@ export type LiveRamp = {
     judgesRefusals: boolean
     driveStartedAt: number
     hostCpuCeiling?: number
-    profile: Pick<Profile, 'load' | 'host'>
+    admission: AdmissionTargets
     journal(): readonly JournalEntry[]
     samples(): readonly MetricSample[]
     queue(): readonly QueueSample[]
@@ -215,8 +215,6 @@ const shortfallOf = (step: DrivenStep, minOffered: number): string | undefined =
           ? `the generator offered ${step.offeredUnits} of ${step.dueUnits} units in the ${step.scale}x step, under minOffered ${minOffered}`
           : undefined
 
-// The runner process also hosts the provider edge, so a busy event loop answers webhooks late and slows the workers
-// that wait on them. Host CPU cannot see one saturated core, and a late edge would otherwise read as a product break.
 const MAX_LOOP_LAG_P99_MS = 250
 
 const laggedOf = ({ loopLagP99Ms, scale }: Pick<DrivenStep, 'loopLagP99Ms' | 'scale'>): string | undefined =>
@@ -265,7 +263,7 @@ async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): P
         step.index === 0
             ? admissionLimitOf(
                   admissionsOf(
-                      live.profile,
+                      live.admission,
                       baselineOf({
                           samples: [...live.samples()],
                           queue: [...live.queue()],
