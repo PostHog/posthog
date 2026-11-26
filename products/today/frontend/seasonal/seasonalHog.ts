@@ -30,6 +30,57 @@ interface HogJump {
     onLand: () => void
 }
 
+export interface ChecklistState {
+    isOpen: boolean
+    dismissed: boolean
+    allDone: boolean
+    doneCount: number
+}
+
+function reactToDismissal(hog: SeasonalHog, previous: ChecklistState, next: ChecklistState): boolean {
+    if (next.dismissed && !previous.dismissed) {
+        hog.leave()
+    }
+    const restored = previous.dismissed && !next.dismissed
+    if (restored) {
+        hog.enter()
+    }
+    return restored
+}
+
+function reactToOpening(hog: SeasonalHog, previous: ChecklistState, next: ChecklistState): boolean {
+    const opened = next.isOpen && !previous.isOpen
+    if (opened) {
+        hog.jumpToCard()
+    } else if (previous.isOpen && !next.isOpen && !next.dismissed) {
+        hog.jumpToGround()
+    }
+    return opened
+}
+
+function reactToTicks(hog: SeasonalHog, previous: ChecklistState, next: ChecklistState): boolean {
+    if (!next.isOpen || next.doneCount <= previous.doneCount) {
+        return false
+    }
+    if (next.allDone) {
+        hog.celebrate()
+    } else {
+        hog.wave()
+    }
+    return next.allDone
+}
+
+export function reactToChecklist(
+    hog: SeasonalHog,
+    previous: ChecklistState,
+    next: ChecklistState
+): { snow: boolean; restored: boolean } {
+    const restored = reactToDismissal(hog, previous, next)
+    const opened = reactToOpening(hog, previous, next)
+    const finished = reactToTicks(hog, previous, next)
+    return { snow: opened || finished, restored }
+}
+
 export class SeasonalHog {
     x = 0
     y = 0
@@ -281,31 +332,39 @@ export class SeasonalHog {
         }
         this.timer -= 1
         if (this.timer <= 0) {
-            const roll = Math.random()
-            if (roll < 0.55) {
-                this.direction = Math.random() < 0.5 ? -1 : 1
-                this.speed = WALK_SPEED * this.direction
-                this.timer = 70 + Math.random() * 110
-                this.play('walk', true)
-            } else if (roll < 0.7) {
-                this.speed = 0
-                this.timer = 140
-                this.wave()
-            } else {
-                this.speed = 0
-                this.timer = 90 + Math.random() * 120
-                this.play('idle', true)
-            }
+            this.pickNextMove()
         }
         if (this.speed) {
-            const low = this.world.left + 40
-            const high = this.world.right - 40
-            this.x += this.speed
-            if (this.x < low || this.x > high) {
-                this.x = Math.min(Math.max(this.x, low), high)
-                this.speed = -this.speed
-                this.direction = this.direction === 1 ? -1 : 1
-            }
+            this.walk()
+        }
+    }
+
+    private pickNextMove(): void {
+        const roll = Math.random()
+        if (roll < 0.55) {
+            this.direction = Math.random() < 0.5 ? -1 : 1
+            this.speed = WALK_SPEED * this.direction
+            this.timer = 70 + Math.random() * 110
+            this.play('walk', true)
+        } else if (roll < 0.7) {
+            this.speed = 0
+            this.timer = 140
+            this.wave()
+        } else {
+            this.speed = 0
+            this.timer = 90 + Math.random() * 120
+            this.play('idle', true)
+        }
+    }
+
+    private walk(): void {
+        const low = this.world.left + 40
+        const high = this.world.right - 40
+        this.x += this.speed
+        if (this.x < low || this.x > high) {
+            this.x = Math.min(Math.max(this.x, low), high)
+            this.speed = -this.speed
+            this.direction = this.direction === 1 ? -1 : 1
         }
     }
 }

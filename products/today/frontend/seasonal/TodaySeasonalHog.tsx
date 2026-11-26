@@ -9,7 +9,7 @@ import { Button } from '@posthog/quill'
 import { getHedgehogModeAssetsUrl } from 'lib/components/HedgehogMode/HedgehogMode'
 
 import type { SeasonalChecklist } from './seasonalChecklist'
-import { HOG_SIZE, HogWorld, SeasonalHog } from './seasonalHog'
+import { HOG_SIZE, HogWorld, SeasonalHog, reactToChecklist } from './seasonalHog'
 import { HogSprites, loadHogSprites } from './seasonalHogSprites'
 import { SeasonalSnow } from './seasonalSnow'
 import { todaySeasonalChecklistLogic } from './todaySeasonalChecklistLogic'
@@ -52,36 +52,18 @@ export function TodaySeasonalHog({
     }, [])
 
     useEffect(() => {
-        const hog = hogRef.current
         const previous = stateRef.current
-        const letItSnow = (): void => {
-            if (checklist.snow && !prefersReducedMotion()) {
+        const next = { isOpen, dismissed, allDone, doneCount }
+        if (hogRef.current) {
+            const { snow, restored } = reactToChecklist(hogRef.current, previous, next)
+            if (restored) {
+                startLoopRef.current?.()
+            }
+            if (snow && checklist.snow && !prefersReducedMotion()) {
                 snowRef.current.start(performance.now())
             }
         }
-        if (hog) {
-            if (dismissed && !previous.dismissed) {
-                hog.leave()
-            } else if (!dismissed && previous.dismissed) {
-                hog.enter()
-                startLoopRef.current?.()
-            }
-            if (isOpen && !previous.isOpen) {
-                hog.jumpToCard()
-                letItSnow()
-            } else if (!isOpen && previous.isOpen && !dismissed) {
-                hog.jumpToGround()
-            }
-            if (doneCount > previous.doneCount && isOpen) {
-                if (allDone) {
-                    hog.celebrate()
-                    letItSnow()
-                } else {
-                    hog.wave()
-                }
-            }
-        }
-        stateRef.current = { isOpen, dismissed, allDone, doneCount, opened: previous.opened || isOpen }
+        stateRef.current = { ...next, opened: previous.opened || isOpen }
     }, [isOpen, dismissed, allDone, doneCount, checklist.snow])
 
     useEffect(() => {

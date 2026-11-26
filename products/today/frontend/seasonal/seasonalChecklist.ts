@@ -78,6 +78,23 @@ const optionalText = (value: unknown): string | null | undefined =>
 
 const isSafeUrl = (url: string): boolean => (url.startsWith('/') && !url.startsWith('//')) || url.startsWith('https://')
 
+const isOptionalBoolean = (value: unknown): boolean => value === undefined || typeof value === 'boolean'
+
+const isIcon = (value: unknown): value is SeasonalItemIcon | null =>
+    value === null || SEASONAL_ITEM_ICONS.includes(value as SeasonalItemIcon)
+
+function parseAction(value: Record<string, unknown>): Pick<SeasonalChecklistItem, 'actionLabel' | 'url'> | null {
+    const actionLabel = optionalText(value.actionLabel)
+    const url = optionalText(value.url)
+    if (actionLabel === undefined || url === undefined) {
+        return null
+    }
+    if (actionLabel === null || url === null) {
+        return actionLabel === url ? { actionLabel, url } : null
+    }
+    return isSafeUrl(url) ? { actionLabel, url } : null
+}
+
 function parseItem(value: unknown): SeasonalChecklistItem | null {
     if (!isObject(value)) {
         return null
@@ -85,84 +102,66 @@ function parseItem(value: unknown): SeasonalChecklistItem | null {
     const key = text(value.key)
     const title = text(value.title)
     const description = text(value.description)
-    const actionLabel = optionalText(value.actionLabel)
-    const url = optionalText(value.url)
-    const icon = value.icon === undefined ? null : value.icon
-    if (!key || !title || !description || actionLabel === undefined || url === undefined) {
+    const icon = value.icon ?? null
+    const action = parseAction(value)
+    if (!key || !title || !description || !action || !isIcon(icon)) {
         return null
     }
-    if (actionLabel === null || url === null ? actionLabel !== url : !isSafeUrl(url)) {
-        return null
-    }
-    if (icon !== null && !SEASONAL_ITEM_ICONS.includes(icon as SeasonalItemIcon)) {
-        return null
-    }
-    return { key, title, description, icon: icon as SeasonalItemIcon | null, actionLabel, url }
+    return { key, title, description, icon, ...action }
 }
 
-export function parseSeasonalChecklist(value: unknown): SeasonalChecklist | null {
-    if (!isObject(value)) {
+function parseItems(value: unknown): SeasonalChecklistItem[] | null {
+    if (!Array.isArray(value) || value.length === 0 || value.length > SEASONAL_CHECKLIST_MAX_ITEMS) {
         return null
     }
+    const items = value.map(parseItem)
+    if (items.some((item) => item === null)) {
+        return null
+    }
+    const valid = items as SeasonalChecklistItem[]
+    return new Set(valid.map((item) => item.key)).size === valid.length ? valid : null
+}
+
+function parseAccessories(value: unknown): SeasonalHogAccessory[] | null {
+    const accessories = value ?? []
+    return Array.isArray(accessories) &&
+        accessories.every((accessory) => SEASONAL_HOG_ACCESSORIES.includes(accessory as SeasonalHogAccessory))
+        ? (accessories as SeasonalHogAccessory[])
+        : null
+}
+
+type SeasonalChecklistCopy = Pick<
+    SeasonalChecklist,
+    'campaign' | 'title' | 'description' | 'reason' | 'badge' | 'bubble' | 'doneTitle' | 'doneDescription'
+>
+
+function parseCopy(value: Record<string, unknown>): SeasonalChecklistCopy | null {
     const campaign = text(value.campaign)
     const title = text(value.title)
     const description = text(value.description)
+    if (!campaign || !title || !description) {
+        return null
+    }
     const reason = optionalText(value.reason)
     const badge = optionalText(value.badge)
     const bubble = textOr(value.bubble, title)
     const doneTitle = textOr(value.doneTitle, title)
     const doneDescription = textOr(value.doneDescription, description)
-    if (
-        !campaign ||
-        !title ||
-        !description ||
-        reason === undefined ||
-        badge === undefined ||
-        !bubble ||
-        !doneTitle ||
-        !doneDescription
-    ) {
+    if (reason === undefined || badge === undefined || !bubble || !doneTitle || !doneDescription) {
         return null
     }
+    return { campaign, title, description, reason, badge, bubble, doneTitle, doneDescription }
+}
 
-    const accessories = value.accessories ?? []
-    if (
-        !Array.isArray(accessories) ||
-        !accessories.every((a) => SEASONAL_HOG_ACCESSORIES.includes(a as SeasonalHogAccessory))
-    ) {
+export function parseSeasonalChecklist(value: unknown): SeasonalChecklist | null {
+    if (!isObject(value) || !isOptionalBoolean(value.snow) || !isOptionalBoolean(value.lights)) {
         return null
     }
-    if (
-        !['undefined', 'boolean'].includes(typeof value.snow) ||
-        !['undefined', 'boolean'].includes(typeof value.lights)
-    ) {
+    const copy = parseCopy(value)
+    const accessories = parseAccessories(value.accessories)
+    const items = parseItems(value.items)
+    if (!copy || !accessories || !items) {
         return null
     }
-
-    if (!Array.isArray(value.items) || value.items.length === 0 || value.items.length > SEASONAL_CHECKLIST_MAX_ITEMS) {
-        return null
-    }
-    const items = value.items.map(parseItem)
-    if (items.some((item) => item === null)) {
-        return null
-    }
-    const validItems = items as SeasonalChecklistItem[]
-    if (new Set(validItems.map((item) => item.key)).size !== validItems.length) {
-        return null
-    }
-
-    return {
-        campaign,
-        title,
-        description,
-        reason,
-        badge,
-        bubble,
-        doneTitle,
-        doneDescription,
-        accessories: accessories as SeasonalHogAccessory[],
-        snow: value.snow === true,
-        lights: value.lights === true,
-        items: validItems,
-    }
+    return { ...copy, accessories, snow: value.snow === true, lights: value.lights === true, items }
 }
