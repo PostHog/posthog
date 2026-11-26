@@ -82,8 +82,6 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX, AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers import create_dashboard_from_template
-from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -153,6 +151,8 @@ from products.dashboards.backend.facade.api import (
     CachedTileStatus,
     CannotAddToDashboard,
     add_insight_to_dashboard,
+    apply_dashboard_template,
+    apply_dashboard_template_json,
     board_stream_cached_event,
     create_unlisted_dashboard,
     read_cached_tiles,
@@ -2235,10 +2235,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
             if use_template:
                 try:
-                    create_dashboard_from_template(
-                        use_template,
-                        dashboard,
-                        cast(User, request.user),
+                    apply_dashboard_template(
+                        team_id=team_id,
+                        dashboard_id=dashboard.id,
+                        template_key=use_template,
+                        user_id=cast(User, request.user).id,
                         user_access_control=user_access_control,
                     )
                 except (AttributeError, ValueError) as error:
@@ -2250,6 +2251,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         exc_info=True,
                     )
                     raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                # The replica cannot see the row this transaction inserted.
+                dashboard.refresh_from_db(using=router.db_for_write(Dashboard))
                 # Group settings in the request apply on top of the template's groups, so they wait for the merge.
                 if has_groups or has_group_titles:
                     dashboard.customization = with_requested_groups(
@@ -4956,14 +4959,15 @@ class DashboardsViewSet(
         )
 
         try:
-            dashboard_template = dashboard_template_from_creation_payload(template_body)
             creation_context = request.data.get("creation_context")
-            create_from_template(
-                dashboard,
-                dashboard_template,
-                cast(User, request.user),
+            apply_dashboard_template_json(
+                team_id=self.team_id,
+                dashboard_id=dashboard.id,
+                template=template_body,
+                user_id=cast(User, request.user).id,
                 user_access_control=UserAccessControl(user=cast(User, request.user), team=self.team),
             )
+            dashboard.refresh_from_db(using=router.db_for_write(Dashboard))
 
             raw_scope = template_body.get("scope")
             if raw_scope is None or raw_scope == "":
@@ -4977,7 +4981,7 @@ class DashboardsViewSet(
                 {
                     **dashboard.get_analytics_metadata(),
                     "from_template": True,
-                    "template_key": dashboard_template.template_name,
+                    "template_key": template_body["template_name"],
                     **template_scope_props,
                     "duplicated": False,
                     "creation_context": creation_context,

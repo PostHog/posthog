@@ -15,7 +15,7 @@ This skill produces a point-in-time shortlist. Do not turn the parity document i
 Search the current default branches for Python gateway use, including:
 
 - `LLM_GATEWAY_URL`, `LLM_GATEWAY_API_KEY`, and product-slug URLs
-- `get_llm_client`, `get_async_llm_client`, and `get_async_anthropic_gateway_client`
+- `get_llm_client`
 - direct OpenAI, Anthropic, or agent SDK clients configured with a gateway base URL
 - Python product names from `services/llm-gateway/src/llm_gateway/products/config.py`
 - deployment, sandbox, workflow, and secret wiring in other PostHog repositories

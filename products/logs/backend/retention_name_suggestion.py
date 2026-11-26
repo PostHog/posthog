@@ -76,7 +76,6 @@ def suggest_retention_rule_name(
 
     try:
         client = build_openai_client(
-            "django",
             ai_product=source,
             properties={"ai_feature": "retention-rule-name-suggestion", "team_id": str(team_id)},
             distinct_id=distinct_id,

@@ -73,7 +73,9 @@ class FakePostHogGitHub:
         sheds_batch_reads: bool = False,
         merged_by: dict[str, str] | None = None,
         author_association: str = "MEMBER",
+        body: str = "Removes the legacy rollout path.",
     ) -> None:
+        self.body = body
         self.author_association = author_association
         self.commit_sha = commit_sha
         self.merged_commit_sha = merged_commit_sha or commit_sha
@@ -91,7 +93,7 @@ class FakePostHogGitHub:
         return {
             "number": 7,
             "title": "chore: drop legacy rollout",
-            "body": "Removes the legacy rollout path.",
+            "body": self.body,
             "author_association": self.author_association,
             "html_url": "https://github.com/PostHog/posthog/pull/7",
             "merge_commit_sha": self.merged_commit_sha,
@@ -283,6 +285,7 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
     assert [(row.criterion, row.value) for row in report.criteria] == [
         ("code_changed", "true"),
         ("knowledge_writer_docs_pr", "false"),
+        ("author_release_status", "false"),
         ("other_docs_pr", "false"),
         ("not_editable_here", "0"),
         ("docs_version", "documented"),
@@ -397,6 +400,20 @@ def test_sitemap_pages_without_a_docs_source_are_kept_from_the_judge(
             "knowledge_writer_docs_pr",
             id="stale_knowledge_writer_docs_pr_joined_by_comment",
         ),
+        pytest.param(
+            lambda commit_sha: FakePostHogGitHub(
+                commit_sha, body="- Behind a flag <!-- release-status: behind-feature-flag -->"
+            ),
+            "author_release_status",
+            id="author_marks_behind_feature_flag",
+        ),
+        pytest.param(
+            lambda commit_sha: FakePostHogGitHub(
+                commit_sha, body="- Behind a flag <!--release-status: behind-feature-flag-->"
+            ),
+            "author_release_status",
+            id="author_marks_behind_feature_flag_without_spaces",
+        ),
     ],
 )
 def test_a_blocking_gate_records_no_docs_without_a_judge_call(
@@ -416,10 +433,10 @@ def test_a_blocking_gate_records_no_docs_without_a_judge_call(
     [
         pytest.param(
             merge_facts(ReleaseState.FLAGGED_OR_UNRELEASED, "drop legacy rollout"),
-            "release_state",
+            "judge",
+            True,
             False,
-            False,
-            id="quoted_flag_blocks",
+            id="quoted_flag_reaches_the_judge",
         ),
         pytest.param(
             merge_facts(ReleaseState.FLAGGED_OR_UNRELEASED, "behind the beta flag"),
@@ -444,7 +461,7 @@ def test_a_blocking_gate_records_no_docs_without_a_judge_call(
         ),
     ],
 )
-def test_release_facts_gate_only_on_quoted_evidence(
+def test_a_release_fact_reaches_the_judge_and_only_quoted_evidence_keeps_confidence(
     facts: MergeFacts, expected_reason: str, is_judged: bool, low_confidence: bool
 ) -> None:
     commit_sha = "7" * 40

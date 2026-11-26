@@ -28,6 +28,7 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (
+    PeriodFilters,
     WebAnalyticsPreAggregatedQueryBuilder,
 )
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
@@ -234,13 +235,89 @@ class DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
             left=ast.Field(chain=[table_name, "job_id"]),
             right=ast.Constant(value=[str(job_id) for job_id in job_ids]),
         )
-        return ast.And(exprs=[*filters.exprs, job_id_filter])
+        filters = ast.And(exprs=[*filters.exprs, job_id_filter])
+        if table_name != self.bounces_table:
+            return filters
+        # The bounces table has one row per session, so a host filter matches a session through its `session_hosts`
+        # list. The stats table stores host per event, so its host filters stay as they are.
+        rewritten = _HostSetFilterRewriter(table_name).visit(filters)
+        assert isinstance(rewritten, ast.And)
+        return rewritten
 
 
 class DimensionalStatsTableQueryBuilder(DimensionalTablesMixin, StatsTablePreAggregatedQueryBuilder):
     def __init__(self, runner: "WebStatsTableQueryRunner", job_ids: DimensionalJobIds) -> None:
         super().__init__(runner)
         self.job_ids = job_ids
+
+    def _initial_page_query(self) -> ast.SelectQuery:
+        # Visitors and views come from the stats table, which stores host per event, so a host filter counts only the
+        # matching pageviews, as live does. The bounces table has one row per session and counts all its pageviews.
+        # Bounce rate still comes from the bounces table, joined on the entry page. With the host in the key, the
+        # stats rows would put a session's entry page under every host it viewed, so that case keeps the bounces table.
+        if self.runner.query.includeHost:
+            return super()._initial_page_query()
+        period_filters = self.get_date_ranges(table_name=self.stats_table)
+        entry_page = self._apply_path_cleaning(ast.Field(chain=[self.stats_table, "entry_pathname"]))
+        query = parse_select(
+            """
+            SELECT
+                {breakdown_value} AS `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                {views_tuple} AS `context.columns.views`,
+                any(bounces.`context.columns.bounce_rate`) AS `context.columns.bounce_rate`
+            FROM {stats_table}
+            LEFT JOIN ({bounce_subquery}) bounces
+                ON {entry_page} = bounces.`context.columns.breakdown_value`
+            WHERE and({filters}, {breakdown_value} IS NOT NULL)
+            GROUP BY `context.columns.breakdown_value`
+            """,
+            placeholders={
+                "stats_table": ast.Field(chain=[self.stats_table]),
+                "breakdown_value": ast.Call(name="nullIf", args=[entry_page, ast.Constant(value="")]),
+                "entry_page": entry_page,
+                "visitors_tuple": self._period_comparison_tuple(
+                    "persons_uniq_state", "uniqMergeIf", period_filters=period_filters, table_prefix=self.stats_table
+                ),
+                "views_tuple": self._period_comparison_tuple(
+                    "pageviews_count_state", "sumMergeIf", period_filters=period_filters, table_prefix=self.stats_table
+                ),
+                "bounce_subquery": self._bounce_rate_query(),
+                "filters": self._get_filters(table_name=self.stats_table),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _initial_page_counts_table(self) -> str:
+        return self.bounces_table if self.runner.query.includeHost else self.stats_table
+
+    def _bounce_rate_calculation_tuple(self, *, period_filters: PeriodFilters) -> ast.Tuple:
+        # Only sessions with a bounce value count, as in the overview's bounce rate.
+        def bounce_rate(period_filter: ast.Expr) -> ast.Expr:
+            return ast.Call(
+                name="divide",
+                args=[
+                    ast.Call(name="sumMergeIf", args=[ast.Field(chain=["bounces_count_state"]), period_filter]),
+                    ast.Call(
+                        name="nullIf",
+                        args=[
+                            ast.Call(
+                                name="sumMergeIf",
+                                args=[ast.Field(chain=["bounce_eligible_sessions_state"]), period_filter],
+                            ),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ],
+            )
+
+        previous = (
+            bounce_rate(period_filters.previous_period)
+            if self.runner.query_compare_to_date_range
+            else ast.Constant(value=None)
+        )
+        return ast.Tuple(exprs=[bounce_rate(period_filters.current_period), previous])
 
 
 class DimensionalWebOverviewQueryBuilder(DimensionalTablesMixin, WebOverviewPreAggregatedQueryBuilder):
@@ -345,14 +422,6 @@ class DimensionalWebOverviewQueryBuilder(DimensionalTablesMixin, WebOverviewPreA
                 ast.Constant(value=None),
             ],
         )
-
-    def _get_filters(self, table_name: str, exclude_pathname: bool = False) -> ast.And:
-        filters = super()._get_filters(table_name, exclude_pathname=exclude_pathname)
-        if table_name != self.bounces_table:
-            return filters
-        rewritten = _HostSetFilterRewriter(table_name).visit(filters)
-        assert isinstance(rewritten, ast.And)
-        return rewritten
 
 
 _HOST_LAMBDA_ARG = "host_in_set"
