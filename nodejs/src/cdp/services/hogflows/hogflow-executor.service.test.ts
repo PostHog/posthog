@@ -100,6 +100,7 @@ class SesV2Fake {
             region: 'us-east-1',
             endpoint: this.endpoint,
             credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
+            maxAttempts: 1,
         })
     }
 
@@ -130,6 +131,12 @@ class SesV2Fake {
             return
         }
         const { Destination, Content } = parseJSON(Buffer.concat(chunks).toString())
+        if (!Destination?.ToAddresses?.length) {
+            response
+                .writeHead(400, { 'content-type': 'application/json', 'x-amzn-errortype': 'BadRequestException' })
+                .end(JSON.stringify({ message: 'Missing final recipients' }))
+            return
+        }
         this.delivered.push({
             to: Destination.ToAddresses,
             subject: Content.Simple.Subject.Data,
@@ -3912,7 +3919,7 @@ describe('Hogflow Executor', () => {
                 .mockResolvedValueOnce(fcmResponse(503))
                 .mockResolvedValueOnce(fcmResponse(200))
             const ses = await startSes()
-            ses.answerInTurn('accept', 'throttle', 'throttle', 'throttle')
+            ses.answerInTurn('accept', 'throttle')
             const { executor: runner } = createExecutor(createEmailService({ ses }))
 
             await insertHogFunctionTemplate(hub.postgres, {

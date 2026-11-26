@@ -194,6 +194,8 @@ export class BucketProxy {
     }
 }
 
+export const ENDPOINT_THAT_REFUSES_CONNECTIONS = 'http://127.0.0.1:1'
+
 export const sesTransportFor = (ses: Pick<FakeSes, 'endpoint'>, overrides: SesClientOptions = {}): SesTransport =>
     new SesTransport({
         region: 'us-east-1',
