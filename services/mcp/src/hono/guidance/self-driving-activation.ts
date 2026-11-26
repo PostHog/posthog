@@ -52,8 +52,9 @@ export async function fetchInboxOnboarding(
     return onboarding.success ? onboarding.data : undefined
 }
 
-export function isSelfDrivingActivated(onboarding: InboxOnboarding): boolean {
-    return onboarding.completed_at !== null
+// A draft means the user is part-way through setup, so they already know about Self-driving.
+export function isSelfDrivingSetupNotStarted(onboarding: InboxOnboarding): boolean {
+    return onboarding.completed_at === null && onboarding.draft === null
 }
 
 // Mirrors EVAL_INTERACTION_ORIGIN in products/tasks/backend/constants.py. The eval harness runs the agent as a
@@ -152,7 +153,7 @@ async function lookupActivationGuidance(
     if (!onboarding || !productState.hasBudgetLeft()) {
         return undefined
     }
-    if (isSelfDrivingActivated(onboarding) || onboarding.draft !== null) {
+    if (!isSelfDrivingSetupNotStarted(onboarding)) {
         await redis.set(negativeKey, '1', 'EX', INELIGIBLE_TTL_SECONDS)
         return undefined
     }

@@ -5,7 +5,7 @@ import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from '../cache/RedisCache'
 import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from './rules'
-import { fetchInboxOnboarding, isSelfDrivingActivated } from './self-driving-activation'
+import { fetchInboxOnboarding, isSelfDrivingSetupNotStarted } from './self-driving-activation'
 
 const STATUS_TOOL = 'self-driving-status-get'
 const STATUS_TTL_SECONDS = 60
@@ -35,27 +35,27 @@ function statusKey(context: Context, projectId: string): string {
     return `mcp:sd-status-note:{${identity}}`
 }
 
-async function lookupActivated(redis: RedisLike, context: Context, signal: AbortSignal): Promise<boolean | undefined> {
+async function lookupNotStarted(redis: RedisLike, context: Context, signal: AbortSignal): Promise<boolean | undefined> {
     try {
         const projectId = String(await context.stateManager.getProjectId())
         const key = statusKey(context, projectId)
         const cached = await redis.get(key)
-        if (cached === 'active' || cached === 'inactive') {
-            return cached === 'active'
+        if (cached === 'not_started' || cached === 'started') {
+            return cached === 'not_started'
         }
         const onboarding = await fetchInboxOnboarding(context, projectId, signal)
         if (!onboarding) {
             return undefined
         }
-        const activated = isSelfDrivingActivated(onboarding)
-        await redis.set(key, activated ? 'active' : 'inactive', 'EX', STATUS_TTL_SECONDS)
-        return activated
+        const notStarted = isSelfDrivingSetupNotStarted(onboarding)
+        await redis.set(key, notStarted ? 'not_started' : 'started', 'EX', STATUS_TTL_SECONDS)
+        return notStarted
     } catch {
         return undefined
     }
 }
 
-async function lookupActivatedWithinBudget(redis: RedisLike, context: Context): Promise<boolean | undefined> {
+async function lookupNotStartedWithinBudget(redis: RedisLike, context: Context): Promise<boolean | undefined> {
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<undefined>((resolve) => {
@@ -65,7 +65,7 @@ async function lookupActivatedWithinBudget(redis: RedisLike, context: Context): 
         }, LOOKUP_BUDGET_MS)
     })
     try {
-        return await Promise.race([lookupActivated(redis, context, controller.signal), timeout])
+        return await Promise.race([lookupNotStarted(redis, context, controller.signal), timeout])
     } finally {
         clearTimeout(timer)
     }
@@ -80,7 +80,7 @@ function withDescription(tool: Tool<ZodObjectAny>, description: string): Tool<Zo
 }
 
 /**
- * Appends the Self-driving status note to the error tracking tool descriptions when the project has not activated Self-driving.
+ * Appends the Self-driving status note to the error tracking tool descriptions when the project has not started Self-driving setup.
  * The tools stay unchanged when the status is unknown, so a failed or slow lookup never adds the note.
  */
 export async function withSelfDrivingStatusNotes(
@@ -96,7 +96,7 @@ export async function withSelfDrivingStatusNotes(
     ) {
         return tools
     }
-    if ((await lookupActivatedWithinBudget(redis, context)) !== false) {
+    if ((await lookupNotStartedWithinBudget(redis, context)) !== true) {
         return tools
     }
     return tools.map((tool) => {

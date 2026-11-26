@@ -331,6 +331,12 @@ describe('ToolExecutor guidance notices', () => {
             request: () => ({ completed_at: '2026-01-01T00:00:00Z', draft: null }),
         },
         {
+            status: 'part-way through setup',
+            mode: 'exec',
+            flag: true,
+            request: () => ({ completed_at: null, draft: { sources: [] } }),
+        },
+        {
             status: 'unreadable',
             mode: 'exec',
             flag: true,
