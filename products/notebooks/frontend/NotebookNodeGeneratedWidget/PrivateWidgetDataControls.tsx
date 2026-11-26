@@ -1,6 +1,8 @@
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
 import { readableErrorMessage } from 'lib/api-error'
 
 import type { WidgetFrameApi } from '../generated/api.schemas'
@@ -95,4 +97,39 @@ export function usePrivateWidgetFrames(
                 : 'Inputs changed. Run again to update the widget.'
             : undefined,
     }
+}
+
+export function PrivateWidgetDataControls({
+    enabled,
+    names,
+    data,
+    onRun,
+}: {
+    enabled: boolean
+    names: string[]
+    data: PrivateWidgetFrames
+    onRun: () => void
+}): JSX.Element | null {
+    if (!enabled || !names.length) {
+        return null
+    }
+    return (
+        <>
+            <div className="flex flex-wrap items-center gap-2 border-b p-2">
+                <LemonButton size="small" type="secondary" loading={data.loading} onClick={onRun}>
+                    Run widget data for me
+                </LemonButton>
+                {data.status && (
+                    <span role="status" className="text-secondary">
+                        {data.status}
+                    </span>
+                )}
+            </div>
+            {data.error && (
+                <LemonBanner type="error" className="m-2">
+                    {data.error}
+                </LemonBanner>
+            )}
+        </>
+    )
 }

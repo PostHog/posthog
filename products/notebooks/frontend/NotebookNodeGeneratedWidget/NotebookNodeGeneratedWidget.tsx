@@ -29,7 +29,7 @@ import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
-import { usePrivateWidgetFrames } from './usePrivateWidgetFrames'
+import { PrivateWidgetDataControls, usePrivateWidgetFrames } from './PrivateWidgetDataControls'
 import { WidgetArtifactFrame } from './WidgetArtifactFrame'
 import { WidgetFrameSessionContext } from './widgetFrameSession'
 import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_OPTIONS, isWidgetModel, type WidgetModel } from './widgetModels'
@@ -312,31 +312,15 @@ function ExpandedWidget({
                             The widget status couldn't be refreshed. The preview below is the last confirmed version.
                         </LemonBanner>
                     ) : null}
-                    {frameSession.privateInputs && activeFrameNames.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-2 border-b p-2">
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                loading={privateFrames.loading}
-                                onClick={() => {
-                                    setRuntimeError(null)
-                                    void privateFrames.run(activeFrameNames)
-                                }}
-                            >
-                                Run widget data for me
-                            </LemonButton>
-                            {privateFrames.status && (
-                                <span role="status" className="text-secondary">
-                                    {privateFrames.status}
-                                </span>
-                            )}
-                        </div>
-                    )}
-                    {privateFrames.error && (
-                        <LemonBanner type="error" className="m-2">
-                            {privateFrames.error}
-                        </LemonBanner>
-                    )}
+                    <PrivateWidgetDataControls
+                        enabled={!!frameSession.privateInputs}
+                        names={activeFrameNames}
+                        data={privateFrames}
+                        onRun={() => {
+                            setRuntimeError(null)
+                            void privateFrames.run(activeFrameNames)
+                        }}
+                    />
                     {runtimeError ? (
                         <LemonBanner
                             type="warning"

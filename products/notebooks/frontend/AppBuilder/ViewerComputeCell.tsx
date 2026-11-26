@@ -12,6 +12,13 @@ import { notebooksAppComputeCreate, notebooksAppDraftComputeCreate } from '../ge
 import type { NotebookAppComputeResultApi } from '../generated/api.schemas'
 import type { ViewerProps } from './notebookAppViewerLogic'
 
+function computationKind(cell: NotebookComponentBlockNode): 'python' | 'connected_sql' | 'dataframe_sql' {
+    if (cell.tagName === 'PythonV2') {
+        return 'python'
+    }
+    return cell.props.connectionId ? 'connected_sql' : 'dataframe_sql'
+}
+
 export function ViewerComputeCell({
     viewer,
     revision,
@@ -30,7 +37,7 @@ export function ViewerComputeCell({
     const [failure, setFailure] = useState<string>()
     const controller = useRef<AbortController | null>(null)
     useEffect(() => () => controller.current?.abort(), [])
-    const python = cell.tagName === 'PythonV2'
+    const kind = computationKind(cell)
 
     async function run(): Promise<void> {
         controller.current?.abort()
@@ -53,7 +60,7 @@ export function ViewerComputeCell({
                 setResult({ data, inputs: variables })
                 posthog.capture('notebook app viewer calculation ran', {
                     short_id: viewer.shortId,
-                    cell_type: python ? 'python' : cell.props.connectionId ? 'connected_sql' : 'dataframe_sql',
+                    cell_type: kind,
                 })
             }
         } catch (error) {
@@ -73,12 +80,12 @@ export function ViewerComputeCell({
         <div>
             <div className="flex flex-wrap gap-2 items-center mb-2">
                 <LemonButton type="secondary" size="small" onClick={() => void run()} loading={loading}>
-                    {python ? 'Run Python for me' : 'Run query for me'}
+                    {kind === 'python' ? 'Run Python for me' : 'Run query for me'}
                 </LemonButton>
                 <span className="text-secondary">
                     {result && !objectsEqual(variables, result.inputs)
                         ? 'Inputs changed. Run again to update this result.'
-                        : python || !cell.props.connectionId
+                        : kind !== 'connected_sql'
                           ? 'Runs in a private sandbox with your current inputs.'
                           : 'Uses your access to the connected data source.'}
                 </span>

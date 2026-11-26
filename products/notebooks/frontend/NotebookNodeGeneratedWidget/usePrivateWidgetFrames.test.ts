@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 
 import type { WidgetFrameApi } from '../generated/api.schemas'
-import { usePrivateWidgetFrames } from './usePrivateWidgetFrames'
+import { usePrivateWidgetFrames } from './PrivateWidgetDataControls'
 
 const frame: WidgetFrameApi = {
     sourceNodeId: 'capacity',

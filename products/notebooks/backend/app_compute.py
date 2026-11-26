@@ -283,7 +283,8 @@ def _run_cell(
         raise ValidationError("This calculation reads more than 500 rows. Aggregate the source data or add a limit.")
     frame = {"columns": response.columns or [], "rows": response.results}
     if final and frame_output:
-        frame["types"] = [pair[1] for pair in response.types or []]
+        types = dict(response.types or [])
+        frame["types"] = [types.get(name, "unknown") for name in response.columns or []]
     payload = _bounded_json(frame)
     if kernel is not None and cell.dataframe_name and not final:
         name = cell.dataframe_name

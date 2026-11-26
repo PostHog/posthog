@@ -1063,6 +1063,45 @@ class TestWidgetData(APIBaseTest):
             assert self.client.post(base + "app_compute/", payload, format="json").status_code == 400
         assert not NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
 
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_private_connected_widget_uses_the_viewers_access_when_the_adapter_omits_types(self, _flag) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        version.input_contract[0]["columns"] = [{"name": "shifts", "type": "unknown"}]
+        version.save(update_fields=["input_contract"])
+        connection_id = str(uuid4())
+        self.notebook.content = markdown_content(
+            f'<SQLV2 nodeId="staffing" connectionId="{connection_id}" returnVariable="{self.INPUT_NAME}" code="SELECT 8 AS shifts" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.save(update_fields=["content"])
+        payload = {
+            "layout": {
+                "tabs": [{"id": "main", "title": "Main"}],
+                "blocks": [{"id": "result", "kind": "cell", "tab_id": "main", "node_id": self.NODE_ID}],
+            },
+            "variables": [],
+            "revision": self.notebook.version,
+            "node_id": self.NODE_ID,
+            "widget_input": {"slot": self.INPUT_NAME, "version_id": str(version.id)},
+        }
+
+        def query(**kwargs):
+            assert kwargs["user"] == self.user and kwargs["connection_id"] == connection_id
+            return SimpleNamespace(error=None, columns=["shifts"], types=None, results=[[8]])
+
+        with patch("products.notebooks.backend.app_compute.execute_hogql_query", side_effect=query):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/app_draft_compute/",
+                payload,
+                format="json",
+            )
+        assert response.status_code == 200, response.content
+        frame = response.json()["widget_frame"]
+        assert frame["columns"] == [{"name": "shifts", "type": "unknown"}] and frame["rows"] == [[8]]
+
     def test_frame_is_whitelisted_and_bounded(self) -> None:
         self._run()
         self._mapping()
