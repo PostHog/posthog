@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createTask, createTaskRun } from "../../test/fixtures/api";
 import type { Task, TaskRun } from "../../types";
 import {
+  codexConfigOverrides,
   type RunLaunchSources,
   readProductLaunch,
   readRunLaunch,
@@ -157,6 +158,31 @@ describe("run launch", () => {
         expected,
         valid,
       ]);
+    });
+  });
+
+  describe("codexConfigOverrides", () => {
+    it.each([
+      ["keeps the codex defaults", {}, undefined],
+      [
+        "raises the sub-agent limit",
+        { codex_max_subagents: 9 },
+        { "agents.max_concurrent_threads_per_session": 9 },
+      ],
+      [
+        "turns off the plan's apps",
+        { codex_apps_disabled: true },
+        { "features.apps": false },
+      ],
+      [
+        "keeps the apps when the key is false",
+        { codex_apps_disabled: false },
+        undefined,
+      ],
+    ])("%s", (_name, state, expected) => {
+      const launch = readRunLaunch(sources({ taskRun: runWithState(state) }));
+
+      expect(codexConfigOverrides(launch)).toEqual(expected);
     });
   });
 

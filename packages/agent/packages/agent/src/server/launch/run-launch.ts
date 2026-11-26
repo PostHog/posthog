@@ -42,6 +42,7 @@ export interface RunLaunch {
   readonly prewarmed: boolean | null;
   readonly sharedPromptCache: boolean;
   readonly codexMaxSubagents: number | null;
+  readonly codexAppsDisabled: boolean;
   readonly initialPermissionMode: PermissionMode | null;
   readonly pendingUserArtifactIds: string[];
   readonly policy: RunPolicy;
@@ -79,6 +80,7 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
     prewarmed: taskRun ? runState?.prewarmed === true : null,
     sharedPromptCache: runState?.codex_shared_prompt_cache === true,
     codexMaxSubagents: runState?.codex_max_subagents ?? null,
+    codexAppsDisabled: runState?.codex_apps_disabled === true,
     initialPermissionMode: runState?.initial_permission_mode ?? null,
     pendingUserArtifactIds: runState?.pending_user_artifact_ids ?? [],
     policy,
@@ -90,6 +92,25 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
     tokenUsage: runState?.token_usage,
     runState,
   };
+}
+
+/** Run-specific `-c` overrides for the codex app-server, or undefined when the run keeps the defaults. */
+export function codexConfigOverrides(
+  launch: Pick<RunLaunch, "codexMaxSubagents" | "codexAppsDisabled">,
+): Record<string, number | boolean> | undefined {
+  const overrides: Record<string, number | boolean> = {};
+  // Codex runs at most 3 sub-agents per session at once by default; the main agent does
+  // not count. A run that starts more sub-agents at once sets its own limit.
+  if (launch.codexMaxSubagents) {
+    overrides["agents.max_concurrent_threads_per_session"] =
+      launch.codexMaxSubagents;
+  }
+  // The apps connected to the ChatGPT plan that pays for the run. Slack turns them off when
+  // the plan owner has not allowed them, because people who join the thread use the same run.
+  if (launch.codexAppsDisabled) {
+    overrides["features.apps"] = false;
+  }
+  return Object.keys(overrides).length ? overrides : undefined;
 }
 
 export function readProductLaunch(

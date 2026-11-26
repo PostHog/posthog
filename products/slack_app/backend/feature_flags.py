@@ -64,6 +64,7 @@ SLACK_APP_SLACK_MCP_FLAG = "slack-app-slack-mcp"
 SLACK_APP_DAILY_SUMMARY_FLAG = "slack-app-daily-summary"
 SLACK_APP_FRUSTRATION_GIF_FLAG = "slack-app-frustration-gif"
 SLACK_APP_WEB_SETTINGS_FLAG = "slack-app-web-settings"
+SLACK_APP_CHATGPT_APPS_FLAG = "slack-app-chatgpt-apps"
 WEB_SETTINGS_FLAG_CACHE_SECONDS = 60
 
 
@@ -174,6 +175,20 @@ def is_slack_app_byos_enabled(
 
     return tasks_facade.own_subscription_cloud_enabled(
         adapter, distinct_id=distinct_id, organization_id=_organization_id(integration)
+    )
+
+
+def is_slack_app_chatgpt_apps_setting_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for the personal setting that keeps the apps on a ChatGPT plan out of Slack runs.
+
+    ``distinct_id`` is the PostHog user whose plan the run uses. Off, Slack runs keep the apps
+    the plan has, as they did before the setting existed.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_CHATGPT_APPS_FLAG,
+        integration,
+        failure_log_key="slack_app_chatgpt_apps_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 

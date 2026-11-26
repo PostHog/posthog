@@ -1,1 +1,1 @@
-0027_slack_app_web_settings
+0028_slack_settings_chatgpt_apps_enabled

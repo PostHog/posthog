@@ -245,11 +245,23 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         bot_id_patcher.start()
         self.addCleanup(bot_id_patcher.stop)
 
+    @parameterized.expand(
+        [
+            ("setting_unavailable", False, None, None),
+            ("never_picked", True, None, True),
+            ("turned_off", True, False, True),
+            ("turned_on", True, True, None),
+        ]
+    )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_a_codex_model_from_the_saved_default_bills_the_mentioners_plan(
-        self, mock_slack_cls, mock_execute_workflow
+        self, _name, setting_flag, apps_enabled, apps_disabled, mock_slack_cls, mock_execute_workflow
     ):
+        if apps_enabled is not None:
+            SlackSettings.objects.create(
+                slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", chatgpt_apps_enabled=apps_enabled
+            )
         # Slack leaves the triple empty when a saved default exists, so the runtime is only
         # known once `create_run` applies that default.
         ai_run_defaults.update_user_ai_run_preferences(
@@ -271,6 +283,10 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 ),
             ),
             patch("products.slack_app.backend.feature_flags.is_slack_app_byos_enabled", return_value=True),
+            patch(
+                "products.slack_app.backend.feature_flags.is_slack_app_chatgpt_apps_setting_enabled",
+                return_value=setting_flag,
+            ),
         ):
             create_posthog_code_task_for_repo_activity(
                 inputs,
@@ -289,6 +305,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert state["runtime_adapter"] == "codex"
         assert state["codex_model_access"] == "own-subscription"
         assert state["codex_subscription_user_id"] == self.user.id
+        assert state.get("codex_apps_disabled") is apps_disabled
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -1682,6 +1699,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self.task_run.save()
         self._create_mapping(mentioning_user="U_ALICE")
         bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        # The joiner allowing apps on their own plan must not turn on the creator's.
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_BOB", chatgpt_apps_enabled=True)
         mock_slack_cls.return_value = MagicMock()
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
         preference_patch: AbstractContextManager[object]
@@ -1707,6 +1726,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
                 ),
             ),
             patch("products.slack_app.backend.feature_flags.is_slack_app_byos_enabled", return_value=True),
+            patch(
+                "products.slack_app.backend.feature_flags.is_slack_app_chatgpt_apps_setting_enabled", return_value=True
+            ),
         ):
             forward_posthog_code_followup_activity(
                 inputs=_make_inputs(self.integration.id, self.user.id),
@@ -1722,6 +1744,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state["codex_model_access"] == "own-subscription"
         assert new_run.state["codex_subscription_user_id"] == self.user.id
         assert new_run.state["slack_actor_user_id"] == bob.id
+        assert new_run.state["codex_apps_disabled"] is True
 
     @parameterized.expand(
         [
