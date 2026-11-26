@@ -56,12 +56,6 @@ export interface dashboardV2LogicActions {
                       id: string
                       tiles: {
                           id: string
-                          place: {
-                              h: number
-                              w: number
-                              x: number
-                              y: number
-                          }
                           panel:
                               | {
                                     appearance?:
@@ -98,6 +92,12 @@ export interface dashboardV2LogicActions {
                                     title?: string | undefined
                                     type: string
                                 }
+                          place: {
+                              h: number
+                              w: number
+                              x: number
+                              y: number
+                          }
                       }[]
                       title: string
                   }
@@ -154,12 +154,6 @@ export interface dashboardV2LogicMeta {
                       id: string
                       tiles: {
                           id: string
-                          place: {
-                              h: number
-                              w: number
-                              x: number
-                              y: number
-                          }
                           panel:
                               | {
                                     appearance?:
@@ -196,6 +190,12 @@ export interface dashboardV2LogicMeta {
                                     title?: string | undefined
                                     type: string
                                 }
+                          place: {
+                              h: number
+                              w: number
+                              x: number
+                              y: number
+                          }
                       }[]
                       title: string
                   }
@@ -232,12 +232,6 @@ export interface dashboardV2LogicMeta {
                           id: string
                           tiles: {
                               id: string
-                              place: {
-                                  h: number
-                                  w: number
-                                  x: number
-                                  y: number
-                              }
                               panel:
                                   | {
                                         appearance?:
@@ -274,6 +268,12 @@ export interface dashboardV2LogicMeta {
                                         title?: string | undefined
                                         type: string
                                     }
+                              place: {
+                                  h: number
+                                  w: number
+                                  x: number
+                                  y: number
+                              }
                           }[]
                           title: string
                       }
