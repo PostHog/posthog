@@ -177,6 +177,15 @@ for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET \
         echo "Added missing $key to .env file"
     fi
 done
+# A Fernet key: exactly 32 characters, read as bytes, so 24 random bytes in base64 rather than hex.
+# Any existing line is kept, even an empty one, because replacing a key makes queued sends unreadable.
+if ! grep -q "CDP_SEALED_STATE_KEYS" .env; then
+    # The earlier `set -a` is off by now, so the new key needs an explicit export to reach the Compose renderer.
+    export CDP_SEALED_STATE_KEYS=$(openssl rand -base64 24)
+    # The leading newline keeps the key off an unterminated last line.
+    printf '\nCDP_SEALED_STATE_KEYS=%s\n' "$CDP_SEALED_STATE_KEYS" >> .env
+    echo "Added missing CDP_SEALED_STATE_KEYS to .env file"
+fi
 # .env holds Django's SECRET_KEY and the object storage keys, so only its owner may read it.
 chmod 600 .env || echo "Could not restrict .env to its owner. Run: chmod 600 .env"
 

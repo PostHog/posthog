@@ -61,6 +61,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueTag,
     ErrorTrackingRelease,
     ErrorTrackingSettings,
+    ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
@@ -783,16 +784,25 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.ACTIVE
 
-    def test_issue_bulk_rejects_deprecated_status(self):
+    @parameterized.expand(
+        [
+            ("archived_status", "archived", lambda issue_id: [issue_id], None),
+            ("pending_release_status", "pending_release", lambda issue_id: [issue_id], None),
+            ("malformed_id", "resolved", lambda issue_id: [issue_id, "not-a-uuid"], "ids"),
+            ("null_ids", "resolved", lambda issue_id: None, "ids"),
+        ]
+    )
+    def test_issue_bulk_rejects_invalid_input(
+        self, _name: str, bulk_status: str, build_ids: Callable[[str], object], expected_attr: str | None
+    ) -> None:
         issue = self.create_issue()
 
-        for deprecated_status in ("archived", "pending_release"):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
-                data={"ids": [issue.id], "action": "set_status", "status": deprecated_status},
-            )
-            assert response.status_code == 400, response.json()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+            data={"ids": build_ids(str(issue.id)), "action": "set_status", "status": bulk_status},
+        )
 
+        assert (response.status_code, response.json()["attr"]) == (400, expected_attr), response.json()
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.ACTIVE
 
@@ -968,6 +978,24 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == 404
 
+    def test_spike_events_issue_ids_filter(self) -> None:
+        issue = self.create_issue(["fingerprint_one"])
+        for spiking_issue in (issue, self.create_issue(["fingerprint_two"])):
+            ErrorTrackingSpikeEvent.objects.create(
+                team=self.team,
+                issue=spiking_issue,
+                detected_at=timezone.now(),
+                computed_baseline=1.0,
+                current_bucket_value=10,
+            )
+        url = f"/api/projects/{self.team.id}/error_tracking/spike_events"
+
+        valid = self.client.get(url, data={"issue_ids": str(issue.id)})
+        malformed = self.client.get(url, data={"issue_ids": f"{issue.id},not-a-uuid"})
+
+        assert [row["issue"]["id"] for row in valid.json()["results"]] == [str(issue.id)]
+        assert (malformed.status_code, malformed.json()["attr"]) == (400, "issue_ids"), malformed.content
+
     @parameterized.expand(SUMMARY_STATES)
     def test_issue_summary_status(
         self,
@@ -1082,6 +1110,60 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == 404, response.content
         assert response.json()["detail"] == "Issue not found"
+
+    @parameterized.expand(
+        [
+            ("release_retrieve", "get", "releases/not-a-uuid"),
+            ("release_update", "patch", "releases/not-a-uuid"),
+            ("release_delete", "delete", "releases/not-a-uuid"),
+            ("stack_frame_retrieve", "get", "stack_frames/not-a-uuid"),
+            ("symbol_set_retrieve", "get", "symbol_sets/not-a-uuid"),
+            ("symbol_set_delete", "delete", "symbol_sets/not-a-uuid"),
+            ("symbol_set_download", "get", "symbol_sets/not-a-uuid/download"),
+        ]
+    )
+    def test_detail_routes_return_404_for_malformed_id(self, _name: str, method: str, path: str) -> None:
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/error_tracking/{path}")
+
+        assert response.status_code == 404, response.content
+
+    @parameterized.expand(
+        [
+            (
+                "release_delete",
+                "delete",
+                "releases",
+                lambda team: ErrorTrackingRelease.objects.create(
+                    team=team, hash_id="hash", version="1.0.0", project="proj"
+                ),
+                status.HTTP_204_NO_CONTENT,
+            ),
+            (
+                "symbol_set_delete",
+                "delete",
+                "symbol_sets",
+                lambda team: ErrorTrackingSymbolSet.objects.create(ref="source_1", team=team, storage_ptr=None),
+                status.HTTP_204_NO_CONTENT,
+            ),
+            (
+                "stack_frame_retrieve",
+                "get",
+                "stack_frames",
+                lambda team: ErrorTrackingStackFrame.objects.create(
+                    raw_id="raw_id", team=team, resolved=True, contents={}
+                ),
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_detail_routes_find_object_by_valid_id(
+        self, _name: str, method: str, route: str, create: Callable[[Team], Any], expected_status: int
+    ) -> None:
+        obj = create(self.team)
+
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/error_tracking/{route}/{obj.id}")
+
+        assert response.status_code == expected_status, response.content
 
     @parameterized.expand(
         [
@@ -1710,10 +1792,11 @@ class TestErrorTracking(APIBaseTest):
         self.assertGreaterEqual(response.json()["deleted"], 1)
         self.assertTrue(ErrorTrackingSymbolSet.objects.filter(id=other_ss.id).exists())
 
-    def test_bulk_delete_requires_ids(self) -> None:
+    @parameterized.expand([("missing_ids", {}), ("malformed_id", {"ids": ["not-a-uuid"]})])
+    def test_bulk_delete_rejects_invalid_ids(self, _name: str, data: dict) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_delete",
-            data={},
+            data=data,
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

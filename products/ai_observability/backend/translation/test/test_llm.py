@@ -72,9 +72,7 @@ class TestTranslateText:
 
         translate_text("Test", "es")
 
-        mock_get_client.assert_called_once_with(
-            "llma_translation", ai_product="llma_translation", distinct_id="llma-translation"
-        )
+        mock_get_client.assert_called_once_with(ai_product="llma_translation", distinct_id="llma-translation")
 
     @patch(MOCK_PATH)
     def test_disables_client_retries(self, mock_get_client):

@@ -1,6 +1,7 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -590,6 +591,36 @@ class TestRealtimeReadiness(BaseTest):
         assert (
             (readiness.state, readiness.reason, readiness.history_limit_days) if readiness is not None else None
         ) == expected
+
+    @parameterized.expand(
+        [
+            ("west_of_utc_a_day_behind", "America/Los_Angeles", datetime(2026, 11, 26, 4, 0, tzinfo=UTC), None, None),
+            (
+                "east_of_utc_a_day_ahead",
+                "Pacific/Auckland",
+                datetime(2026, 11, 25, 12, 0, tzinfo=UTC),
+                CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT,
+                14,
+            ),
+        ]
+    )
+    def test_an_off_cohort_is_judged_on_the_team_day(
+        self, _name: str, team_timezone: str, now: datetime, reason: str | None, history_limit_days: int | None
+    ) -> None:
+        self.team.timezone = team_timezone
+        self.team.save()
+        cohort = self._cohort(
+            realtime_enabled_at=None, filters=filters({**BEHAVIORAL_LEAF, "explicit_datetime": "2026-11-11"})
+        )
+
+        with time_machine.travel(now, tick=False):
+            readiness = resolve_realtime_readiness([cohort])[cohort.id]
+
+        assert (readiness.state, readiness.reason, readiness.history_limit_days) == (
+            CohortRealtimeState.OFF,
+            reason,
+            history_limit_days,
+        )
 
     def test_a_person_property_cohort_is_targetable_and_names_no_readiness_moment(self) -> None:
         # Flags read person properties off the person as they evaluate, so this cohort is

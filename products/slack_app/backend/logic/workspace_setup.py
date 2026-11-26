@@ -130,7 +130,7 @@ def _can_post_channel_welcome(slack_workspace_id: str) -> bool:
     return resolve_channel_welcome_mode(slack_workspace_id) == ChannelWelcomeMode.CHANNEL
 
 
-def _can_change_workspace_settings(integration: WorkspaceIntegration, user: User) -> bool:
+def can_change_workspace_settings(integration: WorkspaceIntegration, user: User) -> bool:
     # These settings change the Slack workspace for everyone in it.
     if integration.created_by_id == user.id:
         return True
@@ -139,7 +139,7 @@ def _can_change_workspace_settings(integration: WorkspaceIntegration, user: User
 
 
 def set_default_project(integration: WorkspaceIntegration, user: User, target_integration_id: int) -> None:
-    if not _can_change_workspace_settings(integration, user):
+    if not can_change_workspace_settings(integration, user):
         raise WorkspaceSettingsError(
             "Only the person who installed Slack or a project admin can set the default project."
         )
@@ -167,7 +167,7 @@ def join_channels(
         skip_channel_welcome,
     )
 
-    if not _can_change_workspace_settings(integration, user):
+    if not can_change_workspace_settings(integration, user):
         raise WorkspaceSettingsError(
             "Only the person who installed Slack or a project admin can add PostHog to channels."
         )

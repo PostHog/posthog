@@ -53,9 +53,11 @@ class TestAshbySource:
             ("application_history", "/application.list", {"limit": 1}),
             ("interview_stages", "/interviewPlan.list", {"limit": 1}),
             ("candidate_notes", "/candidate.list", {"limit": 1}),
+            ("application_criteria_evaluations", "/application.list", {"limit": 1}),
             # These methods reject unknown request-body keys, so the probe must not send a limit.
             ("interview_stage_groups", "/interviewStageGroup.list", {}),
             ("application_hiring_team_roles", "/applicationHiringTeamRole.list", {}),
+            ("close_reasons", "/closeReason.list", {}),
             # surveyType is required.
             ("survey_submissions", "/surveySubmission.list", {"limit": 1, "surveyType": "CandidateExperience"}),
         ],

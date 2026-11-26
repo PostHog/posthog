@@ -191,8 +191,23 @@ class OrganizationIntegrationViewSet(
             if not Team.objects.filter(pk=tid, organization=org).exists():
                 return Response({"detail": f"Project {tid} does not belong to this organization."}, status=400)
 
-        from ee.vercel.client import VercelAPIClient
+        from ee.vercel.client import InstallationTokenError, VercelAPIClient
         from ee.vercel.integration import get_or_create_connectable_resource
+
+        # Vercel keeps the previous projects' secrets until the import below runs, so a mapping saved
+        # without a token would point Vercel and PostHog at different projects.
+        client: VercelAPIClient | None = None
+        if integration.integration_id:
+            try:
+                client = VercelAPIClient.for_installation(integration.integration_id)
+            except InstallationTokenError as e:
+                capture_exception(e, {"installation_id": integration.integration_id})
+                return Response(
+                    {
+                        "detail": "Couldn't reach Vercel, so the environment mapping is unchanged. Try again in a few minutes."
+                    },
+                    status=502,
+                )
 
         teams_by_id: dict[int, Team] = {}
         resources: dict[int, IntegrationRecord] = {}
@@ -210,16 +225,12 @@ class OrganizationIntegrationViewSet(
         production_team = teams_by_id[production_id]
         production_resource = resources[production_id]
 
-        access_token = integration.sensitive_config.get("credentials", {}).get(
-            "access_token"
-        ) or integration.config.get("credentials", {}).get("access_token")
-        if access_token and integration.integration_id:
+        if client is not None and integration.integration_id:
             from ee.api.vercel.vercel_connect import VercelConnectLinkViewSet
 
             secrets = VercelConnectLinkViewSet._build_env_secrets(
                 teams_by_id, production_id, preview_id, development_id
             )
-            client = VercelAPIClient(bearer_token=access_token)
             client.import_resource(
                 integration_config_id=integration.integration_id,
                 resource_id=str(production_resource.id),

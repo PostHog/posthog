@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
@@ -13,6 +13,8 @@ import type { DashboardV2Controller } from './dashboard/dashboardV2Context'
 import { DashboardV2View } from './dashboard/DashboardV2View'
 import { dashboardV2Logic } from './dashboardV2Logic'
 import { createQueryBatchRunner } from './data/queryBatchRunner'
+import { ANALYTICS_FILTER_TYPES } from './filters/analytics/analyticsFilterTypes'
+import { useDashboardFilters } from './filters/useDashboardFilters'
 import { runSampleQuery } from './fixtures/runSampleQuery'
 import { createChartWidget } from './widgets/chart/createChartWidget'
 import { DEFAULT_WIDGETS } from './widgets/defaultWidgets'
@@ -37,7 +39,9 @@ function DashboardV2(): JSX.Element {
     const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardV2Logic)
     const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardV2Logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentTeamId, timezone } = useValues(teamLogic)
+    const tabRef = useRef(activeTabId)
+    tabRef.current = activeTabId
     // The same pair of flags as the v1 dashboard query layer: the project turns it on, the person sees it.
     const runsRealQueries =
         !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
@@ -48,10 +52,23 @@ function DashboardV2(): JSX.Element {
     const widgets = useMemo(
         () =>
             runsRealQueries && currentTeamId
-                ? [createChartWidget({ runQuery: createQueryBatchRunner(currentTeamId) }), ...NON_CHART_WIDGETS]
+                ? [
+                      createChartWidget({
+                          runQuery: createQueryBatchRunner(currentTeamId, {
+                              context: () => ({ dashboard_tab_id: tabRef.current }),
+                          }),
+                      }),
+                      ...NON_CHART_WIDGETS,
+                  ]
                 : SAMPLE_WIDGETS,
         [runsRealQueries, currentTeamId]
     )
+    // TODO(2026-11-25): Offer filters with real queries once the query batch request carries them; until then only the
+    // sample runner applies them, so a filter bar there would narrow nothing.
+    const { filters, timeRange } = useDashboardFilters({
+        types: runsRealQueries ? undefined : ANALYTICS_FILTER_TYPES,
+        time: { timezone },
+    })
     const controller = useMemo<DashboardV2Controller>(
         () => ({
             dashboard,
@@ -61,6 +78,9 @@ function DashboardV2(): JSX.Element {
             onEdit: applyDashboardEdit,
             onActiveTabChange: setActiveTab,
             history: { canUndo, canRedo, onUndo: undo, onRedo: redo },
+            refresh: {},
+            filters,
+            timeRange,
         }),
         [
             dashboard,
@@ -73,6 +93,8 @@ function DashboardV2(): JSX.Element {
             canRedo,
             undo,
             redo,
+            filters,
+            timeRange,
         ]
     )
 

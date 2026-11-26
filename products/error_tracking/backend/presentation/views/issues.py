@@ -469,6 +469,15 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         except ValueError:
             raise NotFound("Issue not found")
 
+    def _parse_issue_ids(self, ids: object) -> list[UUID]:
+        error = ValidationError({"ids": "Provide a list of valid issue UUIDs."})
+        if not isinstance(ids, list):
+            raise error
+        try:
+            return [UUID(str(issue_id)) for issue_id in ids]
+        except ValueError:
+            raise error
+
     def list(self, request: request.Request, *args: object, **kwargs: object) -> Response:
         return facade_page_response(self, lambda page: facade_api.list_issues_detailed(self.team.id, page=page))
 
@@ -639,10 +648,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     )
     @action(methods=["PATCH"], detail=True)
     def tag(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
-        try:
-            issue_id = UUID(str(pk))
-        except ValueError:
-            raise NotFound("Issue not found")
+        issue_id = self._parse_issue_id(pk)
         key = request.validated_data["key"]
         applied = request.validated_data["applied"]
         try:
@@ -733,13 +739,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     )
     @action(methods=["POST"], detail=False)
     def bulk(self, request: request.Request, **kwargs: object) -> Response:
-        ids = request.data.get("ids", [])
+        issue_ids = self._parse_issue_ids(request.data.get("ids", []))
         bulk_action = request.data.get("action")
         bulk_status = request.data.get("status")
         try:
             changed_issue_count = issues_facade.bulk_update_issues(
                 self.team.id,
-                ids,
+                issue_ids,
                 action=bulk_action,
                 status=bulk_status,
                 assignee=request.data.get("assignee", None),

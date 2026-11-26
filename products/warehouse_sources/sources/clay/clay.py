@@ -206,7 +206,10 @@ def _unexpected_status_message(status_code: int, rejected_message: str) -> str:
 
 def validate_credentials(api_key: str, table_ids: list[str]) -> tuple[bool, str | None]:
     if not table_ids:
-        return False, "Enter at least one Clay table ID or table URL."
+        return False, (
+            "PostHog couldn't find a Clay table ID in what you entered. Open the table in Clay and paste its URL, "
+            "or the ID after /tables/ in that URL, which starts with t_."
+        )
 
     session = make_tracked_session(headers={"clay-api-key": api_key}, redact_values=(api_key,))
 

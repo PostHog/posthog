@@ -67,6 +67,8 @@ class InstanaFanOutConfig:
     parent_field: str
     # Column the parent id is written to on every child row, so rows stay attributable.
     child_field: str
+    # Send the parent id as the `child_field` query param instead of substituting it into `path`.
+    in_query: bool = False
 
 
 @frozen
@@ -124,7 +126,7 @@ def _timestamp_incremental_fields() -> list[IncrementalField]:
 # (applications/services/endpoints) and their daily golden-signal metrics, website, mobile app and
 # synthetic monitoring configs, alerting settings, event specifications, releases, SLOs, Apdex, and
 # the infrastructure snapshot and host agent inventories, users, teams, groups, the audit and access
-# logs, and business perspectives. Trace analytics and synthetic result endpoints are
+# logs, business perspectives, maintenance windows, and the smart alert configs. Trace analytics and synthetic result endpoints are
 # POST-with-body cursor APIs and are intentionally out of scope.
 INSTANA_ENDPOINTS: dict[str, InstanaEndpointConfig] = {
     "events": InstanaEndpointConfig(
@@ -295,6 +297,36 @@ INSTANA_ENDPOINTS: dict[str, InstanaEndpointConfig] = {
     "business_perspectives": InstanaEndpointConfig(
         name="business_perspectives",
         path="/api/business-monitoring/business-perspectives",
+    ),
+    "maintenance_windows": InstanaEndpointConfig(
+        name="maintenance_windows",
+        path="/api/settings/v2/maintenance",
+    ),
+    "infra_alert_configs": InstanaEndpointConfig(
+        name="infra_alert_configs",
+        path="/api/events/settings/infra-alert-configs",
+    ),
+    # The application, website and mobile app smart alert lists each require the id of the entity
+    # they belong to, so they fan out over the matching catalog.
+    "application_alert_configs": InstanaEndpointConfig(
+        name="application_alert_configs",
+        path="/api/events/settings/application-alert-configs",
+        primary_keys=["applicationId", "id"],
+        fan_out=InstanaFanOutConfig(
+            parent="applications", parent_field="id", child_field="applicationId", in_query=True
+        ),
+    ),
+    "website_alert_configs": InstanaEndpointConfig(
+        name="website_alert_configs",
+        path="/api/events/settings/website-alert-configs",
+        primary_keys=["websiteId", "id"],
+        fan_out=InstanaFanOutConfig(parent="websites", parent_field="id", child_field="websiteId", in_query=True),
+    ),
+    "mobile_app_alert_configs": InstanaEndpointConfig(
+        name="mobile_app_alert_configs",
+        path="/api/events/settings/mobile-app-alert-configs",
+        primary_keys=["mobileAppId", "id"],
+        fan_out=InstanaFanOutConfig(parent="mobile_apps", parent_field="id", child_field="mobileAppId", in_query=True),
     ),
 }
 

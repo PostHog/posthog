@@ -10,6 +10,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
@@ -24,8 +26,16 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.recalculation import RECALCULATION_AGE_LIMIT_FEATURE_FLAG
+from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
+from products.experiments.backend.recalculation import (
+    RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+    RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+    RUN_ENTRY_HIDDEN_MESSAGE,
+)
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
+from products.experiments.backend.temporal.recalculation.logic import (
+    _calculate_experiment_metric_for_recalculation_sync,
+)
 from products.experiments.backend.temporal.recalculation.routing import RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG
 from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -414,7 +424,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             ("m2", {"ok": "m2"}),
         ]
         assert tuple(result["configuration_status"] for result in body["results"]) == expected_statuses
-        assert body.get("active_run") is None
+        # The generated API type requires these keys, so an unset value is null, not a missing key.
+        assert body["active_run"] is None
+        assert body["rows_read"] is None
+        assert body["estimated_rows_total"] is None
 
     # ------------------------------------------------------------------
     # GET /metrics_recalculation/{id}/
@@ -436,7 +449,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.json()["status"] == run_status
         assert resp.json()["id"] == str(row.id)
 
-    def test_get_refuses_a_warehouse_native_run_to_a_member_without_connection_access(self):
+    def _warehouse_native_experiment(self, flag_key: str) -> Experiment:
         connection = ExternalDataSource.objects.create(
             team=self.team,
             source_id="bigquery",
@@ -444,7 +457,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             job_inputs={},
         )
-        exp = self._launched_experiment(flag_key="warehouse-native")
+        exp = self._launched_experiment(flag_key=flag_key)
         exp.exposure_criteria = {
             "exposure_config": {
                 "kind": "ExperimentWarehouseNativeExposureConfig",
@@ -468,6 +481,20 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             }
         ]
         exp.save()
+        return exp
+
+    def _remove_connection_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+    def test_get_refuses_a_warehouse_native_run_to_a_member_without_connection_access(self):
+        exp = self._warehouse_native_experiment(flag_key="warehouse-native")
         row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
 
         with mock.patch(
@@ -476,17 +503,21 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             assert self.client.get(self._by_id_url(exp.id, str(row.id))).status_code == status.HTTP_200_OK
 
             # The stored totals came from the warehouse. A member who may not read the connection gets no run.
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-            ]
-            self.organization.save()
-            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
-                level=OrganizationMembership.Level.MEMBER
-            )
-            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+            self._remove_connection_access()
 
-            assert self.client.get(self._by_id_url(exp.id, str(row.id))).status_code == status.HTTP_403_FORBIDDEN
+            denied = self.client.get(self._by_id_url(exp.id, str(row.id)))
+            assert denied.status_code == status.HTTP_403_FORBIDDEN
             assert self.client.get(self._latest_url(exp.id)).status_code == status.HTTP_403_FORBIDDEN
+            # The cold-start fallback reads the experiment again. An exposure change that lands after the view loaded
+            # the experiment must not serve warehouse totals, so the check runs on the instance the fallback reads.
+            fallback = self._warehouse_native_experiment(flag_key="warehouse-native-fallback")
+            self._store_timeseries_point(fallback, "m1", timezone.now() - timedelta(hours=1))
+            stale = Experiment.objects.get(id=fallback.id)
+            stale.exposure_criteria = None
+            with mock.patch.object(EnterpriseExperimentsViewSet, "get_object", return_value=stale):
+                fallback_latest = self.client.get(self._latest_url(fallback.id))
+            assert fallback_latest.status_code == status.HTTP_403_FORBIDDEN
+            assert fallback_latest.json() == denied.json()
             running_time = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/running_time_target/")
             assert running_time.status_code == status.HTTP_403_FORBIDDEN
             timeseries_results = self.client.get(
@@ -506,6 +537,190 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             )
             assert timeseries.status_code == status.HTTP_400_BAD_REQUEST
             assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    def _fail_metric_in_warehouse(
+        self, exp: Experiment, run: ExperimentMetricsRecalculation, error: Exception, *, is_final_attempt: bool
+    ) -> None:
+        assert run.query_to is not None
+        with (
+            mock.patch("products.experiments.backend.temporal.recalculation.logic.close_old_connections"),
+            mock.patch("products.experiments.backend.temporal.recalculation.logic.ExperimentQueryRunner") as runner,
+        ):
+            runner.return_value.exposures_path = None
+            runner.return_value.run.side_effect = error
+            with self.assertRaises(Exception):
+                _calculate_experiment_metric_for_recalculation_sync(
+                    exp.id, "m1", str(run.id), run.query_to.isoformat(), is_final_attempt=is_final_attempt
+                )
+
+    def test_run_reads_serve_errors_and_retries_of_the_current_metric_config_only(self):
+        exp = self._warehouse_native_experiment(flag_key="moved-off-warehouse")
+        warehouse_error = "Not found: Table acme-prod:billing.payments_eu was not found in location EU"
+        finished = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="in_progress",
+            metric_uuids=["m1"],
+            total_metrics=1,
+            query_to=timezone.now() - timedelta(hours=2),
+            started_at=timezone.now() - timedelta(hours=2),
+        )
+        self._fail_metric_in_warehouse(exp, finished, ExposedHogQLError(warehouse_error), is_final_attempt=True)
+        ExperimentMetricsRecalculation.objects.filter(id=finished.id).update(
+            status="completed", completed_at=timezone.now() - timedelta(hours=1)
+        )
+        running = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="in_progress",
+            metric_uuids=["m1"],
+            total_metrics=1,
+            query_to=timezone.now() - timedelta(minutes=5),
+            started_at=timezone.now() - timedelta(minutes=5),
+        )
+        self._fail_metric_in_warehouse(exp, running, RuntimeError(warehouse_error), is_final_attempt=False)
+
+        with mock.patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            finished_body = self.client.get(self._by_id_url(exp.id, str(finished.id))).json()
+            running_body = self.client.get(self._by_id_url(exp.id, str(running.id))).json()
+        assert warehouse_error in finished_body["metric_errors"]["m1"]["message"]
+        assert "calculation_key" not in finished_body["metric_errors"]["m1"]
+        assert finished_body["failed_metrics"] == 1
+        assert list(running_body["metric_retries"]) == ["m1"]
+
+        exp.exposure_criteria = None
+        exp.metrics = [_mean_metric("m1")]
+        exp.save()
+        self._remove_connection_access()
+
+        finished_by_id = self.client.get(self._by_id_url(exp.id, str(finished.id)))
+        latest = self.client.get(self._latest_url(exp.id))
+        running_by_id = self.client.get(self._by_id_url(exp.id, str(running.id)))
+        health = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/health/")
+        for response in (finished_by_id, latest, running_by_id, health):
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert "payments_eu" not in response.content.decode()
+        for body in (finished_by_id.json(), latest.json()):
+            assert body["id"] == str(finished.id)
+            assert (body["metric_errors"], body["failed_metrics"]) == ({}, 0)
+        assert running_by_id.json()["metric_retries"] == {}
+        assert "metric_calculation_failed" not in {finding["code"] for finding in health.json()["findings"]}
+
+    def _finished_run(
+        self, exp: Experiment, metric_errors: dict, metric_retries: dict | None = None
+    ) -> ExperimentMetricsRecalculation:
+        return ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="failed",
+            metric_uuids=["m1"],
+            total_metrics=1,
+            query_to=timezone.now() - timedelta(hours=1),
+            started_at=timezone.now() - timedelta(hours=1),
+            completed_at=timezone.now() - timedelta(minutes=30),
+            metric_errors=metric_errors,
+            metric_retries=metric_retries or {},
+        )
+
+    def test_run_reads_hide_the_message_of_an_entry_without_a_calculation_key(self):
+        exp = self._launched_experiment(flag_key="entry-without-key")
+        warehouse_error = "Not found: Table acme-prod:billing.payments_eu was not found in location EU"
+        error = {
+            "step": "calculation",
+            # The health check quotes the text of a validation error in this stored form.
+            "message": f"[ErrorDetail(string='{warehouse_error}', code='invalid')]",
+            "error_type": "validation_error",
+            "retriable": False,
+            "timestamp": "2026-11-01T10:00:00+00:00",
+            "exposures_path": "direct_scan",
+        }
+        retry = {
+            "attempt": 1,
+            "max_attempts": 3,
+            "error_type": "server_error",
+            "message": warehouse_error,
+            "next_retry_at": "2026-11-01T10:05:00+00:00",
+        }
+        run = self._finished_run(exp, {"m1": error}, {"m1": retry})
+
+        by_id = self.client.get(self._by_id_url(exp.id, str(run.id)))
+        latest = self.client.get(self._latest_url(exp.id))
+        health = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/health/")
+
+        for response in (by_id, latest, health):
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert "payments_eu" not in response.content.decode()
+        for body in (by_id.json(), latest.json()):
+            assert body["id"] == str(run.id)
+            assert body["metric_errors"] == {"m1": {**error, "message": RUN_ENTRY_HIDDEN_MESSAGE}}
+            assert body["failed_metrics"] == 1
+        assert by_id.json()["metric_retries"] == {"m1": {**retry, "message": RUN_ENTRY_HIDDEN_MESSAGE}}
+        assert "metric_calculation_failed" in {finding["code"] for finding in health.json()["findings"]}
+
+    @parameterized.expand(
+        [
+            (
+                "rejected_request",
+                "request",
+                "recalculation_window_too_long",
+                RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+                {},
+            ),
+            (
+                "metric_not_found",
+                "discovery",
+                "validation_error",
+                "Metric m1 not found in experiment 1",
+                {"calculation_key": None},
+            ),
+            ("statistics_error", "calculation", "insufficient_data", "Sample size must be positive", {}),
+        ]
+    )
+    def test_run_reads_keep_the_fixed_text_of_an_entry_without_a_calculation_key(
+        self, _name: str, step: str, error_type: str, message: str, stored_key: dict
+    ):
+        exp = self._launched_experiment(flag_key="fixed-text-entry")
+        error = {
+            "step": step,
+            "message": message,
+            "error_type": error_type,
+            "retriable": False,
+            "timestamp": "2026-11-01T10:00:00+00:00",
+        }
+        run = self._finished_run(exp, {"m1": {**error, **stored_key}})
+
+        body = self.client.get(self._by_id_url(exp.id, str(run.id))).json()
+
+        assert (body["metric_errors"], body["failed_metrics"]) == ({"m1": error}, 1)
+
+    @parameterized.expand(
+        [
+            ("key_of_the_other_key_version", "purchase", True),
+            ("key_of_an_earlier_metric_definition", "checkout", False),
+        ]
+    )
+    def test_run_reads_serve_a_keyed_entry_while_the_current_config_gives_its_key(
+        self, _name: str, current_event: str, served: bool
+    ):
+        exp = self._launched_experiment(flag_key="keyed-entry")
+        error = {
+            "step": "calculation",
+            "message": "The query timed out.",
+            "error_type": "timeout",
+            "retriable": True,
+            "timestamp": "2026-11-01T10:00:00+00:00",
+        }
+        run = self._finished_run(
+            exp, {"m1": {**error, "calculation_key": _calculation_key(exp, "m1", other_version=True)}}
+        )
+        exp.metrics = [{**_mean_metric("m1"), "source": {"kind": "EventsNode", "event": current_event}}]
+        exp.save()
+
+        body = self.client.get(self._by_id_url(exp.id, str(run.id))).json()
+
+        assert (body["metric_errors"], body["failed_metrics"]) == (({"m1": error}, 1) if served else ({}, 0))
 
     def test_get_by_id_404_for_unknown_id(self):
         exp = self._launched_experiment()

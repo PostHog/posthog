@@ -454,9 +454,7 @@ def enqueue_process_query_task(
         dashboard_id=dashboard_id,
         labels=labels,
     )
-    # Only tags someone set: a worker on an older release rejects any key its QueryTags lacks.
-    # traceparent stays off the payload until every worker drops unknown keys (process_query_task).
-    query_tags = get_query_tags().model_dump(exclude_unset=True, exclude={"traceparent"})
+    query_tags = get_query_tags().model_dump(exclude_unset=True)
     manager.store_query_status(query_status)
 
     if cache_key:

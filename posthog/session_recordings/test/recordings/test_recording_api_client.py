@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 import aiohttp
+from aiohttp import web
+from aiohttp.test_utils import TestServer
 
 from posthog.session_recordings.recordings.errors import (
     BlockFetchError,
@@ -462,3 +464,27 @@ class TestClientPreconditions:
         with pytest.raises(RecordingApiConfigurationError):
             async with recording_api_client():
                 pass
+
+
+class TestConnectionRecycling:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("recycle_every,connections", [(0, 1), (5, 2)])
+    async def test_recycling_moves_block_fetches_onto_new_connections(self, recycle_every, connections):
+        peers: set[int] = set()
+
+        async def block(request: web.Request) -> web.Response:
+            assert request.transport is not None
+            peers.add(request.transport.get_extra_info("peername")[1])
+            return web.Response(body=b"x")
+
+        app = web.Application()
+        app.router.add_get("/api/projects/{team}/recordings/{session}/block", block)
+        async with TestServer(app) as server:
+            with override_settings(RECORDING_API_JWT_SECRET="dev-secret"):
+                async with recording_api_client(
+                    1, base_url=str(server.make_url("")), recycle_connection_every=recycle_every
+                ) as client:
+                    for _ in range(10):
+                        await client.fetch_block("key", 0, 1, "session-1", 1)
+
+        assert len(peers) == connections

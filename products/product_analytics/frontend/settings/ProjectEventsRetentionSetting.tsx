@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { PostHogCaptureOnViewed } from 'posthog-js/react'
 
 import { Link } from '@posthog/lemon-ui'
 import { Button, Text } from '@posthog/quill'
@@ -67,7 +68,11 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
 
     if (todayRailNav) {
         return (
-            <div className="flex flex-col gap-2">
+            <PostHogCaptureOnViewed
+                name="events-retention-settings"
+                properties={{ level: 'project' }}
+                className="flex flex-col gap-2"
+            >
                 <Text size="xs" variant="muted" render={<p className="m-0 max-w-160" />}>
                     Choose how long this project keeps events.{' '}
                     <Button
@@ -81,12 +86,12 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                 </Text>
                 <EventsRetentionPlanNote plan={projectRetention} />
                 {periodSelect}
-            </div>
+            </PostHogCaptureOnViewed>
         )
     }
 
     return (
-        <div>
+        <PostHogCaptureOnViewed name="events-retention-settings" properties={{ level: 'project' }}>
             <p className="max-w-160 text-sm text-secondary mb-2">
                 Choose how long this project keeps events.{' '}
                 <Link to={projectRetention.docs_url} target="_blank">
@@ -95,6 +100,6 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
             </p>
             <EventsRetentionPlanNote plan={projectRetention} />
             {periodSelect}
-        </div>
+        </PostHogCaptureOnViewed>
     )
 }

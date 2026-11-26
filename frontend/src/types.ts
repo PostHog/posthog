@@ -618,6 +618,8 @@ export interface PersonalAPIKeyType {
     scopes: string[]
     scoped_organizations?: OrganizationType['id'][] | null
     scoped_teams?: TeamType['id'][] | null
+    /** Name of the partner application that created the key while provisioning a project. */
+    provisioned_by_name?: string | null
 }
 
 export interface ProjectSecretAPIKeyRequest {
@@ -4779,6 +4781,7 @@ export interface PrevalidatedInvite {
     target_email: string
     first_name: string
     organization_name: string
+    radar_client_id?: string
 }
 
 interface InstancePreferencesInterface {
@@ -4842,6 +4845,8 @@ export interface PreflightStatus {
     webmcp_available?: boolean
     /** Origin of the PostHog instance that issues CIMD verification tokens. Empty when this instance issues them. */
     cimd_verification_token_issuer_url?: string
+    /** ISO time from which a new experiment counts `$experiment_exposure` (`EXPERIMENT_EXPOSURE_EVENT_CUTOFF`). Null when every experiment counts `$feature_flag_called`. */
+    experiment_exposure_event_cutoff?: string | null
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
@@ -6222,6 +6227,8 @@ export enum ActivityScope {
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_SKILL = 'LLMSkill',
     LLM_TRACE = 'LLMTrace',
+    TRACE_REVIEW = 'TraceReview',
+    SCORE_DEFINITION = 'ScoreDefinition',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
@@ -6772,6 +6779,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. */
     webhook_not_registered?: boolean
+    webhook_issue?: ExternalDataSchemaApi['webhook_issue']
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.

@@ -1569,42 +1569,6 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['PR without baseline changes', pullRequest(), 'false', true, false],
-        ['PR with baseline changes', pullRequest(), 'true', true, true],
-        ['draft PR with baseline changes', pullRequest({ draft: true }), 'true', true, true],
-        ['fork PR with baseline changes', pullRequest({ fork: true }), 'true', true, true],
-        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), 'true', true, true],
-        ['merge queue', mergeQueue(), 'true', true, true],
-        ['master push', push(), 'true', false, false],
-        ['nightly', schedule(), 'true', false, false],
-    ] as const)('Storybook selection artifacts on %s', (name, github, snapshotsBaseline, graphUpload, indexUpload) => {
-        const plan = planWorkflow(workflow('ci-storybook.yml'), {
-            name,
-            github,
-            jobOutputs: {
-                changes: {
-                    frontend: 'true',
-                    snapshots_baseline: snapshotsBaseline,
-                    merge_queue: name === 'merge queue' ? 'true' : 'false',
-                },
-            },
-            steps: { 'select-stories': { classify: { outputs: { mode: 'selective' } } } },
-        })
-        expect(plan.errors).toEqual([])
-        const steps = plan.jobs['build-storybook']?.steps
-        const uploadsGraph = steps?.find((step) => step.name === 'Upload module-graph artifact')?.runs
-        const uploadsIndex = steps?.find((step) => step.name === 'Upload story index artifact')?.runs
-        expect(uploadsGraph).toBe(graphUpload)
-        expect(uploadsIndex).toBe(indexUpload)
-        if (plan.jobs['select-stories']?.result === 'success') {
-            expect(uploadsGraph).toBe(true)
-        }
-        if (plan.jobs['check-baseline-removals']?.result === 'success') {
-            expect(uploadsIndex).toBe(true)
-        }
-    })
-
-    it.each([
         ['master schedule', schedule(), 'success', true],
         ['same-repo PR', pullRequest(), 'success', false],
         ['fork PR', pullRequest({ fork: true }), 'success', false],

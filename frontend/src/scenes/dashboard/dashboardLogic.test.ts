@@ -395,23 +395,45 @@ describe('dashboardLogic', () => {
 
     describe('parent breadcrumb', () => {
         it.each([
-            ['the Dashboards list without a back link', {}, { name: 'Dashboards', path: urls.dashboards() }],
+            ['the Dashboards list without the flag', {}, {}, { name: 'Dashboards', path: urls.dashboards() }],
             [
-                "a flag's usage link",
+                'the Analytics list with the flag',
+                { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true },
+                {},
+                { name: 'Analytics', path: urls.analyticsList() },
+            ],
+            [
+                'the Analytics page that opened it',
+                { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true },
+                { backUrl: '/analytics/mine', backName: 'Analytics' },
+                { name: 'Analytics', path: '/analytics/mine' },
+            ],
+            [
+                "a flag's usage link over the Analytics list",
+                { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true },
+                { backUrl: '/feature_flags/12', backName: 'my-flag' },
+                { name: 'my-flag', path: '/feature_flags/12' },
+            ],
+            [
+                "a flag's usage link without the flag",
+                {},
                 { backUrl: '/feature_flags/12', backName: 'my-flag' },
                 { name: 'my-flag', path: '/feature_flags/12' },
             ],
             [
                 'the Dashboards list for a link to another site',
+                {},
                 { backUrl: 'https://other.example/page', backName: 'Settings' },
                 { name: 'Dashboards', path: urls.dashboards() },
             ],
             [
                 'the Dashboards list for a protocol-relative link',
+                {},
                 { backUrl: '//other.example/page', backName: 'Settings' },
                 { name: 'Dashboards', path: urls.dashboards() },
             ],
-        ])('is %s', (_, searchParams, expected) => {
+        ])('is %s', (_, flags, searchParams, expected) => {
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
             router.actions.push(urls.dashboard(5), searchParams)
             logic = dashboardLogic({ id: 5 })
             logic.mount()
