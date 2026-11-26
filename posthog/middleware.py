@@ -1332,7 +1332,7 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
 
 
 def _human_or_anonymous(user: Any) -> Any:
-    if getattr(user, "is_service_account", False):
+    if isinstance(user, User) and not user.is_human:
         return AnonymousUser()
     return user
 

@@ -454,6 +454,10 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             self.is_staff = False
 
     @property
+    def is_human(self) -> bool:
+        return self.type == UserType.HUMAN
+
+    @property
     def is_service_account(self) -> bool:
         return self.type == UserType.SERVICE_ACCOUNT
 

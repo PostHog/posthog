@@ -296,7 +296,7 @@ class Impersonation:
         """Why nobody can log in as this user. Staff log in as any other user. CAN_LOGIN_AS refuses the same cases on post."""
         if user.is_staff:
             return "This user is staff. Nobody can log in as a staff account"
-        if user.is_service_account:
+        if not user.is_human:
             return "Service accounts cannot use browser sessions"
         if user.allow_impersonation is False:
             return "This user turned off log in as user"

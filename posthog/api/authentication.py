@@ -576,7 +576,7 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        if user.is_service_account:
+        if not user.is_human:
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         if radar_attempt and radar_attempt.attempt_id:
@@ -875,7 +875,7 @@ class DevLoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
         user = EmailLookupHandler.get_user_by_email(validated_data["email"])
-        if user is None or user.is_service_account:
+        if user is None or not user.is_human:
             raise serializers.ValidationError("User not found", code="user_not_found")
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -1536,7 +1536,7 @@ class PasswordResetSerializer(serializers.Serializer):
                 code="email_not_available",
             )
 
-        if user and not user.is_service_account:
+        if user and user.is_human:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
             user.save()
             token = password_reset_token_generator.make_token(user)
@@ -1810,7 +1810,7 @@ def social_access_rules_allow(
         # A new account is checked where it is created: the signup serializer, or the SSO invite
         # and verified-domain joins in posthog/api/signup.py.
         return
-    if user.is_service_account:
+    if not user.is_human:
         raise AuthFailed(backend, "Authentication failed.")
     if _sso_access_refused(strategy.request, user):
         raise AuthFailed(backend, SECURITY_REFUSAL_CODE)

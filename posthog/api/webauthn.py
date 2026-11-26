@@ -394,7 +394,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         pass. Email verification is the exception: it raises, so the DRF handler formats the 401
         the password path also returns.
         """
-        if verified_user.is_service_account:
+        if not verified_user.is_human:
             return _login_error("Authentication failed.")
 
         evaluate_auth_attempt(
