@@ -267,7 +267,7 @@ def swap_flag_calls(
             source=node,
             resolved=_without_unreadable_inline_cohort_scans(resolve(node), context, scope),
         )
-    # The resolver skips the swap of a view body under an enclosing CTE named `events`, and that body can still read
+    # The resolver skips the swap of a view body under an enclosing CTE named `events`. That body can still read
     # `posthog.events`. The check reads the whole resolved query, so it runs once, for the top-level query.
     if context.flag_calls_only_in_flag_evaluations() and scope is None:
         unswapped_view = _view_reading_flag_calls_from_events(swap.resolved)
