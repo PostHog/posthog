@@ -216,7 +216,8 @@ function SiteThemeCard(props: SiteThemeCardProps): JSX.Element {
                     to={urls.settings('environment-replay', 'replay')}
                     target="_blank"
                     className="text-xs"
-                    onClick={() => reportSiteThemeReplayLinkClicked(props.survey.id)}
+                    onClickCapture={() => reportSiteThemeReplayLinkClicked(props.survey.id)}
+                    onAuxClick={(event) => event.button === 1 && reportSiteThemeReplayLinkClicked(props.survey.id)}
                 >
                     Turn on session replay
                 </Link>
