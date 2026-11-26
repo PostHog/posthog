@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import { Duration, durationMs } from '../duration'
 
+const MAX_TIMER_MS = 2 ** 31 - 1
+
 export const CdpRole = z.enum([
     'cdp-processed-events',
     'cdp-cyclotron-worker-hogflow',
@@ -18,10 +20,18 @@ export type Named = z.infer<typeof Named>
 
 export const RunningOnQueue = z
     .object({
-        name: z.literal('running_on_queue', { error: 'running_on_queue is the only predicate' }),
+        name: z.literal('running_on_queue'),
         params: z.object({ queue: z.enum(['hogflow', 'email']), atLeast: z.number().int().min(1) }).strict(),
     })
     .strict()
+
+export const EdgeAccepted = z
+    .object({ name: z.literal('edge_accepted'), params: z.object({ channel: z.literal('ses') }).strict() })
+    .strict()
+
+const When = z.discriminatedUnion('name', [RunningOnQueue, EdgeAccepted], {
+    error: 'the predicates are running_on_queue and edge_accepted',
+})
 
 export const ValveEntry = z
     .object({
@@ -29,11 +39,15 @@ export const ValveEntry = z
         target: z.string(),
         dose: z.record(z.string(), z.unknown()),
         at: Duration.optional(),
-        when: RunningOnQueue.optional(),
+        when: When.optional(),
         for: Duration,
     })
     .strict()
-    .refine((entry) => (entry.at === undefined) !== (entry.when === undefined), 'exactly one of at, when')
+    .refine((entry) => entry.at !== undefined || entry.when !== undefined, 'give at, when or both')
+    .refine((entry) => entry.at === undefined || durationMs(entry.at) <= MAX_TIMER_MS, {
+        message: `at is past ${MAX_TIMER_MS}ms, the longest a timer waits`,
+        path: ['at'],
+    })
 export type ValveEntry = z.infer<typeof ValveEntry>
 
 export const RampStep = z.object({ scale: z.number().positive(), for: Duration }).strict()
@@ -83,6 +97,7 @@ export const Card = z
         measure: z.array(Named).default([]),
         bars: z.array(Named).default([]),
         gates: z.record(z.string(), z.number()).default({}),
+        pair: z.boolean().optional(),
     })
     .strict()
     .refine(({ drive, valves }) => !drive.stopOnBreak || valves.length === 0, {

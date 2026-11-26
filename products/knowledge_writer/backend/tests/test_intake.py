@@ -122,7 +122,7 @@ KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer
 MERGE_WORKFLOW_MODULE = "products.knowledge_writer.backend.temporal.merge_workflow"
 START_PUBLISH = "products.knowledge_writer.backend.temporal.client.start_publish"
 CAPTURE_DRAFT = "products.knowledge_writer.backend.logic.pull_requests.ph_scoped_capture"
-GROUNDING_GATEWAY = "products.knowledge_writer.backend.logic.grounding.build_ai_gateway_anthropic_client"
+GROUNDING_GATEWAY = "products.knowledge_writer.backend.logic.grounding.build_anthropic_client"
 SHARING_PAGE_PATH = "contents/docs/session-replay/sharing.mdx"
 NEW_PAGE_HEADING = "# Retention presets"
 NEW_PAGE_LINE = "Pick a preset to keep recordings for 90 days."
@@ -419,7 +419,7 @@ def _grounding_gateway(quote_by_line: Mapping[str, str] | None):
         ]
         return SimpleNamespace(stop_reason="end_turn", parsed_output=GroundingReply(lines=supports))
 
-    client = SimpleNamespace(messages=SimpleNamespace(parse=parse))
+    client = SimpleNamespace(messages=SimpleNamespace(parse=parse), default_headers={})
     client.with_options = lambda **_options: client
     return lambda **_client_options: client
 
@@ -1571,6 +1571,8 @@ NAV_HEAD_TEXT = """export const docsMenu = [
 CREDENTIALED_ORIGIN_URL = "https://x-access-token:ghs_example@github.com/acme/docs.git"
 FAKE_UVX = """#!/bin/sh
 [ -z "$GH_TOKEN" ] && [ -z "$BASH_ENV" ] && [ -z "$AWS_ACCESS_KEY_ID" ] && [ "$PIP_ONLY_BINARY" = ":all:" ] || exit 3
+[ "$NODE_USE_ENV_PROXY" = 1 ] && [ "$COREPACK_ON_UNVERIFIED_DOWNLOAD" = strict-error ] || exit 3
+[ -d "$COREPACK_HOME" ] && [ -z "$(ls -A "$COREPACK_HOME")" ] && touch "$COREPACK_HOME/planted" || exit 3
 git remote get-url origin | grep -q ghs_ && exit 3
 case "$*" in *install-hooks*) exit 0 ;; esac
 [ -f .git/fake-uvx-ran ] && exit 0

@@ -209,8 +209,10 @@ import type {
     SlackChannelScoutCreateResponseApi,
     SlackScoutChannelSourcesApi,
     SourceFilterCatalogListApi,
+    SourceFilterExpressionRequestApi,
     SourceFilterPreviewRequestApi,
     SourceFilterPreviewResponseApi,
+    SourceFilterValidateResponseApi,
     SourceSpendApi,
     SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
@@ -1502,7 +1504,7 @@ export const getSignalsReportArtefactsListUrl = (
 }
 
 /**
- * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). Pass `type` to keep only some artefact types. `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
  * @summary List a report's artefacts
  */
 export const signalsReportArtefactsList = async (
@@ -3119,7 +3121,7 @@ export const getSignalsScoutEmitReportUrl = (projectId: string, runId: string) =
 }
 
 /**
- * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate. A report for a GitHub issue that an open report already names is refused with `source_issue_already_reported` and that report's id, unless a `follow_up_of`, `part_of`, `depends_on` or `recurrence_of` link names it.
  * @summary Author a full report for a run
  */
 export const signalsScoutEmitReport = async (
@@ -3834,6 +3836,27 @@ export const signalsSourceConfigsFilterPreviewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sourceFilterPreviewRequestApi),
+    })
+}
+
+export const getSignalsSourceConfigsFilterValidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/filter_validate/`
+}
+
+/**
+ * Check whether a filter expression can be saved as the source's filter, and where it is invalid when it cannot. Checks the expression against the source's active catalog only: reads no warehouse records and works before the source is connected or synced. An empty expression is valid. Saves nothing.
+ * @summary Validate a source filter
+ */
+export const signalsSourceConfigsFilterValidateCreate = async (
+    projectId: string,
+    sourceFilterExpressionRequestApi: SourceFilterExpressionRequestApi,
+    options?: RequestInit
+): Promise<SourceFilterValidateResponseApi> => {
+    return apiMutator<SourceFilterValidateResponseApi>(getSignalsSourceConfigsFilterValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourceFilterExpressionRequestApi),
     })
 }
 

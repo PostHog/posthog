@@ -1,3 +1,7 @@
+.DashboardV2 {
+    --dv2-interaction-color: var(--color-blue-500);
+}
+
 .DashboardV2View__canvas {
     min-width: 0;
 

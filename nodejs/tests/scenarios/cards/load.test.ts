@@ -57,6 +57,8 @@ const emailWorkerKill = {
     for: '1s',
 }
 
+const edgeAccepted = { name: 'edge_accepted', params: { channel: 'ses' } }
+
 describe('load', () => {
     let dir: string
 
@@ -240,6 +242,21 @@ describe('load', () => {
             { ...profile, replicas: { 'cdp-api': 2 } },
             `valves.0.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
         ]),
+        ...[
+            ['role.kill', 'cdp-api'],
+            ['role.freeze', 'cdp-cyclotron-worker-email'],
+        ].map(([valve, target]): [string, object, object, string] => [
+            `edge_accepted on ${valve} of ${target}`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, target, when: edgeAccepted }] },
+            { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
+            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill on cdp-cyclotron-worker-email",
+        ]),
+        [
+            'edge_accepted while the profile runs more than one email worker',
+            { ...card, valves: [{ ...emailWorkerKill, when: edgeAccepted }] },
+            { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
+            "valves.0.target: role.kill stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card",
+        ],
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
@@ -275,16 +292,56 @@ describe('load', () => {
             'valves.0.when.params.queue: ',
         ],
         [
-            'both at and when',
-            { ...card, valves: [{ ...emailWorkerKill, at: '5s' }] },
+            'a valve with neither at nor when',
+            { ...card, valves: [{ ...emailWorkerKill, when: undefined }] },
             undefined,
-            'valves.0: exactly one of at, when',
+            'valves.0: give at, when or both',
         ],
         [
-            'a when predicate other than running_on_queue',
+            'a valve that fires inside the baseline load admission measures',
+            {
+                ...card,
+                drive: { ...card.drive, for: '60s' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '5s' }],
+            },
+            { ...profile, settings: sesSettings, load: emailLoad },
+            "valves.0.at: the valve can fire 5s into the drive, inside the 30s fault-free baseline and the role scrape that closes it, which load admission's claim rates need; set at to 37s or later",
+        ],
+        [
+            'a when valve with no arming delay on a profile with host admission',
+            { ...card, drive: { ...card.drive, for: '60s' }, valves: [emailWorkerKill] },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            'valves.0.at: the valve can fire 0s into the drive, inside the 30s fault-free baseline that load and host admission measure; set at to 30s or later',
+        ],
+        [
+            'a when valve armed before the slowest scrape that closes the baseline on a profile with claim rates',
+            { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '36s' }] },
+            { ...profile, settings: sesSettings, load: emailLoad },
+            "valves.0.at: the valve can fire 36s into the drive, inside the 30s fault-free baseline and the role scrape that closes it, which load admission's claim rates need; set at to 37s or later",
+        ],
+        [
+            'a valve offset longer than a timer can wait',
+            { ...card, valves: [{ ...emailWorkerKill, at: '2147483648ms' }] },
+            undefined,
+            'valves.0.at: at is past 2147483647ms, the longest a timer waits',
+        ],
+        [
+            'a valve offset that is no duration',
+            { ...card, valves: [{ ...emailWorkerKill, at: '10sec' }] },
+            undefined,
+            'valves.0.at: a duration such as 500ms, 30s or 5m',
+        ],
+        [
+            'a valve armed past the end of the drive on a profile with admission',
+            { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '60s' }] },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+            "valves.0.at: 60s is past the drive's end at 60s, so the valve never fires",
+        ],
+        [
+            'a when predicate the runner does not know',
             { ...card, valves: [{ ...emailWorkerKill, when: { ...emailWorkerKill.when, name: 'queue_empty' } }] },
             undefined,
-            'valves.0.when.name: running_on_queue is the only predicate',
+            'valves.0.when.name: the predicates are running_on_queue and edge_accepted',
         ],
         [
             'running_on_queue without its queue',
@@ -708,6 +765,21 @@ describe('load', () => {
         ],
         ['a profile that runs more than one cdp-api', card, { ...profile, replicas: { 'cdp-api': 3 } }],
         [
+            'a when valve armed once the slowest scrape that closes the baseline is in',
+            { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '37s' }] },
+            { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
+        ],
+        [
+            'a when valve armed at the end of the baseline on a profile with host admission only',
+            { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '30s' }] },
+            { ...profile, host: { cpuCeiling: 0.5 } },
+        ],
+        [
+            'a valve inside the baseline on a profile without admission',
+            { ...card, valves: [{ ...emailWorkerKill, when: undefined, at: '5s' }] },
+            profile,
+        ],
+        [
             'a kill valve on another role while the profile runs more than one cdp-api',
             { ...card, valves: [emailWorkerKill] },
             { ...profile, replicas: { 'cdp-api': 2 } },
@@ -720,6 +792,7 @@ describe('load', () => {
 
     it.each<[string, [object, object], [object, object], boolean]>([
         ['leaves out the gates', [card, profile], [{ ...card, gates: { duplicate_sends: 3 } }, profile], true],
+        ['leaves out the cloud pair', [card, profile], [{ ...card, pair: true }, profile], true],
         [
             'ignores the key order of the profile settings',
             [card, { ...profile, settings }],
@@ -748,4 +821,22 @@ describe('load', () => {
     ])('loads the shipped card %s on the %s target with the shipped definitions and profile', (file, target) => {
         expect(load(path.join(__dirname, file), { target }).card.id).toBe(path.basename(file, '.yaml'))
     })
+
+    it.each(['ses-ambiguous-send', 'email-worker-killed-after-accept'])(
+        'loads the chaos card %s on a profile with load and host admission',
+        (id) => {
+            const admitted = {
+                ...profile,
+                traffic: Object.fromEntries(
+                    ['event_email', 'event_webhook', 'transactional_email'].map((name) => [name, { ratePerSecond: 2 }])
+                ),
+                settings: sesSettings,
+                load: emailLoad,
+                host: { cpuCeiling: 0.5 },
+            }
+            const profilePath = write('profile.yaml', admitted)
+
+            expect(load(path.join(__dirname, `${id}.yaml`), { profilePath }).card.id).toBe(id)
+        }
+    )
 })

@@ -101,7 +101,15 @@ An API key grants access to every workspace your user belongs to. To sync a sing
         # urllib3 raises "... Max retries exceeded with url: ...". Temporal retries the activity, so the
         # failure is transient and must not be reported as an exception.
         # The adapter does not retry a failed read, so that error keeps the urllib3 message of its cause.
-        return {"Max retries exceeded with url", "Read timed out", "Connection aborted", "Connection broken"}
+        # `RenderRetryableError` is the same contract for a 429/5xx response that survived the in-process
+        # retries in `_fetch_page`: Temporal retries the activity from there, so it's self-recovering too.
+        return {
+            "Max retries exceeded with url",
+            "Read timed out",
+            "Connection aborted",
+            "Connection broken",
+            "Render API error (retryable)",
+        }
 
     def get_schemas(
         self,

@@ -504,7 +504,6 @@ async def detect_adjusted_runs_into_snapshot(
     groups = plan.selection.groups
 
     async with build_async_anthropic_client(
-        product="django",
         ai_product="data_catalog_usage_judge",
         team_id=team_id,
         trace_id=f"data-catalog-usage-{snapshot_id}",

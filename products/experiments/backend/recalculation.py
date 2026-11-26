@@ -57,9 +57,9 @@ from products.experiments.backend.temporal.recalculation.dispatch import (
 # can recover within an hour if the workflow never started (Temporal connect failure, transient infra issue,
 # etc.). See the rollback in start_metrics_recalculation_workflow for the happy-path failure handling; this TTL
 # is the defense-in-depth backstop if that rollback itself fails.
-_STALE_RECALC_THRESHOLD = timedelta(minutes=30)
+STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
-# A calc that waits on the activity or precompute queue has no time budget, so a row past _STALE_RECALC_THRESHOLD
+# A calc that waits on the activity or precompute queue has no time budget, so a row past STALE_RECALC_THRESHOLD
 # stays active while Temporal says its workflow may still run, up to this ceiling. Past it, the row is stale
 # whatever Temporal says, so a stuck workflow or a Temporal outage cannot block an experiment for longer.
 _QUEUED_RECALC_CEILING = timedelta(hours=1)
@@ -186,7 +186,7 @@ class RunMetricCounts:
     failed_metrics: int
 
 
-def _derive_counters(results: list[dict], metric_errors: Mapping[str, Any]) -> RunMetricCounts:
+def derive_counters(results: list[dict], metric_errors: Mapping[str, Any]) -> RunMetricCounts:
     """Counters are not stored on the row (PR1 contract): they're derived on read from result rows + errors.
 
     `failed_metrics`    = metrics with an ExperimentMetricResult row with status=FAILED or a `metric_errors` entry.
@@ -321,7 +321,7 @@ def build_job_payload(
     configs = build_calculation_configs(recalc.experiment)
     results = get_run_results(recalc, configs=configs)
     metric_errors = entries_of_current_configs(recalc.metric_errors, configs)
-    counts = _derive_counters(results, metric_errors)
+    counts = derive_counters(results, metric_errors)
     payload: dict = {
         "id": str(recalc.id),
         "experiment_id": recalc.experiment_id,
@@ -413,7 +413,7 @@ def _create_rejected_recalculation(
     of that run and the earlier results stay readable.
     """
     now = timezone.now()
-    previous = _terminal_recalculations(experiment).order_by("-created_at").first()
+    previous = terminal_recalculations(experiment).order_by("-created_at").first()
     metrics = get_metrics_for_calculation(experiment)
     error = {
         "step": "request",
@@ -476,10 +476,10 @@ def _request_recalculation(
 
         # Activity-aware staleness: PENDING rows anchor on created_at (workflow never reached its start
         # activity); IN_PROGRESS rows anchor on started_at (workflow began executing then stalled). A row past
-        # the threshold is skipped here, and _queued_recalculation below decides whether it is still alive.
+        # the threshold is skipped here, and queued_recalculation below decides whether it is still alive.
         # Without this, a PENDING row left orphaned by a Temporal-connect failure that also lost its rollback
         # UPDATE would permanently lock the experiment out of recalculations.
-        threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+        threshold = timezone.now() - STALE_RECALC_THRESHOLD
         existing = (
             ExperimentMetricsRecalculation.objects.filter(experiment=experiment)
             .filter(
@@ -492,7 +492,7 @@ def _request_recalculation(
             _recalculation_reuse_counter.inc()
             return build_job_payload(existing, is_existing=True)
 
-        queued = _queued_recalculation(experiment)
+        queued = queued_recalculation(experiment)
         if queued is not None:
             _recalculation_reuse_counter.inc()
             return build_job_payload(queued, is_existing=True)
@@ -500,7 +500,7 @@ def _request_recalculation(
         if trigger in _RATE_LIMITED_TRIGGERS and _refresh_window_enforced(experiment):
             # get the latest terminal run and check against the rate limiting rules
             # if matched, increment counter and raise so the API answers 429 with Retry-After
-            latest = _terminal_recalculations(experiment).order_by("-created_at").first()
+            latest = terminal_recalculations(experiment).order_by("-created_at").first()
             if (
                 latest is not None
                 and latest.status == ExperimentMetricsRecalculation.Status.COMPLETED
@@ -513,7 +513,7 @@ def _request_recalculation(
                 raise RecalculationRateLimited(wait=(next_allowed_at - timezone.now()).total_seconds())
 
         if trigger == ExperimentMetricsRecalculation.Trigger.STALE_REFRESH:
-            latest = _terminal_recalculations(experiment).order_by("-created_at").first()
+            latest = terminal_recalculations(experiment).order_by("-created_at").first()
             if (
                 latest is not None
                 and latest.query_to is not None
@@ -573,10 +573,10 @@ def active_recalculation_filter() -> Q:
     """The rows that block a new recalculation: PENDING or IN_PROGRESS, inside the staleness bound.
 
     The scheduled discovery applies the same filter to many experiments in one query. A row past the bound can
-    still be active while its workflow may run (_queued_recalculation); get_active_recalculation and the request
+    still be active while its workflow may run (queued_recalculation); get_active_recalculation and the request
     path check that one experiment at a time.
     """
-    threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+    threshold = timezone.now() - STALE_RECALC_THRESHOLD
     return Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold) | Q(
         status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold
     )
@@ -590,15 +590,15 @@ def get_active_recalculation(experiment: Experiment) -> ExperimentMetricsRecalcu
             .order_by("-created_at")
             .first()
         )
-        return active if active is not None else _queued_recalculation(experiment)
+        return active if active is not None else queued_recalculation(experiment)
 
 
-def _queued_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
-    """An active row between _STALE_RECALC_THRESHOLD and _QUEUED_RECALC_CEILING whose workflow may still run.
+def queued_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
+    """An active row between STALE_RECALC_THRESHOLD and _QUEUED_RECALC_CEILING whose workflow may still run.
 
     Callers hold the team scope. It asks Temporal only when such a row exists.
     """
-    threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+    threshold = timezone.now() - STALE_RECALC_THRESHOLD
     ceiling = timezone.now() - _QUEUED_RECALC_CEILING
     candidates = (
         ExperimentMetricsRecalculation.objects.filter(team=experiment.team, experiment=experiment)
@@ -622,7 +622,7 @@ def _queued_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculat
     return None
 
 
-def _terminal_recalculations(experiment: Experiment) -> QuerySet[ExperimentMetricsRecalculation]:
+def terminal_recalculations(experiment: Experiment) -> QuerySet[ExperimentMetricsRecalculation]:
     """Runs that really finished. Callers hold the team scope.
 
     completed_at is only ever stamped by the workflow's finalize step, so it separates runs that really
@@ -637,7 +637,7 @@ def _terminal_recalculations(experiment: Experiment) -> QuerySet[ExperimentMetri
 
 def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
     with team_scope(experiment.team_id, canonical=True):
-        return _terminal_recalculations(experiment).order_by("-created_at").first()
+        return terminal_recalculations(experiment).order_by("-created_at").first()
 
 
 def get_recalculation_by_id(experiment: Experiment, recalculation_id: str) -> ExperimentMetricsRecalculation | None:

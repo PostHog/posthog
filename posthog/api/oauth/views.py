@@ -90,6 +90,7 @@ from posthog.api.oauth.metadata import (
 )
 from posthog.api.oauth.oauthlib_core import translate_scope_param
 from posthog.api.oauth.step_up import resolve_step_up_grant
+from posthog.api.oauth.toolbar_service import sync_toolbar_scope_ceiling_on_refresh
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
@@ -938,6 +939,12 @@ class OAuthValidator(OAuth2Validator):
             rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
             application = rt.application if rt else None
 
+        # The toolbar app's ceiling is synced here rather than only on a toolbar launch, because a
+        # toolbar that keeps a stored token never launches, and the token also refreshes at this
+        # endpoint without the toolbar. The sync updates `application.scopes` before the narrowing below.
+        if isinstance(application, OAuthApplication) and sync_toolbar_scope_ceiling_on_refresh(application):
+            raise InvalidGrantError(description="Application sessions were revoked; re-authorize.", request=request)
+
         if isinstance(application, OAuthApplication) and application.is_self_registered and "*" in original_list:
             original_list = clamp_scopes_to_ceiling(original_list, application.ceiling_scopes)
 
@@ -1043,10 +1050,24 @@ class OAuthValidator(OAuth2Validator):
                 user_id=presented_refresh_token.user_id,
                 application_id=presented_refresh_token.application_id,
             )
-            # DOT validated this token in autocommit, so a revoke may have deleted the row while
-            # this request waited for the lock. DOT's own re-read is an unguarded `.get()`, which
-            # would surface as a 500; reject the grant instead so the client re-authorizes.
-            if not OAuthRefreshToken.objects.filter(pk=presented_refresh_token.pk).exists():
+            # DOT validated this token in autocommit, so while this request waited for the lock a
+            # revoke may have deleted the row, or a resource removal may have narrowed its teams.
+            # Re-read it so the new tokens copy the committed scope. DOT's own re-read is an
+            # unguarded `.get()`, which would surface as a 500 for a deleted row; reject the grant
+            # instead so the client re-authorizes.
+            was_restricted = bool(presented_refresh_token.scoped_teams or presented_refresh_token.scoped_organizations)
+            try:
+                presented_refresh_token.refresh_from_db(fields=["scoped_teams", "scoped_organizations"])
+            except OAuthRefreshToken.DoesNotExist:
+                raise InvalidGrantError(
+                    description="This application's access was revoked; re-authorize.",
+                    request=request,
+                )
+            # An empty list means unrestricted, so a token whose last team was removed meanwhile
+            # must end here rather than mint tokens that reach every team.
+            if was_restricted and not (
+                presented_refresh_token.scoped_teams or presented_refresh_token.scoped_organizations
+            ):
                 raise InvalidGrantError(
                     description="This application's access was revoked; re-authorize.",
                     request=request,
@@ -2425,7 +2446,7 @@ class OAuthTokenView(TokenView):
 
         try:
             issued_access_token = id_jag.issue_access_token(
-                assertion, request.POST.get("scope"), client.client_id, request.POST.get("resource")
+                assertion, request.POST.get("scope"), client, request.POST.get("resource")
             )
         except id_jag.IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)

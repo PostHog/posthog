@@ -34,6 +34,8 @@ EXCLUDED_HAS_COHORT_REF = "excluded_has_cohort_ref"
 EXCLUDED_CYCLE_DETECTED = "excluded_cycle_detected"
 EXCLUDED_UNRESOLVED_REF = "excluded_unresolved_ref"
 EXCLUDED_HAS_DROPPED_LEAF = "excluded_has_dropped_leaf"
+# A leaf drop label. `realtime_state.py` reports it as an unsupported time range, so return it for nothing else.
+UNSUPPORTED_STATE_VARIANT = "unsupported_state_variant"
 # HogVM RETURN, which the catalog loader appends to every stored program before loading it.
 _OP_RETURN = 38
 # Not a processor metric class: the Rust loader skips these cohorts entirely.
@@ -361,7 +363,7 @@ def _classify_behavioral(node: Mapping[str, Any]) -> Union[_Leaf, str]:
         return "malformed_leaf"
     window = _behavioral_window_days(node, value)
     if window is None:
-        return "unsupported_state_variant"
+        return UNSUPPORTED_STATE_VARIANT
     return _Leaf(kind="behavioral", negated=_explicit_negation(node), window_days=window)
 
 
