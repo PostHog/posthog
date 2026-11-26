@@ -9,7 +9,10 @@ use tracing::warn;
 use crate::{
     error::{FrameError, ProguardError, ResolveError, UnhandledError},
     frames::{record_frame_resolution_failure, Context, ContextLine, Frame},
-    langs::{utils::add_raw_to_junk, CommonFrameMetadata},
+    langs::{
+        utils::{add_raw_to_junk, get_context_lines},
+        CommonFrameMetadata,
+    },
     symbolication::symbol_store::{
         chunk_id::OrChunkId,
         proguard::{FetchedMapping, ProguardRef},
@@ -269,7 +272,22 @@ impl RawJavaFrame {
 
         let r = self.get_ref()?;
         let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone()).await?;
-        let cache = map.get_cache()?;
+        let Some(cache) = map.get_cache()? else {
+            // A set without a mapping comes from an unobfuscated build, so the frame resolves
+            // as if it had no map_id, plus the source the set carries. `resolved_name` stays
+            // `None` there, which keeps the frame's fingerprint contribution unchanged.
+            let mut frame: Frame = (self, context_lines).into();
+            if let Some(context) = bundle_context(
+                &map,
+                &self.module,
+                self.filename.as_deref(),
+                self.lineno,
+                context_lines,
+            ) {
+                frame.context = Some(context);
+            }
+            return Ok(vec![frame]);
+        };
 
         let frame = match self.filename.as_ref() {
             Some(file) => StackFrame::with_file(
@@ -287,7 +305,13 @@ impl RawJavaFrame {
 
         let res: Vec<Frame> = cache
             .remap_frame(&frame)
-            .map(|re| (self, re).into())
+            .map(|re| {
+                let context =
+                    bundle_context(&map, re.class(), re.file(), Some(re.line()), context_lines);
+                let mut frame: Frame = (self, re).into();
+                frame.context = context;
+                frame
+            })
             .collect();
 
         if res.is_empty() {
@@ -385,6 +409,47 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
 
         f
     }
+}
+
+/// The keys a frame's source file can have in a JVM symbol set. They must match the keys
+/// `posthog-cli jvm upload` writes: the package of the class as a path, then the file name
+/// (`com.acme.Foo$Bar` in `Foo.kt` gives `com/acme/Foo.kt`). A frame without a file name tries
+/// the outermost class name with each JVM source extension.
+fn source_keys(class: &str, file: Option<&str>) -> Vec<String> {
+    let (package, simple_name) = match class.rsplit_once('.') {
+        Some((package, simple_name)) => (Some(package), simple_name),
+        None => (None, class),
+    };
+    let file_names = match file.filter(|f| !f.is_empty()) {
+        Some(file) => vec![file.to_string()],
+        None => {
+            let outer = simple_name.split('$').next().unwrap_or(simple_name);
+            vec![format!("{outer}.java"), format!("{outer}.kt")]
+        }
+    };
+    file_names
+        .into_iter()
+        .map(|name| match package {
+            Some(package) => format!("{}/{name}", package.replace('.', "/")),
+            None => name,
+        })
+        .collect()
+}
+
+fn bundle_context(
+    map: &FetchedMapping,
+    class: &str,
+    file: Option<&str>,
+    line: Option<usize>,
+    context_lines: usize,
+) -> Option<Context> {
+    let line = line.filter(|line| *line > 0)?;
+    // JVM line numbers start at 1, and `get_context_lines` takes a 0-based line index.
+    let line_index = line - 1;
+    source_keys(class, file)
+        .iter()
+        .find_map(|key| map.source(key))
+        .and_then(|source| get_context_lines(source.lines(), line_index, context_lines))
 }
 
 // Pass-through conversion for a frame that arrived already readable, because it carries

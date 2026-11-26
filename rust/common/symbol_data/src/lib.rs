@@ -23,6 +23,9 @@ pub use data_types::hermesmap::HermesMap;
 // Proguard
 pub use data_types::proguard::ProguardMapping;
 
+// JVM
+pub use data_types::jvm::JvmBundle;
+
 // Apple dSYM
 pub use data_types::dsym::AppleDsym;
 
