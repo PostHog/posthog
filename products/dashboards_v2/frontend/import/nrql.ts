@@ -14,6 +14,8 @@ import type { TimeRange } from '../dashboard/dashboardTypes'
 export interface NrqlTranslation {
     ok: true
     hogql: string
+    /** One query per SELECT column, for charts that draw only the first number of a query. Set when it has several. */
+    hogqlPerColumn?: string[]
     timeseries: boolean
     /** The time range its SINCE and UNTIL ask for, when they can be written as a board time range. */
     since?: TimeRange
@@ -139,7 +141,10 @@ const UNITS: Record<string, { since: string; interval: string; seconds: number }
     WEEK: { since: 'w', interval: 'Week', seconds: 604800 },
     MONTH: { since: 'M', interval: 'Month', seconds: 2592000 },
 }
-const unitOf = (token: Token | undefined): (typeof UNITS)[string] | undefined => UNITS[upper(token).replace(/S$/, '')]
+export const own = <T>(record: Record<string, T>, key: string): T | undefined =>
+    Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
+const unitOf = (token: Token | undefined): (typeof UNITS)[string] | undefined =>
+    own(UNITS, upper(token).replace(/S$/, ''))
 
 function relativeTime(tokens: Token[]): { end: string; seconds: number } | undefined {
     if (tokens.length === 1 && upper(tokens[0]) === 'NOW') {
@@ -165,7 +170,7 @@ const AGGREGATES: Record<string, (arg: string, cond?: string) => string> = {
                 ? `countIf(${cond})`
                 : 'count()'
             : cond
-              ? `countIf(isNotNull(${arg}) and ${cond})`
+              ? `countIf(isNotNull(${arg}) and (${cond}))`
               : `count(${arg})`,
     uniquecount: (arg, cond) => (cond ? `uniqExactIf(${arg}, ${cond})` : `uniqExact(${arg})`),
     sum: (arg, cond) => (cond ? `sumIf(toFloat(${arg}), ${cond})` : `sum(toFloat(${arg}))`),
@@ -231,7 +236,7 @@ class Translator {
         return sql
     }
 
-    /** `cases(WHERE a AS 'x', WHERE b AS 'y')`, as one label per event. Events that match no case read "Other". */
+    /** `cases(WHERE a AS 'x', WHERE b AS 'y')`, as one label per event. Events that match no case get null, and are left out. */
     cases(args: Token[]): string {
         const branches = splitList(args).map((item) => {
             const { tokens, alias } = aliasOf(item)
@@ -241,7 +246,7 @@ class Translator {
             const condition = this.condition(tokens.slice(1))
             return `${condition}, ${quote(alias ?? condition)}`
         })
-        return `multiIf(${branches.join(', ')}, 'Other')`
+        return `multiIf(${branches.join(', ')}, null)`
     }
 
     /** One SELECT item: aggregates and arithmetic between them, such as `sum(a) / count(*)`. */
@@ -317,7 +322,7 @@ class Translator {
             const condition = this.condition(where.slice(1))
             const both = cond ? `(${cond}) and (${condition})` : condition
             const filtered = this.selectItem(parts[0], both)
-            return lowered === 'filter' ? filtered : `${filtered} / ${this.selectItem(parts[0], cond)} * 100`
+            return lowered === 'filter' ? filtered : `((${filtered}) / (${this.selectItem(parts[0], cond)}) * 100)`
         }
         if (lowered === 'percentile') {
             if (parts.length !== 2 || parts[1].length !== 1 || parts[1][0].kind !== 'number') {
@@ -327,7 +332,7 @@ class Translator {
             const arg = this.attribute(parts[0])
             return cond ? `quantileIf(${level})(toFloat(${arg}), ${cond})` : `quantile(${level})(toFloat(${arg}))`
         }
-        const aggregate = AGGREGATES[lowered]
+        const aggregate = own(AGGREGATES, lowered)
         if (!aggregate || parts.length !== 1) {
             throw new NrqlError(`It uses ${name}(), which the translator can't turn into SQL yet.`)
         }
@@ -414,7 +419,8 @@ class Translator {
                 return `${left} ${negated ? 'not in' : 'in'} (${values.join(', ')})`
             }
             if (keyword('LIKE')) {
-                return `${left} ${negated ? 'not like' : 'like'} ${literal().text}`
+                // NRQL's LIKE ignores case.
+                return `${left} ${negated ? 'not ilike' : 'ilike'} ${literal().text}`
             }
             if (keyword('RLIKE')) {
                 return `${negated ? 'not ' : ''}match(toString(${left}), ${literal().text})`
@@ -521,7 +527,7 @@ export function translateNrql(nrql: string): NrqlTranslation | NrqlFailure {
         if (events.length === 0 || !clauses.has('SELECT')) {
             throw new NrqlError('It needs a SELECT and a FROM.')
         }
-        const source = events.find((event) => NON_EVENT_SOURCES[event])
+        const source = events.find((event) => own(NON_EVENT_SOURCES, event))
         if (source) {
             events.length = 0
             throw new NrqlError(`It reads ${NON_EVENT_SOURCES[source]}, which aren't events in PostHog.`)
@@ -549,7 +555,10 @@ export function translateNrql(nrql: string): NrqlTranslation | NrqlFailure {
             notes.push("Its SINCE or UNTIL isn't a relative time, so it uses the board's time range.")
         }
 
-        const used = new Set<string>()
+        const timeseriesTokens = clauses.get('TIMESERIES')
+        const timeseries = timeseriesTokens !== undefined
+        // The time bucket is always `time`, so no column or facet may take that name.
+        const used = new Set<string>(timeseries ? ['time'] : [])
         const columns: Column[] = []
         for (const item of splitList(clauses.get('SELECT') ?? [])) {
             const { tokens, alias } = aliasOf(item)
@@ -568,11 +577,9 @@ export function translateNrql(nrql: string): NrqlTranslation | NrqlFailure {
             const fallback = upper(tokens[0]).toLowerCase().replace('uniquecount', 'unique') || 'value'
             columns.push({ sql, alias: columnAlias(alias ?? fallback, used) })
         }
-
-        const eventFilter =
-            events.length === 1 ? `event = ${quote(events[0])}` : `event in (${events.map(quote).join(', ')})`
-        const where = clauses.get('WHERE')
-        const scope = `${eventFilter}${where ? ` and (${translator.condition(where)})` : ''} and {filters}`
+        if (columns.length === 0) {
+            throw new NrqlError('Its SELECT is empty.')
+        }
 
         const facets = splitList(clauses.get('FACET') ?? []).map((facet) => {
             const { tokens, alias } = aliasOf(facet)
@@ -584,8 +591,14 @@ export function translateNrql(nrql: string): NrqlTranslation | NrqlFailure {
             }
             const name =
                 alias ?? (isCases || tokens[1]?.text === '(' ? 'facet' : tokens[0].text.split('.').pop() || 'facet')
-            return { sql, alias: columnAlias(name, used) }
+            return { sql, alias: columnAlias(name, used), isCases }
         })
+
+        const eventFilter =
+            events.length === 1 ? `event = ${quote(events[0])}` : `event in (${events.map(quote).join(', ')})`
+        const where = clauses.get('WHERE')
+        const matchesACase = facets.filter((facet) => facet.isCases).map((facet) => ` and isNotNull(${facet.sql})`)
+        const scope = `${eventFilter}${where ? ` and (${translator.condition(where)})` : ''}${matchesACase.join('')} and {filters}`
         const limitToken = clauses.get('LIMIT')?.[0]
         const limit =
             upper(limitToken) === 'MAX'
@@ -594,12 +607,11 @@ export function translateNrql(nrql: string): NrqlTranslation | NrqlFailure {
                   ? Math.min(MAX_FACET_LIMIT, Number(limitToken.text))
                   : DEFAULT_FACET_LIMIT
 
-        const timeseriesTokens = clauses.get('TIMESERIES')
-        const timeseries = timeseriesTokens !== undefined
         const select = columns.map((column) => `${column.sql} as ${column.alias}`)
         const facetSelect = facets.map((facet) => `${facet.sql} as ${facet.alias}`)
         const facetAliases = facets.map((facet) => facet.alias)
         let hogql: string
+        let hogqlPerColumn: string[] | undefined
         if (timeseries) {
             const bucket = bucketFor(
                 timeseriesTokens,
@@ -610,11 +622,14 @@ export function translateNrql(nrql: string): NrqlTranslation | NrqlFailure {
             if (facets.length > 0) {
                 const key = facets.length === 1 ? facets[0].sql : `(${facets.map((facet) => facet.sql).join(', ')})`
                 const keys = facets.map((facet) => facet.sql).join(', ')
-                topFacets = ` and ${key} in (select ${keys} from events where ${scope} group by ${keys} order by count() desc limit ${limit})`
+                // New Relic ranks facets by the first SELECT item.
+                topFacets = ` and ${key} in (select ${keys} from events where ${scope} group by ${keys} order by ${columns[0].sql} desc limit ${limit})`
             }
-            hogql =
-                `select ${[`${bucket} as time`, ...facetSelect, ...select].join(', ')} from events ` +
+            const query = (selected: string[]): string =>
+                `select ${[`${bucket} as time`, ...facetSelect, ...selected].join(', ')} from events ` +
                 `where ${scope}${topFacets} group by ${groups.join(', ')} order by time`
+            hogql = query(select)
+            hogqlPerColumn = select.length > 1 ? select.map((one) => query([one])) : undefined
         } else if (facets.length > 0) {
             hogql =
                 `select ${[...facetSelect, ...select].join(', ')} from events where ${scope} ` +
@@ -625,6 +640,7 @@ export function translateNrql(nrql: string): NrqlTranslation | NrqlFailure {
         return {
             ok: true,
             hogql,
+            ...(hogqlPerColumn ? { hogqlPerColumn } : {}),
             timeseries,
             ...(since && since.end !== 'now' ? { since: { from: since.end, to: until?.end ?? 'now' } } : {}),
             events,

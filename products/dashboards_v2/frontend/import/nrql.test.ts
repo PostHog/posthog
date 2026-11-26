@@ -18,12 +18,12 @@ describe('translateNrql', () => {
         [
             'WHERE with strings, numbers, IN, LIKE and NULL',
             "SELECT count(*) FROM OrderPlaced WHERE plan = 'pro' AND total > 10 AND (country IN ('NL', 'DE') OR coupon LIKE '%SALE%') AND refund IS NULL",
-            "select count() as count from events where event = 'OrderPlaced' and (properties.plan = 'pro' and toFloat(properties.total) > 10 and (properties.country in ('NL', 'DE') or properties.coupon like '%SALE%') and isNull(properties.refund)) and {filters}",
+            "select count() as count from events where event = 'OrderPlaced' and (properties.plan = 'pro' and toFloat(properties.total) > 10 and (properties.country in ('NL', 'DE') or properties.coupon ilike '%SALE%') and isNull(properties.refund)) and {filters}",
         ],
         [
             'filter() and percentage()',
             "SELECT filter(count(*), WHERE paid IS TRUE) AS 'Paid', percentage(count(*), WHERE paid = false) FROM OrderPlaced",
-            `select countIf(properties.paid = true) as Paid, countIf(properties.paid = false) / count() * 100 as percentage from events where ${SCOPE}`,
+            `select countIf(properties.paid = true) as Paid, ((countIf(properties.paid = false)) / (count()) * 100) as percentage from events where ${SCOPE}`,
         ],
         [
             'arithmetic between aggregates and inside them',
@@ -43,7 +43,17 @@ describe('translateNrql', () => {
         [
             'FACET cases()',
             "SELECT count(*) FROM OrderPlaced FACET cases(WHERE total < 10 AS 'Small', WHERE total >= 10 AS 'Large')",
-            `select multiIf(toFloat(properties.total) < 10, 'Small', toFloat(properties.total) >= 10, 'Large', 'Other') as facet, count() as count from events where ${SCOPE} group by facet order by count desc limit 10`,
+            "select multiIf(toFloat(properties.total) < 10, 'Small', toFloat(properties.total) >= 10, 'Large', null) as facet, count() as count from events where event = 'OrderPlaced' and isNotNull(multiIf(toFloat(properties.total) < 10, 'Small', toFloat(properties.total) >= 10, 'Large', null)) and {filters} group by facet order by count desc limit 10",
+        ],
+        [
+            'percentage() inside arithmetic keeps its precedence',
+            'SELECT 100 / percentage(count(*), WHERE paid = true) FROM OrderPlaced',
+            `select 100 / ((countIf(properties.paid = true)) / (count()) * 100) as value from events where ${SCOPE}`,
+        ],
+        [
+            'filter() on an attribute count with an OR condition',
+            "SELECT filter(count(userId), WHERE paid = true OR plan = 'pro') FROM OrderPlaced",
+            `select countIf(isNotNull(properties.userId) and (properties.paid = true or properties.plan = 'pro')) as filter from events where ${SCOPE}`,
         ],
         [
             'TIMESERIES with an interval',
@@ -59,6 +69,16 @@ describe('translateNrql', () => {
             'TIMESERIES with FACET keeps the top facets',
             'SELECT count(*) FROM OrderPlaced FACET plan TIMESERIES 1 hour LIMIT 3',
             `select toStartOfInterval(timestamp, toIntervalHour(1)) as time, properties.plan as plan, count() as count from events where ${SCOPE} and properties.plan in (select properties.plan from events where ${SCOPE} group by properties.plan order by count() desc limit 3) group by time, plan order by time`,
+        ],
+        [
+            'TIMESERIES with FACET ranks facets by the first SELECT item',
+            'SELECT sum(total) FROM OrderPlaced FACET plan TIMESERIES 1 hour LIMIT 1',
+            `select toStartOfInterval(timestamp, toIntervalHour(1)) as time, properties.plan as plan, sum(toFloat(properties.total)) as sum from events where ${SCOPE} and properties.plan in (select properties.plan from events where ${SCOPE} group by properties.plan order by sum(toFloat(properties.total)) desc limit 1) group by time, plan order by time`,
+        ],
+        [
+            'a FACET named time does not take the time bucket alias',
+            'SELECT count(*) FROM OrderPlaced FACET time TIMESERIES 1 hour LIMIT 1',
+            `select toStartOfInterval(timestamp, toIntervalHour(1)) as time, properties.time as time_2, count() as count from events where ${SCOPE} and properties.time in (select properties.time from events where ${SCOPE} group by properties.time order by count() desc limit 1) group by time, time_2 order by time`,
         ],
     ])('%s', (_name, nrql, hogql) => {
         expect(translateNrql(nrql)).toMatchObject({ ok: true, hogql })
@@ -87,6 +107,9 @@ describe('translateNrql', () => {
         ['COMPARE WITH', 'SELECT count(*) FROM OrderPlaced COMPARE WITH 1 week ago', 'COMPARE WITH'],
         ['an unknown function', "SELECT count(*) FROM OrderPlaced FACET capture(url, 'x')", 'capture()'],
         ['raw rows', 'SELECT userId FROM OrderPlaced', 'without an aggregate'],
+        ['an empty SELECT', 'SELECT FROM OrderPlaced FACET host', 'SELECT is empty'],
+        ['an inherited object name', 'SELECT __proto__(x) FROM OrderPlaced', '__proto__()'],
+        ['constructor()', 'SELECT constructor(x) FROM OrderPlaced', 'constructor()'],
     ])('fails with a reason for %s', (_name, nrql, reason) => {
         const result = translateNrql(nrql)
         expect(result.ok).toBe(false)
