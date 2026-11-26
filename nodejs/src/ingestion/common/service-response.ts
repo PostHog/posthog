@@ -38,16 +38,10 @@ export class ServiceResponseError extends Error {
     }
 }
 
-const serviceItemFailures = new Counter({
-    name: 'ingestion_service_item_failures_total',
-    help: 'Items a service failed on their own, sent to the DLQ',
+const serviceItemResults = new Counter({
+    name: 'ingestion_service_item_results_total',
+    help: 'Item results a service returned. The code is the drop reason or the error code, and is empty for ok',
     labelNames: ['service', 'result', 'code'],
-})
-
-const serviceItemRetries = new Counter({
-    name: 'ingestion_service_item_retries_total',
-    help: 'Items a service asked to retry, whether they get another attempt or go to the DLQ',
-    labelNames: ['service', 'code'],
 })
 
 const serviceUnknownWarnings = new Counter({
@@ -115,7 +109,6 @@ export function toPipelineResults<T, O, R extends string = never>(
         item: { result: 'retry' | 'fail'; error: ItemError },
         warnings: PipelineWarning[]
     ): PipelineResult<O, R> => {
-        serviceItemFailures.labels({ service, result: item.result, code: item.error.code }).inc()
         return dlq(
             `${service}_item_${item.result}`,
             new Error(`${item.error.code}: ${item.error.message}`),
@@ -126,18 +119,30 @@ export function toPipelineResults<T, O, R extends string = never>(
 
     return results.map((item, index) => {
         const warnings = toPipelineWarnings(service, item.warnings)
+        serviceItemResults.labels({ service, result: item.result, code: itemCode(item) }).inc()
         switch (item.result) {
             case 'ok':
                 return onOk(item.value, index, warnings)
             case 'drop':
                 return drop(item.reason, [], warnings)
             case 'retry':
-                serviceItemRetries.labels({ service, code: item.error.code }).inc()
                 return onRetry?.(item.error, index, warnings) ?? toDlq(item, warnings)
             case 'fail':
                 return toDlq(item, warnings)
         }
     })
+}
+
+function itemCode<T>(item: ItemResult<T>): string {
+    switch (item.result) {
+        case 'ok':
+            return ''
+        case 'drop':
+            return item.reason
+        case 'retry':
+        case 'fail':
+            return item.error.code
+    }
 }
 
 function toPipelineWarnings(service: string, warnings: ItemWarning[] = []): PipelineWarning[] {
