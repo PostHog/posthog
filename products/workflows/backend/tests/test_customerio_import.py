@@ -892,6 +892,11 @@ class TestCustomerioConditions(SimpleTestCase):
         assert not serializer.is_valid()
         assert list(serializer.errors) == [field]
 
+    def test_accepts_a_static_segment_without_conditions(self) -> None:
+        serializer = CustomerioSegmentSerializer(data={"id": "15", "name": "VIP", "type": "static", "conditions": None})
+
+        assert serializer.is_valid(), serializer.errors
+
     def test_decodes_url_encoded_and_plain_base64(self) -> None:
         condition = [{"type": "attribute", "field": "url", "operator": "eq", "value": "https://example.com/a%20b&c"}]
         plain = base64.b64encode(json.dumps(condition).encode()).decode()

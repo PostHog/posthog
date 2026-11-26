@@ -82,6 +82,8 @@ class CustomerioSegmentSerializer(serializers.Serializer):
     type = serializers.CharField(help_text="The segment's type: `dynamic`, or `static` for a hand-made list.")
     conditions = serializers.JSONField(
         required=False,
+        # Customer.io gives a static segment `conditions: null`.
+        allow_null=True,
         help_text=(
             "The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/"
             "{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations "
@@ -90,6 +92,8 @@ class CustomerioSegmentSerializer(serializers.Serializer):
     )
 
     def validate_conditions(self, value: Any) -> Any:
+        if value is None:
+            return None
         if not isinstance(value, dict):
             raise serializers.ValidationError("Pass the segment's `conditions` object.")
         if len(json.dumps(value)) > MAX_SEGMENT_CONDITIONS_BYTES:
