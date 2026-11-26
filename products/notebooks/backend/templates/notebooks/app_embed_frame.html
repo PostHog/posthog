@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="referrer" content="no-referrer">
+        <title>Published notebook app</title>
+    </head>
+    <body>
+        <p id="status">This app opens inside its approved site.</p>
+        <form method="post" data-audience="{{ audience }}">
+            <input type="hidden" name="token">
+        </form>
+        <script nonce="{{ request.csp_nonce }}">
+    const form = document.querySelector('form')
+    if (window.parent !== window && document.referrer && new URL(document.referrer).origin === form.dataset.audience && location.hash.length > 1) {
+        form.elements.token.value = location.hash.slice(1)
+        history.replaceState(null, '', location.pathname)
+        form.submit()
+    }
+        </script>
+    </body>
+</html>

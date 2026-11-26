@@ -75,6 +75,7 @@ from products.notebooks.backend.analytics import (
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
 from products.notebooks.backend.facade.app_delivery import change_app_view_grant, revoke_app_view_grants
+from products.notebooks.backend.facade.app_embeds import change_signed_embed
 from products.notebooks.backend.facade.app_releases import (
     plan_viewer_queries,
     read_published_run_rows,
@@ -139,6 +140,7 @@ from products.notebooks.backend.kernel_runtime import (
     get_kernel_runtime,
 )
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.app_embeds import AppEmbedRequestSerializer
 from products.notebooks.backend.presentation.app_serializers import (
     NotebookAppLayoutField,
     NotebookAppLayoutSerializer,
@@ -922,6 +924,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             notebook.team_id, notebook.pk, [AppBlockSource(**block) for block in layout.validated_data["blocks"]]
         )
         return Response(NotebookAppReleaseReviewSerializer(review).data)
+
+    @extend_schema(request=AppEmbedRequestSerializer, responses=AppViewGrantResultSerializer)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_embeds",
+        required_scopes=["notebook:write", "sharing_configuration:write"],
+    )
+    def app_embeds(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, notebook.team):
+            raise Http404()
+        self._require_app_sharing_access()
+        data = AppEmbedRequestSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        result = change_signed_embed(notebook.team_id, notebook.pk, request.user.pk, **data.validated_data)
+        return Response(AppViewGrantResultSerializer(result).data)
 
     @extend_schema(request=AppViewGrantRequestSerializer, responses=AppViewGrantResultSerializer)
     @action(

@@ -11,13 +11,14 @@ from rest_framework import serializers
 from products.notebooks.backend.app_viewer import native_app_output_ids
 from products.notebooks.backend.facade.contracts import AppOutput, AppOutputTab, AppViewGrantResult
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookAppViewGrant
+from products.notebooks.backend.models import Notebook, NotebookAppEmbed, NotebookAppRelease, NotebookAppViewGrant
 from products.notebooks.backend.sql_v2_state import build_dependency_edges, extract_cells
 from products.notebooks.backend.util import _parse_markdown_component_props, iter_markdown_blocks
 
 
 def revoke_app_view_grants(team_id: int, notebook_id: UUID) -> None:
     NotebookAppViewGrant.objects.for_team(team_id).filter(release__notebook_id=notebook_id).delete()
+    NotebookAppEmbed.objects.for_team(team_id).filter(release__notebook_id=notebook_id).delete()
 
 
 @transaction.atomic
@@ -74,7 +75,9 @@ def output_columns(props: dict[str, Any], columns: list[str]) -> list[str]:
     return displayed
 
 
-def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
+def app_output_tabs(
+    release: NotebookAppRelease, *, tenant_column: str | None = None, tenant_value: str | None = None
+) -> list[AppOutputTab]:
     cells = extract_cells(build_markdown_notebook_content(release.markdown))
     build_dependency_edges(cells)
     allowed = native_app_output_ids(cells)
@@ -101,7 +104,14 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
         rows = result.get("first_page") or []
         if not isinstance(rows, list) or not all(isinstance(column, str) for column in columns):
             continue
-        displayed = output_columns(props, columns)
+        if tenant_column is not None:
+            if columns.count(tenant_column) != 1:
+                raise serializers.ValidationError(
+                    {"tenant_column": "Every displayed SQL output must include this tenant column exactly once."}
+                )
+            idx = columns.index(tenant_column)
+            rows = [row for row in rows if isinstance(row, list) and len(row) > idx and row[idx] == tenant_value]
+        displayed = [col for col in output_columns(props, columns) if col != tenant_column]
         if displayed:
             indexes = [columns.index(column) for column in displayed]
             tab["blocks"].append(

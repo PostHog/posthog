@@ -1223,6 +1223,36 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksAppEmbedsCreateBodyOriginMax = 255
+
+export const notebooksAppEmbedsCreateBodyTenantColumnMax = 120
+
+export const notebooksAppEmbedsCreateBodyTenantValueMax = 256
+
+export const notebooksAppEmbedsCreateBodyRevokeDefault = false
+
+export const NotebooksAppEmbedsCreateBody = /* @__PURE__ */ zod.object({
+    origin: zod
+        .url()
+        .max(notebooksAppEmbedsCreateBodyOriginMax)
+        .describe('Exact HTTPS origin that may frame the embed, without a path.'),
+    tenant_column: zod
+        .string()
+        .max(notebooksAppEmbedsCreateBodyTenantColumnMax)
+        .describe('String column present in each displayed SQL result that identifies the tenant.'),
+    tenant_value: zod
+        .string()
+        .max(notebooksAppEmbedsCreateBodyTenantValueMax)
+        .describe('Exact tenant value bound to the snapshot.'),
+    revoke: zod
+        .boolean()
+        .default(notebooksAppEmbedsCreateBodyRevokeDefault)
+        .describe('Revoke embeds for this origin, tenant column and value across all releases.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksAppPreviewCreateBodyTitleDefault = ``
 export const notebooksAppPreviewCreateBodyTitleMax = 256
 

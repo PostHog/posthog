@@ -38,6 +38,8 @@ PostHog AI and MCP agents use the `building-notebook-apps` skill to compose sour
 
 An organization admin can choose **App-only access** in a published app and enter a project member’s email. The recipient signs in to see the tabs, text, and saved native SQL results from that release. The link expires after 30 days or when the release leaves the notebook’s two retained revisions. Unpublishing the app revokes its links. This link grants no access to the source notebook. Use **Remove access** with the same email to revoke the member’s links to every release of that app.
 
+Choose **Signed embed** to embed a snapshot on one HTTPS origin. Enter a string tenant column present once in each native SQL output and the exact tenant value to include. The server filters the saved SQL rows before storing the snapshot and omits the tenant column. Published explanatory text appears for all tenants. The embed code expires after 24 hours. Creating another embed for the same release, site, and tenant replaces the previous code. **Revoke embed** removes that audience’s embeds across releases.
+
 ## Dashboard widgets
 
 Choose **Add to dashboard** from a generated widget's notebook menu to save its selected version, input mappings, and completed dataframe results.

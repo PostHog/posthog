@@ -55,6 +55,12 @@ class AppViewGrantResult:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AppEmbedAudience:
+    origin: str
+    issued_by_id: int
+
+
+@dataclass(frozen=True, kw_only=True)
 class AppOutputTab:
     title: str
     blocks: list[dict[str, JsonValue]]

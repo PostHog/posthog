@@ -966,6 +966,39 @@ export interface PatchedNotebookApi {
     _create_in_folder?: string
 }
 
+export interface AppEmbedRequestApi {
+    /**
+     * Exact HTTPS origin that may frame the embed, without a path.
+     * @maxLength 255
+     */
+    origin: string
+    /**
+     * String column present in each displayed SQL result that identifies the tenant.
+     * @maxLength 120
+     */
+    tenant_column: string
+    /**
+     * Exact tenant value bound to the snapshot.
+     * @maxLength 256
+     */
+    tenant_value: string
+    /** Revoke embeds for this origin, tenant column and value across all releases. */
+    revoke?: boolean
+}
+
+export interface AppViewGrantResultApi {
+    /**
+     * Recipient-specific path for the pinned release.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * When this app-only grant expires.
+     * @nullable
+     */
+    expires_at: string | null
+}
+
 export interface NotebookAppReleaseReviewApi {
     has_previous: boolean
     problems: string[]
@@ -1003,19 +1036,6 @@ export interface AppViewGrantRequestApi {
     email: string
     /** Remove this member's access to every revision of this app. */
     revoke?: boolean
-}
-
-export interface AppViewGrantResultApi {
-    /**
-     * Recipient-specific path for the pinned release.
-     * @nullable
-     */
-    url: string | null
-    /**
-     * When this app-only grant expires.
-     * @nullable
-     */
-    expires_at: string | null
 }
 
 export interface NotebookCollabCursorApi {

@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { notebooksAppViewGrantsCreate } from '../generated/api'
+import { NotebookAppEmbed } from './NotebookAppEmbed'
 
 export function NotebookAppAccess({ project, shortId }: { project: string; shortId: string }): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -45,6 +46,7 @@ export function NotebookAppAccess({ project, shortId }: { project: string; short
 
     return (
         <>
+            <NotebookAppEmbed project={project} shortId={shortId} />
             <LemonButton size="small" onClick={() => setOpen(true)}>
                 App-only access
             </LemonButton>
