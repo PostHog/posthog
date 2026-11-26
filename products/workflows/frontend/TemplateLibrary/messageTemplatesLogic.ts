@@ -274,7 +274,11 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         // The filters the shown list came from, so a filter change stops paging until its first page lands.
         loadedListParams: [
             null as MessagingTemplatesListParams | null,
-            { templatesPageLoaded: (_, { listParams }) => listParams, listInvalidated: () => null },
+            {
+                templatesPageLoaded: (_, { listParams }) => listParams,
+                listInvalidated: () => null,
+                loadTemplatesFailure: () => null,
+            },
         ],
         templatesReloadFailed: [
             false,
@@ -434,7 +438,8 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         setTransactionalOnly: () => actions.loadTemplates(),
         templateTagsSaved: () => {
             // A tag edit can move a template out of a tag or search filter, and only the server knows.
-            if (values.hasActiveFilters) {
+            // A first page already in flight was read before the edit and would show the old tags.
+            if (values.hasActiveFilters || values.templatesLoading) {
                 actions.listInvalidated()
             }
         },

@@ -308,7 +308,10 @@ describe('messageTemplatesLogic', () => {
         expect(names()).toEqual(stored.slice(0, TEMPLATES_PAGE_SIZE).map((t) => t.name))
     })
 
-    it('offers a retry when the reload after a create fails, and pages again once it lands', async () => {
+    it.each([
+        ['after a create', () => logic.actions.createTemplate({ template: { name: 'Fresh' } })],
+        ['under unchanged filters', () => logic.actions.loadTemplates()],
+    ])('offers a retry when the reload %s fails, and pages again once it lands', async (_name, reload) => {
         stored = many(TEMPLATES_PAGE_SIZE + 1, 'Match')
         await remount()
         useMocks({
@@ -316,7 +319,7 @@ describe('messageTemplatesLogic', () => {
         })
         holdFirstPages = true
 
-        logic.actions.createTemplate({ template: { name: 'Fresh' } })
+        reload()
         await waitFor(() => expect(heldFirstPages).toHaveLength(1))
         heldFirstPages[0](500)
         await expectLogic(logic).toDispatchActions(['loadTemplatesFailure'])
@@ -329,6 +332,22 @@ describe('messageTemplatesLogic', () => {
 
         expect(logic.values.canRetryTemplates).toBe(false)
         expect(logic.values.canLoadMoreTemplates).toBe(true)
+    })
+
+    it('keeps tags saved while an unfiltered first page is in flight', async () => {
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        holdFirstPages = true
+        logic.actions.loadTemplates()
+        await waitFor(() => expect(heldFirstPages).toHaveLength(1))
+
+        const saved = template('a', 'Welcome', ['vip'])
+        stored = [saved, ...stored.slice(1)]
+        holdFirstPages = false
+        logic.actions.templateTagsSaved(saved)
+        heldFirstPages[0](200)
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+
+        expect(logic.values.templates.find((t) => t.id === 'a')?.tags).toEqual(['vip'])
     })
 
     it('offers no retry when a first page for outdated filters fails after the current one loaded', async () => {
