@@ -5,6 +5,7 @@ layer reaches product data only through ``facade.api``. Field-level help text is
 the generated OpenAPI schema, so it stays on the serializer rather than moving to the contract.
 """
 
+import re
 from typing import Any
 
 from drf_spectacular.types import OpenApiTypes
@@ -95,9 +96,13 @@ EXPRESS_CHANNEL_ID_HELP = (
     "no channel is set."
 )
 EXPRESS_CHANNEL_NAME_HELP = (
-    "Display name of the Slack channel in express_slack_channel_id, without the '#'. Shown in replies "
-    "only, so a stale name does not change where requests go."
+    "Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and "
+    "'_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not "
+    "change where requests go."
 )
+# The characters of a Slack channel name. The name goes into Slack and GitHub markdown replies, so nothing in it
+# may form a mention, a link or other markup there.
+_SLACK_CHANNEL_NAME = re.compile(r"[\w-]{1,80}")
 
 
 @extend_schema_serializer(component_name="CodeReviewApprovalRepository")
@@ -1174,7 +1179,12 @@ class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
         return value.strip()
 
     def validate_express_slack_channel_name(self, value: str) -> str:
-        return value.strip().lstrip("#")
+        value = value.strip().lstrip("#")
+        if value and not _SLACK_CHANNEL_NAME.fullmatch(value):
+            raise serializers.ValidationError(
+                "Use the channel name as Slack shows it: letters, digits, '-' and '_', up to 80 characters."
+            )
+        return value
 
     def _validate_express_request_channel(self, attrs: dict[str, Any]) -> None:
         # Judge the stored row on a PATCH, so clearing the channel of a switched-on repo fails too.

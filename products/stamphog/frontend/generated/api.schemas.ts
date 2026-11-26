@@ -394,7 +394,7 @@ export interface CodeReviewApprovalRepositoryApi {
     readonly express_enabled: boolean
     /** Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set. */
     readonly express_slack_channel_id: string
-    /** Display name of the Slack channel in express_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go. */
+    /** Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go. */
     readonly express_slack_channel_name: string
     /**
      * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, express_enabled, express_slack_channel_id or express_slack_channel_name.
@@ -465,7 +465,7 @@ export interface CodeReviewApprovalRepositoryWriteApi {
      */
     express_slack_channel_id?: string
     /**
-     * Display name of the Slack channel in express_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go.
+     * Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
      * @maxLength 255
      */
     express_slack_channel_name?: string
@@ -522,7 +522,7 @@ export interface PatchedCodeReviewApprovalRepositoryWriteApi {
      */
     express_slack_channel_id?: string
     /**
-     * Display name of the Slack channel in express_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go.
+     * Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
      * @maxLength 255
      */
     express_slack_channel_name?: string

@@ -20,14 +20,15 @@ _RETRY_BASE_SECONDS = 30
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=_MAX_RETRIES)
-def refresh_express_request(self: Task, team_id: int, express_request_id: str) -> None:
+def refresh_express_request(self: Task, team_id: int, express_request_id: str, head_decided: bool = False) -> None:
     """Recompute one Express request from the database and GitHub, then post or edit its Slack card.
 
     Every change to a request goes through this task, so it must be idempotent: a retry or a second
     queue for the same state posts nothing new. GitHub and Slack errors retry with backoff.
+    ``head_decided`` is described in ``express_requests.refresh``.
     """
     try:
-        express_requests.refresh(team_id, express_request_id)
+        express_requests.refresh(team_id, express_request_id, head_decided=head_decided)
     except GitHubRateLimitError as e:
         raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
     except Exception as e:
@@ -35,21 +36,24 @@ def refresh_express_request(self: Task, team_id: int, express_request_id: str) -
         raise self.retry(exc=e, countdown=_RETRY_BASE_SECONDS * 2**self.request.retries)
 
 
-def queue_express_request_refresh(team_id: int, express_request_id: str) -> None:
+def queue_express_request_refresh(team_id: int, express_request_id: str, *, head_decided: bool = False) -> None:
     """Queue ``refresh_express_request``. Never raises, because the caller's own write already committed."""
     try:
-        refresh_express_request.delay(team_id=team_id, express_request_id=express_request_id)
+        refresh_express_request.delay(team_id=team_id, express_request_id=express_request_id, head_decided=head_decided)
     except Exception:
         logger.exception("stamphog_express_request_refresh_queue_failed", express_request_id=express_request_id)
 
 
 @shared_task(ignore_result=True)
-def refresh_express_requests_for_pull_request(repository: str, pr_number: int, installation_id: str = "") -> None:
+def refresh_express_requests_for_pull_request(
+    repository: str, pr_number: int, installation_id: str = "", head_decided: bool = False
+) -> None:
     """Refresh every active Express request of one pull request, in every team that has one.
 
     A GitHub delivery only says that something changed, so each refresh reads the state from GitHub
     itself. The PostHog App's installation is not stamphog's, so a delivery from it passes no
-    ``installation_id`` and matches on the repository and number alone.
+    ``installation_id`` and matches on the repository and number alone. Only the review path sets
+    ``head_decided``, after it decided the pull request's head.
     """
     requests = ExpressRequest.objects.unscoped().using(router.db_for_write(ExpressRequest))
     requests = requests.filter(
@@ -60,7 +64,7 @@ def refresh_express_requests_for_pull_request(repository: str, pr_number: int, i
     if installation_id:
         requests = requests.filter(pull_request__repo_config__installation_id=installation_id)
     for team_id, request_id in requests.values_list("team_id", "id"):
-        queue_express_request_refresh(team_id, str(request_id))
+        queue_express_request_refresh(team_id, str(request_id), head_decided=head_decided)
 
 
 def queue_express_request_refresh_after_verdict(run: ReviewRun, status: ReviewRunStatus) -> None:

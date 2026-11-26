@@ -16,7 +16,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.api import _review_run_to_dto, express_request_to_dto
 from products.stamphog.backend.facade.enums import ExpressRequestSource, ExpressRequestStatus
-from products.stamphog.backend.logic.express_requests import ExpressRequestAsk, requester_card_count
+from products.stamphog.backend.logic.express_requests import ExpressRequestAsk, card_cannot_post, requester_card_count
 from products.stamphog.backend.models import ExpressRequest
 from products.stamphog.backend.tasks.tasks import (
     request_manual_review,
@@ -72,16 +72,20 @@ def request_review(
     if queued.express_request is None:
         return contracts.ReviewRequestResultDTO(run=run, created=queued.created)
     express_request = express_request_to_dto(project_id, queued.express_request.id)
-    card_count = express_request.requester_card_count
-    if card_count is None and express_request.status == ExpressRequestStatus.OPEN:
-        # The card is on its way, and the count it will show includes it.
-        card_count = requester_card_count(
-            queued.express_request, at=timezone.now(), using=router.db_for_write(ExpressRequest)
-        )
+    card_blocked = False
+    card_count = None
+    if express_request.status == ExpressRequestStatus.OPEN and not express_request.deliveries:
+        using = router.db_for_write(ExpressRequest)
+        card_blocked = card_cannot_post(queued.express_request, using=using)
+        # A request that someone else made counts their cards, not this caller's, so only a new one shows a count.
+        if queued.express_request_created and not card_blocked:
+            card_count = requester_card_count(queued.express_request, at=timezone.now(), using=using)
     return contracts.ReviewRequestResultDTO(
         run=dataclasses.replace(run, express_request=express_request),
         created=queued.created,
         express_request=express_request,
+        express_request_created=queued.express_request_created,
+        express_request_card_blocked=card_blocked,
         express_request_channel_name=queued.express_request_channel_name,
         express_request_card_count=card_count,
     )

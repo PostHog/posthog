@@ -147,31 +147,40 @@ _EXPRESS_REQUEST_SOURCES: dict[ChannelName, stamphog_enums.ExpressRequestSource]
 }
 
 
-def _express_request_reply(result: stamphog_contracts.ReviewRequestResultDTO) -> str | None:
+def _express_request_reply(result: stamphog_contracts.ReviewRequestResultDTO, asked_from: ChannelName) -> str | None:
     """The reply to `stamp --express`, or None to fall back to the reply about the run.
 
     Built from fixed text, the channel name a manager set, the Slack link and the requester's weekly card count,
-    so it never repeats the note.
+    so it never repeats the note. A reply on GitHub is a public comment, so it leaves out the Slack channel, the
+    link and the count.
     """
     express_request = result.express_request
     if express_request is None:
         return None
-    channel_name = result.express_request_channel_name.lstrip("#")
-    channel = f"#{channel_name}" if channel_name else "the repository's Slack channel"
+    slack_channel = result.express_request_channel_name.lstrip("#")
+    on_slack = asked_from == "slack"
+    channel = f"#{slack_channel}" if slack_channel and on_slack else "the repository's Slack channel"
     status = express_request.status
     if status == stamphog_enums.ExpressRequestStatus.STAMPHOG_APPROVED:
         return "Stamphog approved. No one else needs to look."
     if express_request.deliveries:
         url = express_request.deliveries[0].url
-        return f"Already asked in {channel}: {url}" if url else f"Already asked in {channel}."
+        return f"Already asked in {channel}: {url}" if url and on_slack else f"Already asked in {channel}."
     if status == stamphog_enums.ExpressRequestStatus.PENDING:
         return f"Stamphog is reviewing. If it doesn't approve, this goes to {channel}."
-    if status == stamphog_enums.ExpressRequestStatus.OPEN:
-        card_count = result.express_request_card_count
-        if card_count is not None and card_count >= 2:
-            return f"Stamphog didn't approve, so this goes to {channel}. It's your {ordinal(card_count)} this week."
-        return f"Stamphog didn't approve, so this goes to {channel}."
-    return None
+    if status != stamphog_enums.ExpressRequestStatus.OPEN:
+        return None
+    if result.express_request_card_blocked:
+        return (
+            f"Stamphog didn't approve, but the request couldn't be posted to {channel}. "
+            "A manager can check that Slack is connected and that the app can post in the channel."
+        )
+    if not result.express_request_created:
+        return f"Already asked. Stamphog didn't approve, so this goes to {channel}."
+    card_count = result.express_request_card_count
+    if on_slack and card_count is not None and card_count >= 2:
+        return f"Stamphog didn't approve, so this goes to {channel}. It's your {ordinal(card_count)} this week."
+    return f"Stamphog didn't approve, so this goes to {channel}."
 
 
 def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
@@ -208,7 +217,7 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     follow_up = _follow_up(context)
     if follow_up is not None and result.run.status not in stamphog_enums.TERMINAL_STATUSES:
         follow_ups.remember(follow_ups.stamphog_run_key(str(result.run.id)), follow_up)
-    express_request_reply = _express_request_reply(result)
+    express_request_reply = _express_request_reply(result, context.request.channel)
     if express_request_reply is not None:
         return CommandOutcome(accepted=True, message=express_request_reply)
     if result.created:

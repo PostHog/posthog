@@ -85,7 +85,7 @@ export const CodeReviewApprovalsRepositoriesCreateBody = /* @__PURE__ */ zod
             .max(codeReviewApprovalsRepositoriesCreateBodyExpressSlackChannelNameMax)
             .optional()
             .describe(
-                "Display name of the Slack channel in express_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go."
+                "Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go."
             ),
     })
     .describe(
@@ -168,7 +168,7 @@ export const CodeReviewApprovalsRepositoriesUpdateBody = /* @__PURE__ */ zod
             .max(codeReviewApprovalsRepositoriesUpdateBodyExpressSlackChannelNameMax)
             .optional()
             .describe(
-                "Display name of the Slack channel in express_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go."
+                "Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go."
             ),
     })
     .describe(
@@ -255,7 +255,7 @@ export const CodeReviewApprovalsRepositoriesPartialUpdateBody = /* @__PURE__ */ 
             .max(codeReviewApprovalsRepositoriesPartialUpdateBodyExpressSlackChannelNameMax)
             .optional()
             .describe(
-                "Display name of the Slack channel in express_slack_channel_id, without the '#'. Shown in replies only, so a stale name does not change where requests go."
+                "Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go."
             ),
     })
     .describe(

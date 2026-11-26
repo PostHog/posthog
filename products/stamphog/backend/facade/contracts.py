@@ -313,8 +313,13 @@ class ReviewRequestResultDTO:
     express_request: ExpressRequestDTO | None = None
     # The Slack channel name the repository sends Express requests to, without the '#'. Blank when unknown.
     express_request_channel_name: str = ""
-    # The requester's weekly card count that the request's card shows, or will show once the card that is on
-    # its way goes out. None while no card is posted or on its way.
+    # Whether this request created ``express_request``. False when it returned one that someone asked for earlier.
+    express_request_created: bool = False
+    # True when the request is open with no posted card and the card cannot go out: the team has no Slack
+    # integration, or Slack refused the post.
+    express_request_card_blocked: bool = False
+    # The requester's weekly card count that the card on its way will show. Set only when this request created
+    # ``express_request`` and the card is on its way, so it is always the count of the person who asked.
     express_request_card_count: int | None = None
 
 

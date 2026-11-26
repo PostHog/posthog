@@ -61,7 +61,8 @@ _MAX_PERMALINK_CHARS = 512
 _SLACK_USER_ID = re.compile(r"^[UW][A-Z0-9]{2,}$")
 
 _STATUS_LINES: dict[ExpressRequestStatus, str] = {
-    ExpressRequestStatus.PENDING: "Stamphog is reviewing the new commits.",
+    # A new run can start at the same head, for example after new evidence, so this line names no commits.
+    ExpressRequestStatus.PENDING: "Stamphog is reviewing again.",
     ExpressRequestStatus.STAMPHOG_APPROVED: "✅ Stamphog approved the new commits. No review needed.",
     ExpressRequestStatus.MERGED: "Merged.",
     ExpressRequestStatus.CLOSED: "Closed without merging.",
@@ -224,6 +225,19 @@ def _button(text: str, action_id: str, value: str, *, primary: bool = False) -> 
     return element
 
 
+def _verbatim(block: dict[str, Any]) -> dict[str, Any]:
+    """Mark every mrkdwn text object of ``block`` verbatim.
+
+    Escaping stops `<!here>`, but Slack also turns a bare `@here`, `@channel` or `@everyone` into a broadcast
+    unless the text is verbatim. The title, the findings and the note can carry one. Links and `<@U...>`
+    mentions that the card writes itself still render.
+    """
+    for text in [block.get("text"), *block.get("fields", []), *block.get("elements", [])]:
+        if isinstance(text, dict) and text.get("type") == "mrkdwn":
+            text["verbatim"] = True
+    return block
+
+
 def card_blocks(card: ExpressRequestCard) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = [section_block(_heading(card))]
     if status_line := _status_line(card):
@@ -241,15 +255,15 @@ def card_blocks(card: ExpressRequestCard) -> list[dict[str, Any]]:
         if card.lookers:
             buttons.append(_button("Stop looking", STOP_LOOKING_ACTION_ID, value))
         blocks.append({"type": "actions", "block_id": ACTIONS_BLOCK_ID, "elements": buttons})
-    return blocks
+    return [_verbatim(block) for block in blocks]
 
 
 def card_text(card: ExpressRequestCard) -> str:
-    """The notification preview and the text for clients that ignore blocks. Slack parses it for mentions too."""
-    title = clip_text(card.title, _MAX_TITLE_CHARS)
-    return clip_text(
-        escape_slack_mrkdwn(f"Review requested: {card.repository}#{card.pr_number} {title}"), MAX_TEXT_CHARS
-    )
+    """The notification preview and the text for clients that ignore blocks.
+
+    It leaves out the title, because this text cannot be marked verbatim and Slack parses it for mentions too.
+    """
+    return clip_text(escape_slack_mrkdwn(f"Review requested: {card.repository}#{card.pr_number}"), MAX_TEXT_CHARS)
 
 
 @frozen

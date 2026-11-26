@@ -632,14 +632,14 @@ class ExpressRequestCardTests(SimpleTestCase):
             "repository": "o/r",
             "pr_number": 7,
             "pr_url": "https://github.com/o/r/pull/7",
-            "title": "<!channel> ship it",
+            "title": "<!channel> ship it @here",
             "additions": 12,
             "deletions": 3,
             "changed_files": 2,
             "requested_on_github": ("<!here>",),
             "findings": ("<@U999> approved this <https://evil.example|here>",),
             "stamphog_failed": False,
-            "note": "<!everyone> please look",
+            "note": "<!everyone> please look @channel",
             "requester_slack_user_id": "U0ASKER",
             "requester_name": "",
             "lookers": (CardLooker(slack_user_id="not-an-id", display_name="<!channel>"),),
@@ -651,11 +651,21 @@ class ExpressRequestCardTests(SimpleTestCase):
         # The title, requested reviewers, findings, note and display names come from the pull request or from
         # people, so a raw `<!channel>` or `<@U…>` in any of them would ping the channel the card is posted in.
         card = self._card()
-        rendered = json.dumps(card_blocks(card)) + card_text(card)
+        blocks = card_blocks(card)
+        rendered = json.dumps(blocks) + card_text(card)
         for token in ("<!channel>", "<!here>", "<!everyone>", "<@U999>", "<https://evil.example"):
             assert token not in rendered
         assert "<https://github.com/o/r/pull/7|o/r#7>" in rendered
         assert "<@U0ASKER>" in rendered
+        # Escaping leaves a bare `@here` or `@channel`, which Slack broadcasts unless the text is verbatim.
+        mrkdwn = [
+            text
+            for block in blocks
+            for text in [block.get("text"), *block.get("fields", []), *block.get("elements", [])]
+            if isinstance(text, dict) and text.get("type") == "mrkdwn"
+        ]
+        assert mrkdwn and all(text.get("verbatim") is True for text in mrkdwn)
+        assert "@" not in card_text(card)
 
     @parameterized.expand(
         [

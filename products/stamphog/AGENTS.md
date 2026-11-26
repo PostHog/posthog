@@ -327,9 +327,10 @@ A field added to the engine context belongs in the fingerprint, or a stale verdi
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
-  and its review policy (`review_mode`, `trigger_label`, `review_on_clean_external_review`) resets to the model defaults: all of those
-  fields were set by someone who never proved GitHub access, so a pre-selected review mode or label
-  would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
+  and its review policy (`review_mode`, `trigger_label`, `review_on_clean_external_review`, `express_enabled`,
+  `express_slack_channel_id`, `express_slack_channel_name`) resets to the model defaults: all of those
+  fields were set by someone who never proved GitHub access, so a pre-selected review mode, label or Express
+  channel would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
   policy the same way when it binds one. Reinstall rebinds keep settings — those
   were configured under a verified binding. Such a row is also kept out of the digest candidates:
   a blank installation can fetch no routing file, and every candidate is read, so leaving it in let

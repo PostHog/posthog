@@ -726,6 +726,21 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("slack_channel_name", "#eng-reviews_2", True),
+            # The name goes into Slack and GitHub replies, where these would render as a mention or a link.
+            ("team_mention", "@org/team", False),
+            ("markdown_link", "[reviews](https://example.com)", False),
+        ]
+    )
+    def test_express_channel_name_cannot_carry_markup(self, _name: str, name: str, expected_valid: bool) -> None:
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
+            data={"repository": "PostHog/posthog", "express_slack_channel_name": name}
+        )
+
+        assert serializer.is_valid() is expected_valid, serializer.errors
+
+    @parameterized.expand(
+        [
             ("create_in_all_mode", None, {"repository": "PostHog/posthog", "review_mode": "all", **_SWITCH_ON}, None),
             ("switch_on_in_stored_all_mode", ReviewMode.ALL, _SWITCH_ON, None),
             ("all_mode_and_switch_in_one_save", ReviewMode.LABEL, {"review_mode": "all", **_SWITCH_ON}, None),
@@ -1284,7 +1299,10 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert (request.requested_by_user_id, request.requested_via) == (self.user.id, ExpressRequestSource.API)
         assert first.json()["express_request"]["id"] == second.json()["express_request"]["id"] == str(request.id)
         assert second.json()["run"]["express_request"]["note"] == "Touches billing."
-        assert refresh.call_args_list == [call(team_id=self.team.id, express_request_id=str(request.id))] * 2
+        assert (
+            refresh.call_args_list
+            == [call(team_id=self.team.id, express_request_id=str(request.id), head_decided=False)] * 2
+        )
         captured = scoped_capture.return_value.__enter__.return_value.call_args_list
         assert [(c.kwargs["event"], c.kwargs["properties"]["stamphog_express_request_has_note"]) for c in captured] == [
             ("stamphog_express_request_created", True)
@@ -1311,8 +1329,8 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                 True,
                 ExpressRequestStatus.STAMPHOG_APPROVED,
             ),
-            # A visible WAIT gets another review of the head, so nobody is asked yet.
-            ("wait", ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT, True, ExpressRequestStatus.PENDING),
+            # Nothing may wake a delivered WAIT, so the ask reviews the head again, and nobody is asked yet.
+            ("wait", ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT, True, ExpressRequestStatus.PENDING, True),
         ]
     )
     def test_express_request_starts_from_the_published_verdict_at_the_head(
@@ -1322,6 +1340,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         verdict: ReviewVerdict,
         posted: bool,
         expected: ExpressRequestStatus,
+        new_run: bool = False,
     ) -> None:
         run_id = self._request().json()["run"]["id"]
         ReviewRun.objects.unscoped().filter(id=run_id).update(
@@ -1331,8 +1350,8 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
         response = self._request(express=True)
 
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["run"]["id"] == run_id
+        assert response.status_code == (status.HTTP_201_CREATED if new_run else status.HTTP_200_OK), response.content
+        assert (response.json()["run"]["id"] != run_id) is new_run
         assert response.json()["express_request"]["status"] == expected
 
     def test_request_needs_the_write_scope(self) -> None:

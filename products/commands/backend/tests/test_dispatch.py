@@ -552,6 +552,51 @@ class TestDispatchCommentCommand(BaseTest):
                 "reviews",
                 "Stamphog approved. No one else needs to look.",
             ),
+            # Someone else asked first and the card is not out yet, so the reply promises no count of theirs.
+            (
+                "asked_by_someone_else",
+                ExpressRequestStatus.OPEN,
+                [],
+                "reviews",
+                "Already asked. Stamphog didn't approve, so this goes to #reviews.",
+                5,
+                False,
+            ),
+            # No Slack integration, or Slack refused the post: nothing goes to the channel until a person fixes it.
+            (
+                "card_blocked",
+                ExpressRequestStatus.OPEN,
+                [],
+                "reviews",
+                "Stamphog didn't approve, but the request couldn't be posted to #reviews. "
+                "A manager can check that Slack is connected and that the app can post in the channel.",
+                None,
+                False,
+                True,
+            ),
+            # A reply on GitHub is a public comment, so it names no channel and has no Slack link or count.
+            (
+                "already_posted_from_github",
+                ExpressRequestStatus.OPEN,
+                ["https://example.slack.com/archives/C1/p100200"],
+                "reviews",
+                "Already asked in the repository's Slack channel.",
+                None,
+                True,
+                False,
+                "github",
+            ),
+            (
+                "open_twelfth_card_from_github",
+                ExpressRequestStatus.OPEN,
+                [],
+                "reviews",
+                "Stamphog didn't approve, so this goes to the repository's Slack channel.",
+                12,
+                True,
+                False,
+                "github",
+            ),
         ]
     )
     def test_stamp_express_replies_with_where_the_request_stands(
@@ -562,6 +607,9 @@ class TestDispatchCommentCommand(BaseTest):
         channel_name: str,
         expected: str,
         card_count: int | None = None,
+        created: bool = True,
+        card_blocked: bool = False,
+        asked_from: str = "slack",
     ) -> None:
         express_request = ExpressRequestDTO(
             id=uuid4(),
@@ -574,23 +622,29 @@ class TestDispatchCommentCommand(BaseTest):
             ],
         )
         context = CommandContext(
-            request=dataclasses.replace(self._command_request(verb="stamp"), channel="slack"),
+            request=dataclasses.replace(self._command_request(verb="stamp"), channel=asked_from),
             subject=_pull_request(),
             members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
         result = MagicMock(
             created=True,
             express_request=express_request,
+            express_request_created=created,
+            express_request_card_blocked=card_blocked,
             express_request_channel_name=channel_name,
             express_request_card_count=card_count,
         )
+        # Notes only work from Slack.
+        note = "ask Jane about billing" if asked_from == "slack" else ""
 
         with patch(REQUEST_STAMPHOG_REVIEW, return_value=result):
-            outcome = handle_stamp(context, StampArgs(express=True, note="ask Jane about billing"))
+            outcome = handle_stamp(context, StampArgs(express=True, note=note))
 
         assert outcome.accepted
         assert outcome.message.endswith(expected)
         assert "Jane" not in outcome.message
+        if asked_from == "github":
+            assert "#reviews" not in outcome.message and "slack.com" not in outcome.message
 
     @parameterized.expand(
         [
@@ -762,7 +816,13 @@ class TestDispatchCommentCommand(BaseTest):
         express_request = ExpressRequestDTO(
             id=uuid4(), status=ExpressRequestStatus.PENDING, head_sha="abc123", requested_via=ExpressRequestSource.SLACK
         )
-        result = MagicMock(created=True, express_request=express_request, express_request_channel_name="reviews")
+        result = MagicMock(
+            created=True,
+            express_request=express_request,
+            express_request_created=True,
+            express_request_card_blocked=False,
+            express_request_channel_name="reviews",
+        )
         budget = BucketDecision(allowed=True, remaining=0, limit=5, retry_after=60, reset=600)
         answers: list[str] = []
 

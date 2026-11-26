@@ -57,7 +57,11 @@ from products.stamphog.backend.logic.attestation_checks import AttestationCheck,
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
-from products.stamphog.backend.logic.express_requests import ExpressRequestAsk, open_express_request
+from products.stamphog.backend.logic.express_requests import (
+    ExpressRequestAsk,
+    OpenedExpressRequest,
+    open_express_request,
+)
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import (
     delete_installation,
@@ -1183,8 +1187,8 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
 def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> None:
     """Turn one verified pull_request webhook delivery into a queued ReviewRun."""
     _process_pull_request_event(payload, delivery_id)
-    # An Express request reads "no run at the head" as "no review is coming" and opens its card, so it is
-    # refreshed only after this delivery created the head's run or skipped the head. A retry raises
+    # An Express request reads "no run at the head" as "no review is coming" and opens its card only on this
+    # refresh, because it runs after this delivery created the head's run or skipped the head. A retry raises
     # above, and its own attempt refreshes once it decides.
     if payload.get("action") in _HEAD_CHANGING_ACTIONS or _is_base_retarget(payload):
         _refresh_express_requests_after_review_decision(payload)
@@ -1200,6 +1204,7 @@ def _refresh_express_requests_after_review_decision(payload: dict[str, Any]) -> 
             repository=repository,
             pr_number=pr_number,
             installation_id=str((payload.get("installation") or {}).get("id", "")),
+            head_decided=True,
         )
     except Exception:
         logger.exception("stamphog_express_request_refresh_after_review_failed", repo=repository, pr_number=pr_number)
@@ -1705,7 +1710,7 @@ class _HeadQueueResult:
     run: ReviewRun | None
     created: bool
     # The pull request's active Express request, or the final one this ask recorded. None unless the caller asked.
-    express_request: ExpressRequest | None = None
+    express: OpenedExpressRequest | None = None
 
 
 def _queue_review_at_head(
@@ -1715,6 +1720,7 @@ def _queue_review_at_head(
     *,
     output: dict[str, Any],
     revisit_wait: bool = False,
+    revisit_engine_wait: bool = False,
     evidence: str | None = None,
     delivery_id: str = "",
     express: ExpressRequestAsk | None = None,
@@ -1729,7 +1735,8 @@ def _queue_review_at_head(
 
     ``revisit_wait`` stops a delivered WAIT at this head, engine or gated, from counting as covering
     it, because the caller wants that verdict revisited. A newer run at this head still counts, so
-    repeated requests collapse into one run.
+    repeated requests collapse into one run. ``revisit_engine_wait`` does the same for an engine WAIT
+    only, so a gate denial, stored as a GATED WAIT, still covers the head.
 
     ``evidence`` is the caller's evidence fingerprint of the PR as it is now. When the newest run at
     this head is a delivered refusal, the head is reviewed again only for evidence that no finished
@@ -1769,10 +1776,12 @@ def _queue_review_at_head(
         # Only the newest run counts. An older verdict at this head, from before the WAIT, does not
         # cover it either, because the WAIT replaced that verdict.
         if (
-            revisit_wait
-            and existing is not None
+            existing is not None
             and existing.verdict == ReviewVerdict.WAIT
-            and existing.status in (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED)
+            and (
+                (revisit_wait and existing.status in (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED))
+                or (revisit_engine_wait and existing.status == ReviewRunStatus.COMPLETED)
+            )
         ):
             existing = None
         # A retarget changes the diff without moving the head, and in label mode no webhook run
@@ -1792,8 +1801,8 @@ def _queue_review_at_head(
             if existing.status == ReviewRunStatus.QUEUED:
                 existing_run_id = str(existing.id)
                 transaction.on_commit(lambda: _start_review_workflow(existing_run_id, team_id), using=run_write_db)
-            express_request = _open_express_request(pr_obj, existing, express, using=run_write_db)
-            return _HeadQueueResult(run=existing, created=False, express_request=express_request)
+            opened = _open_express_request(pr_obj, existing, express, using=run_write_db)
+            return _HeadQueueResult(run=existing, created=False, express=opened)
         _supersede_prior_runs(pr_obj)
         review_run = ReviewRun.objects.for_team(team_id).create(
             team_id=team_id,
@@ -1807,13 +1816,13 @@ def _queue_review_at_head(
         # A post-commit start failure propagates to the caller. A retry re-enters through the
         # dedupe above and restarts the still-QUEUED run.
         transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id), using=run_write_db)
-        express_request = _open_express_request(pr_obj, review_run, express, using=run_write_db)
-    return _HeadQueueResult(run=review_run, created=True, express_request=express_request)
+        opened = _open_express_request(pr_obj, review_run, express, using=run_write_db)
+    return _HeadQueueResult(run=review_run, created=True, express=opened)
 
 
 def _open_express_request(
     pr_obj: PullRequest, run: ReviewRun, ask: ExpressRequestAsk | None, *, using: str
-) -> ExpressRequest | None:
+) -> OpenedExpressRequest | None:
     """Get or create the Express request of ``ask``, and queue its refresh once the transaction commits."""
     if ask is None:
         return None
@@ -1824,7 +1833,7 @@ def _open_express_request(
     if request.status in ACTIVE_EXPRESS_REQUEST_STATUSES:
         team_id, request_id = request.team_id, str(request.id)
         transaction.on_commit(lambda: queue_express_request_refresh(team_id, request_id), using=using)
-    return request
+    return opened
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -1998,6 +2007,8 @@ class QueuedReview:
     created: bool
     # Set only when the request asked for people to review.
     express_request: ExpressRequest | None = None
+    # Whether this request created ``express_request``. False when it found an active one.
+    express_request_created: bool = False
     # The repository's configured channel name, for replies. Blank unless the request asked for people.
     express_request_channel_name: str = ""
 
@@ -2225,6 +2236,10 @@ def request_manual_review(
         pr["head"]["sha"],
         output={"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value},
         evidence=evidence,
+        # A delivered engine WAIT can wait on something that never wakes it, such as a reviewer bot's 👀 that ages
+        # out. The Express request opens only on a verdict, so this ask reviews such a head again. A gate denial
+        # already opens the request.
+        revisit_engine_wait=express is not None,
         express=express,
     )
     if queued.run is None:
@@ -2239,15 +2254,16 @@ def request_manual_review(
         review_run_id=str(queued.run.id),
         created=queued.created,
         evidence_rerun=queued.created and EVIDENCE_RERUN_OUTPUT_KEY in (queued.run.output or {}),
-        express_request_id=str(queued.express_request.id) if queued.express_request is not None else None,
+        express_request_id=str(queued.express.request.id) if queued.express is not None else None,
         team_id=team_id,
     )
-    if queued.express_request is None:
+    if queued.express is None:
         return QueuedReview(run=queued.run, created=queued.created)
     return QueuedReview(
         run=queued.run,
         created=queued.created,
-        express_request=queued.express_request,
+        express_request=queued.express.request,
+        express_request_created=queued.express.created,
         express_request_channel_name=repo_config.express_slack_channel_name,
     )
 

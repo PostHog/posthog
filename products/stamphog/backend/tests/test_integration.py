@@ -42,6 +42,7 @@ from products.stamphog.backend.facade.enums import (
 )
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
+from products.stamphog.backend.facade.review_requests import request_review
 from products.stamphog.backend.logic import approval_gates, gateway_tokens
 from products.stamphog.backend.logic.attestation_checks import PendingCheck
 from products.stamphog.backend.logic.channel_resolution import (
@@ -4477,8 +4478,8 @@ def _rendered(blocks: list[dict]) -> str:
     return json.dumps(blocks, ensure_ascii=False)
 
 
-def _refresh(request: ExpressRequest) -> ExpressRequest:
-    refresh_express_request(team_id=request.team_id, express_request_id=str(request.id))
+def _refresh(request: ExpressRequest, *, head_decided: bool = False) -> ExpressRequest:
+    refresh_express_request(team_id=request.team_id, express_request_id=str(request.id), head_decided=head_decided)
     request.refresh_from_db()
     return request
 
@@ -4703,17 +4704,30 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
             "commit_id": "sha172a",
         }
     ]
-    request = _refresh(request)
+    with patch("products.stamphog.backend.logic.express_requests.ph_scoped_capture") as scoped_capture:
+        request = _refresh(request)
     assert (request.status, request.approved_by_login) == (ExpressRequestStatus.APPROVED, "maintainer")
+    # The outcome of a posted card is what shows whether Express got a person to review.
+    (captured,) = scoped_capture.return_value.__enter__.return_value.call_args_list
+    assert captured.kwargs["event"] == "stamphog_express_request_status_changed"
+    assert (
+        captured.kwargs["properties"]["stamphog_express_request_old_status"],
+        captured.kwargs["properties"]["stamphog_express_request_new_status"],
+    ) == ("open", "approved")
     approved_card = fakes.FakeSlackIntegration.updated_messages[-1]
     assert "Approved by maintainer" in _rendered(approved_card["blocks"])
     assert not any(block["type"] == "actions" for block in approved_card["blocks"])
 
-    # A push makes that approval stale. Nothing reviews the new head, so the card opens again, and the
-    # people looking hear about the push once however often the request refreshes.
+    # A push makes that approval stale. A delivery such as review_requested can refresh before the review path
+    # decided the new head, and then the request and the card wait for that decision.
     recorder.register_pr(REPO, 172, _silent_review_pr(172, "sha172b"), _pr_files())
     request = _refresh(request)
-    request = _refresh(request)
+    assert (request.status, request.head_sha) == (ExpressRequestStatus.APPROVED, "sha172a")
+    assert _thread_replies() == []
+    # Nothing reviews the new head, so the card opens again, and the people looking hear about the push once
+    # however often the request refreshes.
+    request = _refresh(request, head_decided=True)
+    request = _refresh(request, head_decided=True)
     assert (request.status, request.head_sha, request.approved_by_login) == (ExpressRequestStatus.OPEN, "sha172b", "")
     (ping,) = _thread_replies()
     assert ping["thread_ts"] == card["ts"]
@@ -4803,10 +4817,86 @@ def test_a_head_that_kept_stamphogs_approval_asks_nobody(
     )
     stamphog_chain.recorder.register_pr(REPO, 177, _silent_review_pr(177, "sha177b"), _pr_files())
 
-    request = _refresh(request)
+    request = _refresh(request, head_decided=True)
 
     assert (request.status, request.head_sha) == (expect_status, "sha177b")
     assert len(_cards()) == expect_cards
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_asking_people_reviews_again_a_head_that_waits(team, stamphog_chain: StamphogChain) -> None:
+    # A delivered WAIT can wait on something that never wakes it, such as a reviewer bot's reaction that ages out.
+    # If the ask reused it, the request would wait forever and nobody would be asked.
+    repo_config = _express_repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=178, author_login="devex-dev"
+    )
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha178a",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.WAIT,
+        verdict_posted_at=timezone.now(),
+    )
+    stamphog_chain.recorder.register_pr(REPO, 178, _silent_review_pr(178, "sha178a"), _pr_files())
+
+    request = _ask_people(team.id, 178, fakes.make_fake_sandbox_class(_refused_engine_output()))
+
+    assert request.status == ExpressRequestStatus.OPEN
+    assert len(_cards()) == 1
+
+
+@pytest.mark.parametrize("slack_connected", [True, False], ids=["card_on_its_way", "no_slack_integration"])
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_asking_again_shows_no_weekly_count_of_the_first_requester(
+    team, stamphog_chain: StamphogChain, slack_connected: bool
+) -> None:
+    repo_config = _express_repo_config(team.id)
+    if not slack_connected:
+        Integration.objects.filter(team_id=team.id, kind="slack").delete()
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=179, author_login="devex-dev"
+    )
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha179a",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.REFUSED,
+        verdict_posted_at=timezone.now(),
+    )
+    # The first requester caused three cards this week, and their request has no card yet.
+    for days_ago in (1, 2, 3):
+        _earlier_request(team.id, pull_request, days_ago=days_ago, requested_by_user_id=ASKER_USER_ID)
+    ExpressRequest.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        status=ExpressRequestStatus.OPEN,
+        head_sha="sha179a",
+        requested_by_user_id=ASKER_USER_ID,
+        requested_via=ExpressRequestSource.API,
+    )
+    stamphog_chain.recorder.register_pr(REPO, 179, _silent_review_pr(179, "sha179a"), _pr_files())
+
+    with (
+        patch("products.stamphog.backend.tasks.tasks._start_review_workflow"),
+        patch.object(refresh_express_request, "delay"),
+    ):
+        result = request_review(
+            team.id,
+            user_id=ASKER_USER_ID + 1,
+            repository=REPO,
+            pr_number=179,
+            express=True,
+            requested_via=ExpressRequestSource.GITHUB,
+            requester_github_login="second-asker",
+        )
+
+    assert result.express_request is not None
+    assert result.express_request.status == ExpressRequestStatus.OPEN
+    assert (result.express_request_created, result.express_request_card_count) == (False, None)
+    assert result.express_request_card_blocked is not slack_connected
 
 
 def _click(
