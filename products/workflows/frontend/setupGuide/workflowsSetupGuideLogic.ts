@@ -128,7 +128,7 @@ export interface workflowsSetupGuideLogicMeta {
             chosenReachChannels: ('email' | 'push')[] | null,
             categories: MessageCategoryApi[],
             categoriesLoading: boolean,
-            templateCount: any,
+            templateCount: number | null,
             hasMessagingWorkflow: boolean | null
         ) => SetupGuideStep[] | null
         completedCount: (steps: SetupGuideStep[] | null) => number

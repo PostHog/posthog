@@ -32,6 +32,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
+import { messagingTemplatesList } from 'products/messaging/frontend/generated/api'
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 import {
     EMAIL_DOCUMENT_DESIGN_KEY,
     EmailDocument,
@@ -513,7 +515,7 @@ export interface emailTemplaterLogicValues {
     prefersOldEmailEditor: boolean
     revealedAdvancedFields: EmailMetaFieldKey[]
     showEmailTemplateErrors: boolean
-    templates: MessageTemplate[]
+    templates: MessageTemplateApi[]
     templatesLoading: boolean
     templatingEngine: 'hog' | 'liquid'
     unlayerEditorProjectId: 275430 | undefined
@@ -579,10 +581,10 @@ export interface emailTemplaterLogicActions {
         errorObject?: any
     }
     loadTemplatesSuccess: (
-        templates: MessageTemplate[],
+        templates: MessageTemplateApi[],
         payload?: any
     ) => {
-        templates: MessageTemplate[]
+        templates: MessageTemplateApi[]
         payload?: any
     }
     onEmailEditorReady: () => {
@@ -852,13 +854,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         ],
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         templates: [
-            [] as MessageTemplate[],
+            [] as MessageTemplateApi[],
             {
                 loadTemplates: async () => {
                     // The editor only asks whether any template exists; the picker loads its own pages.
-                    const response = await api.messaging.getTemplates({ basic: true, limit: 1 })
+                    const response = await messagingTemplatesList(String(values.currentProjectId), {
+                        basic: true,
+                        limit: 1,
+                    })
                     return response.results
                 },
             },
