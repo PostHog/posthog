@@ -277,14 +277,24 @@ describe('messageTemplatesLogic', () => {
         await waitFor(() => expect(names()).toEqual(['Welcome (copy)', 'Welcome', 'Plain']))
     })
 
-    it('shows the template step as not done when the count fails, rather than hiding the setup guide', async () => {
+    it('counts no templates when the count and the list fail, and takes the count from the list once it reloads', async () => {
         holdCounts = true
-        await remount()
+        holdFirstPages = true
+        logic.unmount()
+        logic.mount()
         await waitFor(() => expect(heldCounts).toHaveLength(1))
+        await waitFor(() => expect(heldFirstPages).toHaveLength(1))
 
         heldCounts[0](500)
-
+        heldFirstPages[0](500)
+        await waitFor(() => expect(logic.values.canRetryTemplates).toBe(true))
         await waitFor(() => expect(logic.values.templateCount).toBe(0))
+
+        holdFirstPages = false
+        logic.actions.loadTemplates()
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+
+        expect(logic.values.templateCount).toBe(3)
     })
 
     it('keeps paging off after a filtered create until the reloaded first page lands', async () => {

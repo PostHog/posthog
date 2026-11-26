@@ -152,8 +152,10 @@ export interface messageTemplatesLogicActions {
     }
     templatesPageLoaded: (
         listParams: MessagingTemplatesListParams,
-        hasMoreTemplates: boolean
+        hasMoreTemplates: boolean,
+        count: number
     ) => {
+        count: number
         hasMoreTemplates: boolean
         listParams: MessagingTemplatesListParams
     }
@@ -220,6 +222,10 @@ export function cutTemplateSearch(search: string): string {
     return Array.from(search).slice(0, TEMPLATE_SEARCH_MAX_LENGTH).join('')
 }
 
+function isFiltered({ search, created_by, tags, transactional }: MessagingTemplatesListParams): boolean {
+    return !!search || created_by !== undefined || !!tags || !!transactional
+}
+
 export interface MessageTemplatesLogicProps {
     listKey?: string
 }
@@ -237,9 +243,10 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         setTransactionalOnly: (transactionalOnly: boolean) => ({ transactionalOnly }),
         setTagsFilter: (tagsFilter: string[]) => ({ tagsFilter }),
         templateTagsSaved: (template: MessageTemplate) => ({ template }),
-        templatesPageLoaded: (listParams: MessagingTemplatesListParams, hasMoreTemplates: boolean) => ({
+        templatesPageLoaded: (listParams: MessagingTemplatesListParams, hasMoreTemplates: boolean, count: number) => ({
             listParams,
             hasMoreTemplates,
+            count,
         }),
         listInvalidated: true,
         loadMoreTemplates: true,
@@ -285,7 +292,15 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             { loadTemplates: () => false, loadTemplatesFailure: () => true, templatesPageLoaded: () => false },
         ],
         // A failed count shows the guide's template step as not done, rather than hiding the whole guide.
-        templateCount: [null as number | null, { loadTemplateCountFailure: (state) => state ?? 0 }],
+        templateCount: [
+            null as number | null,
+            {
+                loadTemplateCountFailure: (state) => state ?? 0,
+                // An unfiltered page counts every template, so it stands in for a count that failed or has not landed.
+                templatesPageLoaded: (state, { listParams, count }) =>
+                    !state && !isFiltered(listParams) ? (count ?? state) : state,
+            },
+        ],
         templates: [
             [] as MessageTemplate[],
             {
@@ -310,7 +325,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                         throw error
                     }
                     breakpoint()
-                    actions.templatesPageLoaded(listParams, !!page.next)
+                    actions.templatesPageLoaded(listParams, !!page.next, page.count)
                     // A page read before a delete landed still holds the deleted template.
                     const deleted: Set<string> = cache.deletedTemplateIds ?? new Set()
                     return page.results.filter((t: MessageTemplate) => !deleted.has(t.id))
@@ -409,8 +424,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
         ],
         hasActiveFilters: [
             (s) => [s.listParams],
-            ({ search, created_by, tags, transactional }: MessagingTemplatesListParams): boolean =>
-                !!search || created_by !== undefined || !!tags || !!transactional,
+            (listParams: MessagingTemplatesListParams): boolean => isFiltered(listParams),
         ],
         // Paging stays off after a failed reload, so the list offers a first-page retry instead.
         canRetryTemplates: [
