@@ -27,6 +27,9 @@ logger = structlog.get_logger(__name__)
 SERIES_VALUES_PRECOMPUTE_FLAG = "alerts-series-values-precompute"
 SHADOW_COMPARISON_EVENT = "alert series values shadow compared"
 SHADOW_BUILD_BUDGET_SECONDS = 60
+# The build can pass its budget by the time it takes to print one INSERT, so the attempt needs more
+# than the budget left.
+SHADOW_ATTEMPT_MARGIN_SECONDS = 30
 
 AlertKind = Literal["threshold", "detector"]
 ShadowOutcome = Literal["match", "mismatch", "partial", "unavailable", "error"]
@@ -133,7 +136,7 @@ def compare_series_values_shadow(
         live = calculation_result.result
         if not live:
             comparison = ShadowComparison(outcome="unavailable", reason="no_live_result")
-        elif not attempt_outlasts(SHADOW_BUILD_BUDGET_SECONDS):
+        elif not attempt_outlasts(SHADOW_BUILD_BUDGET_SECONDS + SHADOW_ATTEMPT_MARGIN_SECONDS):
             # The build runs before the check is recorded. An attempt that ends during the build loses the
             # live result, and leaves an INSERT running that no cleanup stops.
             comparison = ShadowComparison(outcome="unavailable", reason="attempt_out_of_time")
