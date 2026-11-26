@@ -14,6 +14,7 @@ import {
     failedTestIds,
     testJobsPassed,
 } from './post-quarantined-failures-section.mjs'
+import { buildRequiredReviewersSection, findRequiredReviews } from './post-required-reviewers-section.mjs'
 import { buildTrunkLaneSection, parseCrossLane, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
@@ -322,5 +323,59 @@ describe('quarantined failures section', () => {
         assert.equal(testJobsPassed(['success', 'failure']), false)
         assert.equal(testJobsPassed(['cancelled', 'success']), false)
         assert.equal(testJobsPassed([undefined, 'success']), false)
+    })
+})
+
+describe('required reviewers section', () => {
+    const rules = [
+        { type: 'deletion' },
+        {
+            type: 'pull_request',
+            parameters: {
+                required_reviewers: [
+                    {
+                        file_patterns: ['*/api/authentication.py', '.github/actions/semgrep-ci/**'],
+                        minimum_approvals: 1,
+                        reviewer: { id: 7, type: 'Team' },
+                    },
+                ],
+            },
+        },
+    ]
+
+    for (const testCase of [
+        { name: 'single star stays in one directory', files: ['ee/billing/api/authentication.py'], expected: [] },
+        {
+            name: 'single star matches one directory',
+            files: ['posthog/api/authentication.py'],
+            expected: ['posthog/api/authentication.py'],
+        },
+        {
+            name: 'double star matches nested files',
+            files: ['.github/actions/semgrep-ci/scripts/run.sh', 'README.md'],
+            expected: ['.github/actions/semgrep-ci/scripts/run.sh'],
+        },
+    ]) {
+        it(testCase.name, () => {
+            const reviews = findRequiredReviews(rules, testCase.files)
+            assert.deepEqual(
+                reviews.flatMap((review) => review.files),
+                testCase.expected
+            )
+        })
+    }
+
+    it('names the team from its slug and stays quiet when nothing matches', () => {
+        const reviews = findRequiredReviews(rules, ['posthog/api/authentication.py'])
+        const section = buildRequiredReviewersSection(reviews, {
+            baseRef: 'master',
+            teamSlugs: new Map([[7, 'team-security']]),
+            org: 'PostHog',
+        })
+        assert.equal(section.summary, 'needs approval from `@PostHog/team-security`')
+        assert.equal(
+            buildRequiredReviewersSection([], { baseRef: 'master', teamSlugs: new Map(), org: 'PostHog' }),
+            null
+        )
     })
 })
