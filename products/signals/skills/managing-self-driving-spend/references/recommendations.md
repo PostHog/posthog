@@ -41,7 +41,7 @@ A large share already resolved is a reason to leave it alone. A large share dism
 ## Know what a scout is for
 
 Yield only measures a scout whose job is to find problems for people to fix.
-Before you judge a scout, read its description, `output_destinations`, `structured_output_schema`, and `scout_role` from `posthog:scout-config-list`, and read "What a quiet scout does" in queries-yield.md.
+Before you judge a scout, read its description, `output_destinations`, `structured_output_schema`, and `scout_role` from `posthog:scout-config-retrieve`, and read "What a quiet scout does" in queries-yield.md.
 
 | Kind of scout     | How to recognize it                                                                             | How to judge it                                                                                                                                |
 | ----------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |

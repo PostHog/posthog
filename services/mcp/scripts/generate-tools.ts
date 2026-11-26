@@ -951,7 +951,10 @@ function buildPathExpr(
 
 type ResponseFilterHelper = 'pickResponseFields' | 'omitResponseFields' | 'stripNullFields'
 
-function buildResponseFilter(config: ToolConfig): {
+function buildResponseFilter(
+    config: ToolConfig,
+    responseType?: string
+): {
     code: string
     helperImports: ResponseFilterHelper[]
 } {
@@ -993,6 +996,13 @@ function buildResponseFilter(config: ToolConfig): {
         return { code: '', helperImports: [] }
     }
 
+    // A list endpoint with `pagination_class = None` returns its rows as a bare array, not a page.
+    if (config.list && responseType?.endsWith('[]')) {
+        return {
+            code: `        const filtered = result.map((item: any) => ${shapeItem('item')}) as typeof result\n`,
+            helperImports,
+        }
+    }
     if (config.list) {
         return {
             code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => ${shapeItem('item')}) } as typeof result\n`,
@@ -1420,7 +1430,7 @@ function generateToolCode(
     handlerBody += `        })\n`
 
     // Response filtering — pick/omit fields before enrichment
-    const responseFilter = buildResponseFilter(config)
+    const responseFilter = buildResponseFilter(config, responseType)
     if (responseFilter.code) {
         // Warn if filtering might break enrich_url — only for response-sourced fields;
         // '{params.x}' fields are read from the request params, so filtering can't break them.
@@ -1838,7 +1848,7 @@ function generateCustomSchemaToolCode(
     handlerBody += `        })\n`
 
     // Response filtering — pick/omit fields before enrichment
-    const responseFilter = buildResponseFilter(config)
+    const responseFilter = buildResponseFilter(config, responseType)
     handlerBody += responseFilter.code
 
     const enrichmentVar = responseFilter.code ? 'filtered' : 'result'

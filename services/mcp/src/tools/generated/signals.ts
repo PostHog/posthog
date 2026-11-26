@@ -1922,7 +1922,44 @@ const scoutConfigList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/inbox')
+        const filtered = result.map((item: any) =>
+            pickResponseFields(item, [
+                'id',
+                'skill_name',
+                'display_name',
+                'description',
+                'scout_origin',
+                'scout_role',
+                'enabled',
+                'status',
+                'pause_reason',
+                'emit',
+                'run_interval_minutes',
+                'run_cron_schedule',
+                'last_run_at',
+                'tags',
+                'source_product',
+            ])
+        ) as typeof result
+        return await withPostHogUrl(context, filtered, '/inbox')
+    },
+})
+
+const ScoutConfigRetrieveSchema = () => {
+    const SignalsScoutConfigRetrieveParams = orvalSchemas.SignalsScoutConfigRetrieveParams()
+    return SignalsScoutConfigRetrieveParams.omit({ project_id: true })
+}
+
+const scoutConfigRetrieve = (): ToolBase<ReturnType<typeof ScoutConfigRetrieveSchema>, Schemas.SignalScoutConfig> => ({
+    name: 'scout-config-retrieve',
+    schema: ScoutConfigRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalScoutConfig>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
     },
 })
 
@@ -2952,13 +2989,31 @@ const scoutRunsList = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 emitted: params.emitted,
+                exclude_skill_name: params.exclude_skill_name,
                 limit: params.limit,
                 skill_name: params.skill_name,
                 skill_version: params.skill_version,
                 text: params.text,
             },
         })
-        return await withPostHogUrl(context, result, '/inbox')
+        const filtered = result.map((item: any) =>
+            pickResponseFields(item, [
+                'run_id',
+                'skill_name',
+                'skill_version',
+                'status',
+                'created_at',
+                'started_at',
+                'completed_at',
+                'summary_lead',
+                'failure_reason',
+                'emitted_count',
+                'emitted_finding_ids',
+                'emitted_report_ids',
+                'edited_report_ids',
+            ])
+        ) as typeof result
+        return await withPostHogUrl(context, filtered, '/inbox')
     },
 })
 
@@ -3112,6 +3167,7 @@ const scoutScratchpadSearch = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
                 content_max_chars: params.content_max_chars,
+                content_offset: params.content_offset,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 include_expired: params.include_expired,
@@ -4075,6 +4131,7 @@ const signalsScoutRunsList = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 emitted: params.emitted,
+                exclude_skill_name: params.exclude_skill_name,
                 limit: params.limit,
                 skill_name: params.skill_name,
                 skill_version: params.skill_version,
@@ -4215,6 +4272,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
                 content_max_chars: params.content_max_chars,
+                content_offset: params.content_offset,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 include_expired: params.include_expired,
@@ -4286,6 +4344,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,
     'scout-config-list': scoutConfigList,
+    'scout-config-retrieve': scoutConfigRetrieve,
     'scout-config-precheck-test': scoutConfigPrecheckTest,
     'scout-config-sync': scoutConfigSync,
     'scout-config-update': scoutConfigUpdate,
