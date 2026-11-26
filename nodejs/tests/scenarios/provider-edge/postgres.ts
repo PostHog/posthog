@@ -6,12 +6,15 @@ const GSSENC_REQUEST = 80877104
 const DECLINED = Buffer.from('N')
 const PARSE = 'P'.charCodeAt(0)
 const QUERY = 'Q'.charCodeAt(0)
+const SYNC = 'S'.charCodeAt(0)
+const FUNCTION_CALL = 'F'.charCodeAt(0)
 const ERROR_RESPONSE = 'E'.charCodeAt(0)
 const COMMAND_COMPLETE = 'C'.charCodeAt(0)
 const READY_FOR_QUERY = 'Z'.charCodeAt(0)
 const IDLE = 'I'.charCodeAt(0)
 const IN_TRANSACTION = 'T'.charCodeAt(0)
 const ROLLED_BACK = Buffer.from('ROLLBACK\0')
+const ROWS_INSERTED = /^INSERT \d+ [1-9]\d*\0$/
 const MESSAGE_FIELD = 'M'.charCodeAt(0)
 const DEFAULT_PORT = 5432
 const STARTUP_MIN_BYTES = 8
@@ -144,6 +147,9 @@ function committed(replies: Buffer[]): boolean {
     )
 }
 
+const insertedRows = (reply: Buffer): boolean =>
+    reply[0] === COMMAND_COMPLETE && ROWS_INSERTED.test(reply.toString('latin1', TYPED_HEADER_BYTES))
+
 function relay(from: net.Socket, to: net.Socket, frames: (chunk: Buffer) => void): void {
     from.on('data', (chunk: Buffer) => {
         try {
@@ -165,7 +171,14 @@ function relay(from: net.Socket, to: net.Socket, frames: (chunk: Buffer) => void
 
 function connect(client: net.Socket, server: net.Socket, faults: PgFaults): void {
     let started = false
-    let enqueued = false
+    // Postgres answers each simple query and each sync with one ReadyForQuery, in the order the client sent them, so
+    // the edge pairs every answer with the cycle it closes and holds only the answers of a cycle that may commit an
+    // enqueue. Answers a client reads before its sync pass at once.
+    let enqueueInCycle = false
+    const cycles: boolean[] = []
+    let ready = false
+    let insertedInTransaction = false
+    let insertedInCycle = false
     let held: Buffer[] = []
     const fromClient = framesOf(
         () => (started ? TYPED_HEADER_BYTES : STARTUP_MIN_BYTES),
@@ -174,7 +187,11 @@ function connect(client: net.Socket, server: net.Socket, faults: PgFaults): void
             if (started) {
                 const enqueue = enqueueOf(message)
                 const token = enqueue && faults.refusePg()
-                enqueued ||= enqueue !== undefined
+                enqueueInCycle ||= enqueue !== undefined
+                if (message[0] === QUERY || message[0] === SYNC || message[0] === FUNCTION_CALL) {
+                    cycles.push(enqueueInCycle)
+                    enqueueInCycle = false
+                }
                 server.write(enqueue && token ? refusedMessage(message, enqueue, token) : message)
                 return
             }
@@ -199,19 +216,33 @@ function connect(client: net.Socket, server: net.Socket, faults: PgFaults): void
         () => TYPED_HEADER_BYTES,
         typedLength,
         (message) => {
-            if (!enqueued) {
+            const closesCycle = message[0] === READY_FOR_QUERY
+            if (!ready) {
+                ready = closesCycle
+                answer(message)
+                return
+            }
+            const enqueueCycle = cycles[0] === true
+            if (held.length === 0 && !enqueueCycle && !insertedInTransaction) {
+                if (closesCycle) {
+                    cycles.shift()
+                }
                 answer(message)
                 return
             }
             held.push(message)
-            if (message[0] !== READY_FOR_QUERY) {
+            insertedInCycle ||= enqueueCycle && insertedRows(message)
+            if (!closesCycle) {
                 return
             }
+            cycles.shift()
             const replies = held
+            const inserted = insertedInTransaction || insertedInCycle
             held = []
+            insertedInCycle = false
             const status = message[TYPED_HEADER_BYTES]
-            enqueued = status === IN_TRANSACTION
-            if (status === IDLE && committed(replies) && faults.losePgCommitReply()) {
+            insertedInTransaction = status === IN_TRANSACTION && inserted
+            if (status === IDLE && inserted && committed(replies) && faults.losePgCommitReply()) {
                 client.destroy()
                 server.destroy()
                 return
