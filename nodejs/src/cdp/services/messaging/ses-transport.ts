@@ -136,16 +136,16 @@ const sesRefused = (response: unknown): boolean => {
 
 type SendAttempts = {
     mayHaveReachedSes: () => boolean
-    lastNeverLeftTheWorker: () => boolean
+    whyTheLastNeverLeftTheWorker: () => string | null
 }
 
 function trackAttempts(command: SendEmailCommand): SendAttempts {
     let attemptsSesMayHaveAccepted = 0
-    let lastNeverLeftTheWorker = false
+    let whyTheLastNeverLeftTheWorker: string | null = null
     command.middlewareStack.add(
         (next) => async (args) => {
             attemptsSesMayHaveAccepted++
-            lastNeverLeftTheWorker = false
+            whyTheLastNeverLeftTheWorker = null
             try {
                 const httpAnswer = await next(args)
                 if (sesRefused(httpAnswer.response)) {
@@ -155,7 +155,7 @@ function trackAttempts(command: SendEmailCommand): SendAttempts {
             } catch (error) {
                 if (failedBeforeTheRequestLeft(error)) {
                     attemptsSesMayHaveAccepted--
-                    lastNeverLeftTheWorker = true
+                    whyTheLastNeverLeftTheWorker = connectionTriesOf(error).map(messageOf).join('; ')
                 }
                 throw error
             }
@@ -164,7 +164,7 @@ function trackAttempts(command: SendEmailCommand): SendAttempts {
     )
     return {
         mayHaveReachedSes: () => attemptsSesMayHaveAccepted > 0,
-        lastNeverLeftTheWorker: () => lastNeverLeftTheWorker,
+        whyTheLastNeverLeftTheWorker: () => whyTheLastNeverLeftTheWorker,
     }
 }
 
@@ -219,9 +219,10 @@ export class SesTransport {
             return { kind: 'accepted', messageId: response.MessageId }
         } catch (error: unknown) {
             observeDuration('error')
-            if (kind === 'files' && attempts.lastNeverLeftTheWorker()) {
+            const whyItNeverLeft = attempts.whyTheLastNeverLeftTheWorker()
+            if (kind === 'files' && whyItNeverLeft !== null) {
                 sesSendResultsTotal.inc({ result: 'before_connect' })
-                return { kind: 'not_sent', reason: 'before_connect', message: messageOf(error) }
+                return { kind: 'not_sent', reason: 'before_connect', message: whyItNeverLeft }
             }
             sesSendResultsTotal.inc({ result: boundedSendResultLabel(error) })
             return failureOf(error, deadline, attempts.mayHaveReachedSes())
