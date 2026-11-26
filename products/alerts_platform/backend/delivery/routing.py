@@ -57,7 +57,7 @@ def _routing_is_enabled(team: Team, request: AlertDeliveryRequest) -> bool:
     """
     enabled = _routing_flag(team)
     if enabled is None and request.incident_actions and has_incident_route(request.team_id):
-        raise DeliveryError("The alert routing flag could not be evaluated.", reason="platform_read")
+        raise DeliveryError("The alert routing flag could not be evaluated.")
     return bool(enabled)
 
 

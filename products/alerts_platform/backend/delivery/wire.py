@@ -54,6 +54,10 @@ def rfc3339(moment: datetime) -> str:
     return aware.isoformat()
 
 
+def _host_did_not_resolve(error: SSRFBlockedError) -> bool:
+    return str(error) == UNRESOLVED_HOST_REASON
+
+
 def post_json(
     url: str,
     body: dict[str, Any],
@@ -101,7 +105,7 @@ def post_json(
             refused = _is_owner_refusal(status, response, owner_refusals)
             response.close()
     except SSRFBlockedError as error:
-        if str(error) == UNRESOLVED_HOST_REASON:
+        if _host_did_not_resolve(error):
             raise DeliveryError(
                 f"The {display_name} destination's host name did not resolve.", reason="unreachable"
             ) from None

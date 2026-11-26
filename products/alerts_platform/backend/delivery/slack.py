@@ -227,16 +227,6 @@ _TRANSIENT_ERRORS: Final[dict[str, FailureReason]] = {
 }
 
 
-def _slack_refusal(error: SlackApiError, refused: str) -> DeliveryError:
-    """The code stays in the text, so a refusal can be searched for in the worker's logs."""
-    code = error.response.get("error")
-    misconfigured = _MISCONFIGURED_ERRORS.get(code)
-    if misconfigured is None:
-        return DeliveryError(f"Slack refused the {refused}: {code}", reason=_unrefused_reason(error, code))
-    explanation, remedy = misconfigured
-    return DestinationRefused(f"Slack refused the {refused}: {code}. {explanation}", remedy=remedy)
-
-
 def _unrefused_reason(error: SlackApiError, code: Any) -> FailureReason:
     # A response that is not JSON carries no Slack code, only text the SDK makes from the body.
     status = getattr(error.response, "status_code", None)
@@ -245,6 +235,16 @@ def _unrefused_reason(error: SlackApiError, code: Any) -> FailureReason:
     if status is not None and status >= 500:
         return "provider_error"
     return _TRANSIENT_ERRORS.get(code, "provider_refused")
+
+
+def _slack_refusal(error: SlackApiError, refused: str) -> DeliveryError:
+    """The code stays in the text, so a refusal can be searched for in the worker's logs."""
+    code = error.response.get("error")
+    misconfigured = _MISCONFIGURED_ERRORS.get(code)
+    if misconfigured is None:
+        return DeliveryError(f"Slack refused the {refused}: {code}", reason=_unrefused_reason(error, code))
+    explanation, remedy = misconfigured
+    return DestinationRefused(f"Slack refused the {refused}: {code}. {explanation}", remedy=remedy)
 
 
 def _maybe_posted(error: OSError | HTTPException) -> bool:
@@ -404,7 +404,7 @@ class SlackTransport:
         A slot that already holds an image is left as it is, so a retried edit changes nothing.
         """
         if not root.root_content:
-            raise DeliveryError("This Slack conversation has no opening message to edit.", reason="platform_bug")
+            raise DeliveryError("This Slack conversation has no opening message to edit.")
         slot = _image_slot(root.root_content)
         if slot is None:
             return None
@@ -434,7 +434,7 @@ class SlackTransport:
         channel = root.external_ref.get("channel")
         ts = root.external_ref.get("ts")
         if workspace_id is None or not channel or not ts or not root.root_content:
-            raise DeliveryError("This Slack conversation has no opening message to edit.", reason="platform_bug")
+            raise DeliveryError("This Slack conversation has no opening message to edit.")
         # An edit timeout is not ambiguous: `chat.update` sets the same content again on a retry,
         # and dispatch counts a failed state edit without failing the send.
         slack = SlackIntegration(
