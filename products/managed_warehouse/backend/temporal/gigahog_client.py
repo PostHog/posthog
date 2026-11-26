@@ -218,8 +218,15 @@ class GigahogClient:
     """Gigahog calls for one team, with that team's token."""
 
     def __init__(self, config: GigahogConfig, *, team_id: int, session: requests.Session | None = None) -> None:
-        if config.oauth_direct and urlsplit(config.token_url).scheme != "https":
-            raise GigahogTokenError(0, "invalid_token_url", "Direct OAuth requires HTTPS")
+        if config.oauth_direct:
+            try:
+                token_url = urlsplit(config.token_url)
+                port = token_url.port
+                valid = token_url.scheme == "https" and bool(token_url.hostname) and port != 0
+            except ValueError:
+                valid = False
+            if not valid:
+                raise GigahogTokenError(0, "invalid_token_url", "Direct OAuth requires a valid HTTPS URL")
         self._config = config
         self._team_id = team_id
         self._session = session or requests.Session()

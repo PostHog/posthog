@@ -84,9 +84,18 @@ def test_gigahog_proxy_routing(monkeypatch, api_direct, oauth_direct, requests_c
     ]
 
 
-@pytest.mark.parametrize("scheme", ["http", "https"])
-def test_direct_oauth_rejects_insecure_urls_and_redirects(monkeypatch, scheme):
-    token_url = f"{scheme}://auth.example.test/oauth/token"
+@pytest.mark.parametrize(
+    "token_url, expected_status",
+    [
+        ("http://auth.example.test/oauth/token", 0),
+        ("https://", 0),
+        ("https://[::1/oauth/token", 0),
+        ("https://auth.example.test:invalid/oauth/token", 0),
+        ("https://auth.example.test:0/oauth/token", 0),
+        ("https://auth.example.test/oauth/token", 307),
+    ],
+)
+def test_direct_oauth_rejects_invalid_urls_and_redirects(monkeypatch, token_url, expected_status):
     config = GigahogConfig(
         url="https://api.example.test",
         catalog="imports",
@@ -113,5 +122,7 @@ def test_direct_oauth_rejects_insecure_urls_and_redirects(monkeypatch, scheme):
         with GigahogClient(config, team_id=42) as client:
             client.storage_session()
 
-    assert exc.value.status_code == (307 if scheme == "https" else 0)
-    assert calls == ([token_url] if scheme == "https" else [])
+    assert exc.value.status_code == expected_status
+    if expected_status == 0:
+        assert exc.value.code == "invalid_token_url"
+    assert calls == ([token_url] if expected_status == 307 else [])
