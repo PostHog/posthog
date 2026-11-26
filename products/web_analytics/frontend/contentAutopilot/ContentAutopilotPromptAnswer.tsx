@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { Button, Heading, Skeleton, Text, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotAnswerMentionList } from './ContentAutopilotAnswerMentionList'
 import { ContentAutopilotAnswerSentimentTag } from './ContentAutopilotAnswerSentimentTag'
 import { ContentAutopilotAnswerText } from './ContentAutopilotAnswerText'
@@ -32,38 +35,49 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
         latestChecksFailed,
         promptId,
     } = useValues(contentAutopilotPromptDetailLogic)
-    const { selectEngine, loadAeoPromptLatestChecks } = useActions(contentAutopilotPromptDetailLogic)
+    const { selectEngine, loadAeoPromptLatestChecks, loadCompetitorBrands } = useActions(
+        contentAutopilotPromptDetailLogic
+    )
 
     return (
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
-                <LemonSegmentedButton
-                    size="small"
-                    value={selectedCheck ? undefined : (activeEngine ?? undefined)}
-                    onChange={selectEngine}
-                    options={engines.map((engine) => ({
-                        value: engine,
-                        label: <ContentAutopilotEngineLabel engine={engine} />,
-                    }))}
+                <ToggleGroup
+                    variant="outline"
+                    spacing={1}
+                    className="flex-wrap"
+                    aria-label="Engine"
+                    value={!selectedCheck && activeEngine ? [activeEngine] : []}
+                    onValueChange={(next: string[]) => {
+                        // Clicking the chosen engine again empties the group, which keeps the current engine.
+                        if (next[0]) {
+                            selectEngine(next[0])
+                        }
+                    }}
                     data-attr="content-autopilot-prompt-answer-engine"
-                />
+                >
+                    {engines.map((engine) => (
+                        <ToggleGroupItem key={engine} value={engine}>
+                            <ContentAutopilotEngineLabel engine={engine} />
+                        </ToggleGroupItem>
+                    ))}
+                </ToggleGroup>
                 {selectedCheck ? (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
+                    <Button
+                        variant="outline"
                         onClick={() => selectEngine(selectedCheck.engine)}
                         data-attr="content-autopilot-prompt-answer-show-latest"
                     >
                         Show latest answer
-                    </LemonButton>
+                    </Button>
                 ) : null}
             </div>
 
             {shownCheck ? (
                 <div className="flex flex-col gap-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         {shownCheck.mode === 'no_search' && !shownCheck.check_failed ? (
-                            <LemonTag type="muted">No search</LemonTag>
+                            <AiVisibilityTag type="muted">No search</AiVisibilityTag>
                         ) : (
                             <ContentAutopilotCheckResult
                                 cited={shownCheck.cited}
@@ -83,109 +97,123 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                             <TZLabel time={shownCheck.created_at} />
                         </span>
                         <span>Version {checkPromptVersion(shownCheck)}</span>
-                        <span className="truncate">Model: {shownCheck.model}</span>
+                        <span className="min-w-0 break-all">Model: {shownCheck.model}</span>
                     </div>
 
                     {shownCheck.check_failed ? (
-                        <p className="m-0 text-muted">
+                        <Text size="xs" variant="muted" className="m-0 break-words">
                             The engine didn't answer this time.
                             {shownCheck.error ? ` Error: ${shownCheck.error}` : ''}
-                        </p>
+                        </Text>
                     ) : (
-                        <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
-                            <ContentAutopilotAnswerText
-                                text={shownCheck.answer_text ?? ''}
-                                mentions={shownAnswerMentions}
-                                sentences={shownCheck.brand_sentiment_sentences}
-                            />
-                            <ContentAutopilotAnswerMentionList
-                                mentions={shownAnswerMentions?.mentions ?? []}
-                                competitors={
-                                    competitorBrands !== null
-                                        ? 'ready'
-                                        : competitorBrandsFailed && !competitorBrandsLoading
-                                          ? 'failed'
-                                          : 'loading'
-                                }
-                            />
-                        </div>
+                        <>
+                            <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-3 gap-4">
+                                <div className="min-w-0 @3xl/prompt-report:col-span-2">
+                                    <ContentAutopilotAnswerText
+                                        text={shownCheck.answer_text ?? ''}
+                                        mentions={shownAnswerMentions}
+                                        sentences={shownCheck.brand_sentiment_sentences}
+                                    />
+                                </div>
+                                <ContentAutopilotAnswerMentionList
+                                    mentions={shownAnswerMentions?.mentions ?? []}
+                                    competitors={
+                                        competitorBrands !== null
+                                            ? 'ready'
+                                            : competitorBrandsFailed && !competitorBrandsLoading
+                                              ? 'failed'
+                                              : 'loading'
+                                    }
+                                    onRetryCompetitors={() => loadCompetitorBrands()}
+                                />
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                                <Heading size="sm" render={<h5 className="m-0" />}>
+                                    Cited sources ({shownCheck.cited_urls.length})
+                                </Heading>
+                                {shownCheck.cited_urls.length ? (
+                                    <ol className="m-0 pl-5 flex flex-col gap-1 text-xs">
+                                        {shownCheck.cited_urls.map((url, index) => (
+                                            <li key={`${index}-${url}`} className="break-all">
+                                                <ContentAutopilotCitationsLink
+                                                    lookup={{
+                                                        kind: 'url',
+                                                        value: url,
+                                                        dateFrom: CITATIONS_MAX_DATE_FROM,
+                                                        dateTo: null,
+                                                        branded: 'all',
+                                                    }}
+                                                    source="prompt-answer-sources"
+                                                    className="break-all"
+                                                >
+                                                    {url}
+                                                </ContentAutopilotCitationsLink>
+                                                {isWebUrl(url) ? (
+                                                    <Button
+                                                        size="icon-xs"
+                                                        nativeButton={false}
+                                                        render={<LinkPrimitive to={url} target="_blank" />}
+                                                        aria-label="Open the page"
+                                                        tooltip="Open the page"
+                                                        className="ml-1 inline-flex align-middle"
+                                                        data-attr="content-autopilot-prompt-answer-source-open"
+                                                    >
+                                                        <IconExternal />
+                                                    </Button>
+                                                ) : null}
+                                                {shownCheck.target_urls.includes(url) ? (
+                                                    <AiVisibilityTag type="success" className="ml-2">
+                                                        Your site
+                                                    </AiVisibilityTag>
+                                                ) : null}
+                                            </li>
+                                        ))}
+                                    </ol>
+                                ) : (
+                                    <Text size="xs" variant="muted" className="m-0">
+                                        This answer cited no sources.
+                                    </Text>
+                                )}
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                                <Heading size="sm" render={<h5 className="m-0" />}>
+                                    Searches the engine ran ({shownCheck.search_queries.length})
+                                </Heading>
+                                {shownCheck.search_queries.length ? (
+                                    <ul className="m-0 pl-5 flex flex-col gap-1 text-xs">
+                                        {shownCheck.search_queries.map((query, index) => (
+                                            <li key={`${index}-${query}`} className="break-words">
+                                                <ContentAutopilotCitationsLink
+                                                    lookup={{
+                                                        kind: 'search',
+                                                        value: query,
+                                                        dateFrom: CITATIONS_MAX_DATE_FROM,
+                                                        dateTo: null,
+                                                        branded: 'all',
+                                                    }}
+                                                    source="prompt-answer-searches"
+                                                    className="break-words"
+                                                >
+                                                    {query}
+                                                </ContentAutopilotCitationsLink>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <Text size="xs" variant="muted" className="m-0">
+                                        The engine didn't report any searches.
+                                    </Text>
+                                )}
+                            </div>
+                        </>
                     )}
-
-                    <div className="flex flex-col gap-1">
-                        <h5 className="m-0">Cited sources ({shownCheck.cited_urls.length})</h5>
-                        {shownCheck.cited_urls.length ? (
-                            <ol className="m-0 pl-5 flex flex-col gap-1 text-sm">
-                                {shownCheck.cited_urls.map((url, index) => (
-                                    <li key={`${index}-${url}`} className="break-all">
-                                        <ContentAutopilotCitationsLink
-                                            lookup={{
-                                                kind: 'url',
-                                                value: url,
-                                                dateFrom: CITATIONS_MAX_DATE_FROM,
-                                                dateTo: null,
-                                                branded: 'all',
-                                            }}
-                                            source="prompt-answer-sources"
-                                            className="break-all"
-                                        >
-                                            {url}
-                                        </ContentAutopilotCitationsLink>
-                                        {isWebUrl(url) ? (
-                                            <LemonButton
-                                                size="xsmall"
-                                                icon={<IconExternal />}
-                                                to={url}
-                                                targetBlank
-                                                hideExternalLinkIcon
-                                                tooltip="Open the page"
-                                                className="inline-flex align-middle ml-1"
-                                                data-attr="content-autopilot-prompt-answer-source-open"
-                                            />
-                                        ) : null}
-                                        {shownCheck.target_urls.includes(url) ? (
-                                            <LemonTag type="success" size="small" className="ml-2">
-                                                Your site
-                                            </LemonTag>
-                                        ) : null}
-                                    </li>
-                                ))}
-                            </ol>
-                        ) : (
-                            <span className="text-muted text-sm">This answer cited no sources.</span>
-                        )}
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                        <h5 className="m-0">Searches the engine ran ({shownCheck.search_queries.length})</h5>
-                        {shownCheck.search_queries.length ? (
-                            <ul className="m-0 pl-5 flex flex-col gap-1 text-sm">
-                                {shownCheck.search_queries.map((query, index) => (
-                                    <li key={`${index}-${query}`} className="break-words">
-                                        <ContentAutopilotCitationsLink
-                                            lookup={{
-                                                kind: 'search',
-                                                value: query,
-                                                dateFrom: CITATIONS_MAX_DATE_FROM,
-                                                dateTo: null,
-                                                branded: 'all',
-                                            }}
-                                            source="prompt-answer-searches"
-                                            className="break-words"
-                                        >
-                                            {query}
-                                        </ContentAutopilotCitationsLink>
-                                    </li>
-                                ))}
-                            </ul>
-                        ) : (
-                            <span className="text-muted text-sm">The engine didn't report any searches.</span>
-                        )}
-                    </div>
                 </div>
             ) : latestChecksLoading ? (
-                <LemonSkeleton className="h-40 w-full" />
+                <Skeleton className="h-40 w-full" />
             ) : latestChecksFailed ? (
-                <LemonBanner
+                <AiVisibilityBanner
                     type="error"
                     action={{
                         children: 'Try again',
@@ -193,9 +221,11 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                     }}
                 >
                     Couldn't load the latest answers. Try again, and if it keeps happening contact support.
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : (
-                <span className="text-muted">No answers yet. The prompt runs in the next daily check.</span>
+                <Text size="xs" variant="muted" className="m-0">
+                    No answers yet. The prompt runs in the next daily check.
+                </Text>
             )}
         </div>
     )

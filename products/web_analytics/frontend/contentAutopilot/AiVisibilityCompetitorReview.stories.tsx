@@ -51,7 +51,7 @@ const meta: Meta<typeof AiVisibilityCompetitorReview> = {
 export default meta
 
 export const Suggestions: StoryFn<typeof AiVisibilityCompetitorReview> = () => (
-    <div className="p-4 max-w-200">
+    <div className="p-4 max-w-200" data-quill>
         <AiVisibilityCompetitorReview />
     </div>
 )
