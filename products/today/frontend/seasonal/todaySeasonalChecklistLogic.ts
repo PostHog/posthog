@@ -18,6 +18,7 @@ import { toast } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic, peekFeatureFlag } from 'lib/logic/featureFlagLogic'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 
 import type { SeasonalChecklist, SeasonalChecklistItem } from './seasonalChecklist'
 
@@ -129,32 +130,35 @@ export const todaySeasonalChecklistLogic: LogicWrapper<todaySeasonalChecklistLog
             dismissChecklist: true,
             restoreChecklist: true,
         }),
-        reducers({
-            isOpen: [
-                false,
-                {
-                    openChecklist: () => true,
-                    closeChecklist: () => false,
-                    itemActionClicked: () => false,
-                    dismissChecklist: () => false,
-                },
-            ],
-            completedKeys: [
-                [] as string[],
-                { persist: true },
-                {
-                    setItemDone: (state, { key, done }) =>
-                        done ? (state.includes(key) ? state : [...state, key]) : state.filter((k) => k !== key),
-                },
-            ],
-            dismissed: [
-                false,
-                { persist: true },
-                {
-                    dismissChecklist: () => true,
-                    restoreChecklist: () => false,
-                },
-            ],
+        reducers(() => {
+            const persistence = buildUserScopedPersistenceConfig()
+            return {
+                isOpen: [
+                    false,
+                    {
+                        openChecklist: () => true,
+                        closeChecklist: () => false,
+                        itemActionClicked: () => false,
+                        dismissChecklist: () => false,
+                    },
+                ],
+                completedKeys: [
+                    [] as string[],
+                    persistence,
+                    {
+                        setItemDone: (state, { key, done }) =>
+                            done ? (state.includes(key) ? state : [...state, key]) : state.filter((k) => k !== key),
+                    },
+                ],
+                dismissed: [
+                    false,
+                    persistence,
+                    {
+                        dismissChecklist: () => true,
+                        restoreChecklist: () => false,
+                    },
+                ],
+            }
         }),
         selectors({
             items: [() => [(_, props) => props.checklist], (checklist: SeasonalChecklist) => checklist.items],

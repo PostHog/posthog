@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { Suspense, useLayoutEffect, useRef } from 'react'
 
 import { Button, Text } from '@posthog/quill'
+import { PostHogErrorBoundary } from '@posthog/react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -127,9 +128,11 @@ export function TodayHomePage(): JSX.Element {
             <TodaySampleBanner />
             <TodayPromoBanner />
             {seasonalChecklist ? (
-                <Suspense fallback={null}>
-                    <TodaySeasonalChecklist key={seasonalChecklist.campaign} checklist={seasonalChecklist} />
-                </Suspense>
+                <PostHogErrorBoundary fallback={<></>}>
+                    <Suspense fallback={null}>
+                        <TodaySeasonalChecklist key={seasonalChecklist.campaign} checklist={seasonalChecklist} />
+                    </Suspense>
+                </PostHogErrorBoundary>
             ) : null}
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">

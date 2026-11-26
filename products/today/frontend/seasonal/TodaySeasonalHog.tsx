@@ -1,3 +1,5 @@
+import './TodaySeasonalHog.scss'
+
 import { useActions, useValues } from 'kea'
 import { RefObject, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -36,6 +38,7 @@ export function TodaySeasonalHog({
     const hogRef = useRef<SeasonalHog | null>(null)
     const snowRef = useRef(new SeasonalSnow())
     const stateRef = useRef({ isOpen, dismissed, allDone, doneCount, opened: false })
+    const startLoopRef = useRef<(() => void) | null>(null)
 
     useEffect(() => {
         let cancelled = false
@@ -57,16 +60,17 @@ export function TodaySeasonalHog({
             }
         }
         if (hog) {
-            if (isOpen && !previous.isOpen) {
-                hog.jumpToCard()
-                letItSnow()
-            } else if (!isOpen && previous.isOpen) {
-                hog.jumpToGround()
-            }
             if (dismissed && !previous.dismissed) {
                 hog.leave()
             } else if (!dismissed && previous.dismissed) {
                 hog.enter()
+                startLoopRef.current?.()
+            }
+            if (isOpen && !previous.isOpen) {
+                hog.jumpToCard()
+                letItSnow()
+            } else if (!isOpen && previous.isOpen && !dismissed) {
+                hog.jumpToGround()
             }
             if (doneCount > previous.doneCount && isOpen) {
                 if (allDone) {
@@ -135,11 +139,18 @@ export function TodaySeasonalHog({
                 bubble.hidden = !visible || hog.state !== 'roam' || stateRef.current.opened
                 bubble.style.transform = `translate(calc(${hog.x}px - 50%), calc(${hog.y - HOG_SIZE}px - 100%))`
             }
-            frame = requestAnimationFrame(tick)
+            frame = hog.state === 'away' && snowRef.current.idle(performance.now()) ? 0 : requestAnimationFrame(tick)
         }
-        frame = requestAnimationFrame(tick)
+        const start = (): void => {
+            if (!frame) {
+                frame = requestAnimationFrame(tick)
+            }
+        }
+        startLoopRef.current = start
+        start()
         return () => {
             cancelAnimationFrame(frame)
+            startLoopRef.current = null
             window.removeEventListener('resize', resize)
         }
     }, [sprites, checklist.accessories, cardRef])

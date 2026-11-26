@@ -1,5 +1,3 @@
-import './TodaySeasonalChecklist.scss'
-
 import { BindLogic } from 'kea'
 import { useRef } from 'react'
 

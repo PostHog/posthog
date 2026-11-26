@@ -1,3 +1,5 @@
+import './TodaySeasonalLights.scss'
+
 const BULBS = [
     { x: 19, y: 6, tone: 'destructive' },
     { x: 57, y: 6, tone: 'warning' },

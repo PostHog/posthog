@@ -43,6 +43,7 @@ export class SeasonalHog {
     private timer = 90
     private hovered = false
     private jump: HogJump | null = null
+    private departing = false
     private world: HogWorld
 
     constructor(world: HogWorld) {
@@ -52,7 +53,7 @@ export class SeasonalHog {
     }
 
     hover(hovered: boolean, pointerX: number): void {
-        if (hovered && !this.hovered && this.state === 'roam' && !this.world.reducedMotion) {
+        if (hovered && !this.hovered && this.state === 'roam' && !this.departing && !this.world.reducedMotion) {
             this.speed = 0
             this.timer = 120
             this.direction = pointerX >= this.x ? 1 : -1
@@ -70,22 +71,25 @@ export class SeasonalHog {
     }
 
     jumpToCard(): void {
-        if (this.state === 'card' || this.state === 'away' || this.state === 'leave') {
+        if (this.departing || this.state === 'card' || this.state === 'away' || this.state === 'leave') {
             return
         }
         this.jumpTo(
             () => (this.world.card ? { x: this.world.card.right - 96, y: this.world.card.top + 3 } : this.groundSpot()),
             () => {
                 this.state = this.world.card ? 'card' : 'roam'
+                if (this.departing) {
+                    this.leave()
+                    return
+                }
                 this.direction = -1
                 this.wave()
             }
         )
     }
 
-    jumpToGround(onGround?: () => void): void {
+    jumpToGround(): void {
         if (this.state !== 'card') {
-            onGround?.()
             return
         }
         const spot = this.groundSpot()
@@ -94,23 +98,26 @@ export class SeasonalHog {
             () => {
                 this.state = 'roam'
                 this.timer = 60
-                this.play('idle', true)
-                onGround?.()
+                if (this.departing) {
+                    this.depart()
+                } else {
+                    this.play('idle', true)
+                }
             }
         )
     }
 
     leave(): void {
-        this.jumpToGround(() => {
-            this.play('wave', false, () => {
-                this.state = this.world.reducedMotion ? 'away' : 'leave'
-                this.direction = -1
-                this.play('walk', true)
-            })
-        })
+        this.departing = true
+        if (this.state === 'card') {
+            this.jumpToGround()
+        } else if (this.state === 'roam') {
+            this.depart()
+        }
     }
 
     enter(): void {
+        this.departing = false
         if (this.state !== 'away' && this.state !== 'leave') {
             return
         }
@@ -187,6 +194,19 @@ export class SeasonalHog {
         context.restore()
     }
 
+    private depart(): void {
+        this.speed = 0
+        this.play('wave', false, () => {
+            if (!this.departing) {
+                this.play('idle', true)
+                return
+            }
+            this.state = this.world.reducedMotion ? 'away' : 'leave'
+            this.direction = -1
+            this.play('walk', true)
+        })
+    }
+
     private groundSpot(): HogPoint {
         const x = Math.min(Math.max(this.x - 30, this.world.left + 60), this.world.right - 140)
         return { x, y: this.world.ground }
@@ -256,7 +276,7 @@ export class SeasonalHog {
 
     private roam(): void {
         this.y = this.world.ground
-        if (this.world.reducedMotion || this.hovered) {
+        if (this.world.reducedMotion || this.hovered || this.departing) {
             return
         }
         this.timer -= 1

@@ -21,6 +21,10 @@ export class SeasonalSnow {
         this.until = now + SNOW_MS
     }
 
+    idle(now: number): boolean {
+        return now >= this.until && this.flakes.length === 0
+    }
+
     step(now: number, width: number, height: number): void {
         if (now < this.until && this.flakes.length < MAX_FLAKES) {
             for (let i = 0; i < 2; i++) {

@@ -1,3 +1,5 @@
+import './TodaySeasonalProgress.scss'
+
 import { Text } from '@posthog/quill'
 
 export function TodaySeasonalProgress({ done, total }: { done: number; total: number }): JSX.Element {
