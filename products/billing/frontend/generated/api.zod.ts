@@ -9,129 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationPartialUpdateBody = /* @__PURE__ */ zod.object({
-    custom_limits_usd: zod
-        .record(zod.string(), zod.number().nullable())
-        .optional()
-        .describe('Spend limit in USD for each product or usage key. Null removes the limit for that key.'),
-    reset_limit_next_period: zod
-        .string()
-        .optional()
-        .describe('Product type whose limit for the next billing period is removed.'),
-})
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationActivateCreateBody = /* @__PURE__ */ zod.object({
-    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
-    products: zod.string().optional().describe('Product and plan keys to activate.'),
-    intent_product: zod.string().optional().describe('Product that prompted the subscription upgrade.'),
-    custom_limits_usd: zod.string().optional().describe('JSON-encoded custom product limits to apply on activation.'),
-})
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationActivateAuthorizeCreateBody = /* @__PURE__ */ zod.object({
-    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
-})
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationActivateAuthorizeStatusCreateBody = /* @__PURE__ */ zod.object({
-    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
-    payment_intent_id: zod.string().nullish().describe('Stripe payment intent created for this organization.'),
-})
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationCouponsClaimCreateBody = /* @__PURE__ */ zod.object({
-    code: zod
-        .string()
-        .optional()
-        .describe('Coupon code to redeem. Give this or `campaign_slug`, never both. Needs billing access.'),
-    campaign_slug: zod
-        .string()
-        .optional()
-        .describe(
-            'Slug of a campaign to redeem. Give this or `code`, never both. Any organization member can redeem an allowlisted campaign.'
-        ),
-})
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationCreditsPurchaseCreateBody = /* @__PURE__ */ zod.object({
-    annual_credit_amount_usd: zod.number().describe('Amount of credits in USD to buy for one year.'),
-    collection_method: zod
-        .string()
-        .describe('How to pay: `charge_automatically` charges the card on file, `send_invoice` emails an invoice.'),
-})
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationDeactivateCreateBody = /* @__PURE__ */ zod.object({
-    products: zod.string().describe('Comma-separated product types to unsubscribe from.'),
-})
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationLicensePartialUpdateBody = /* @__PURE__ */ zod.object({
-    license: zod.string().optional().describe('License key to activate on this self-hosted instance.'),
-})
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationStartupsApplyCreateBody = /* @__PURE__ */ zod.object({
-    organization_id: zod.uuid().describe('Organization that applies to the startup program.'),
-    program: zod.string().describe('Program to apply to: `YC` or `startup`.'),
-    yc_merch_count: zod.number().nullish().describe('Number of YC merch items the founders want.'),
-    yc_verification_url: zod.string().nullish().describe('YC Bookface link that proves the founder is in YC.'),
-    yc_batch: zod.string().nullish().describe('YC batch, for example `W25`.'),
-    yc_proof_screenshot_url: zod.string().nullish().describe('Uploaded screenshot that proves the founder is in YC.'),
-    raised: zod.string().nullish().describe('Total funding raised, in USD.'),
-    incorporation_date: zod.iso.date().nullish().describe('Date the company was incorporated, as YYYY-MM-DD.'),
-    referrer: zod.string().nullish().describe('Partner that referred the startup, in lowercase.'),
-})
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationSubscriptionSwitchPlanCreateBody = /* @__PURE__ */ zod.object({
-    from_product_key: zod.string().describe('Product the organization is subscribed to now.'),
-    from_plan_key: zod.string().describe('Plan the organization is subscribed to now.'),
-    to_product_key: zod.string().describe('Product to switch to.'),
-    to_plan_key: zod.string().describe('Plan to switch to.'),
-})
-
-/**
- * The billing API at /api/billing/:organization_id/, which names the organization instead of following the
- * user's current project.
- */
-export const BillingOrganizationTrialsActivateCreateBody = /* @__PURE__ */ zod.object({
-    type: zod.string().describe('Trial type: `autosubscribe` or `standard`.'),
-    target: zod.string().describe('Product type or plan the trial is for.'),
-})
-
 export const BillingPartialUpdateBody = /* @__PURE__ */ zod.object({
     custom_limits_usd: zod
         .record(zod.string(), zod.number().nullable())
@@ -209,6 +86,61 @@ export const BillingSubscriptionSwitchPlanCreateBody = /* @__PURE__ */ zod.objec
 export const BillingTrialsActivateCreateBody = /* @__PURE__ */ zod.object({
     type: zod.string().describe('Trial type: `autosubscribe` or `standard`.'),
     target: zod.string().describe('Product type or plan the trial is for.'),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationPartialUpdateBody = /* @__PURE__ */ zod.object({
+    custom_limits_usd: zod
+        .record(zod.string(), zod.number().nullable())
+        .optional()
+        .describe('Spend limit in USD for each product or usage key. Null removes the limit for that key.'),
+    reset_limit_next_period: zod
+        .string()
+        .optional()
+        .describe('Product type whose limit for the next billing period is removed.'),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationActivateCreateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
+    products: zod.string().optional().describe('Product and plan keys to activate.'),
+    intent_product: zod.string().optional().describe('Product that prompted the subscription upgrade.'),
+    custom_limits_usd: zod.string().optional().describe('JSON-encoded custom product limits to apply on activation.'),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationActivateAuthorizeCreateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationActivateAuthorizeStatusCreateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
+    payment_intent_id: zod.string().nullish().describe('Stripe payment intent created for this organization.'),
 })
 
 export const billingAlertsCreateBodyNameMax = 160
@@ -485,4 +417,105 @@ export const BillingAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.obj
         .min(1)
         .max(billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationCouponsClaimCreateBody = /* @__PURE__ */ zod.object({
+    code: zod
+        .string()
+        .optional()
+        .describe('Coupon code to redeem. Give this or `campaign_slug`, never both. Needs billing access.'),
+    campaign_slug: zod
+        .string()
+        .optional()
+        .describe(
+            'Slug of a campaign to redeem. Give this or `code`, never both. Any organization member can redeem an allowlisted campaign.'
+        ),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationCreditsPurchaseCreateBody = /* @__PURE__ */ zod.object({
+    annual_credit_amount_usd: zod.number().describe('Amount of credits in USD to buy for one year.'),
+    collection_method: zod
+        .string()
+        .describe('How to pay: `charge_automatically` charges the card on file, `send_invoice` emails an invoice.'),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationDeactivateCreateBody = /* @__PURE__ */ zod.object({
+    products: zod.string().describe('Comma-separated product types to unsubscribe from.'),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationLicensePartialUpdateBody = /* @__PURE__ */ zod.object({
+    license: zod.string().optional().describe('License key to activate on this self-hosted instance.'),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationStartupsApplyCreateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod.uuid().describe('Organization that applies to the startup program.'),
+    program: zod.string().describe('Program to apply to: `YC` or `startup`.'),
+    yc_merch_count: zod.number().nullish().describe('Number of YC merch items the founders want.'),
+    yc_verification_url: zod.string().nullish().describe('YC Bookface link that proves the founder is in YC.'),
+    yc_batch: zod.string().nullish().describe('YC batch, for example `W25`.'),
+    yc_proof_screenshot_url: zod.string().nullish().describe('Uploaded screenshot that proves the founder is in YC.'),
+    raised: zod.string().nullish().describe('Total funding raised, in USD.'),
+    incorporation_date: zod.iso.date().nullish().describe('Date the company was incorporated, as YYYY-MM-DD.'),
+    referrer: zod.string().nullish().describe('Partner that referred the startup, in lowercase.'),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationSubscriptionSwitchPlanCreateBody = /* @__PURE__ */ zod.object({
+    from_product_key: zod.string().describe('Product the organization is subscribed to now.'),
+    from_plan_key: zod.string().describe('Plan the organization is subscribed to now.'),
+    to_product_key: zod.string().describe('Product to switch to.'),
+    to_plan_key: zod.string().describe('Plan to switch to.'),
+})
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const BillingOrganizationTrialsActivateCreateBody = /* @__PURE__ */ zod.object({
+    type: zod.string().describe('Trial type: `autosubscribe` or `standard`.'),
+    target: zod.string().describe('Product type or plan the trial is for.'),
 })
