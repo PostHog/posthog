@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import { Duration, durationMs } from '../duration'
 
+const MAX_TIMER_MS = 2 ** 31 - 1
+
 export const CdpRole = z.enum([
     'cdp-processed-events',
     'cdp-cyclotron-worker-hogflow',
@@ -41,7 +43,11 @@ export const ValveEntry = z
         for: Duration,
     })
     .strict()
-    .refine((entry) => (entry.at === undefined) !== (entry.when === undefined), 'exactly one of at, when')
+    .refine((entry) => entry.at !== undefined || entry.when !== undefined, 'give at, when or both')
+    .refine((entry) => entry.at === undefined || durationMs(entry.at) <= MAX_TIMER_MS, {
+        message: `at is past ${MAX_TIMER_MS}ms, the longest a timer waits`,
+        path: ['at'],
+    })
 export type ValveEntry = z.infer<typeof ValveEntry>
 
 export const RampStep = z.object({ scale: z.number().positive(), for: Duration }).strict()
