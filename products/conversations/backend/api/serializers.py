@@ -147,11 +147,6 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
     session_context = serializers.DictField(
         required=False, default=dict, help_text="Session context (replay URL, current URL, etc.)"
     )
-    sent_by_agent = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="True when an agent sent the message with an API key or OAuth token. A ticket it creates is not marked verified.",
-    )
 
     def validate(self, data):
         data = super().validate(data)

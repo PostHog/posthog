@@ -25,7 +25,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.conversations.backend.services.posthog_support_widget import SentSupportTicket
+from products.growth.backend.posthog_support_widget import SentSupportTicket
 
 from ee.billing.billing_manager import BillingManager
 

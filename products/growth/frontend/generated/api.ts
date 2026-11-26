@@ -19,6 +19,9 @@ import type {
     IdentityMatchingLinksResponseApi,
     IdentityMatchingRunsResponseApi,
     LabelListResponseApi,
+    PostHogSupportDraftApi,
+    PostHogSupportDraftCreateApi,
+    PostHogSupportSentTicketApi,
     ProductPushCampaignActiveRetrieveParams,
     ProductPushCampaignApi,
     RescoreRequestApi,
@@ -348,6 +351,46 @@ export const identityMatchingLinksRunsRetrieve = async (
     return apiMutator<IdentityMatchingRunsResponseApi>(getIdentityMatchingLinksRunsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getPosthogSupportDraftsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/posthog_support/drafts/`
+}
+
+/**
+ * Saves a draft ticket to PostHog support. It does not send it. Refuses a topic that an agent can't file, and a plan without support for the topic, and says where the person can ask instead. The person approves it in chat, so the agent sends it with the send endpoint.
+ * @summary Draft a PostHog support ticket for the person to approve
+ */
+export const posthogSupportDraftsCreate = async (
+    projectId: string,
+    postHogSupportDraftCreateApi: PostHogSupportDraftCreateApi,
+    options?: RequestInit
+): Promise<PostHogSupportDraftApi> => {
+    return apiMutator<PostHogSupportDraftApi>(getPosthogSupportDraftsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(postHogSupportDraftCreateApi),
+    })
+}
+
+export const getPosthogSupportDraftsSendCreateUrl = (projectId: string, draftId: string) => {
+    return `/api/projects/${projectId}/posthog_support/drafts/${draftId}/send/`
+}
+
+/**
+ * Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling again returns the same ticket.
+ * @summary Send a drafted ticket to PostHog support after the person approved it
+ */
+export const posthogSupportDraftsSendCreate = async (
+    projectId: string,
+    draftId: string,
+    options?: RequestInit
+): Promise<PostHogSupportSentTicketApi> => {
+    return apiMutator<PostHogSupportSentTicketApi>(getPosthogSupportDraftsSendCreateUrl(projectId, draftId), {
+        ...options,
+        method: 'POST',
     })
 }
 

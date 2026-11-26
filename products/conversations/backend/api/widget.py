@@ -68,9 +68,7 @@ from products.conversations.backend.services.identity import (
     identity_claim_has_expired,
     verify_identity_claim_hash,
     verify_identity_hash,
-    widget_session_id_for_identity_hash,
 )
-from products.conversations.backend.services.posthog_support_widget import is_support_widget_team
 
 logger = logging.getLogger(__name__)
 
@@ -452,7 +450,7 @@ class WidgetMessageView(APIView):
         if verified_distinct_id is not None:
             distinct_id = verified_distinct_id
             # Deterministic widget_session_id from the HMAC (for DB storage)
-            widget_session_id = widget_session_id_for_identity_hash(serializer.validated_data["identity_hash"])
+            widget_session_id = str(uuid.UUID(serializer.validated_data["identity_hash"][:32]))
         elif "widget_session_id" in serializer.validated_data:
             widget_session_id = str(serializer.validated_data["widget_session_id"])
             distinct_id = serializer.validated_data["distinct_id"]
@@ -532,14 +530,12 @@ class WidgetMessageView(APIView):
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             # No ticket_id provided - always create a new ticket
-            sent_by_agent = verified_distinct_id is not None and serializer.validated_data["sent_by_agent"]
             conversations_settings = team.conversations_settings or {}
-            if sent_by_agent and is_support_widget_team(team):
-                widget_channel_detail = ChannelDetail.WIDGET_MCP
-            elif conversations_settings.get("widget_enabled"):
-                widget_channel_detail = ChannelDetail.WIDGET_EMBEDDED
-            else:
-                widget_channel_detail = ChannelDetail.WIDGET_API
+            widget_channel_detail = (
+                ChannelDetail.WIDGET_EMBEDDED
+                if conversations_settings.get("widget_enabled")
+                else ChannelDetail.WIDGET_API
+            )
             ticket = Ticket.objects.create_with_number(
                 team=team,
                 widget_session_id=widget_session_id,
@@ -551,7 +547,7 @@ class WidgetMessageView(APIView):
                 unread_team_count=1,
                 session_id=session_id,
                 session_context=session_context,
-                identity_verified=verified_distinct_id is not None and not sent_by_agent,
+                identity_verified=verified_distinct_id is not None,
             )
             set_cached_session_has_tickets(team.id, widget_session_id)
 
@@ -582,7 +578,6 @@ class WidgetMessageView(APIView):
         return Response(
             {
                 "ticket_id": str(ticket.id),
-                "ticket_number": ticket.ticket_number,
                 "message_id": str(comment.id),
                 "ticket_status": ticket.status,
                 "unread_count": ticket.unread_customer_count,  # Unread messages for customer

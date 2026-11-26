@@ -28166,7 +28166,6 @@ export namespace Schemas {
      * * `teams_bot_mention` - Teams bot mention
      * * `widget_embedded` - Widget
      * * `widget_api` - API
-     * * `widget_mcp` - MCP
      * * `github_issue` - GitHub issue
      */
     export type ChannelDetailEnum = typeof ChannelDetailEnum[keyof typeof ChannelDetailEnum];
@@ -28180,7 +28179,6 @@ export namespace Schemas {
       TeamsBotMention: 'teams_bot_mention',
       WidgetEmbedded: 'widget_embedded',
       WidgetApi: 'widget_api',
-      WidgetMcp: 'widget_mcp',
       GithubIssue: 'github_issue',
     } as const;
 
@@ -142089,7 +142087,6 @@ export namespace Schemas {
       TeamsChannelMessage: 'teams_channel_message',
       WidgetApi: 'widget_api',
       WidgetEmbedded: 'widget_embedded',
-      WidgetMcp: 'widget_mcp',
     } as const;
 
     export type ConversationsTicketsListChannelSource = typeof ConversationsTicketsListChannelSource[keyof typeof ConversationsTicketsListChannelSource];

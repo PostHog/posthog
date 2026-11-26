@@ -24,7 +24,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import PostHogSupportDraftCreateThrottle
 
-from products.conversations.backend.services.posthog_support import (
+from products.growth.backend.posthog_support import (
     ANSWERED_FILING_REASONS,
     MAX_SEND_ATTEMPTS,
     MAX_TICKETS_PER_TOPIC,
@@ -38,7 +38,7 @@ from products.conversations.backend.services.posthog_support import (
     check_ticket_permission,
     compose_ticket_message,
 )
-from products.conversations.backend.services.posthog_support_widget import (
+from products.growth.backend.posthog_support_widget import (
     PostHogSupportWidgetClient,
     SentSupportTicket,
     SupportTicketNotSent,

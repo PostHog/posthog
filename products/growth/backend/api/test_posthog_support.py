@@ -21,9 +21,9 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.conversations.backend.api.posthog_support import PostHogSupportDraftCreateSerializer
 from products.conversations.backend.services.identity import compute_identity_hash
-from products.conversations.backend.services.posthog_support import (
+from products.growth.backend.api.posthog_support import PostHogSupportDraftCreateSerializer
+from products.growth.backend.posthog_support import (
     SUPPORT_PANEL_URL,
     SupportDraftStore,
     TicketPermission,
@@ -359,7 +359,7 @@ class TestPostHogSupportSend(APIBaseTest):
     def test_a_draft_on_an_unknown_plan_goes_to_the_support_panel(self) -> None:
         self.organization.created_at = timezone.now() - timedelta(days=200)
         self.organization.save()
-        services = "products.conversations.backend.services.posthog_support"
+        services = "products.growth.backend.posthog_support"
         billing_manager = MagicMock()
         billing_manager.return_value.get_billing_read_only.side_effect = requests.ConnectionError("billing is down")
 
@@ -444,10 +444,10 @@ class TestCheckTicketPermission(SimpleTestCase):
 
         with (
             patch(
-                "products.conversations.backend.services.posthog_support.get_cached_instance_license",
+                "products.growth.backend.posthog_support.get_cached_instance_license",
                 return_value=MagicMock(),
             ),
-            patch("products.conversations.backend.services.posthog_support.BillingManager", billing_manager),
+            patch("products.growth.backend.posthog_support.BillingManager", billing_manager),
         ):
             assert check_ticket_permission(organization, User(), TicketTopic(topic)) == expected
 

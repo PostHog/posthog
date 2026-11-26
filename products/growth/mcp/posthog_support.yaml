@@ -1,10 +1,10 @@
 # MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
-# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product conversations
-# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product conversations --file ../../products/conversations/mcp/posthog_support.yaml
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product growth
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product growth --file ../../products/growth/mcp/posthog_support.yaml
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: PostHog support
-feature: conversations
-url_prefix: /my-tickets
+feature: posthog_support
+url_prefix: /
 ui_apps: {}
 tools:
     posthog-support-draft-create:
