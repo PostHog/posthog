@@ -12,7 +12,7 @@ import type { WidgetType } from '../widgets/core/widgetDefinition'
 import { findWidget } from '../widgets/core/widgetSpec'
 import { WidgetCard } from './card/WidgetCard'
 import { WidgetCardPlaceholder } from './card/WidgetCardPlaceholder'
-import { useContentTileActions, useContentTileDashboardActions } from './menu/TileContextMenu'
+import { useContentTileActions, useContentTilePlacementActions } from './menu/TileContextMenu'
 import { type SectionGridProps, SectionTile } from './SectionTile'
 
 type ContentTileProps = {
@@ -27,7 +27,7 @@ type WindowedContentTileProps = ContentTileProps & { widgets: WidgetType[] }
 function ContentTile({ id, widget, editable }: ContentTileProps): JSX.Element {
     const { widgets, disabledReasonFor, onEdit } = useDashboard()
     const actions = useContentTileActions(id, widget)
-    const dashboardActions = useContentTileDashboardActions(id, widget)
+    const placementActions = useContentTilePlacementActions(id, widget)
     const canSetConfig = !disabledReasonFor('setWidgetConfig')
     // `onEdit` changes with every dashboard edit; a stable `setConfig` keeps `WidgetView`'s memo, so moving tiles
     // doesn't re-render every widget.
@@ -39,7 +39,7 @@ function ContentTile({ id, widget, editable }: ContentTileProps): JSX.Element {
             widget={widget}
             widgets={widgets}
             actions={actions}
-            dashboardActions={dashboardActions}
+            placementActions={placementActions}
             editable={editable}
             setConfig={canSetConfig ? setConfig : undefined}
         />

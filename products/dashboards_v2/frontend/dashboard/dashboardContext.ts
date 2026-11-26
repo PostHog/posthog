@@ -39,7 +39,7 @@ export type DashboardController = {
      * Receives what a person can do to where a tile or a section sits on the dashboard, and returns the list to show.
      * Lets a page hide, disable or add actions by `MenuAction.key`, such as `remove`.
      */
-    tileDashboardActions?: (actions: MenuAction[], tile: { id: string; widget: Widget }) => MenuAction[]
+    tilePlacementActions?: (actions: MenuAction[], tile: { id: string; widget: Widget }) => MenuAction[]
     dashboardActions?: (actions: MenuAction[]) => MenuAction[]
     /**
      * Left out, the dashboard shows no refresh button. Each refresh, from the button or the interval picked there, runs

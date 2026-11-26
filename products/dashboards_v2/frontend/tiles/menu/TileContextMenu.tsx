@@ -90,8 +90,8 @@ export function useContentTileActions(id: string, widget: SavedWidget): MenuActi
 }
 
 /** What a person can do to where a content tile sits on the dashboard: its slideshow, its tab, and removing it. */
-export function useContentTileDashboardActions(id: string, widget: SavedWidget): MenuAction[] {
-    const { dashboard, activeTab, disabledReasonFor, onEdit, tileDashboardActions, showSlideshow } = useDashboard()
+export function useContentTilePlacementActions(id: string, widget: SavedWidget): MenuAction[] {
+    const { dashboard, activeTab, disabledReasonFor, onEdit, tilePlacementActions, showSlideshow } = useDashboard()
     const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
     const actions: MenuAction[] = [
         {
@@ -149,7 +149,7 @@ export function useContentTileDashboardActions(id: string, widget: SavedWidget):
         destructive: true,
         onSelect: () => onEdit({ edit: 'removeTile', id }),
     })
-    return tileDashboardActions ? tileDashboardActions(actions, { id, widget }) : actions
+    return tilePlacementActions ? tilePlacementActions(actions, { id, widget }) : actions
 }
 
 // pinned: `dashboard-v2-tile-parts` data-attrs shipped before border joined this menu.
@@ -212,8 +212,8 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
     return tileActions ? tileActions(actions, { id, widget }) : actions
 }
 
-export function useSectionDashboardActions(id: string, widget: SectionWidget): MenuAction[] {
-    const { disabledReasonFor, onEdit, tileDashboardActions } = useDashboard()
+export function useSectionPlacementActions(id: string, widget: SectionWidget): MenuAction[] {
+    const { disabledReasonFor, onEdit, tilePlacementActions } = useDashboard()
     const actions: MenuAction[] = [
         {
             key: 'remove',
@@ -224,7 +224,7 @@ export function useSectionDashboardActions(id: string, widget: SectionWidget): M
             onSelect: () => onEdit({ edit: 'removeTile', id }),
         },
     ]
-    return tileDashboardActions ? tileDashboardActions(actions, { id, widget }) : actions
+    return tilePlacementActions ? tilePlacementActions(actions, { id, widget }) : actions
 }
 
 /**

@@ -12,7 +12,7 @@ import type { OnSectionRows } from '../grid/TileGrid'
 import { showsBorder } from '../presentation/tileAppearance'
 import { AddTileMenu } from './menu/AddTileMenu'
 import { TileActions } from './menu/TileActions'
-import { TileContextMenu, hasTileMenu, useSectionActions, useSectionDashboardActions } from './menu/TileContextMenu'
+import { TileContextMenu, hasTileMenu, useSectionActions, useSectionPlacementActions } from './menu/TileContextMenu'
 
 export type SectionGridProps = {
     gridId: string
@@ -44,8 +44,8 @@ export function SectionTile({
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
     const ownActions = useSectionActions(id, widget, () => setDraft(widget.title))
-    const dashboardActions = useSectionDashboardActions(id, widget)
-    const actions = useMemo(() => [...ownActions, ...dashboardActions], [ownActions, dashboardActions])
+    const placementActions = useSectionPlacementActions(id, widget)
+    const actions = useMemo(() => [...ownActions, ...placementActions], [ownActions, placementActions])
     const hasMenu = hasTileMenu(actions)
     const showAdd = can('addTile')
 
