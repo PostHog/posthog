@@ -42,6 +42,12 @@ class TestBoardSchemaUpgrade(SimpleTestCase):
         assert nested[0]["panel"]["config"] == {"text": "Hello"}
 
 
+def _nested(value: Any, depth: int) -> Any:
+    for _ in range(depth):
+        value = {"d": value}
+    return value
+
+
 def _board(title: str = "Kitchen sink", **extra: Any) -> dict:
     return {
         "version": 2,
@@ -85,7 +91,7 @@ class TestDashboardV2Boards(APIBaseTest):
         assert [row["uid"] for row in listed["results"]] == [uid]
         assert "spec" not in listed["results"][0]
 
-        updated = self.client.patch(self._url(uid), {"spec": _board("Renamed"), "base_version": 1}, format="json")
+        updated = self.client.put(self._url(uid), {"spec": _board("Renamed"), "base_version": 1}, format="json")
         assert updated.status_code == status.HTTP_200_OK, updated.json()
         assert updated.json()["version"] == 2
         assert updated.json()["title"] == "Renamed"
@@ -107,15 +113,15 @@ class TestDashboardV2Boards(APIBaseTest):
         uid = self._create(_board()).json()["uid"]
         DashboardV2Board.objects.for_team(self.team.pk).filter(uid=uid).update(managed_by=BoardManagedBy.BUILTIN)
 
-        assert self.client.patch(self._url(uid), {"spec": _board("x")}, format="json").status_code == 403
+        assert self.client.put(self._url(uid), {"spec": _board("x")}, format="json").status_code == 403
         assert self.client.delete(self._url(uid)).status_code == 403
         assert self.client.get(self._url(uid)).json()["title"] == "Kitchen sink"
 
     def test_update_based_on_an_old_version_is_refused(self) -> None:
         uid = self._create(_board()).json()["uid"]
-        self.client.patch(self._url(uid), {"spec": _board("First"), "base_version": 1}, format="json")
+        self.client.put(self._url(uid), {"spec": _board("First"), "base_version": 1}, format="json")
 
-        stale = self.client.patch(self._url(uid), {"spec": _board("Second"), "base_version": 1}, format="json")
+        stale = self.client.put(self._url(uid), {"spec": _board("Second"), "base_version": 1}, format="json")
 
         assert stale.status_code == status.HTTP_409_CONFLICT
         assert stale.json()["code"] == "version_conflict"
@@ -130,6 +136,8 @@ class TestDashboardV2Boards(APIBaseTest):
             ("no_schema_version", {"title": "x", "tabs": []}),
             ("too_large", _board(description="x" * MAX_BOARD_SPEC_BYTES)),
             ("nul_character", {**_board(), "tabs": [{"id": "t", "tiles": [{"id": "a\x00b"}]}]}),
+            ("nul_character_deeply_nested", _board(extra=_nested({"note": "a\x00b"}, depth=600))),
+            ("not_a_finite_number", _board(extra={"ratio": float("nan")})),
         ]
     )
     def test_rejects_a_document_that_is_not_a_version_2_board(self, _name: str, spec: Any) -> None:
@@ -144,7 +152,7 @@ class TestDashboardV2Boards(APIBaseTest):
 
         assert self.client.get(self._url(uid, other_team.pk)).status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(self._url(team_id=other_team.pk)).json()["results"] == []
-        patched = self.client.patch(self._url(uid, other_team.pk), {"spec": _board("Taken")}, format="json")
+        patched = self.client.put(self._url(uid, other_team.pk), {"spec": _board("Taken")}, format="json")
         assert patched.status_code == status.HTTP_404_NOT_FOUND
         assert self.client.delete(self._url(uid, other_team.pk)).status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(self._url(uid)).json()["title"] == "Kitchen sink"
@@ -174,7 +182,7 @@ class TestDashboardV2Boards(APIBaseTest):
 
         assert [row["uid"] for row in self.client.get(self._url()).json()["results"]] == [shown["uid"]]
         assert self.client.get(self._url(hidden["uid"])).status_code in (403, 404)
-        patched = self.client.patch(self._url(hidden["uid"]), {"spec": _board("x")}, format="json")
+        patched = self.client.put(self._url(hidden["uid"]), {"spec": _board("x")}, format="json")
         assert patched.status_code in (403, 404)
 
         admin = User.objects.create_and_join(self.organization, "admin@posthog.com", "password")

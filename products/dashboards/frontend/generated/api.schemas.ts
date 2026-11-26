@@ -443,11 +443,11 @@ export interface BoardDetailApi {
 /**
  * The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.
  */
-export type PatchedBoardUpdateApiSpec = { [key: string]: unknown }
+export type BoardUpdateApiSpec = { [key: string]: unknown }
 
-export interface PatchedBoardUpdateApi {
+export interface BoardUpdateApi {
     /** The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept. */
-    spec?: PatchedBoardUpdateApiSpec
+    spec: BoardUpdateApiSpec
     /**
      * The `version` this save is based on. When the board is at another version, nothing is saved and the response is a 409. Leave it out to save over any version.
      * @minimum 1
