@@ -90,6 +90,11 @@ class IdempotencyKeyReused(TransactionalEmailError):
     code = "idempotency_key_reused"
 
 
+class CategoryNotFound(TransactionalEmailError):
+    code = "category_not_found"
+    attr = "category"
+
+
 class SendingSuspended(TransactionalEmailError):
     code = "sending_suspended"
 
@@ -244,6 +249,7 @@ class EmailTracking:
 class EmailCategory:
     id: UUID
     type: str
+    archived: bool = False
 
 
 @frozen

@@ -106,7 +106,6 @@ from products.messaging.backend.facade.transactional_email import (
     TransactionalEmailError,
     TransactionalEmailStage,
     check_transactional_update,
-    keyed_send_holds_its_key,
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
@@ -1977,7 +1976,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             try:
                 row = get_category_by_key(self.team_id, key)
             except MessageCategoryMissing:
-                if not (idempotency_key and keyed_send_holds_its_key(self.team_id, idempotency_key)):
+                if not idempotency_key:
                     raise
                 row = get_category_by_key(self.team_id, key, deleted=True)
         except MessageCategoryMissing:
@@ -1997,7 +1996,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 why="PostHog checks opt-outs and builds the unsubscribe link for the `to` recipient only.",
                 fix="Send each copy as its own email, with its recipient in `to`.",
             )
-        return EmailCategory(id=row.id, type=row.category_type)
+        return EmailCategory(id=row.id, type=row.category_type, archived=row.deleted)
 
     def _require_code_email_access(self, key: str) -> None:
         with transactional_email_stage("workflow_access"):

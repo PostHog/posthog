@@ -168,7 +168,11 @@ def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments:
             **attachments,
             "category": _Key(
                 _object(
-                    {"id": _Key(_string(min_length=1)), "type": _Key(_enum("marketing", "transactional"))},
+                    {
+                        "id": _Key(_string(min_length=1)),
+                        "type": _Key(_enum("marketing", "transactional")),
+                        "archived": _Key(_literal(True), optional=True),
+                    },
                     strict=True,
                 ),
                 optional=True,
@@ -271,6 +275,8 @@ class FakeCdpApi:
             if stored_fingerprint != fingerprint:
                 return _response(422, {"error": "idempotency_key_reused"})
             return _response(202, {"status": "queued", "replayed": True, **reply})
+        if is_code_send and request["send"].get("category", {}).get("archived"):
+            return _response(400, {"error": "category_not_found"})
         requested_at = _parse_scheduled_at(request["scheduled_at"]) if "scheduled_at" in request else None
         if requested_at is not None and requested_at > timezone.now() + timedelta(days=30):
             return _response(400, {"error": "invalid_scheduled_at", "reason": "too_far"})

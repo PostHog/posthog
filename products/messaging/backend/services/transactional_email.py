@@ -39,6 +39,7 @@ from products.messaging.backend.facade.contracts import (
     BatchRecipient,
     BatchTooLarge,
     BatchUnavailable,
+    CategoryNotFound,
     CodeEmail,
     ContentTooLarge,
     DeliveryUnavailable,
@@ -243,6 +244,10 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         "so the email would bounce. Check the address for a typo.",
     ),
     "not_sendable": (TransactionalEmailPaused, "This email's workflow isn't active. Turn it back on to send."),
+    "category_not_found": (
+        CategoryNotFound,
+        "This email's category is deleted, and only a retry of an email already sent in it can name it.",
+    ),
     "invalid_request": (
         InvalidRequest,
         "The email pipeline couldn't accept a field of this email, so it wasn't sent. Check the addresses and "
@@ -889,7 +894,8 @@ def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWa
             "references": list(email.reply_headers.references),
         }
     if email.category:
-        accepted["category"] = {"id": str(email.category.id), "type": email.category.type}
+        archived = {"archived": True} if email.category.archived else {}
+        accepted["category"] = {"id": str(email.category.id), "type": email.category.type, **archived}
     return accepted, sandbox_warning
 
 
