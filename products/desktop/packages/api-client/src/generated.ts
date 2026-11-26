@@ -7595,7 +7595,17 @@ export namespace Schemas {
         | "resolved"
         | "pending_release"
         | "suppressed";
+    export type ErrorTrackingIssueTagColor =
+        | "blue"
+        | "teal"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red"
+        | "pink"
+        | "purple";
     export type ErrorTrackingIssueTag = {
+        color?: (ErrorTrackingIssueTagColor | null) | undefined;
         /**
          * What the tag means, for a tooltip.
          */
@@ -9492,6 +9502,25 @@ export namespace Schemas {
         | "medium"
         | "high"
         | "critical";
+    /**
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple
+     */
+    export type IssueTagColorEnum =
+        | "blue"
+        | "teal"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red"
+        | "pink"
+        | "purple";
     export type ErrorTrackingIssueTagRead = {
         /**
          * Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not.
@@ -9505,6 +9534,19 @@ export namespace Schemas {
          * What the tag means, for a tooltip.
          */
         description: string;
+        /**
+         * Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+         *
+         * * `blue` - Blue
+         * * `teal` - Teal
+         * * `green` - Green
+         * * `yellow` - Yellow
+         * * `orange` - Orange
+         * * `red` - Red
+         * * `pink` - Pink
+         * * `purple` - Purple
+         */
+        color: IssueTagColorEnum | NullEnum;
         /**
          * The tagger that applied the tag: `jev` for AI, `manual` for a person.
          */
