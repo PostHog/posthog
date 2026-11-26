@@ -1,4 +1,4 @@
-.dash-MarkdownWidget {
+.dash-MarkdownPanel {
     height: 100%;
     overflow-y: auto;
 
@@ -91,7 +91,7 @@
 }
 
 /* Only an empty editable tile shows its hint, so viewers never see it. */
-.dash-MarkdownWidget--editable .ProseMirror p.is-editor-empty:first-child::before {
+.dash-MarkdownPanel--editable .ProseMirror p.is-editor-empty:first-child::before {
     float: left;
     height: 0;
     color: var(--color-text-tertiary);
@@ -99,7 +99,7 @@
     content: attr(data-placeholder);
 }
 
-.dash-MarkdownWidget__menu {
+.dash-MarkdownPanel__menu {
     z-index: var(--z-popover, 1070);
     display: flex;
     gap: 2px;

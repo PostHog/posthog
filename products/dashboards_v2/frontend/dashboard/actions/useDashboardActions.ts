@@ -15,7 +15,7 @@ export function useDashboardActions(): MenuAction[] {
     const {
         dashboard,
         activeTab,
-        widgets,
+        panels,
         disabledReasonFor,
         onEdit,
         downloadImage,
@@ -36,7 +36,7 @@ export function useDashboardActions(): MenuAction[] {
         const appearance = showAction(
             { key: 'tab-appearance', label: 'All tiles', dataAttr: 'dashboard-v2-tab-appearance' },
             everyTile(activeTab.tiles),
-            widgets,
+            panels,
             disabledReasonFor('setTilesAppearance'),
             onEdit
         )
@@ -60,7 +60,7 @@ export function useDashboardActions(): MenuAction[] {
         downloadingImage,
         dashboardActions,
         activeTab.tiles,
-        widgets,
+        panels,
         disabledReasonFor,
         onEdit,
         hasFilterTypes,

@@ -26,10 +26,10 @@ import type { DropTarget } from '../grid/drag/dropTargets'
 import { GridDragContext, type GridDragState } from '../grid/drag/gridDrag'
 import { stackTiles } from '../grid/layout/gridTiles'
 import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
+import { PanelHostContext } from '../panels/core/panelHostContext'
+import { sizeOfPanels } from '../panels/core/panelSpec'
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
 import { TileSlideshow } from '../tiles/TileSlideshow'
-import { WidgetHostContext } from '../widgets/core/widgetHostContext'
-import { sizeOfWidgets } from '../widgets/core/widgetSpec'
 import { type ImageFormat, downloadDashboardImage } from './actions/dashboardImage'
 import { useDashboardRefresh } from './actions/useDashboardRefresh'
 import {
@@ -56,7 +56,7 @@ export type DashboardViewProps = DashboardController & {
      */
     surface: string
     /**
-     * Shows each widget's sample data instead of running its queries, while there is no real data to show, such as in
+     * Shows each panel's sample data instead of running its queries, while there is no real data to show, such as in
      * a project that has not sent any events yet.
      */
     sampleData?: boolean
@@ -78,8 +78,8 @@ function imageWords(
     tileId: string | undefined
 ): { file: string; pending: string; success: string } {
     const tile = tileId ? findTile(dashboard, tileId) : null
-    if (tile?.widget.title) {
-        const title = tile.widget.title
+    if (tile?.panel.title) {
+        const title = tile.panel.title
         return {
             file: `${dashboard.title} ${title}`,
             pending: `Drawing "${title}"`,
@@ -118,7 +118,7 @@ function DashboardViewContent({ header, surface, sampleData = false, ...props }:
     const { width, containerRef, mounted } = useContainerWidth()
     const stacked = width > 0 && width < GRID.stackBelowPx
     const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
-    const sizeOf = useMemo(() => sizeOfWidgets(controller.widgets), [controller.widgets])
+    const sizeOf = useMemo(() => sizeOfPanels(controller.panels), [controller.panels])
     // Which sections this person opened or closed. Only the screen needs it, so the host never sees it.
     const [folds, setFolds] = useState<Record<string, boolean>>({})
     const onSectionFoldedChange = useCallback(
@@ -215,7 +215,7 @@ function DashboardViewContent({ header, surface, sampleData = false, ...props }:
         })
     )
     useEffect(() => () => timing.dispose(), [timing])
-    const widgetHost = useMemo(
+    const panelHost = useMemo(
         () => ({ refresh: refresh.count, sampleData, timing }),
         [refresh.count, sampleData, timing]
     )
@@ -283,7 +283,7 @@ function DashboardViewContent({ header, surface, sampleData = false, ...props }:
         <DashboardStateContext.Provider value={state}>
             <GridDragContext.Provider value={drag}>
                 <FiltersContext.Provider value={activeFilters}>
-                    <WidgetHostContext.Provider value={widgetHost}>
+                    <PanelHostContext.Provider value={panelHost}>
                         <TileMountContext.Provider value={capturing && !capturing.tileId ? null : mountScheduler}>
                             <CapturingTileContext.Provider value={capturing?.tileId ?? null}>
                                 <div
@@ -352,7 +352,7 @@ function DashboardViewContent({ header, surface, sampleData = false, ...props }:
                                 <TileSlideshow />
                             </CapturingTileContext.Provider>
                         </TileMountContext.Provider>
-                    </WidgetHostContext.Provider>
+                    </PanelHostContext.Provider>
                 </FiltersContext.Provider>
             </GridDragContext.Provider>
         </DashboardStateContext.Provider>

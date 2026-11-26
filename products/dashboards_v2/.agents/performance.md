@@ -1,6 +1,6 @@
 # Performance
 
-Read this before you change how tiles, widgets or the grid render, what a context holds, or when a query runs.
+Read this before you change how tiles, panels or the grid render, what a context holds, or when a query runs.
 
 Dashboards v2 aims for high performance and smooth frames on big dashboards, such as 200 tiles.
 A change that is fine on a small dashboard can be slow or janky on a big one.
@@ -16,7 +16,7 @@ The sections between "Understand the cost" and "Measuring" go from the biggest e
 
 ## Off-screen tiles
 
-- A tile mounts its widget only once it scrolls into view (`grid/tileMounting.ts`). Do not add work that runs for every tile on load, such as a query, a measurement or a subscription, outside that gate.
+- A tile mounts its panel only once it scrolls into view (`grid/tileMounting.ts`). Do not add work that runs for every tile on load, such as a query, a measurement or a subscription, outside that gate.
 - An unmounted tile keeps its place and shows a cheap placeholder, so a fast scroll never shows an empty cell.
 - When many tiles come into view together, spread their mounts across frames, and cancel a pending mount when its tile leaves view first.
 - Work that a tile does when it mounts must also be correct when it mounts late, such as after a filter changed while it was off screen.
@@ -32,7 +32,7 @@ The sections between "Understand the cost" and "Measuring" go from the biggest e
 
 - Every consumer of a context re-renders when its value changes, and `memo` does not stop that. Before you add a field to a context, check how often it changes and how many components read it. `DashboardStateContext` changes on every edit, so a tile that reads it re-renders on every edit.
 - Keep fast-changing state close to where it is used. Gesture geometry stays in the grid or the active tile, and filter drafts stay in the filter bar. Do not push them into a wide context on every pointer event or keystroke.
-- Widgets read only the small contexts they need (`FiltersContext`, `WidgetHostContext`) and never the dashboard state. This keeps a dashboard edit from redrawing every chart.
+- Panels read only the small contexts they need (`FiltersContext`, `PanelHostContext`) and never the dashboard state. This keeps a dashboard edit from redrawing every chart.
 - Keep a light wrapper for a tile's position separate from its expensive content, so moving a tile does not re-render what is inside it.
 - Keep context values, props and callbacks stable between renders with `useMemo` and `useCallback`. A host that rebuilds its `DashboardController` on every render makes every consumer re-render every time.
 - Keep tile keys and chart instances stable across moves, resizes and mode changes.
@@ -55,7 +55,7 @@ The sections between "Understand the cost" and "Measuring" go from the biggest e
 
 ## Code loading
 
-- Load a widget type's or a kind of chart's component with `React.lazy`, so a page fetches only the kinds it draws. `WidgetView` and `ChartWidget` already wrap them in `Suspense` with the type's loading state.
+- Load a panel type's or a kind of chart's component with `React.lazy`, so a page fetches only the kinds it draws. `PanelView` and `ChartPanel` already wrap them in `Suspense` with the type's loading state.
 - Keep specs, schemas and the tile frame eager. Layout and validation need specs before any tile mounts, and the frame renders on every tile.
 - Lazy-load at module level, once per component. A `lazy()` call inside a render makes a new component each time, which remounts the tile.
 - Do not lazy-load a small component that every tile draws on first paint. A request per kind costs more than the bytes it saves.
