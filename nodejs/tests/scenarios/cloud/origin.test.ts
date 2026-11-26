@@ -24,11 +24,40 @@ const RATE_LIMITED: Answer = {
     message: 'API rate limit exceeded for 192.0.2.1.',
 }
 
+const gitIn = (cwd: string, ...args: string[]): string =>
+    execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+
+const commitIn = (repo: string, message: string, atS: number): void => {
+    execFileSync(
+        'git',
+        [
+            '-c',
+            'user.name=Scenario',
+            '-c',
+            'user.email=scenario@example.com',
+            '-c',
+            'commit.gpgsign=false',
+            'commit',
+            '-q',
+            '--allow-empty',
+            '-m',
+            message,
+        ],
+        { cwd: repo, env: { ...process.env, GIT_AUTHOR_DATE: `@${atS} +0000`, GIT_COMMITTER_DATE: `@${atS} +0000` } }
+    )
+}
+
 describe('githubOrigin', () => {
     let server: http.Server
     let api: string
     let answers: Answer[]
     let authorizations: (string | undefined)[]
+    let repos: string
+    let remote: string
+    let checkout: string
+
+    const viaApi = (io: OriginIo): ReturnType<typeof githubOrigin> =>
+        githubOrigin(io, api, checkout, `file://${repos}/missing.git`)
 
     const scripted = (env: NodeJS.ProcessEnv = {}): { io: OriginIo; waits: number[]; warned: string[] } => {
         const waits: number[] = []
@@ -80,7 +109,63 @@ describe('githubOrigin', () => {
         api = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     })
 
-    afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())))
+    beforeAll(() => {
+        repos = mkdtempSync(path.join(os.tmpdir(), 'scenario-origin-git-'))
+        remote = path.join(repos, 'posthog.git')
+        checkout = path.join(repos, 'checkout')
+        mkdirSync(remote)
+        mkdirSync(checkout)
+        gitIn(remote, 'init', '-q', '-b', 'master')
+        commitIn(remote, 'merged', NOW_S - 7200)
+        gitIn(remote, 'branch', 'pinned')
+        gitIn(remote, 'switch', '-q', '-c', 'side')
+        commitIn(remote, 'only on a branch', NOW_S - 3600)
+        gitIn(remote, 'switch', '-q', 'master')
+        commitIn(remote, 'merged later', NOW_S)
+        gitIn(checkout, 'init', '-q')
+        gitIn(
+            checkout,
+            'fetch',
+            '-q',
+            '--depth',
+            '1',
+            `file://${remote}`,
+            '+refs/heads/pinned:refs/heads/pinned',
+            '+refs/heads/side:refs/heads/side'
+        )
+    })
+
+    afterAll(() => {
+        rmSync(repos, { recursive: true, force: true })
+        return new Promise<void>((resolve) => server.close(() => resolve()))
+    })
+
+    it.each([
+        ['a commit master holds', 'pinned', true],
+        ['a commit only on a branch', 'side', false],
+    ])(
+        'answers from a shallow checkout, without asking GitHub, whether %s is on master',
+        async (_story, branch, onMaster) => {
+            const commit = gitIn(checkout, 'rev-parse', branch)
+
+            await expect(githubOrigin(scripted().io, api, checkout, `file://${remote}`).onMaster(commit)).resolves.toBe(
+                onMaster
+            )
+            expect(authorizations).toHaveLength(0)
+        }
+    )
+
+    it("asks GitHub's API when git cannot reach the remote", async () => {
+        answers = [{ status: 200 }]
+        const { io, warned } = scripted()
+        const commit = gitIn(checkout, 'rev-parse', 'side')
+
+        await expect(viaApi(io).onMaster(commit)).resolves.toBe(true)
+        expect({ requests: authorizations.length, warned: warned.join('\n') }).toEqual({
+            requests: 1,
+            warned: expect.stringContaining(`Git could not tell whether commit ${commit} is on master`),
+        })
+    })
 
     it.each([
         ['a'.repeat(40), 'is master', true],
@@ -89,35 +174,40 @@ describe('githubOrigin', () => {
         ['d'.repeat(40), 'is only on a pull request that diverged from master', false],
         ['0'.repeat(40), 'GitHub does not know', false],
     ])('answers whether commit %s, which %s, is on master', async (commit, _, onMaster) => {
-        await expect(githubOrigin(scripted().io, api).onMaster(commit)).resolves.toBe(onMaster)
+        await expect(viaApi(scripted().io).onMaster(commit)).resolves.toBe(onMaster)
     })
 
     it.each([
-        ['a reset 5 s away', 403, RATE_LIMITED.headers, 5_000],
+        ['a reset 5 s away', 403, RATE_LIMITED.headers, 'Request refused.', 5_000],
         [
             'a reset an hour away',
             403,
             { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(NOW_S + 3600) },
+            'Request refused.',
             60_000,
         ],
-        ['a retry-after of 3 s', 403, { 'retry-after': '3' }, 3_000],
+        ['a retry-after of 3 s', 403, { 'retry-after': '3' }, 'Request refused.', 3_000],
         [
             'quota left but a secondary limit hit',
             403,
             { 'x-ratelimit-remaining': '12', 'x-ratelimit-reset': String(NOW_S + 5) },
+            'You have exceeded a secondary rate limit.',
             60_000,
         ],
-        ['no rate-limit headers', 429, {}, 60_000],
+        ['no rate-limit headers', 429, {}, 'Request refused.', 60_000],
     ])(
         'retries once after a rate-limited answer with %s, waiting at most a minute',
-        async (_story, status, headers, waited) => {
-            answers = [{ ...RATE_LIMITED, status, headers }, { status: 200 }]
+        async (_story, status, headers, message, waited) => {
+            answers = [{ status, headers, message }, { status: 200 }]
             const { io, waits, warned } = scripted()
 
-            await expect(githubOrigin(io, api).onMaster(COMMIT)).resolves.toBe(true)
-            expect({ waits, warned: warned.join('\n') }).toEqual({
+            await expect(viaApi(io).onMaster(COMMIT)).resolves.toBe(true)
+            expect({ requests: authorizations.length, waits, warned: warned.join('\n') }).toEqual({
+                requests: 2,
                 waits: [waited],
-                warned: expect.stringContaining('API rate limit exceeded for 192.0.2.1.'),
+                warned: expect.stringContaining(
+                    `GitHub answered ${status} comparing commit ${COMMIT} with master: ${message}`
+                ),
             })
         }
     )
@@ -128,6 +218,7 @@ describe('githubOrigin', () => {
             [RATE_LIMITED, RATE_LIMITED],
             `GitHub answered 403 comparing commit ${COMMIT} with master: API rate limit exceeded for 192.0.2.1. (x-ratelimit-remaining: 0, x-ratelimit-reset: ${NOW_S + 5})`,
             [5_000],
+            2,
         ],
         [
             'refuses for a reason other than a rate limit',
@@ -140,15 +231,16 @@ describe('githubOrigin', () => {
             ],
             `GitHub answered 403 comparing commit ${COMMIT} with master: Resource not accessible by integration (x-ratelimit-remaining: 4999)`,
             [],
+            1,
         ],
     ])(
         "throws with GitHub's message and rate-limit headers when GitHub %s",
-        async (_story, refusals, error, waited) => {
+        async (_story, refusals, error, waited, requests) => {
             answers = [...refusals]
             const { io, waits } = scripted()
 
-            await expect(githubOrigin(io, api).onMaster(COMMIT)).rejects.toThrow(error)
-            expect(waits).toEqual(waited)
+            await expect(viaApi(io).onMaster(COMMIT)).rejects.toThrow(error)
+            expect({ requests: authorizations.length, waits }).toEqual({ requests, waits: waited })
         }
     )
 
@@ -157,7 +249,7 @@ describe('githubOrigin', () => {
         ['sends no authorization without a token', {}, undefined],
         ['sends no authorization with an empty token', { GITHUB_TOKEN: '' }, undefined],
     ])('%s', async (_story, env, authorization) => {
-        await githubOrigin(scripted(env).io, api).onMaster(COMMIT)
+        await viaApi(scripted(env).io).onMaster(COMMIT)
 
         expect(authorizations).toEqual([authorization])
     })

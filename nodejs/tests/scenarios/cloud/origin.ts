@@ -1,10 +1,14 @@
-import { execFileSync } from 'child_process'
+import { execFile, execFileSync } from 'child_process'
+import { promisify } from 'util'
 
 import { FetchResponse, internalFetch } from '~/common/utils/request'
 
 import { Controller, Origin } from './admission'
 
 const REPOSITORY = 'PostHog/posthog'
+const MASTER_REF = 'refs/scenario-runner/master'
+const GIT_TIMEOUT_MS = 120_000
+const SHALLOW_MARGIN_S = 24 * 60 * 60
 const REQUEST_TIMEOUT_MS = 10_000
 const RETRY_WAIT_CAP_MS = 60_000
 const RATE_LIMIT_HEADERS = ['x-ratelimit-remaining', 'x-ratelimit-reset', 'retry-after']
@@ -28,7 +32,6 @@ async function refusalOf(response: FetchResponse, commit: string): Promise<strin
     ].join('')
 }
 
-// GitHub also answers 403 for a token that lacks access, and that answer does not change on a retry.
 async function isRateLimited(response: FetchResponse): Promise<boolean> {
     if (response.status === 429) {
         return true
@@ -41,7 +44,6 @@ async function isRateLimited(response: FetchResponse): Promise<boolean> {
     )
 }
 
-// GitHub's rule: honour retry-after, wait for the reset only when the quota is spent, and otherwise wait a minute.
 function retryWaitMs(headers: Record<string, string>, now: Date): number {
     const retryAfterS = Number(headers['retry-after'])
     const resetS = Number(headers['x-ratelimit-reset'])
@@ -53,7 +55,49 @@ function retryWaitMs(headers: Record<string, string>, now: Date): number {
     return Math.min(Math.max(untilAllowedMs, 0), RETRY_WAIT_CAP_MS)
 }
 
-export function githubOrigin(io: OriginIo, api = 'https://api.github.com', repo = __dirname): Origin {
+// A git fetch of the public repository does not spend the API's per-IP quota, so the API is only the fallback.
+async function onMasterInGit(repo: string, remote: string, commit: string): Promise<boolean> {
+    const git = async (...args: string[]): Promise<string> =>
+        (
+            await promisify(execFile)('git', args, {
+                cwd: repo,
+                env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+                timeout: GIT_TIMEOUT_MS,
+            })
+        ).stdout.trim()
+    const committedS = Number(await git('show', '-s', '--format=%ct', commit))
+    const shallow = (await git('rev-parse', '--is-shallow-repository')) === 'true'
+    await git(
+        'fetch',
+        '--quiet',
+        '--no-tags',
+        ...(shallow ? [`--shallow-since=@${committedS - SHALLOW_MARGIN_S}`] : []),
+        remote,
+        `+refs/heads/master:${MASTER_REF}`
+    )
+    try {
+        await git('merge-base', '--is-ancestor', commit, MASTER_REF)
+        return true
+    } catch (error) {
+        if ((error as { code?: unknown }).code === 1) {
+            return false
+        }
+        throw error
+    }
+}
+
+function firstLineOf(error: unknown): string {
+    const { stderr, message } = error as { stderr?: unknown; message?: unknown }
+    const text = typeof stderr === 'string' && stderr.trim() ? stderr : String(message)
+    return text.trim().split('\n')[0]
+}
+
+export function githubOrigin(
+    io: OriginIo,
+    api = 'https://api.github.com',
+    repo = __dirname,
+    remote = `https://github.com/${REPOSITORY}`
+): Origin {
     const token = io.env.GITHUB_TOKEN
     return {
         head: () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
@@ -64,6 +108,13 @@ export function githubOrigin(io: OriginIo, api = 'https://api.github.com', repo 
                 stdio: ['ignore', 'pipe', 'pipe'],
             }),
         onMaster: async (commit) => {
+            try {
+                return await onMasterInGit(repo, remote, commit)
+            } catch (error) {
+                io.warn(
+                    `Git could not tell whether commit ${commit} is on master (${firstLineOf(error)}). Asking GitHub's API.`
+                )
+            }
             const compare = (): Promise<FetchResponse> =>
                 internalFetch(`${api}/repos/${REPOSITORY}/compare/master...${commit}`, {
                     headers: {
