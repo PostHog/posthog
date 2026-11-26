@@ -827,6 +827,13 @@ CACHES["ingress_dedup"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Workflows audience counts share a lock between requests. A replica that has not seen the primary's lock or result
+# would let a second request run the same full person-table count.
+CACHES["workflows_audience_counts"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 CACHES["task_artifact_preview"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
@@ -1008,6 +1015,7 @@ if TEST:
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
+    CACHES["workflows_audience_counts"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["cdp_invocation_replay"] = CACHES["default"]
     CACHES["survey_site_snapshot"] = CACHES["default"]

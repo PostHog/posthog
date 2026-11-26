@@ -64,19 +64,24 @@ def use_blast_radius_query_v2(team: Team) -> bool:
     )
 
 
-def sampled_person_blast_radius(team: Team, prop_group: PropertyGroup, query_type: str) -> BlastRadiusResult:
+def sampled_person_blast_radius(
+    team: Team, prop_group: PropertyGroup, query_type: str, total: Optional[int] = None
+) -> BlastRadiusResult:
     """
     Person blast radius that counts a sample of the persons and extrapolates, so the dedup
     aggregation holds only the sampled persons and keeps the fast parallel hash aggregation.
     It falls back to an exact count when the sample holds too few matches to extrapolate from.
     That fallback stays memory-bounded because count_settings sets in-order aggregation and a
     spill threshold.
+
+    A caller that already holds the team's person total can pass it as `total` to skip that count.
     """
     # One database build shared by both counts; each execute_hogql_query call would otherwise
     # rebuild it, and the build cost scales with the team's warehouse size.
     database = Database.create_for(team=team)
 
-    total = count_matching_persons(team, None, database, query_type=query_type)
+    if total is None:
+        total = count_matching_persons(team, None, database, query_type=query_type)
     if len(prop_group.flat) == 0:
         return BlastRadiusResult(affected=total, total=total)
 

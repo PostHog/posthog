@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -268,15 +270,12 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("same_audience_cached", FILTERS, None, True, (2, 2)),
-            ("uncached_caller_counts_again", FILTERS, None, False, (3, 3)),
-            ("other_filters_count_again", {"properties": []}, None, True, (3, 3)),
-            ("other_dedupe_key_counts_again", FILTERS, "email", True, (3, 3)),
+            ("same_audience_cached", False, False, (2, 2)),
+            ("refreshed_count_reused", True, False, (2, 2)),
+            ("refresh_counts_again", False, True, (3, 3)),
         ]
     )
-    def test_audience_size_reuses_a_recent_count_only_for_the_same_audience(
-        self, _name, filters, dedupe_key, use_cached_counts, expected
-    ):
+    def test_audience_size_reuses_a_recent_count_of_the_same_audience(self, _name, first_refresh, refresh, expected):
         self._create_audience(["a@x.com", "b@x.com"])
         get_audience_size(
             team_id=self.team.pk,
@@ -284,21 +283,92 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             group_type_index=None,
             dedupe_key=None,
             sends_email=True,
-            use_cached_counts=True,
+            refresh=first_refresh,
         )
         _create_person(team=self.team, distinct_ids=["user-3"], uuid=_uuid(3), properties={"subscribed": "true"})
         flush_persons_and_events()
 
         size = get_audience_size(
             team_id=self.team.pk,
-            filters=filters,
+            filters=FILTERS,
             group_type_index=None,
-            dedupe_key=dedupe_key,
+            dedupe_key=None,
             sends_email=True,
-            use_cached_counts=use_cached_counts,
+            refresh=refresh,
         )
 
         assert (size.affected, size.total) == expected
+
+    @parameterized.expand([("persons", None), ("unique_emails", "email")])
+    def test_audience_size_counts_a_new_audience_but_reuses_the_recent_person_total(self, _name, dedupe_key):
+        self._create_audience(["a@x.com", "b@x.com"])
+        _create_person(
+            team=self.team,
+            distinct_ids=["user-3"],
+            uuid=_uuid(3),
+            properties={"subscribed": "false", "email": "c@x.com"},
+        )
+        flush_persons_and_events()
+        get_audience_size(
+            team_id=self.team.pk,
+            filters=FILTERS,
+            group_type_index=None,
+            dedupe_key=None,
+            sends_email=True,
+            refresh=False,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user-4"],
+            uuid=_uuid(4),
+            properties={"subscribed": "false", "email": "d@x.com"},
+        )
+        flush_persons_and_events()
+
+        size = get_audience_size(
+            team_id=self.team.pk,
+            filters={"properties": [{"key": "subscribed", "type": "person", "value": ["false"], "operator": "exact"}]},
+            group_type_index=None,
+            dedupe_key=dedupe_key,
+            sends_email=True,
+            refresh=False,
+        )
+
+        assert (size.affected, size.total) == (2, 3)
+
+    @parameterized.expand(
+        [
+            ("count_in_flight_finishes", "finishes", 999),
+            ("count_in_flight_fails", "fails", 2),
+            ("count_in_flight_never_ends", "hangs", 2),
+        ]
+    )
+    def test_audience_size_waits_for_the_same_count_in_flight(self, _name, other_request, expected_total):
+        self._create_audience(["a@x.com", "b@x.com"])
+        total_key = f"workflows:audience_person_total:{self.team.pk}"
+        cache.set(f"{total_key}:counting", "other-request", 600)
+        clock = iter(range(0, 10_000, 10))
+
+        def other_request_progresses(_seconds: float) -> None:
+            if other_request == "finishes":
+                cache.set(total_key, 999, 60)
+            if other_request != "hangs":
+                cache.delete(f"{total_key}:counting")
+
+        with (
+            patch("products.workflows.backend.services.blast_radius.sleep", side_effect=other_request_progresses),
+            patch("products.workflows.backend.services.blast_radius.monotonic", side_effect=lambda: next(clock)),
+        ):
+            size = get_audience_size(
+                team_id=self.team.pk,
+                filters=FILTERS,
+                group_type_index=None,
+                dedupe_key=None,
+                sends_email=True,
+                refresh=False,
+            )
+
+        assert (size.affected, size.total) == (2, expected_total)
 
     def test_audience_size_counts_again_after_the_test_account_filters_change(self):
         self._create_audience(["a@example.com", "b@internal.example.com"])
@@ -310,7 +380,7 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
                 group_type_index=None,
                 dedupe_key=None,
                 sends_email=True,
-                use_cached_counts=True,
+                refresh=False,
             ).affected
 
         before = affected()
