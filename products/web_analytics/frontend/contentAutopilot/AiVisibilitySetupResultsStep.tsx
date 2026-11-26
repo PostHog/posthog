@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Button, Heading, Text } from '@posthog/quill'
 
 import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
+import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
 import { AiVisibilityFirstResults } from './AiVisibilityFirstResults'
 import { AiVisibilitySetupWizardFooter } from './AiVisibilitySetupWizardFooter'
 import { contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
@@ -12,6 +13,8 @@ export const AiVisibilitySetupResultsStep = (): JSX.Element => {
     const { hasCurrentChecks, starting, firstRunDisabledReason } = useValues(contentAutopilotSetupLogic)
     const { setWizardStep, startFirstRun } = useActions(contentAutopilotSetupLogic)
     const { loadPromptSetOverview } = useActions(contentAutopilotPromptsOverviewLogic)
+    const { confirming } = useValues(aiVisibilityCompetitorReviewLogic)
+    const { confirmSelected } = useActions(aiVisibilityCompetitorReviewLogic)
     const hasChecks = hasCurrentChecks
 
     const finish = (): void => {
@@ -51,7 +54,9 @@ export const AiVisibilitySetupResultsStep = (): JSX.Element => {
                 )}
                 <Button
                     variant="primary"
-                    onClick={finish}
+                    // The competitors selected above are saved as confirmed, so setup needs no other step.
+                    onClick={() => (hasChecks ? confirmSelected(finish) : finish())}
+                    loading={confirming}
                     // pinned: data-attr values are API for autocapture dashboards
                     data-attr="ai-visibility-first-results-dismiss"
                 >

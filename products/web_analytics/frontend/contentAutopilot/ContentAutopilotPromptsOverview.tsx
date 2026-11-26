@@ -6,7 +6,6 @@ import { pluralize } from 'lib/utils/strings'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCard } from './AiVisibilityCard'
-import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { AiVisibilitySetupWizard } from './AiVisibilitySetupWizard'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
@@ -135,7 +134,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             data-attr="content-autopilot-prompts-overview"
         >
             {header}
-            <AiVisibilityCompetitorReview />
             <ContentAutopilotStatStrip
                 className="grid-cols-2 @3xl/prompts-overview:grid-cols-4"
                 data-attr="content-autopilot-prompts-overview-kpis"

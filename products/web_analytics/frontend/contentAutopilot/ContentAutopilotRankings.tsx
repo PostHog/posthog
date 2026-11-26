@@ -20,7 +20,6 @@ import type {
 import { pageReportPath } from '../pageReports/pageReportsUtils'
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCard } from './AiVisibilityCard'
-import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
@@ -146,7 +145,6 @@ export const ContentAutopilotRankings = (): JSX.Element => {
 
     return (
         <section className="@container/rankings flex flex-col gap-4" data-attr="content-autopilot-rankings">
-            <AiVisibilityCompetitorReview />
             <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 items-start gap-4">
                 <AiVisibilityCard title="Visibility">
                     <VisibilityChart />
@@ -158,14 +156,9 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                             variant="outline"
                             size="sm"
                             onClick={() => setWorkspaceTab('settings')}
-                            tooltip={
-                                rankings.competitors_confirmed
-                                    ? 'Competitors are the ones you confirmed.'
-                                    : 'Until you confirm competitors, these are the ones PostHog thinks you compete with.'
-                            }
-                            data-attr="content-autopilot-rankings-confirm-competitors"
+                            data-attr="content-autopilot-rankings-edit-competitors"
                         >
-                            {rankings.competitors_confirmed ? 'Manage competitors' : 'Confirm competitors'}
+                            Edit competitors
                         </Button>
                     }
                 >

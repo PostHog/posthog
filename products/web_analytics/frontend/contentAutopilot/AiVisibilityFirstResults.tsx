@@ -93,7 +93,7 @@ export const AiVisibilityFirstResults = (): JSX.Element => {
                         Brands named in at least one of the {pluralize(view.openAnswers, 'answer')}, and you.{' '}
                         {rankings.competitors_confirmed
                             ? 'They are the competitors you confirmed.'
-                            : 'They are the competitors PostHog suggested. Confirm yours below.'}
+                            : 'They are the competitors PostHog suggested. Choose yours below.'}
                     </Text>
                     <AiVisibilityTable<ShareOfVoiceRow>
                         size="small"
