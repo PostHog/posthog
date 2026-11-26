@@ -374,6 +374,31 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
+    describe('leaseConfirmedAt', () => {
+        it.each<[string, (heldJobId: string) => Partial<CyclotronJobInvocation>, number | null]>([
+            ['the claim this worker holds', (heldJobId) => ({ id: heldJobId, queueLockId: 'held-lock' }), 1_000],
+            [
+                'a claim the janitor released and this worker took again',
+                (heldJobId) => ({ id: heldJobId, queueLockId: 'released-lock' }),
+                Number.NEGATIVE_INFINITY,
+            ],
+            [
+                'a claim whose job this worker already released',
+                () => ({ id: uuidv4(), queueLockId: 'released-lock' }),
+                Number.NEGATIVE_INFINITY,
+            ],
+            ['a job this worker never claimed', () => ({ id: uuidv4() }), null],
+        ])('reads the lease of %s', (_name, claim, leaseConfirmedAt) => {
+            const { queue } = createQueue()
+            const job = createDequeuedJob({ lockId: 'held-lock', leaseConfirmedAt: () => 1_000 })
+            ;(queue as any).pendingJobs.set(job.id, job)
+
+            expect(queue.leaseConfirmedAt({ ...baseInvocation, ...claim(job.id) } as CyclotronJobInvocation)).toBe(
+                leaseConfirmedAt
+            )
+        })
+    })
+
     describe('releaseInvocations', () => {
         it('should call ack and remove from pending', async () => {
             const { queue } = createQueue()
