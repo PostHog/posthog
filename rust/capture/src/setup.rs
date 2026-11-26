@@ -276,15 +276,10 @@ pub async fn build_components(
         _ => None,
     };
 
-    let (outputs, producers) = create_output_registry(
-        &config,
-        &env,
-        &producer_configs,
-        sink_handle,
-        advisory_handle,
-    )
-    .await
-    .unwrap_or_else(|e| panic!("fatal: failed to create the output registry: {e:#}"));
+    let (outputs, producers) =
+        create_output_registry(&config, &producer_configs, sink_handle, advisory_handle)
+            .await
+            .unwrap_or_else(|e| panic!("fatal: failed to create the output registry: {e:#}"));
     let outputs = Arc::new(outputs);
 
     let event_restriction_service = if let Some(handle) = event_restrictions_handle {
@@ -533,19 +528,17 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config, max_event_bytes: u64)
 
 async fn create_output_registry(
     config: &Config,
-    env: &HashMap<String, String>,
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
 ) -> anyhow::Result<(OutputRegistry, Option<ProducerRegistry>)> {
     let (output, producers) =
-        create_output(config, env, producer_configs, sink_handle, advisory_handle).await?;
+        create_output(config, producer_configs, sink_handle, advisory_handle).await?;
     Ok((OutputRegistry::new(output), producers))
 }
 
 async fn create_output(
     config: &Config,
-    env: &HashMap<String, String>,
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
@@ -567,7 +560,7 @@ async fn create_output(
         info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
     }
 
-    let fallback = Fallback::resolve(config, &outputs, env, producer_configs)?;
+    let fallback = Fallback::resolve(config, &outputs, producer_configs)?;
     let producer_configs = fallback.producer_configs(producer_configs);
     for table in std::iter::once(&outputs).chain(fallback.secondary()) {
         for name in table.producers() {
@@ -1270,7 +1263,7 @@ mod tests {
         config.outputs.dlq_topic = String::new();
         let default_producers = producers::load_all(&HashMap::new()).expect("default producers");
 
-        let err = create_output_registry(&config, &HashMap::new(), &default_producers, None, None)
+        let err = create_output_registry(&config, &default_producers, None, None)
             .await
             .err()
             .expect("boot must be refused when an output topic is empty");
@@ -1283,7 +1276,7 @@ mod tests {
         // The default: with the check off, the same blank topic boots (and
         // would fail at first produce instead).
         config.outputs_completeness_check_enabled = false;
-        create_output_registry(&config, &HashMap::new(), &default_producers, None, None)
+        create_output_registry(&config, &default_producers, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
     }
@@ -1305,7 +1298,7 @@ mod tests {
         let config = fallback_config(CaptureMode::Events, "strict");
         let default_producers = producers::load_all(&HashMap::new()).expect("default producers");
 
-        let err = create_output_registry(&config, &HashMap::new(), &default_producers, None, None)
+        let err = create_output_registry(&config, &default_producers, None, None)
             .await
             .err()
             .expect("boot must be refused");
@@ -1329,7 +1322,7 @@ mod tests {
             .collect();
         let configs = producers::load_all(&env).expect("producer configs");
 
-        let (_, producers) = create_output_registry(&config, &env, &configs, None, None)
+        let (_, producers) = create_output_registry(&config, &configs, None, None)
             .await
             .expect("other modes must boot whatever the fallback settings say");
 

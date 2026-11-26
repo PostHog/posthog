@@ -216,6 +216,7 @@ mod tests {
             replay_envelope_compression: EnvelopeCompression::None,
             outputs_completeness_check_enabled: true,
             kafka_emergency_fallback_check: None,
+            secondary_outputs: Default::default(),
             otel_url: None,
             otel_sampling_rate: 0.0,
             otel_service_name: "capture-testing".to_string(),

@@ -301,6 +301,9 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub outputs: OutputsConfig,
 
+    #[envconfig(nested = true)]
+    pub secondary_outputs: SecondaryOutputsConfig,
+
     /// Application-level compression of session replay payloads, independent of
     /// broker-level compression. Consumers detect and decompress it.
     #[envconfig(from = "KAFKA_REPLAY_ENVELOPE_COMPRESSION", default = "none")]
@@ -613,6 +616,50 @@ pub struct OutputsConfig {
     /// Carries event-restriction redirects to an admin-supplied topic.
     #[envconfig(from = "CAPTURE_OUTPUT_CUSTOM_PRODUCER", default = "INGESTION")]
     pub custom_producer: ProducerName,
+}
+
+/// The capture-analytics fallback target of each output. An unset or empty
+/// topic means the primary topic; an unset producer means `FALLBACK`.
+#[derive(Envconfig, Clone, Default)]
+pub struct SecondaryOutputsConfig {
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_MAIN_SECONDARY_TOPIC")]
+    pub analytics_main_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_MAIN_SECONDARY_PRODUCER")]
+    pub analytics_main_producer: Option<ProducerName>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_SECONDARY_TOPIC")]
+    pub analytics_overflow_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_SECONDARY_PRODUCER")]
+    pub analytics_overflow_producer: Option<ProducerName>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_SECONDARY_TOPIC")]
+    pub analytics_historical_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_SECONDARY_PRODUCER")]
+    pub analytics_historical_producer: Option<ProducerName>,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_SECONDARY_TOPIC")]
+    pub heatmaps_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_SECONDARY_PRODUCER")]
+    pub heatmaps_producer: Option<ProducerName>,
+    #[envconfig(from = "CAPTURE_OUTPUT_CLIENT_WARNINGS_SECONDARY_TOPIC")]
+    pub client_warnings_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_CLIENT_WARNINGS_SECONDARY_PRODUCER")]
+    pub client_warnings_producer: Option<ProducerName>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ERROR_TRACKING_SECONDARY_TOPIC")]
+    pub error_tracking_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_ERROR_TRACKING_SECONDARY_PRODUCER")]
+    pub error_tracking_producer: Option<ProducerName>,
+    #[envconfig(from = "CAPTURE_OUTPUT_DLQ_SECONDARY_TOPIC")]
+    pub dlq_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_DLQ_SECONDARY_PRODUCER")]
+    pub dlq_producer: Option<ProducerName>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_MAIN_SECONDARY_TOPIC")]
+    pub ai_main_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_MAIN_SECONDARY_PRODUCER")]
+    pub ai_main_producer: Option<ProducerName>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_SECONDARY_TOPIC")]
+    pub ai_overflow_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_SECONDARY_PRODUCER")]
+    pub ai_overflow_producer: Option<ProducerName>,
+    #[envconfig(from = "CAPTURE_OUTPUT_CUSTOM_SECONDARY_PRODUCER")]
+    pub custom_producer: Option<ProducerName>,
 }
 
 #[derive(Envconfig, Clone)]

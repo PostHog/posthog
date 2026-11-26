@@ -9,7 +9,7 @@ use std::time::Duration;
 use metrics::gauge;
 use tracing::{error, info, warn};
 
-use crate::config::{CaptureMode, Config};
+use crate::config::{CaptureMode, Config, SecondaryOutputsConfig};
 use crate::outputs::Target;
 use crate::producers::{ProducerConfig, ProducerName, ProducerRegistry};
 use crate::sinks::producer::KafkaProducer;
@@ -59,44 +59,59 @@ pub fn parse_check(raw: Option<&str>) -> anyhow::Result<CheckMode> {
     }
 }
 
-pub fn secondary_table(
-    primary: &OutputTable,
-    env: &HashMap<String, String>,
-) -> anyhow::Result<OutputTable> {
-    let read = |var: String| env.get(&var).filter(|v| !v.is_empty()).map(|v| (var, v));
-    let producer = |var: String| -> anyhow::Result<ProducerName> {
-        match read(var) {
-            None => Ok(ProducerName::Fallback),
-            Some((var, value)) => value
-                .parse()
-                .map_err(|e: anyhow::Error| anyhow::anyhow!("invalid {var}: {e}")),
-        }
-    };
-
-    let mut configured = HashMap::new();
-    for target in primary.analytics_family_targets() {
-        let name = target.name;
-        let topic = read(format!("CAPTURE_OUTPUT_{name}_SECONDARY_TOPIC"))
-            .map(|(_, topic)| Arc::from(topic.as_str()));
-        let producer = producer(format!("CAPTURE_OUTPUT_{name}_SECONDARY_PRODUCER"))?;
-        configured.insert(name, (topic, producer));
-    }
-    let custom_producer = producer("CAPTURE_OUTPUT_CUSTOM_SECONDARY_PRODUCER".to_string())?;
-
-    Ok(primary.map_targets(
-        |target| {
-            let (topic, producer) = configured
-                .get(target.name)
-                .cloned()
-                .unwrap_or((None, ProducerName::Fallback));
+pub fn secondary_table(primary: &OutputTable, config: &SecondaryOutputsConfig) -> OutputTable {
+    let target =
+        |primary: &OutputTarget, topic: &Option<String>, producer: Option<ProducerName>| {
             OutputTarget {
-                name: target.name,
-                topic: topic.unwrap_or_else(|| Arc::clone(&target.topic)),
-                producer,
+                name: primary.name,
+                topic: topic
+                    .as_deref()
+                    .filter(|topic| !topic.is_empty())
+                    .map(Arc::from)
+                    .unwrap_or_else(|| Arc::clone(&primary.topic)),
+                producer: producer.unwrap_or(ProducerName::Fallback),
             }
-        },
-        custom_producer,
-    ))
+        };
+    let c = config;
+    OutputTable {
+        analytics_main: target(
+            &primary.analytics_main,
+            &c.analytics_main_topic,
+            c.analytics_main_producer,
+        ),
+        analytics_overflow: target(
+            &primary.analytics_overflow,
+            &c.analytics_overflow_topic,
+            c.analytics_overflow_producer,
+        ),
+        analytics_historical: target(
+            &primary.analytics_historical,
+            &c.analytics_historical_topic,
+            c.analytics_historical_producer,
+        ),
+        session_replay_main: target(&primary.session_replay_main, &None, None),
+        session_replay_overflow: target(&primary.session_replay_overflow, &None, None),
+        client_warnings: target(
+            &primary.client_warnings,
+            &c.client_warnings_topic,
+            c.client_warnings_producer,
+        ),
+        heatmaps: target(&primary.heatmaps, &c.heatmaps_topic, c.heatmaps_producer),
+        dlq: target(&primary.dlq, &c.dlq_topic, c.dlq_producer),
+        error_tracking: target(
+            &primary.error_tracking,
+            &c.error_tracking_topic,
+            c.error_tracking_producer,
+        ),
+        ai_main: target(&primary.ai_main, &c.ai_main_topic, c.ai_main_producer),
+        ai_overflow: target(
+            &primary.ai_overflow,
+            &c.ai_overflow_topic,
+            c.ai_overflow_producer,
+        ),
+        has_ai_overflow_lane: primary.has_ai_overflow_lane,
+        custom_producer: c.custom_producer.unwrap_or(ProducerName::Fallback),
+    }
 }
 
 pub enum Fallback {
@@ -112,7 +127,6 @@ impl Fallback {
     pub fn resolve(
         config: &Config,
         primary: &OutputTable,
-        env: &HashMap<String, String>,
         producer_configs: &HashMap<ProducerName, ProducerConfig>,
     ) -> anyhow::Result<Self> {
         let Some(settings) = FallbackSettings::from_config(config)? else {
@@ -127,7 +141,7 @@ impl Fallback {
         }
         Ok(Self::Configured {
             settings,
-            secondary: Box::new(secondary_table(primary, env)?),
+            secondary: Box::new(secondary_table(primary, &config.secondary_outputs)),
         })
     }
 
@@ -259,6 +273,10 @@ mod tests {
     use crate::sinks::registry::test_outputs;
     use rstest::rstest;
 
+    fn secondary_config(pairs: &[(&str, &str)]) -> SecondaryOutputsConfig {
+        envconfig::Envconfig::init_from_hashmap(&env(pairs)).unwrap()
+    }
+
     fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
             .iter()
@@ -314,7 +332,7 @@ mod tests {
     #[test]
     fn secondary_targets_default_to_the_primary_topic_on_the_fallback_producer() {
         let primary = test_outputs();
-        let secondary = secondary_table(&primary, &HashMap::new()).unwrap();
+        let secondary = secondary_table(&primary, &SecondaryOutputsConfig::default());
 
         for (p, s) in primary
             .analytics_family_targets()
@@ -342,16 +360,14 @@ mod tests {
     fn secondary_targets_read_their_own_variables() {
         let secondary = secondary_table(
             &test_outputs(),
-            &env(&[
+            &secondary_config(&[
                 ("CAPTURE_OUTPUT_ANALYTICS_MAIN_SECONDARY_TOPIC", "ws_events"),
                 ("CAPTURE_OUTPUT_DLQ_SECONDARY_TOPIC", "ws_dlq"),
                 ("CAPTURE_OUTPUT_DLQ_SECONDARY_PRODUCER", "INGESTION"),
                 ("CAPTURE_OUTPUT_AI_MAIN_SECONDARY_TOPIC", ""),
-                ("CAPTURE_OUTPUT_HEATMAPS_SECONDARY_PRODUCER", ""),
                 ("CAPTURE_OUTPUT_CUSTOM_SECONDARY_PRODUCER", "INGESTION"),
             ]),
-        )
-        .unwrap();
+        );
 
         assert_eq!(&*secondary.analytics_main.topic, "ws_events");
         assert_eq!(&*secondary.dlq.topic, "ws_dlq");
@@ -363,14 +379,12 @@ mod tests {
 
     #[test]
     fn an_unknown_secondary_producer_names_its_variable() {
-        let err = secondary_table(
-            &test_outputs(),
-            &env(&[(
-                "CAPTURE_OUTPUT_AI_OVERFLOW_SECONDARY_PRODUCER",
-                "WARPSTREAM",
-            )]),
-        )
-        .unwrap_err()
+        let err = <SecondaryOutputsConfig as envconfig::Envconfig>::init_from_hashmap(&env(&[(
+            "CAPTURE_OUTPUT_AI_OVERFLOW_SECONDARY_PRODUCER",
+            "WARPSTREAM",
+        )]))
+        .err()
+        .unwrap()
         .to_string();
 
         assert!(
@@ -390,7 +404,10 @@ mod tests {
         let mut env = env(pairs);
         env.insert(FALLBACK_BROKERS_VAR.to_string(), "ws:9092".to_string());
         let configs = crate::producers::load_all(&env).unwrap();
-        let secondary = secondary_table(&test_outputs(), &env).unwrap();
+        let secondary = secondary_table(
+            &test_outputs(),
+            &envconfig::Envconfig::init_from_hashmap(&env).unwrap(),
+        );
 
         let result = ensure_checks_cannot_create_topics(&secondary, &configs);
 
@@ -420,8 +437,7 @@ mod tests {
     async fn check(missing_topics: &[&str], check: CheckMode) -> anyhow::Result<()> {
         let producer =
             Arc::new(MockKafkaProducer::new().with_missing_topics(missing_topics.iter().copied()));
-        let secondary = secondary_table(&test_outputs(), &HashMap::new())
-            .unwrap()
+        let secondary = secondary_table(&test_outputs(), &SecondaryOutputsConfig::default())
             .map_producers(|_| Arc::clone(&producer));
         run_boot_checks(&secondary, FallbackSettings { check }).await
     }

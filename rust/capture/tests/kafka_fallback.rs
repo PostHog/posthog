@@ -10,6 +10,7 @@ use rdkafka::producer::DefaultProducerContext;
 use reqwest::StatusCode;
 use serde_json::json;
 
+use capture::config::Config;
 use capture::fallback::FALLBACK_BROKERS_VAR;
 
 const TOKEN: &str = "phc_fallback_test_token";
@@ -49,14 +50,16 @@ fn fallback_env(
         ),
         (FALLBACK_BROKERS_VAR, fallback.bootstrap_servers()),
         ("KAFKA_FALLBACK_PRODUCER_LINGER_MS", "0".to_string()),
-        (
-            "CAPTURE_OUTPUT_ANALYTICS_MAIN_SECONDARY_TOPIC",
-            FALLBACK_EVENTS_TOPIC.to_string(),
-        ),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
     .collect()
+}
+
+fn fallback_config() -> Config {
+    let mut config = DEFAULT_CONFIG.clone();
+    config.secondary_outputs.analytics_main_topic = Some(FALLBACK_EVENTS_TOPIC.to_string());
+    config
 }
 
 fn v0_event(distinct_id: &str) -> String {
@@ -74,7 +77,7 @@ fn v0_event(distinct_id: &str) -> String {
 async fn strict_refuses_boot_on_a_missing_idle_fallback_topic() {
     setup_tracing();
     let fallback = fallback_cluster(Some(&DEFAULT_CONFIG.outputs.dlq_topic));
-    let mut config = DEFAULT_CONFIG.clone();
+    let mut config = fallback_config();
     config.kafka_emergency_fallback_check = Some("strict".to_string());
 
     ServerHandle::for_config_with_sink_env(config, fallback_env(TEST_KAFKA_HOSTS, &fallback)).await;
@@ -86,7 +89,7 @@ async fn unarmed_events_stay_on_the_primary_despite_a_broken_idle_fallback() -> 
     let main = EphemeralTopic::new().await;
     let historical = EphemeralTopic::new().await;
     let fallback = fallback_cluster(Some(FALLBACK_EVENTS_TOPIC));
-    let mut config = DEFAULT_CONFIG.clone();
+    let mut config = fallback_config();
     config.outputs.analytics_main_topic = main.topic_name().to_string();
     config.outputs.analytics_historical_topic = historical.topic_name().to_string();
     let server =
