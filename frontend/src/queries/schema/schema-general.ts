@@ -6270,6 +6270,7 @@ export type FileSystemIconType =
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_tags'
+    | 'tag'
     | 'llm_datasets'
     | 'llm_playground'
     | 'llm_prompts'
@@ -6299,6 +6300,7 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
     flag?: string
+    requiresOrganizationAdmin?: boolean
     /** Other flags that also show the item. The item is shown when `flag` or any of these is on. */
     alternativeFlags?: string[]
     /** Flags that hide the item when every one of them is on. */
