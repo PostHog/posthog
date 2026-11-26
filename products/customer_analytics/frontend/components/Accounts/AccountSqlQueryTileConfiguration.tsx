@@ -8,7 +8,7 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ACCOUNT_SQL_QUERY_PLACEHOLDER } from './accountSqlQuery'
+import { ACCOUNT_SQL_QUERY_PLACEHOLDER, getAccountSqlQueryConnectionError } from './accountSqlQuery'
 import { accountSqlQueryEditorLogic } from './accountSqlQueryEditorLogic'
 import { AccountSqlQueryTile } from './AccountSqlQueryTile'
 import type { AccountViewTileConfigEditorProps } from './accountViewTileConfig'
@@ -19,15 +19,17 @@ export function AccountSqlQueryTileConfiguration(props: AccountViewTileConfigEdi
     const logic = accountSqlQueryEditorLogic({ ...props, tabId })
     const { account, accountLoading, accountLoadFailed, previewConfig, previewRevision } = useValues(logic)
     const { runPreview, setVisualization, loadAccount } = useActions(logic)
+    const connectionError = getAccountSqlQueryConnectionError(props.config.connectionId)
     const runDisabledReason = props.saving
         ? 'Saving changes'
         : accountLoading
           ? 'Loading the account'
           : !account?.external_id?.trim()
             ? 'This account needs an external ID before you can preview its query'
-            : undefined
+            : connectionError
     return (
         <div className="flex flex-col gap-2 ph-no-capture">
+            {connectionError ? <LemonBanner type="error">{connectionError}</LemonBanner> : null}
             <LemonLabel
                 info={
                     <>
@@ -60,7 +62,12 @@ export function AccountSqlQueryTileConfiguration(props: AccountViewTileConfigEdi
                     hideVariables
                     hideFilters
                     hideAiTools
-                    hideConnectionSelector
+                    connectionSelectorConfig={{
+                        allowedEngines: ['clickhouse'],
+                        requireHogQL: true,
+                        showSourceActions: false,
+                    }}
+                    allowRawSql={false}
                     captureQueryTelemetry={false}
                     onRunQuery={runPreview}
                     runQueryDisabledReason={runDisabledReason}

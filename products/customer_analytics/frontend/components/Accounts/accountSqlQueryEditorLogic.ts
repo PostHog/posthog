@@ -1,4 +1,18 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+} from 'kea'
+import posthog from 'posthog-js'
 
 import { objectsEqual } from 'lib/utils/objects'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -13,9 +27,12 @@ import {
     ACCOUNT_SQL_QUERY_PLACEHOLDER_NAME,
     createAccountSqlVisualizationNode,
     getAccountSqlQuery,
+    getAccountSqlQueryConnectionError,
+    getAccountSqlQuerySourceKind,
     getAccountSqlVisualizationConfig,
 } from './accountSqlQuery'
 import type { AccountViewTileConfig, AccountViewTileConfigEditorProps } from './accountViewTileConfig'
+import { AccountsEvents } from './constants'
 
 export interface AccountSqlQueryEditorLogicProps extends AccountViewTileConfigEditorProps {
     tabId: string
@@ -27,6 +44,7 @@ export interface accountSqlQueryEditorLogicValues {
     accountLoadFailed: boolean // accountPropertyDataLogic
     accountLoading: boolean // accountPropertyDataLogic
     queryInput: string | null // sqlEditorLogic
+    config: AccountViewTileConfig
     previewConfig: AccountViewTileConfig | null
     previewRevision: number
 }
@@ -50,11 +68,17 @@ export interface accountSqlQueryEditorLogicActions {
     setSourceQuery: (sourceQuery: DataVisualizationNode) => {
         sourceQuery: DataVisualizationNode
     } // sqlEditorLogic
+    restoreEditor: () => {
+        value: true
+    }
     runPreview: () => {
         value: true
     }
     setAccountPlaceholder: () => {
         value: true
+    }
+    setConfig: (config: AccountViewTileConfig) => {
+        config: AccountViewTileConfig
     }
     setPreviewConfig: (config: AccountViewTileConfig) => {
         config: AccountViewTileConfig
@@ -76,87 +100,156 @@ export type accountSqlQueryEditorLogicType = MakeLogicType<
     accountSqlQueryEditorLogicMeta
 >
 
-export const accountSqlQueryEditorLogic = kea<accountSqlQueryEditorLogicType>([
-    props({} as AccountSqlQueryEditorLogicProps),
-    key(({ tabId }: AccountSqlQueryEditorLogicProps) => tabId),
-    path((key) => ['products', 'customer_analytics', 'accountSqlQueryEditorLogic', key]),
-    connect(({ tabId, projectId, accountId }: AccountSqlQueryEditorLogicProps) => ({
-        values: [
-            sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded, captureQueryTelemetry: false }),
-            ['queryInput'],
-            accountPropertyDataLogic({ projectId, accountId }),
-            ['account', 'accountLoading', 'accountLoadFailed'],
-        ],
-        actions: [
-            sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded, captureQueryTelemetry: false }),
-            ['setQueryInput', 'setSourceQuery', 'setPlaceholders'],
-            accountPropertyDataLogic({ projectId, accountId }),
-            ['loadAccount', 'loadAccountSuccess'],
-        ],
-    })),
-    actions({
-        runPreview: true,
-        setVisualization: (query: DataVisualizationNode) => ({ query }),
-        setPreviewConfig: (config: AccountViewTileConfig) => ({ config }),
-        setAccountPlaceholder: true,
-    }),
-    reducers({
-        previewConfig: [
-            null as AccountViewTileConfig | null,
-            {
-                setPreviewConfig: (_, { config }) => config,
-                setQueryInput: () => null,
-            },
-        ],
-        previewRevision: [0, { runPreview: (revision) => revision + 1 }],
-    }),
-    listeners(({ actions, props, values }) => ({
-        setQueryInput: ({ queryInput }) => {
-            if (queryInput !== null && queryInput !== getAccountSqlQuery(props.config)) {
-                props.onChange({ ...props.config, query: queryInput })
-            }
-        },
-        runPreview: () => {
-            if (props.saving || !values.account?.external_id?.trim()) {
-                return
-            }
-            const query = values.queryInput ?? getAccountSqlQuery(props.config)
-            actions.setPreviewConfig({
-                ...props.config,
-                query,
-                visualization: getAccountSqlVisualizationConfig(
-                    createAccountSqlVisualizationNode({ kind: NodeKind.HogQLQuery, query }, props.config)
-                ),
-            })
-        },
-        setVisualization: async ({ query }, breakpoint) => {
-            await breakpoint(0)
-            const visualization = getAccountSqlVisualizationConfig(query)
-            if (!objectsEqual(props.config.visualization, visualization)) {
-                props.onChange({ ...props.config, visualization })
-            }
-            if (values.previewConfig && !objectsEqual(values.previewConfig.visualization, visualization)) {
-                actions.setPreviewConfig({ ...values.previewConfig, visualization })
-            }
-        },
-        setAccountPlaceholder: () => {
-            actions.setPlaceholders([
+export const accountSqlQueryEditorLogic: LogicWrapper<accountSqlQueryEditorLogicType> =
+    kea<accountSqlQueryEditorLogicType>([
+        props({} as AccountSqlQueryEditorLogicProps),
+        key(({ tabId }: AccountSqlQueryEditorLogicProps) => tabId),
+        path((key) => ['products', 'customer_analytics', 'accountSqlQueryEditorLogic', key]),
+        connect(({ tabId, projectId, accountId }: AccountSqlQueryEditorLogicProps) => ({
+            values: [
+                sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded, captureQueryTelemetry: false }),
+                ['queryInput'],
+                accountPropertyDataLogic({ projectId, accountId }),
+                ['account', 'accountLoading', 'accountLoadFailed'],
+            ],
+            actions: [
+                sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded, captureQueryTelemetry: false }),
+                ['setQueryInput', 'setSourceQuery', 'setPlaceholders'],
+                accountPropertyDataLogic({ projectId, accountId }),
+                ['loadAccount', 'loadAccountSuccess'],
+            ],
+        })),
+        actions({
+            runPreview: true,
+            setVisualization: (query: DataVisualizationNode) => ({ query }),
+            setPreviewConfig: (config: AccountViewTileConfig) => ({ config }),
+            setAccountPlaceholder: true,
+            setConfig: (config: AccountViewTileConfig) => ({ config }),
+            restoreEditor: true,
+        }),
+        reducers({
+            config: [
+                (props: AccountSqlQueryEditorLogicProps): AccountViewTileConfig => props.config,
                 {
-                    name: ACCOUNT_SQL_QUERY_PLACEHOLDER_NAME,
-                    description: 'The current account',
-                    previewValue: values.account?.external_id ?? '',
+                    setConfig: (_, { config }) => config,
+                    setQueryInput: (config, { queryInput }) => {
+                        return queryInput === null ? config : { ...config, query: queryInput }
+                    },
+                    setSourceQuery: (config, { sourceQuery }) => {
+                        const { connectionId: _connectionId, ...rest } = config
+                        return {
+                            ...rest,
+                            ...(sourceQuery.source.connectionId !== undefined
+                                ? { connectionId: sourceQuery.source.connectionId }
+                                : {}),
+                        }
+                    },
+                    setVisualization: (config, { query }) => ({
+                        ...config,
+                        visualization: getAccountSqlVisualizationConfig(query),
+                    }),
                 },
-            ])
-        },
-        loadAccountSuccess: () => actions.setAccountPlaceholder(),
-    })),
-    afterMount(({ actions, props, values }) => {
-        const query = getAccountSqlQuery(props.config)
-        actions.setSourceQuery(createAccountSqlVisualizationNode({ kind: NodeKind.HogQLQuery, query }, props.config))
-        actions.setQueryInput(query)
-        actions.setAccountPlaceholder()
-        if (!values.account && !values.accountLoading) {
-            actions.loadAccount()
-        }
-    }),
-])
+            ],
+            previewConfig: [
+                null as AccountViewTileConfig | null,
+                {
+                    setPreviewConfig: (_, { config }) => config,
+                    setQueryInput: () => null,
+                    setSourceQuery: (config, { sourceQuery }) =>
+                        config?.connectionId === sourceQuery.source.connectionId ? config : null,
+                    setConfig: () => null,
+                },
+            ],
+            previewRevision: [0, { runPreview: (revision) => revision + 1 }],
+        }),
+        listeners(({ actions, props, values, cache }) => ({
+            setQueryInput: ({ queryInput }) => {
+                if (queryInput !== null && !objectsEqual(values.config, props.config)) {
+                    props.onChange(values.config)
+                }
+            },
+            setSourceQuery: () => {
+                if (cache.connectionId !== values.config.connectionId) {
+                    cache.connectionId = values.config.connectionId
+                    posthog.capture(AccountsEvents.SqlQueryConnectionSelected, {
+                        source_kind: getAccountSqlQuerySourceKind(values.config),
+                    })
+                }
+                if (!objectsEqual(values.config, props.config)) {
+                    props.onChange(values.config)
+                }
+            },
+            runPreview: () => {
+                if (
+                    props.saving ||
+                    !values.account?.external_id?.trim() ||
+                    getAccountSqlQueryConnectionError(values.config.connectionId)
+                ) {
+                    return
+                }
+                const query = values.queryInput ?? getAccountSqlQuery(values.config)
+                actions.setPreviewConfig({
+                    ...values.config,
+                    query,
+                    visualization: getAccountSqlVisualizationConfig(
+                        createAccountSqlVisualizationNode({ kind: NodeKind.HogQLQuery, query }, values.config)
+                    ),
+                })
+            },
+            setVisualization: async (_, breakpoint) => {
+                await breakpoint(0)
+                if (!objectsEqual(values.config, props.config)) {
+                    props.onChange(values.config)
+                }
+                const visualization = values.config.visualization
+                if (values.previewConfig && !objectsEqual(values.previewConfig.visualization, visualization)) {
+                    actions.setPreviewConfig({ ...values.previewConfig, visualization })
+                }
+            },
+            setAccountPlaceholder: () => {
+                actions.setPlaceholders([
+                    {
+                        name: ACCOUNT_SQL_QUERY_PLACEHOLDER_NAME,
+                        description: 'The current account',
+                        previewValue: values.account?.external_id ?? '',
+                    },
+                ])
+            },
+            loadAccountSuccess: () => actions.setAccountPlaceholder(),
+            restoreEditor: () => {
+                const query = getAccountSqlQuery(values.config)
+                if (getAccountSqlQueryConnectionError(values.config.connectionId)) {
+                    actions.setQueryInput(query)
+                    return
+                }
+                actions.setSourceQuery(
+                    createAccountSqlVisualizationNode(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query,
+                            ...(typeof values.config.connectionId === 'string'
+                                ? { connectionId: values.config.connectionId }
+                                : {}),
+                        },
+                        values.config
+                    )
+                )
+                actions.setQueryInput(query)
+            },
+        })),
+        afterMount(({ actions, values, cache }) => {
+            cache.connectionId = values.config.connectionId
+            actions.restoreEditor()
+            actions.setAccountPlaceholder()
+            if (!values.account && !values.accountLoading) {
+                actions.loadAccount()
+            }
+        }),
+        propsChanged(({ actions, props, values, cache }, oldProps) => {
+            if (!objectsEqual(props.config, oldProps.config) && !objectsEqual(props.config, values.config)) {
+                cache.connectionId = props.config.connectionId
+                actions.setConfig(props.config)
+                actions.restoreEditor()
+            }
+        }),
+    ])

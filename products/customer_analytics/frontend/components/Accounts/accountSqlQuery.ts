@@ -109,6 +109,18 @@ export function getAccountSqlQuery(config: AccountViewTileConfig | undefined): s
     return getTileString(config, 'query')
 }
 
+export function getAccountSqlQuerySourceKind(config: AccountViewTileConfig): 'posthog' | 'clickhouse' {
+    return config.connectionId ? 'clickhouse' : 'posthog'
+}
+
+export function getAccountSqlQueryConnectionError(connectionId: unknown): string | undefined {
+    return connectionId === undefined ||
+        (typeof connectionId === 'string' &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(connectionId))
+        ? undefined
+        : 'This SQL query has an invalid connection. Edit the tile and choose a connection again.'
+}
+
 export function getAccountSqlVisualizationConfig(query: DataVisualizationNode): AccountViewTileConfig {
     return {
         display: query.display ?? ChartDisplayType.ActionsTable,
@@ -149,6 +161,10 @@ async function isAccountSqlQueryScoped(query: string): Promise<boolean> {
 }
 
 export async function getAccountSqlQueryConfigError(config: AccountViewTileConfig): Promise<string | undefined> {
+    const connectionError = getAccountSqlQueryConnectionError(config.connectionId)
+    if (connectionError) {
+        return connectionError
+    }
     const query = getAccountSqlQuery(config)
     if (!query.trim()) {
         return 'Enter a SQL query'
@@ -158,8 +174,12 @@ export async function getAccountSqlQueryConfigError(config: AccountViewTileConfi
         : `Enter a valid query that filters an account ID column by ${ACCOUNT_SQL_QUERY_PLACEHOLDER} in every SELECT's WHERE`
 }
 
-export async function createAccountSqlQueryNode(query: string, externalId: string): Promise<DataTableNode | null> {
-    if (!query.trim() || !externalId.trim()) {
+export async function createAccountSqlQueryNode(
+    query: string,
+    externalId: string,
+    connectionId?: unknown
+): Promise<DataTableNode | null> {
+    if (!query.trim() || !externalId.trim() || getAccountSqlQueryConnectionError(connectionId)) {
         return null
     }
     if (!(await isAccountSqlQueryScoped(query))) {
@@ -170,6 +190,7 @@ export async function createAccountSqlQueryNode(query: string, externalId: strin
         source: {
             kind: NodeKind.HogQLQuery,
             query,
+            ...(typeof connectionId === 'string' ? { connectionId } : {}),
             values: { [ACCOUNT_SQL_QUERY_PLACEHOLDER_NAME]: externalId },
             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
         },

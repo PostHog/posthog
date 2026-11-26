@@ -43,7 +43,10 @@ import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
 import { WarehouseTableAccessControlModal } from 'products/data_warehouse/frontend/shared/components/WarehouseTableAccessControlModal'
-import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
+import {
+    type ConnectionSelectorConfig,
+    connectionSelectorLogic,
+} from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
 import {
     LemonSaveAsMenuContent,
@@ -123,6 +126,8 @@ interface SQLEditorProps {
     /** Leave out the toolbar's AI buttons. */
     hideAiTools?: boolean
     hideConnectionSelector?: boolean
+    connectionSelectorConfig?: ConnectionSelectorConfig
+    allowRawSql?: boolean
     captureQueryTelemetry?: boolean
     /** Adds an "Open in SQL editor" button to the query toolbar. */
     showOpenInSqlEditor?: boolean
@@ -157,6 +162,8 @@ export function SQLEditor({
     hideFilters,
     hideAiTools,
     hideConnectionSelector,
+    connectionSelectorConfig,
+    allowRawSql,
     captureQueryTelemetry,
     showOpenInSqlEditor,
     hostSync,
@@ -256,6 +263,7 @@ export function SQLEditor({
         singleStatement,
         hideAgentHints,
         captureQueryTelemetry,
+        allowRawSql,
     })
 
     const { sourceQuery, dataLogicKey, activeTab } = useValues(logic)
@@ -338,7 +346,15 @@ export function SQLEditor({
                             <BindLogic logic={outputPaneLogic} props={{ tabId }}>
                                 <BindLogic
                                     logic={sqlEditorLogic}
-                                    props={{ tabId, mode, monaco, editor, singleStatement, hideAgentHints }}
+                                    props={{
+                                        tabId,
+                                        mode,
+                                        monaco,
+                                        editor,
+                                        singleStatement,
+                                        hideAgentHints,
+                                        allowRawSql,
+                                    }}
                                 >
                                     {showQueryPanel ? <VariablesQuerySync /> : null}
                                     {hostSync}
@@ -361,6 +377,8 @@ export function SQLEditor({
                                                             tabId={tabId || ''}
                                                             extraTreeSections={extraTreeSections}
                                                             embedded={isEmbeddedSQLEditorMode(mode)}
+                                                            hideConnectionSelector={hideConnectionSelector}
+                                                            connectionSelectorConfig={connectionSelectorConfig}
                                                         />
                                                     )}
                                                     <div
@@ -394,6 +412,7 @@ export function SQLEditor({
                                                                 hideFilters={hideFilters}
                                                                 hideAiTools={hideAiTools}
                                                                 hideConnectionSelector={hideConnectionSelector}
+                                                                connectionSelectorConfig={connectionSelectorConfig}
                                                                 captureQueryTelemetry={captureQueryTelemetry}
                                                                 showOpenInSqlEditor={showOpenInSqlEditor}
                                                                 canExpandDatabaseTree={showDatabaseTree !== false}

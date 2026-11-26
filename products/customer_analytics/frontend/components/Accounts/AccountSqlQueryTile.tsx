@@ -10,7 +10,12 @@ import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { ACCOUNT_SQL_QUERY_PLACEHOLDER, createAccountSqlVisualizationNode, getAccountSqlQuery } from './accountSqlQuery'
+import {
+    ACCOUNT_SQL_QUERY_PLACEHOLDER,
+    createAccountSqlVisualizationNode,
+    getAccountSqlQuery,
+    getAccountSqlQueryConnectionError,
+} from './accountSqlQuery'
 import { accountSqlQueryLogic } from './accountSqlQueryLogic'
 import type { AccountViewTileConfig } from './accountViewTileConfig'
 
@@ -33,8 +38,11 @@ export function AccountSqlQueryTile({
 }: AccountSqlQueryTileProps): JSX.Element {
     const [resultLoading, setResultLoading] = useState(true)
     const query = getAccountSqlQuery(initialConfig)
+    const connectionId = initialConfig?.connectionId
+    const connectionError = getAccountSqlQueryConnectionError(connectionId)
+    const queryKey = JSON.stringify([accountId, externalId, instanceId ?? 'tile', connectionId])
     const { queryNode: node, queryNodeLoading } = useValues(
-        accountSqlQueryLogic({ accountId, externalId, instanceId, query })
+        accountSqlQueryLogic({ accountId, externalId, instanceId, query, connectionId })
     )
     const visualization = useMemo(
         () =>
@@ -49,6 +57,9 @@ export function AccountSqlQueryTile({
         onLoadingChange?.(queryNodeLoading || (!!node && resultLoading))
     }, [onLoadingChange, queryNodeLoading, node, resultLoading])
     useEffect(() => () => onLoadingChange?.(false), [onLoadingChange])
+    if (connectionError) {
+        return <LemonBanner type="error">{connectionError}</LemonBanner>
+    }
     if (!query.trim()) {
         return (
             <p className="m-0 pb-2 text-sm text-secondary">
@@ -77,7 +88,8 @@ export function AccountSqlQueryTile({
             })}
         >
             <Query
-                uniqueKey={`SQLEditor-account-sql-${accountId}-${externalId}-${instanceId ?? 'tile'}`}
+                key={queryKey}
+                uniqueKey={`SQLEditor-account-sql-${queryKey}`}
                 query={visualization ?? node}
                 setQuery={
                     onVisualizationChange
@@ -94,7 +106,7 @@ export function AccountSqlQueryTile({
                     dataTableCaptureQueryTelemetry: false,
                     dataTableRenderPlainText: true,
                     insightProps: {
-                        dashboardItemId: `new-SQLEditor-account-sql-query-${accountId}-${instanceId ?? 'tile'}-${externalId}`,
+                        dashboardItemId: `new-SQLEditor-account-sql-query-${queryKey}`,
                     },
                 }}
                 readOnly={!onVisualizationChange}

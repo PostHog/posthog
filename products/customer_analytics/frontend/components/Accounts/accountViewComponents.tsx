@@ -23,7 +23,7 @@ import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { AccountSessionReplays } from './AccountSessionReplays'
-import { getAccountSqlQuery, getAccountSqlQueryConfigError } from './accountSqlQuery'
+import { getAccountSqlQuery, getAccountSqlQueryConfigError, getAccountSqlQuerySourceKind } from './accountSqlQuery'
 import { AccountSqlQueryTile } from './AccountSqlQueryTile'
 import { AccountSqlQueryTileConfiguration } from './AccountSqlQueryTileConfiguration'
 import { AccountUsersTable } from './AccountUsersTable'
@@ -179,6 +179,7 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
         onConfigSaved: (config) =>
             posthog.capture(AccountsEvents.SqlQueryTileConfigured, {
                 query_length: getAccountSqlQuery(config).length,
+                source_kind: getAccountSqlQuerySourceKind(config),
             }),
     },
     {

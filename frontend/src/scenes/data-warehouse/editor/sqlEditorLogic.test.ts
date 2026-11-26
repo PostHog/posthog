@@ -40,6 +40,7 @@ import { ChartDisplayType, InsightShortId, InsightModel } from '~/types'
 
 import { BIEditorView, DEFAULT_BI_CONFIG, buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { CONNECTION_SAVE_AS_VIEW_REASON } from 'products/data_warehouse/frontend/shared/viewEngine'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 
@@ -3552,7 +3553,7 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sendRawQueryEnabled).toEqual(false)
         })
 
-        it('forces raw SQL mode when the selected connection does not support HogQL', async () => {
+        it.each([true, false])('handles a raw-only connection with allowRawSql=%s', async (allowRawSql) => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/external_data_sources/connections/': [
@@ -3573,6 +3574,7 @@ describe('sqlEditorLogic', () => {
             })
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
+                allowRawSql,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })
@@ -3583,12 +3585,53 @@ describe('sqlEditorLogic', () => {
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'raw-conn-1' })
 
             await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
-            await expectLogic(logic).toDispatchActions(['setSendRawQuery'])
+            await expectLogic(connectionSelectorLogic()).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.selectedConnectionSupportsHogQL).toEqual(false)
-            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
-            expect(logic.values.sendRawQueryEnabled).toEqual(true)
-            expect(String(router.values.hashParams.raw)).toEqual('1')
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(allowRawSql ? true : undefined)
+            expect(logic.values.sendRawQueryEnabled).toEqual(allowRawSql)
+            expect(router.values.hashParams.raw).toEqual(allowRawSql ? '1' : undefined)
+        })
+
+        it('keeps raw SQL disabled across bindings and source changes for the same tab', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123', raw: '1' })
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            const restrictedBinding = sqlEditorLogic({ tabId: TAB_ID, allowRawSql: false })
+            const unmountRestrictedBinding = restrictedBinding.mount()
+            const binding = sqlEditorLogic({ tabId: TAB_ID, allowRawSql: undefined })
+            const unmountBinding = binding.mount()
+            try {
+                expect(binding.values.rawSqlAllowed).toBe(false)
+                binding.actions.setSendRawQuery(true)
+                binding.actions.setExecutionTarget('managed_trino')
+                expect(binding.values.sourceQuery.source.executionTarget).toBeUndefined()
+
+                binding.actions.setSourceQuery({
+                    ...binding.values.sourceQuery,
+                    source: {
+                        ...binding.values.sourceQuery.source,
+                        connectionId: 'conn-456',
+                        sendRawQuery: true,
+                    },
+                })
+                await expectLogic(binding).toFinishAllListeners()
+
+                expect(binding.values.sourceQuery.source.connectionId).toBe('conn-456')
+                expect(binding.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+                expect(binding.values.activeTab?.sourceQuery?.source.sendRawQuery).toBeUndefined()
+                expect(binding.values.sendRawQueryEnabled).toBe(false)
+            } finally {
+                unmountBinding()
+                unmountRestrictedBinding()
+            }
         })
 
         it('strips legacy top-level connection ids when source query changes', async () => {

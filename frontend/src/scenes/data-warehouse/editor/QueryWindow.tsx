@@ -27,6 +27,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { VimrcModal } from 'products/data_warehouse/frontend/shared/components/VimrcModal'
+import type { ConnectionSelectorConfig } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
 import { registerSqlTableHover } from 'products/data_warehouse/frontend/shared/sqlTableHover'
 import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
@@ -73,6 +74,7 @@ interface QueryWindowProps {
     hideFilters?: boolean
     hideAiTools?: boolean
     hideConnectionSelector?: boolean
+    connectionSelectorConfig?: ConnectionSelectorConfig
     captureQueryTelemetry?: boolean
     showOpenInSqlEditor?: boolean
     /** False removes the button that expands the schema panel. Defaults to true. */
@@ -101,6 +103,7 @@ export function QueryWindow({
     hideFilters,
     hideAiTools,
     hideConnectionSelector,
+    connectionSelectorConfig,
     captureQueryTelemetry,
     showOpenInSqlEditor,
     canExpandDatabaseTree = true,
@@ -118,6 +121,7 @@ export function QueryWindow({
         activeQueryOffset,
         selectedConnectionId,
         sendRawQueryEnabled,
+        rawSqlAllowed,
         selectedConnectionSupportsHogQL,
         placeholderValues,
         singleStatementDisabledReason,
@@ -142,8 +146,9 @@ export function QueryWindow({
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
     const canSendRawQuery =
-        sourceQuery.source.executionTarget === 'managed_trino' ||
-        (!!selectedConnectionId && selectedConnectionSupportsHogQL)
+        rawSqlAllowed &&
+        (sourceQuery.source.executionTarget === 'managed_trino' ||
+            (!!selectedConnectionId && selectedConnectionSupportsHogQL))
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
@@ -315,7 +320,14 @@ export function QueryWindow({
                                 cancelQueryLoading={cancelQueryLoading}
                             />
                         )}
-                        {!hideConnectionSelector && <CollapsedConnectionSelector tabId={tabId} mode={mode} />}
+                        {!hideConnectionSelector && (
+                            <CollapsedConnectionSelector
+                                tabId={tabId}
+                                mode={mode}
+                                connectionSelectorConfig={connectionSelectorConfig}
+                                showDatabaseTree={showDatabaseTree}
+                            />
+                        )}
                         {mode === SQLEditorMode.FullScene ? (
                             <LemonButton
                                 icon={<IconPlus />}
@@ -549,12 +561,26 @@ function OpenInSqlEditorButton(): JSX.Element {
     )
 }
 
-function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQLEditorMode }): JSX.Element | null {
+function CollapsedConnectionSelector({
+    tabId,
+    mode,
+    connectionSelectorConfig,
+    showDatabaseTree,
+}: {
+    tabId: string
+    mode?: SQLEditorMode
+    connectionSelectorConfig?: ConnectionSelectorConfig
+    showDatabaseTree: boolean
+}): JSX.Element | null {
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
 
-    if (!isDatabaseTreeCollapsed || (mode && mode !== SQLEditorMode.FullScene)) {
+    if (
+        connectionSelectorConfig
+            ? showDatabaseTree && !isDatabaseTreeCollapsed
+            : !isDatabaseTreeCollapsed || (mode && mode !== SQLEditorMode.FullScene)
+    ) {
         return null
     }
 
-    return <ConnectionSelector tabId={tabId} />
+    return <ConnectionSelector tabId={tabId} connectionSelectorConfig={connectionSelectorConfig} />
 }
