@@ -2222,10 +2222,14 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         assert store_result.call_count == stores
 
-    def test_a_served_trace_hit_labels_whatever_publishes_it(self) -> None:
+    @parameterized.expand([("marked_entry", False), ("legacy_entry", True)])
+    def test_a_served_trace_hit_labels_whatever_publishes_it(self, _name, legacy: bool) -> None:
         query = HogQLQuery(query="select name from posthog.trace_spans")
+        # An entry written before read scopes were stored carries no marker.
+        unmarked = mock.patch.object(QueryRunner, "_with_read_scopes", staticmethod(lambda response, _scopes: response))
         with mock.patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])):
-            get_query_runner(query, self.team, user=self.user).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            with unmarked if legacy else nullcontext():
+                get_query_runner(query, self.team, user=self.user).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             # A single-flight follower or an outer runner serves the leader's entry without resolving a table.
             with read_posthog_table_scopes() as read_scopes:
                 response = get_query_runner(query, self.team, user=self.user).run(
