@@ -635,7 +635,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 updated_notebook = super().update(locked_instance, validated_data)
                 if validated_data.get("app_published") is not None:
                     record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
-                if "app_published" in validated_data and updated_notebook.app_published is None:
+                elif "app_published" in validated_data:
                     revoke_app_view_grants(updated_notebook.team_id, updated_notebook.pk)
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id
@@ -934,9 +934,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self.get_object()
         if not notebook_app_builder_enabled(request.user, notebook.team):
             raise Http404()
-        if not self.user_access_control.is_organization_admin:
-            raise PermissionDenied("An organization admin can grant app-only access.")
-        self._require_query_access()
+        self._require_app_sharing_access()
         data = AppViewGrantRequestSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         result = change_app_view_grant(notebook.team_id, notebook.pk, **data.validated_data)
@@ -986,6 +984,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return notebook
 
         return self.get_object()
+
+    def _require_app_sharing_access(self) -> None:
+        if not authorization.check(
+            resource=Resource(type=ResourceType.ORGANIZATION, id=str(self.team.organization_id)),
+            action=Action.SHARE,
+            subject=request_subject(self.request),
+        ):
+            raise PermissionDenied("An organization admin can manage app sharing.")
+        self._require_query_access()
 
     def _has_query_access(self) -> bool:
         return authorization.check(

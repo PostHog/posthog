@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -53,6 +54,26 @@ def change_app_view_grant(team_id: int, notebook_id: UUID, email: str, revoke: b
     )
 
 
+def output_columns(props: dict[str, Any], columns: list[str]) -> list[str]:
+    viz = props.get("vizQuery") or {}
+    displayed = columns
+    if props.get("outputTab") == "results" or (isinstance(viz, dict) and viz.get("display") == "ActionsTable"):
+        table = viz.get("tableSettings") if isinstance(viz, dict) else None
+        selected = table.get("columns") if isinstance(table, dict) else None
+        if isinstance(selected, list) and selected:
+            displayed = [c["column"] for c in selected if isinstance(c, dict) and c.get("column") in columns]
+    elif isinstance(viz, dict):
+        settings = viz.get("chartSettings") or {}
+        axes = [settings.get("xAxis"), *(settings.get("yAxis") or [])] if isinstance(settings, dict) else []
+        named = [axis["column"] for axis in axes if isinstance(axis, dict) and axis.get("column") in columns]
+        displayed = named or (
+            columns[:1] if len(columns) == 1 or viz.get("display") in ("BoldNumber", "Metric") else []
+        )
+    else:
+        displayed = []
+    return displayed
+
+
 def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
     cells = extract_cells(build_markdown_notebook_content(release.markdown))
     build_dependency_edges(cells)
@@ -80,22 +101,7 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
         rows = result.get("first_page") or []
         if not isinstance(rows, list) or not all(isinstance(column, str) for column in columns):
             continue
-        viz = props.get("vizQuery") or {}
-        displayed = columns
-        if props.get("outputTab") == "results" or (isinstance(viz, dict) and viz.get("display") == "ActionsTable"):
-            table = viz.get("tableSettings") if isinstance(viz, dict) else None
-            selected = table.get("columns") if isinstance(table, dict) else None
-            if isinstance(selected, list) and selected:
-                displayed = [c["column"] for c in selected if isinstance(c, dict) and c.get("column") in columns]
-        elif isinstance(viz, dict):
-            settings = viz.get("chartSettings") or {}
-            axes = [settings.get("xAxis"), *(settings.get("yAxis") or [])] if isinstance(settings, dict) else []
-            named = [axis["column"] for axis in axes if isinstance(axis, dict) and axis.get("column") in columns]
-            displayed = named or (
-                columns[:1] if len(columns) == 1 or viz.get("display") in ("BoldNumber", "Metric") else []
-            )
-        else:
-            displayed = []
+        displayed = output_columns(props, columns)
         if displayed:
             indexes = [columns.index(column) for column in displayed]
             tab["blocks"].append(
