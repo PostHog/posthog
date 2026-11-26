@@ -65,6 +65,7 @@ class _FakeLinear:
         visibility: str = "public",
         team_member: bool = False,
         current_identifier: str = "ENG-1",
+        title: str = "Checkout fails",
         ticket_states: dict[str, str] | None = None,
         rate_limit_seconds: int | None = None,
     ) -> None:
@@ -80,6 +81,7 @@ class _FakeLinear:
         self.visibility = visibility
         self.team_member = team_member
         self.current_identifier = current_identifier
+        self.title = title
         self.ticket_states = ticket_states or dict.fromkeys(readable_identifiers, "started")
         self.rate_limit_seconds = rate_limit_seconds
         self.request_count = 0
@@ -103,6 +105,7 @@ class _FakeLinear:
                         "id": TICKET_ID,
                         "identifier": self.current_identifier,
                         "previousIdentifiers": ["ENG-1"] if self.current_identifier != "ENG-1" else [],
+                        "title": self.title,
                         "team": {
                             "visibility": self.visibility,
                             "organization": {"id": ORGANIZATION_ID},
@@ -207,7 +210,6 @@ class TestPrepareLinearExternalReferenceJobs(SimpleTestCase):
                 ticket_id=UUID(TICKET_ID),
                 actor_id=UUID(ACTOR_ID),
                 identifier="ENG-1",
-                title="Checkout fails",
                 issue_id=UUID(ISSUE_ID),
             ),
             contracts.LinearExternalReferenceJob(
@@ -216,7 +218,6 @@ class TestPrepareLinearExternalReferenceJobs(SimpleTestCase):
                 ticket_id=UUID(TICKET_ID),
                 actor_id=UUID(ACTOR_ID),
                 identifier="ENG-1",
-                title="Checkout fails",
                 fingerprint="a/b",
             ),
         ]
@@ -282,7 +283,6 @@ class TestErrorTrackingLinearExternalReferenceWebhook(BaseTest):
                 "ticket_id": TICKET_ID,
                 "actor_id": ACTOR_ID,
                 "identifier": "ENG-1",
-                "title": "Checkout fails",
                 "references": [{"issue_id": ISSUE_ID, "fingerprint": None}],
             },
             countdown=60,
@@ -414,7 +414,9 @@ class TestLinearExternalReferences(BaseTest):
         description = f"https://app.example.com/project/{self.team.id}/error_tracking/{issue.id}"
         assert self._link(_FakeLinear({"ENG-1"}), description) == [True]
 
-        linear = _FakeLinear({"ENG-1"} if readable else set(), actor={"active": actor_active})
+        linear = _FakeLinear(
+            {"ENG-1"} if readable else set(), actor={"active": actor_active}, title="Checkout fails on Safari 17"
+        )
         renamed = self._link(
             linear,
             description,
@@ -427,7 +429,7 @@ class TestLinearExternalReferences(BaseTest):
         reference = ErrorTrackingExternalReference.objects.get(issue=issue)
         assert reference.external_context == {
             "id": "ENG-1",
-            "title": "Checkout fails on Safari" if readable and actor_active else "Checkout fails",
+            "title": "Checkout fails on Safari 17" if readable and actor_active else "Checkout fails",
         }
 
     @parameterized.expand(
@@ -475,7 +477,6 @@ class TestLinearExternalReferences(BaseTest):
                 ticket_id=TICKET_ID,
                 actor_id=ACTOR_ID,
                 identifier="ENG-1",
-                title="Checkout fails",
                 issue_id=str(issue.id),
                 fingerprint=None,
             )
@@ -528,7 +529,6 @@ class TestLinearExternalReferences(BaseTest):
                 ticket_id=TICKET_ID,
                 actor_id=ACTOR_ID,
                 identifier="ENG-1",
-                title=None,
                 issue_id=str(issue.id),
                 fingerprint=None,
             )
@@ -564,6 +564,40 @@ class TestLinearExternalReferences(BaseTest):
         issue.refresh_from_db()
         assert issue.status == "resolved"
         assert ErrorTrackingExternalReference.objects.filter(issue=issue).count() == 1
+
+    def test_one_issue_that_fails_to_reconcile_does_not_keep_the_others_from_linking(self) -> None:
+        failing = ErrorTrackingIssue.objects.create(team=self.team)
+        ErrorTrackingExternalReference.objects.create(
+            issue=failing, integration=self.integration, external_context={"id": "ENG-2"}
+        )
+        healthy = ErrorTrackingIssue.objects.create(team=self.team)
+        linear = _FakeLinear({"ENG-1", "ENG-2"})
+
+        def failing_status_read(*args: Any, **kwargs: Any) -> Mock:
+            if "IssueStates" in kwargs["json"]["query"] and "'number': {'eq': 2}" in str(kwargs["json"]["variables"]):
+                raise requests.ConnectionError("Linear is unavailable")
+            return linear.post(*args, **kwargs)
+
+        with (
+            patch("posthog.models.integration.linear.requests.post", side_effect=failing_status_read),
+            self.assertRaises(requests.ConnectionError),
+        ):
+            process_linear_external_reference(
+                team_id=self.team.id,
+                organization_id=ORGANIZATION_ID,
+                ticket_id=TICKET_ID,
+                actor_id=ACTOR_ID,
+                identifier="ENG-1",
+                references=[
+                    {"issue_id": str(failing.id), "fingerprint": None},
+                    {"issue_id": str(healthy.id), "fingerprint": None},
+                ],
+            )
+
+        assert list(
+            ErrorTrackingExternalReference.objects.filter(issue=healthy).values_list("external_context", flat=True)
+        ) == [{"id": "ENG-1", "title": "Checkout fails"}]
+        assert linear.authority_requests == ["Bearer linear-token"]
 
     def test_ignores_links_the_project_cannot_back(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="Checkout failed")

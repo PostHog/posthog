@@ -147,7 +147,7 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
             logger.warning("linear_status_sync_issue_failed", issue_id=str(issue.id), team_id=issue.team_id)
             failures.append(error)
     if failures:
-        raise _failure_to_retry(failures)
+        raise failure_to_retry(failures)
 
 
 @contextmanager
@@ -174,7 +174,7 @@ def issue_status_lock(issue_id: UUID) -> Iterator[None]:
             lock.release()
 
 
-def _failure_to_retry(failures: list[Exception]) -> Exception:
+def failure_to_retry(failures: list[Exception]) -> Exception:
     """The failure that needs the longest wait, because the task picks its retry from the raised type.
 
     A rate limit comes first, because a retry before Linear resets the limit fails again. A busy

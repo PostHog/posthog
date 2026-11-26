@@ -13,12 +13,15 @@ from uuid import UUID
 from django.conf import settings
 from django.db import transaction
 
+import requests
+import structlog
+
 from posthog import regions
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import DeliveryOwnership
 from posthog.integrations import IntegrationManager, IntegrationRecord
-from posthog.models.integration import LinearIntegration
+from posthog.models.integration import LinearIntegration, LinearIntegrationError
 from posthog.models.integration.linear import LinearIssueForReference
 from posthog.ph_client import ph_scoped_capture
 
@@ -33,6 +36,8 @@ _LINKING_FIELDS = ("description", "title")
 _IDENTIFIER = re.compile(r"[A-Za-z0-9]+-[1-9][0-9]*")
 _MAX_TITLE_LENGTH = 500
 
+logger = structlog.get_logger(__name__)
+
 
 @frozen
 class _Ticket:
@@ -40,7 +45,6 @@ class _Ticket:
     id: UUID
     actor_id: UUID
     identifier: str
-    title: str | None
     description: str
 
 
@@ -75,14 +79,11 @@ def _ticket(payload: Mapping[str, Any]) -> _Ticket | None:
     description = data.get("description")
     if not isinstance(identifier, str) or not _IDENTIFIER.fullmatch(identifier) or not isinstance(description, str):
         return None
-    title = data.get("title")
-    title = title.strip()[:_MAX_TITLE_LENGTH].strip() if isinstance(title, str) else ""
     return _Ticket(
         organization_id=organization_id,
         id=ticket_id,
         actor_id=actor_id,
         identifier=identifier,
-        title=title or None,
         description=description,
     )
 
@@ -98,7 +99,6 @@ def prepare_jobs(payload: Mapping[str, Any]) -> list[contracts.LinearExternalRef
             ticket_id=ticket.id,
             actor_id=ticket.actor_id,
             identifier=ticket.identifier,
-            title=ticket.title,
             issue_id=reference.issue_id,
             fingerprint=reference.fingerprint,
         )
@@ -132,18 +132,37 @@ class _ReferenceAccessKey:
     actor_id: UUID
 
 
+_ReferenceAccess = LinearIssueForReference | LinearIntegrationError | requests.RequestException | None
+
+
 def link_reference(job: contracts.LinearExternalReferenceJob) -> bool:
     return link_references([job])[0]
 
 
 def link_references(jobs: Sequence[contracts.LinearExternalReferenceJob]) -> list[bool]:
-    access: dict[_ReferenceAccessKey, LinearIssueForReference | None] = {}
-    return [_link_reference(job, access) for job in jobs]
+    from products.error_tracking.backend.logic.linear_status_sync import (  # noqa: PLC0415 - issue_mutations imports the facade through core tasks
+        failure_to_retry,
+    )
+
+    # Reconciliation reads every Linear ticket linked to an issue, each with its own project token, so
+    # one issue's failure must not keep the other issues of the ticket from linking. One failure is
+    # raised after the loop so the task retries, and a retry is a no-op for the issues already linked.
+    access: dict[_ReferenceAccessKey, _ReferenceAccess] = {}
+    linked: list[bool] = []
+    failures: list[Exception] = []
+    for job in jobs:
+        try:
+            linked.append(_link_reference(job, access))
+        except Exception as error:
+            logger.warning("linear_external_reference_link_failed", team_id=job.team_id)
+            failures.append(error)
+    if failures:
+        raise failure_to_retry(failures)
+    return linked
 
 
 def _link_reference(
-    job: contracts.LinearExternalReferenceJob,
-    access: dict[_ReferenceAccessKey, LinearIssueForReference | None],
+    job: contracts.LinearExternalReferenceJob, access: dict[_ReferenceAccessKey, _ReferenceAccess]
 ) -> bool:
     integration = IntegrationManager.linear.oauth.find(job.team_id, external_id=job.organization_id)
     if integration is None:
@@ -161,8 +180,15 @@ def _link_reference(
     with issue_status_lock(issue.id):
         key = _ReferenceAccessKey(integration_id=integration.id, ticket_id=job.ticket_id, actor_id=job.actor_id)
         if key not in access:
-            access[key] = LinearIntegration(integration).issue_for_reference(str(job.ticket_id), str(job.actor_id))
+            try:
+                access[key] = LinearIntegration(integration).issue_for_reference(str(job.ticket_id), str(job.actor_id))
+            except (LinearIntegrationError, requests.RequestException) as error:
+                # A failed read fails the same way for every other issue of the ticket, so they share
+                # the failure and do not each send the request again.
+                access[key] = error
         ticket = access[key]
+        if isinstance(ticket, Exception):
+            raise ticket
         if ticket is None:
             return False
         return _link_and_reconcile(job, integration, issue, ticket)
@@ -175,8 +201,11 @@ def _link_and_reconcile(
     ticket: LinearIssueForReference,
 ) -> bool:
     external_context: dict[str, Any] = {"id": ticket.identifier}
-    if job.title is not None:
-        external_context["title"] = job.title
+    # The title comes from the read of the ticket, not from the delivery, because a delivery that
+    # retries after a later rename would store the older title.
+    title = (ticket.title or "").strip()[:_MAX_TITLE_LENGTH].strip()
+    if title:
+        external_context["title"] = title
     with transaction.atomic():
         locked_issue = ErrorTrackingIssue.objects.select_for_update().filter(team_id=job.team_id, id=issue.id).first()
         if locked_issue is None:

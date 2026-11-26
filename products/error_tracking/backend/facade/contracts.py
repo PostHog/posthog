@@ -125,7 +125,6 @@ class LinearExternalReferenceJob:
     ticket_id: UUID
     actor_id: UUID
     identifier: str
-    title: str | None
     issue_id: UUID | None = None
     fingerprint: str | None = field(default=None, repr=False)
 

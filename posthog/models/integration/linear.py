@@ -77,6 +77,7 @@ def _rate_limit_wait_seconds(response: requests.Response) -> int:
 class LinearIssueForReference:
     identifier: str
     previous_identifiers: tuple[str, ...]
+    title: str | None
 
 
 class LinearIntegration:
@@ -253,7 +254,7 @@ class LinearIntegration:
         query ReferenceAuthority($issueId: ID!, $actorId: ID!) {
             issues(first: 1, includeArchived: true, filter: {id: {eq: $issueId}}) {
                 nodes {
-                    id identifier previousIdentifiers
+                    id identifier previousIdentifiers title
                     team {
                         visibility organization { id }
                         members(first: 1, filter: {id: {eq: $actorId}}) { nodes { id } }
@@ -286,9 +287,11 @@ class LinearIntegration:
         if not isinstance(identifier, str) or not _ISSUE_IDENTIFIER.fullmatch(identifier):
             raise LinearIntegrationError("Linear returned an invalid issue identifier")
         previous = ticket.get("previousIdentifiers") or []
+        title = ticket.get("title")
         return LinearIssueForReference(
             identifier=identifier,
             previous_identifiers=tuple(value for value in previous if isinstance(value, str)),
+            title=title if isinstance(title, str) else None,
         )
 
     def workflow_state_type(self, state_id: str) -> str | None:

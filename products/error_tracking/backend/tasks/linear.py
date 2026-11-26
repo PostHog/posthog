@@ -99,7 +99,6 @@ def enqueue_linear_external_references(payload: dict[str, Any]) -> None:
                 "ticket_id": str(job.ticket_id),
                 "actor_id": str(job.actor_id),
                 "identifier": job.identifier,
-                "title": job.title,
                 "references": [
                     {
                         "issue_id": str(reference.issue_id) if reference.issue_id is not None else None,
@@ -141,7 +140,6 @@ def process_linear_external_reference(
     ticket_id: str,
     actor_id: str,
     identifier: str,
-    title: str | None,
     issue_id: str | None = None,
     fingerprint: str | None = None,
     references: list[dict[str, str | None]] | None = None,
@@ -157,7 +155,6 @@ def process_linear_external_reference(
                 ticket_id=UUID(ticket_id),
                 actor_id=UUID(actor_id),
                 identifier=identifier,
-                title=title,
                 issue_id=UUID(target_id) if target_id is not None else None,
                 fingerprint=target.get("fingerprint"),
             )
