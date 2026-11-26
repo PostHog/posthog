@@ -190,6 +190,10 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "oauth_app_provisioning_in_review": "01a1eada-c67b-0000-7581-1894d06284d9",
     "oauth_app_provisioning_declined": "01a20e45-c468-0000-01b0-509f3fcc13a6",
     "oauth_app_provisioning_changes_requested": "01a20e46-40d4-0000-10c5-decd6f37c30e",
+    "agent_transcript_approved_with_code": "01a2157f-924a-0000-4dfd-04c47bab4036",
+    "agent_transcript_approved": "01a21580-aff1-0000-05e0-d660b48491cb",
+    "agent_transcript_changes_requested": "01a21580-b765-0000-0eaa-a5984c111eb8",
+    "agent_transcript_declined": "01a21580-be30-0000-1c71-b069470c187e",
 }
 
 # 422 codes for an email the send API refused before queueing it because the address can't receive email: the syntax

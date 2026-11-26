@@ -258,6 +258,7 @@ export const FEATURE_FLAGS = {
 
     // Temporary feature flags, still WIP, should be removed eventually
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-analytics
+    AGENT_TRANSCRIPT_REQUEST: 'agent-transcript-request', // owner: #team-growth multivariate=control,test, evaluated on the organization group; both arms ask for the signup agent transcript, test also offers a merch code. Any other value means the organization is not asked
     AI_OBSERVABILITY_NAV_REDESIGN: 'ai-observability-nav-redesign', // owner: #team-ai-observability, gates the regrouped AI observability tabs
     AI_OBSERVABILITY_TRACES_USERS_REDESIGN: 'ai-observability-traces-users-redesign', // owner: #team-ai-observability, gates the metric chart and simpler tables on the Traces and Users tabs
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */

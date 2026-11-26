@@ -78,6 +78,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/agent-transcript': ['AgentTranscript', 'agentTranscript'],
     '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
     '/ai-observability/self-driving': ['AIObservability', 'aiObservabilitySelfDriving'],
     '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
@@ -671,6 +672,11 @@ export const productConfiguration: Record<string, any> = {
     },
     Action: { name: 'Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
     NewAction: { name: 'New Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
+    AgentTranscript: {
+        name: 'Share your agent transcript',
+        organizationBased: true,
+        description: 'Upload the transcript of the conversation where an AI agent set up PostHog.',
+    },
     AIObservability: {
         projectBased: true,
         name: 'AI observability',
@@ -1430,6 +1436,7 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    agentTranscript: (): string => '/agent-transcript',
     aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
     aiObservabilitySelfDriving: (): string => '/ai-observability/self-driving',
     aiObservabilityGenerations: (): string => '/ai-observability/generations',
