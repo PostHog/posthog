@@ -70,6 +70,14 @@ describe('ListTable', () => {
         expect(container.querySelector('.LemonTable--loading') !== null).toBe(dimmed)
     })
 
+    it('says a page with no rows and a next page has nothing to show, not that the list is empty', () => {
+        const container = renderTable({ rows: [], onNext: () => {} })
+
+        expect(container.textContent).toContain('Nothing to show on this page')
+        expect(shownStates(container)).toEqual([])
+        expect(isDisabled(container, 'traces-list-next-page')).toBe(false)
+    })
+
     it.each<[string, Partial<ListTableProps<Row>>, boolean, boolean]>([
         ['first page', { onNext: () => {} }, true, false],
         ['last page', { onPrevious: () => {} }, false, true],

@@ -18,6 +18,7 @@ import {
     ComboboxLabel,
     ComboboxList,
     ComboboxSeparator,
+    ComboboxTrigger,
     ComboboxValue,
     useComboboxAnchor,
 } from './combobox'
@@ -290,9 +291,9 @@ export const InputInsidePopup: Story = {
         return (
             <div className="max-w-xs">
                 <Combobox items={frameworks} open={open} onOpenChange={setOpen} value={value} onValueChange={setValue}>
-                    <Button ref={triggerRef} variant="outline" size="sm" onClick={() => setOpen((prev) => !prev)}>
+                    <ComboboxTrigger ref={triggerRef} render={<Button variant="outline" size="sm" />}>
                         {value ?? 'Select framework'}
-                    </Button>
+                    </ComboboxTrigger>
                     <ComboboxContent anchor={triggerRef}>
                         <ComboboxInput placeholder="Search..." showTrigger={false} />
                         <ComboboxEmpty>No items found</ComboboxEmpty>
@@ -341,9 +342,9 @@ export const InputInsidePopupOverflow: Story = {
         return (
             <div className="max-w-xs">
                 <Combobox items={manyItems} open={open} onOpenChange={setOpen} value={value} onValueChange={setValue}>
-                    <Button ref={triggerRef} variant="outline" size="sm" onClick={() => setOpen((prev) => !prev)}>
+                    <ComboboxTrigger ref={triggerRef} render={<Button variant="outline" size="sm" />}>
                         {value ?? 'Select framework'}
-                    </Button>
+                    </ComboboxTrigger>
                     <ComboboxContent anchor={triggerRef}>
                         <ComboboxInput placeholder="Search..." showTrigger={false} />
                         <ComboboxEmpty>No items found</ComboboxEmpty>
@@ -390,9 +391,9 @@ export const InputInsidePopupWithFooter: Story = {
                         setValue(val)
                     }}
                 >
-                    <Button ref={triggerRef} variant="outline" size="sm" onClick={() => setOpen((prev) => !prev)}>
+                    <ComboboxTrigger ref={triggerRef} render={<Button variant="outline" size="sm" />}>
                         {value ?? 'Select framework'}
-                    </Button>
+                    </ComboboxTrigger>
                     <ComboboxContent anchor={triggerRef}>
                         <ComboboxInput placeholder="Search..." showTrigger={false} />
                         <ComboboxEmpty>No items found</ComboboxEmpty>

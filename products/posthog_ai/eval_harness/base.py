@@ -8,7 +8,7 @@ import hashlib
 import logging
 import traceback
 from collections.abc import Callable, Sequence
-from contextlib import suppress
+from contextlib import AsyncExitStack, suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
@@ -646,19 +646,15 @@ class _SandboxedEvalRun(_BaseEvalRun):
     async def _run_sandbox_window(
         self, eval_case: SandboxedEvalCase, original_case: SandboxedEvalCase | None, hooks: CaseHooks | None = None
     ) -> tuple[EvalCaseResult, dict[str, Any]]:
-        """Run the sandbox-owning window and return its result plus the seed data.
-
-        Holds a global sandbox slot for only this window: demo-data copy, setup
-        hook, and the agent run. Everything after — log parsing, span building,
-        trace emission, scoring — runs once the slot is freed, so a live sandbox
-        never waits on post-processing.
-        """
+        """Keep a bounded number of cases ready while all live sandboxes are occupied."""
         ctx = self.ctx
-        async with self._sandbox_slots:
-            prepared = await self._prepare_case(eval_case, original_case, hooks)
-            # Start the agent budget after team setup, so neither semaphore wait
-            # nor the ClickHouse copy can consume it.
+        async with AsyncExitStack() as sandbox:
+            prepared = None
             try:
+                async with ctx.preparation_slots:
+                    prepared = await self._prepare_case(eval_case, original_case, hooks)
+                    await self._set_case_phase(hooks, "queued")
+                    await sandbox.enter_async_context(self._sandbox_slots)
                 with suppress(Exception):
                     await self._set_case_phase(hooks, "agent")
                 result = await asyncio.wait_for(
@@ -683,10 +679,11 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # kernel sandbox of its own, and nothing else reclaims it. A timed-out
                 # case is exactly the one most likely to have left one running. One
                 # indexed query for every case that never touched a notebook.
-                await reclaim_kernels(
-                    prepared.context.team_id,
-                    keep=self._provider_strategy is not None and self._provider_strategy.keeps_sandboxes(),
-                )
+                if prepared is not None:
+                    await reclaim_kernels(
+                        prepared.context.team_id,
+                        keep=self._provider_strategy is not None and self._provider_strategy.keeps_sandboxes(),
+                    )
         return result, prepared.seed
 
     async def _post_process(

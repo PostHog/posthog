@@ -117,7 +117,15 @@ describe('eventDefinitionsTableLogic', () => {
                             200,
                             {
                                 results: [
-                                    { ...mockEvent, properties: { ...mockEvent.properties, $browser: 'Chrome' } },
+                                    {
+                                        ...mockEvent,
+                                        properties: {
+                                            ...mockEvent.properties,
+                                            $browser: 'Chrome',
+                                            prop1: { plan: 'scale', seats: [1, 2] },
+                                            purchase_value: 'x'.repeat(300),
+                                        },
+                                    },
                                 ],
                                 next: null,
                             },
@@ -394,14 +402,14 @@ describe('eventDefinitionsTableLogic', () => {
                         [eventDefinition.id]: partial({
                             count: 5,
                             previous: null,
-                            results: mockEventPropertyDefinitions.slice(0, 5).map((prop) =>
-                                prop.name === '$browser'
-                                    ? {
-                                          ...prop,
-                                          example: 'Chrome',
-                                      }
-                                    : prop
-                            ),
+                            results: mockEventPropertyDefinitions.slice(0, 5).map((prop) => {
+                                const examples: Record<string, string> = {
+                                    $browser: '"Chrome"',
+                                    prop1: '{"plan":"scale","seats":[1,2]}',
+                                    purchase_value: `"${'x'.repeat(198)}...`,
+                                }
+                                return prop.name in examples ? { ...prop, example: examples[prop.name] } : prop
+                            }),
                             next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5&offset=5`,
                         }),
                     }),

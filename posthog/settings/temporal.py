@@ -100,6 +100,7 @@ SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=Tru
 AGENT_EGRESS_PROBE_CONFIG_DIR: str = get_from_env("AGENT_EGRESS_PROBE_CONFIG_DIR", "")
 AGENT_EGRESS_STAGING_PROBE_RUN_ID: str = get_from_env("AGENT_EGRESS_STAGING_PROBE_RUN_ID", "")
 AGENT_EGRESS_OBSERVATION_CONFIG: str = get_from_env("AGENT_EGRESS_OBSERVATION_CONFIG", "")
+AGENT_EGRESS_ENROLLMENT_CONFIG: str = get_from_env("AGENT_EGRESS_ENROLLMENT_CONFIG", "")
 # Hogland (Firecracker microVM sandbox service) control plane. Deliberately not
 # SANDBOX_*-prefixed: agentsh folds SANDBOX_* URL settings into the in-box egress
 # allowlist, and the box never needs to reach the hogland control plane.
@@ -115,6 +116,7 @@ SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", No
 # ai_product values so one product migrates without moving every other sandbox caller.
 # Both must be set; clearing either rolls back to the Python gateway.
 SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
+SANDBOX_AI_GATEWAY_WORKER_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_WORKER_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
 # Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
 # gateway-routed sandbox runs. Unset: runs get no token and the agent server keeps them
@@ -137,6 +139,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
     "background_agents": "50",
+    "autoresearch": "50",
     "signals_scout": "30",
     "signals_implementation": "20",
     "signals_inbox": "75",
@@ -187,6 +190,9 @@ TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
     False,
     type_cast=str_to_bool,
 )
+
+# Task origins whose sandbox compute bills into `ai_credits`, e.g. "posthog_ai,slack". PostHog Desktop's are ignored.
+AI_CREDITS_COMPUTE_BILLED_ORIGINS: list[str] = get_list(os.getenv("AI_CREDITS_COMPUTE_BILLED_ORIGINS", ""))
 
 TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED: bool = get_from_env(
     "TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED",

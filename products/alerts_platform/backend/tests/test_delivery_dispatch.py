@@ -10,6 +10,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
+from temporalio.testing import ActivityEnvironment
+
+from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.message import AlertMessage
@@ -441,6 +445,12 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert [handle for _, handle in transport.sends] == [None]
 
 
+SEND_OUTCOMES = [
+    ("sent", True, None, "INFO", "Sent"),
+    ("refused", False, "channel_not_found", "ERROR", "channel_not_found"),
+]
+
+
 class TestDeliveryTelemetry(SimpleTestCase):
     def test_an_outcome_is_keyed_to_alerts_rather_than_to_hog_functions(self) -> None:
         with patch("products.alerts_platform.backend.delivery.telemetry.get_producer") as producer:
@@ -452,22 +462,24 @@ class TestDeliveryTelemetry(SimpleTestCase):
         assert metrics["instance_id"] == "slack"
         assert (metrics["metric_kind"], metrics["metric_name"]) == ("success", "succeeded")
 
-    @parameterized.expand(
-        [("sent", True, None, "INFO", "Sent"), ("refused", False, "channel_not_found", "ERROR", "channel_not_found")]
-    )
+    @staticmethod
+    def _send_twice(succeeded: bool, error: str | None) -> None:
+        for _ in range(2):
+            record_delivery(
+                team_id=2,
+                configuration_id="cfg-1",
+                provider="slack",
+                destination_id="fn-1",
+                succeeded=succeeded,
+                error=error,
+            )
+
+    @parameterized.expand(SEND_OUTCOMES)
     def test_a_send_with_a_destination_is_counted_and_logged_under_it(
         self, _name: str, succeeded: bool, error: str | None, level: str, message: str
     ) -> None:
         with patch("products.alerts_platform.backend.delivery.telemetry.get_producer") as producer:
-            for _ in range(2):
-                record_delivery(
-                    team_id=2,
-                    configuration_id="cfg-1",
-                    provider="slack",
-                    destination_id="fn-1",
-                    succeeded=succeeded,
-                    error=error,
-                )
+            self._send_twice(succeeded, error)
 
         metrics, log, _, second_log = [c.kwargs["data"] for c in producer.return_value.produce.call_args_list]
         assert metrics["instance_id"] == "fn-1"
@@ -475,6 +487,22 @@ class TestDeliveryTelemetry(SimpleTestCase):
         assert (log["level"], log["message"]) == (level, message)
         # Two sends in the same microsecond would otherwise share a sorting key and merge into one row.
         assert log["instance_id"] != second_log["instance_id"]
+
+    @parameterized.expand(SEND_OUTCOMES)
+    def test_a_send_inside_an_activity_is_logged_through_the_temporal_logger(
+        self, _name: str, succeeded: bool, error: str | None, level: str, message: str
+    ) -> None:
+        with (
+            patch("products.alerts_platform.backend.delivery.telemetry.get_producer") as producer,
+            capture_logs() as logs,
+        ):
+            ActivityEnvironment().run(self._send_twice, succeeded, error)
+
+        assert [c.kwargs["topic"] for c in producer.return_value.produce.call_args_list] == [KAFKA_APP_METRICS2] * 2
+        assert [(log["log_source"], log["log_source_id"], log["log_level"], log["event"]) for log in logs] == [
+            ("alert_destination", "fn-1", level.lower(), message)
+        ] * 2
+        assert logs[0]["instance_id"] != logs[1]["instance_id"]
 
     def test_a_broken_producer_does_not_fail_a_send_that_already_happened(self) -> None:
         with patch(

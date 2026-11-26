@@ -3,9 +3,19 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.context import HealthContext
-from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, CheckValues, not_applicable
+
+
+def no_metric_values(ctx: HealthContext) -> CheckValues:
+    if not ctx.is_launched:
+        return {}
+    return {
+        ExperimentHealthValueKey.PRIMARY_METRIC_COUNT: ctx.primary_metric_count,
+        ExperimentHealthValueKey.SECONDARY_METRIC_COUNT: ctx.secondary_metric_count,
+    }
 
 
 def no_metric(ctx: HealthContext) -> CheckOutcome:

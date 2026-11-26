@@ -144,7 +144,7 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         finally:
             activity_storage.clear_user()
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
     def test_batch_export_schema_changes_are_logged_without_the_restrictions_they_were_saved_with(self):
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage

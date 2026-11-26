@@ -135,21 +135,27 @@ describe('tracesTableColumns', () => {
         ])
     })
 
-    it('hints that the totals are partial only on a trace whose totals are partial', async () => {
-        const totals = makeTraceListItem().totals
-        renderRows([
-            makeTraceListItem({ id: 'whole', totals: { ...totals, latencyMs: 1000 } }),
-            makeTraceListItem({ id: 'partial', totals: { ...totals, latencyMs: 2310 }, totalsPartial: true }),
-        ])
+    it.each([
+        ['1,840 in · 212 out', {}, false],
+        ['1,840 in · 212 out', { totalsPartial: true }, true],
+        ['2.31s', { totalsPartial: true }, false],
+        ['$0.0021', { totalsPartial: true }, false],
+        ['1,840 in · 212 out', { costAndLatencyPartial: true }, false],
+        ['2.31s', { costAndLatencyPartial: true }, true],
+        ['$0.0021', { costAndLatencyPartial: true }, true],
+    ])(
+        'the %s cell of a trace with %p shows the partial hint: %s',
+        async (text, partial: Partial<TraceListItemApi>, hinted) => {
+            renderRows([makeTraceListItem(partial)])
 
-        for (const latency of ['1s', '2.31s']) {
-            const value = screen.getByText(latency)
+            const value = screen.getByText(text)
             fireEvent.pointerEnter(value, { pointerType: 'mouse' })
             fireEvent.mouseEnter(value)
             fireEvent.pointerMove(value, { pointerType: 'mouse' })
             fireEvent.mouseMove(value)
-        }
 
-        expect(await screen.findAllByText(/come from its earliest steps only/)).toHaveLength(1)
-    })
+            const hint = screen.findByText(/covers those steps only/)
+            await (hinted ? await expect(hint).resolves.toBeTruthy() : await expect(hint).rejects.toThrow())
+        }
+    )
 })

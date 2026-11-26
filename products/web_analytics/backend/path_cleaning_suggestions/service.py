@@ -126,7 +126,6 @@ def _extract_json(content: str) -> dict:
 def call_llm_for_rules(team: Team, paths: list[tuple[str, int]], *, model: str) -> SuggestedRulesResponse:
     distinct_id = team_distinct_id(team.id)
     client = build_anthropic_client(
-        "web_analytics",
         ai_product="web_analytics",
         team_id=team.id,
         distinct_id=distinct_id,

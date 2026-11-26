@@ -189,6 +189,14 @@ class EmailAttachment:
     content_id: str | None = None
 
 
+@frozen
+class ReplyHeaders:
+    """Message-IDs, each in angle brackets, that thread a reply under the message it answers. At most 100 references."""
+
+    in_reply_to: str
+    references: tuple[str, ...] = ()
+
+
 class SenderRequired(TransactionalEmailError):
     code = "sender_required"
 
@@ -245,6 +253,7 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
+    reply_headers: ReplyHeaders | None = None
 
 
 class DeliveryUnavailable(Exception):
@@ -431,6 +440,12 @@ class TransactionalEmailLogEvent:
 
 
 @frozen
+class TransactionalEmailTracking:
+    opens: bool
+    clicks: bool
+
+
+@frozen
 class TransactionalEmailLogDetail:
     entry: TransactionalEmailLogEntry
     timeline: list[TransactionalEmailLogEvent]
@@ -441,6 +456,7 @@ class TransactionalEmailLogDetail:
     action_id: str
     # True when the template keeps no rendered body.
     sensitive: bool
+    tracking: TransactionalEmailTracking
 
 
 class EmailStatsInterval(LabeledStrEnum):
@@ -513,6 +529,7 @@ class TransactionalEmailImpact:
     clicked: int
     not_clicked: int
     untracked: int
+    clicks_untracked: int
     window_days: int
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None

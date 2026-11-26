@@ -236,7 +236,7 @@ describe('experiment not-found rewrite', () => {
         expect(captureException).not.toHaveBeenCalled()
     })
 
-    it('keeps a permission denial on the results tool on the permission path with its guidance', async () => {
+    it('returns permission guidance for experiment results without reporting an exception', async () => {
         const denied = new PostHogPermissionError({
             detail: 'You do not have access to this project.',
             url: 'https://us.posthog.com/api/environments/42/query/',
@@ -253,10 +253,7 @@ describe('experiment not-found rewrite', () => {
         )
         expect(JSON.parse(fence?.[1] ?? '')).toEqual({ detail: denied.detail })
         expect(text.replace(fence?.[0] ?? '', '')).not.toContain(denied.detail)
-        expect(captureException).toHaveBeenCalledWith(expect.anything(), {
-            distinctId: undefined,
-            properties: expect.objectContaining({ is_permission_error: true }),
-        })
+        expect(captureException).not.toHaveBeenCalled()
     })
 
     it('still captures a 5xx from the results tool as an exception', async () => {

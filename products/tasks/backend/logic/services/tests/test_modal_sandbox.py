@@ -1982,8 +1982,27 @@ class TestModalSandboxCreateAllowlist:
 
         assert mock_create.call_args.kwargs["outbound_domain_allowlist"] == []
 
-    @pytest.mark.parametrize("probe,observation", [(False, False), (True, False), (False, True)])
-    def test_create_sets_vm_runtime_experimental_option(self, probe: bool, observation: bool) -> None:
+    @pytest.mark.parametrize(
+        "probe,observation,enrollment",
+        [(False, False, False), (True, False, False), (False, True, False), (False, True, True)],
+    )
+    def test_create_sets_vm_runtime_experimental_option(self, probe: bool, observation: bool, enrollment: bool) -> None:
+        if enrollment:
+            with override_settings(
+                DEBUG=False,
+                TEST=False,
+                CLOUD_DEPLOYMENT="DEV",
+                SANDBOX_PROVIDER="modal",
+                AGENT_EGRESS_ENROLLMENT_CONFIG="",
+            ):
+                config = SandboxConfig(name="enrollment", vm_runtime=True, agent_egress_observation=True)
+                mock_create = self._create_with_config(config)
+            assert mock_create.call_args.kwargs["experimental_options"] == {
+                "vm_runtime": True,
+                "vm_sidecar_memory_reserve_mib": 1024,
+            }
+            assert "outbound_cidr_allowlist" not in mock_create.call_args.kwargs
+            return
         config = SandboxConfig(
             name="t",
             vm_runtime=True,
@@ -2033,6 +2052,46 @@ class TestModalSandboxCreateAllowlist:
             SandboxConfig.model_validate(values)
 
     @pytest.mark.parametrize(
+        "override,allowed",
+        [
+            ({}, True),
+            ({"agent_egress_resume": False}, False),
+            ({"agent_egress_observation": False}, False),
+            ({"resume_snapshot_external_id": None}, False),
+            ({"snapshot_mount_path": None}, False),
+            ({"snapshot_mount_path": "/"}, False),
+            ({"snapshot_mount_path": "/tmp"}, False),
+            ({"snapshot_mount_path": f"{DEFAULT_SANDBOX_WORKING_DIR}/.."}, False),
+            ({"snapshot_mount_path": f"{DEFAULT_SANDBOX_WORKING_DIR}/"}, False),
+            ({"snapshot_id": "snapshot-example"}, False),
+            ({"snapshot_external_id": "im-example"}, False),
+            ({"require_snapshot": True}, False),
+            ({"vm_runtime": False}, False),
+            ({"outbound_domain_allowlist": []}, False),
+            ({"block_network": True}, False),
+        ],
+    )
+    def test_egress_resume_requires_an_explicit_directory_handoff(
+        self, override: dict[str, object], allowed: bool
+    ) -> None:
+        values = {
+            "name": "enrollment-resume",
+            "vm_runtime": True,
+            "agent_egress_observation": True,
+            "agent_egress_resume": True,
+            "resume_snapshot_external_id": "im-example",
+            "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+            **override,
+        }
+        if allowed:
+            config = SandboxConfig.model_validate(values)
+            assert config.resume_snapshot_external_id == "im-example"
+            assert config.snapshot_mount_path == DEFAULT_SANDBOX_WORKING_DIR
+        else:
+            with pytest.raises(ValueError):
+                SandboxConfig.model_validate(values)
+
+    @pytest.mark.parametrize(
         "override",
         [
             {"vm_runtime": False},
@@ -2061,7 +2120,10 @@ class TestModalSandboxCreateAllowlist:
     @override_settings(DEBUG=False, TEST=False)
     @pytest.mark.parametrize("observation", [False, True])
     def test_egress_profiles_reject_production_launch(self, observation: bool) -> None:
-        with pytest.raises(ValueError, match="development( or staging)? VM"):
+        with pytest.raises(
+            ValueError,
+            match="explicit directory handoff" if observation else "fresh, credential-free development or staging VM",
+        ):
             SandboxConfig(
                 name="probe",
                 template=SandboxTemplate.SLIM_BASE,
@@ -2495,6 +2557,53 @@ class TestModalSandboxCreateImageFallback:
             sandbox.config.image_fallback
         )
         assert "custom image posthog-dev-stack (never became ready) -> base image" in sandbox.config.image_fallback
+
+    def test_every_create_attempt_gets_a_fresh_sandbox_name(self):
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            snapshot_external_id="im-snap-1",
+        )
+        names: list[str] = []
+        ready = iter([False, False, True])
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            names.append(kwargs["name"])
+            sb = MagicMock()
+            sb.object_id = f"sb-{len(names)}"
+            if not next(ready):
+                sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
+            return sb
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=MagicMock(name="custom"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id",
+                return_value=MagicMock(name="snapshot"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, template, **kwargs: image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", side_effect=sandbox_create
+            ),
+        ):
+            ModalSandbox.create(config)
+
+        assert len(names) == 3
+        assert len(set(names)) == 3
+        assert all(name.startswith("t-") for name in names)
 
     def test_unready_base_image_is_terminated_and_provisioning_fails(self):
         mock_sb = MagicMock()
@@ -3114,12 +3223,12 @@ class TestSessionInitProbeHosts:
         assert "ai-gateway.dev.posthog.dev" in hosts
 
     @override_settings(
-        SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com",
+        SANDBOX_LLM_GATEWAY_URL="https://api.anthropic.com",
         SANDBOX_AI_GATEWAY_URL=None,
     )
     def test_deduplicates_against_static_hosts_and_skips_unset(self):
         hosts = _session_init_probe_hosts()
-        assert hosts.count("gateway.us.posthog.com") == 1
+        assert hosts.count("api.anthropic.com") == 1
 
 
 def _socks_rate_limit() -> Exception:

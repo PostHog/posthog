@@ -553,6 +553,8 @@ export interface HogQLQueryModifiers {
     sessionTimestampBufferMinutes?: integer
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean
+    /** Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session. */
+    sessionFilterGlobalJoin?: boolean
     /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
     personIdPushdown?: boolean
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
@@ -674,7 +676,13 @@ export interface WarehouseSuggestionNote {
  * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
  * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
  */
-export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
+export type QueryScanFindingKind =
+    | 'no_event_filter'
+    | 'no_start_date'
+    | 'persons_join'
+    | 'repeated_cte_expansion'
+    | 'cross_join_equality'
+    | 'date_arrays_before_breakdown_limit'
 
 /** Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`. */
 export type QueryScanFixLocation = 'query' | 'subquery' | 'view' | 'insight_date_range' | 'dashboard_date_filter'
@@ -807,6 +815,11 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     values?: Record<string, any>
     /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
     offset?: non_negative_integer
+    /**
+     * Rows to return in place of the default row limit, capped at the maximum for the query's context.
+     * Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL.
+     */
+    limit?: positive_integer
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
     /** Client provided name of the query */
@@ -3633,7 +3646,12 @@ export interface BookActivityMatrixCell {
     row: string
     column: string
     series: string
+    /** People active in this product through any channel. Each person counts once. */
     users: integer
+    /** People active in this product in the app. */
+    uiUsers?: integer
+    /** People active in this product through AI agents, such as MCP tool calls. */
+    agentUsers?: integer
 }
 
 export interface BookActivityMatrixCombination {
@@ -3703,6 +3721,8 @@ export interface BookActivityPerson {
     rank: integer
     engagedSeconds: integer
     actionCount: integer
+    /** AI agent calls, such as MCP tool calls, that qualified this person for the product. */
+    agentCalls?: integer
     /** Every action event that qualified this person, most frequent first. */
     actions: BookActivityPersonAction[]
     /** The top 5 pages by engaged time. */
@@ -4919,11 +4939,19 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
+/** @deprecated Use `ErrorTrackingIssueTagsFilter`. */
 export interface ErrorTrackingIssueTagFilter {
     /** Key of the tag definition. */
     key: string
     /** True matches the issues the tag is applied to. False matches every other issue. */
     applied: boolean
+}
+
+export interface ErrorTrackingIssueTagsFilter {
+    /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+    has?: string[]
+    /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+    hasNot?: string[]
 }
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
@@ -4940,8 +4968,13 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
-    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    /** @deprecated Use `issueTags`. The query adds this tag to `has` when `applied` is true, else to `hasNot`. */
     issueTag?: ErrorTrackingIssueTagFilter | null
+    /**
+     * Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for
+     * the project.
+     */
+    issueTags?: ErrorTrackingIssueTagsFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -5150,6 +5183,11 @@ export type ErrorTrackingIssueStatus = 'archived' | 'active' | 'resolved' | 'pen
 /** @title ErrorTrackingQueryStatus */
 export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
 
+// Matches IssueTagColor in products/error_tracking/backend/facade/contracts.py. Issue list results are validated
+// against this type, so a color added there and not here fails the issue list.
+/** @title ErrorTrackingIssueTagColor */
+export type ErrorTrackingIssueTagColor = 'blue' | 'teal' | 'green' | 'yellow' | 'orange' | 'red' | 'pink' | 'purple'
+
 export interface ErrorTrackingIssueTag {
     /** Key of the tag definition. */
     key: string
@@ -5157,6 +5195,8 @@ export interface ErrorTrackingIssueTag {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
+    /** Named color of the tag, or null for a color picked from the label. */
+    color?: ErrorTrackingIssueTagColor | null
     /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
     source?: string | null
 }
@@ -6940,6 +6980,23 @@ export interface ExperimentQueryResponse {
 
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+
+    /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+    rows_left_out?: ExperimentWarehouseNativeRowsLeftOut
+}
+
+/**
+ * Rows of a warehouse-native query that a run left out, counted by reason. The exposure counts cover the rows
+ * in the experiment's window. A warehouse-native run fills the fields its statements can count; every other run
+ * leaves the object out.
+ */
+export interface ExperimentWarehouseNativeRowsLeftOut {
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+    unknown_variants?: Record<string, integer>
+    /** Exposure rows with an empty entity_id. */
+    empty_id?: integer
+    /** Exposed entities with no row of the metric query that counted, by variant. */
+    exposed_without_rows?: Record<string, integer>
 }
 
 export interface ExperimentActorsQuery extends InsightActorsQueryBase {
@@ -7065,6 +7122,8 @@ export type ExperimentExposureHealthFindingCode =
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'events_billing_limit'
+    | 'feature_flags_billing_limit'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -7106,6 +7165,8 @@ export type ExperimentExposureHealthCheckKey =
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
     | 'unserved_variant_exposures'
+    | 'events_billing_limit'
+    | 'feature_flags_billing_limit'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
@@ -7182,6 +7243,8 @@ export interface ExperimentExposureQueryResponse {
     exposed_by_library?: Record<string, integer>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    /** Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only. */
+    rows_left_out?: ExperimentWarehouseNativeRowsLeftOut
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -8426,6 +8489,14 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     includeSentiment?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /**
+     * Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every
+     * matching event. Leave unset to return every event.
+     * @asType integer
+     * @minimum 1
+     * @maximum 10000
+     */
+    eventsLimit?: number
 }
 
 export interface SessionQueryResponse extends AnalyticsQueryResponseBase {
@@ -9202,6 +9273,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     performanceMaxSearchTermTable?: string
     /** Google Ads ad table, used to read the ad copy and landing pages of each ad group. */
     adTable?: string
+    /** Google Ads keyword table, used to tell which searches are already keywords. */
+    keywordTable?: string
     /** Google Ads daily campaign conversions split by conversion action. */
     campaignConversionActionTable?: string
     /** Google Ads daily search term conversions split by conversion action. */
@@ -9282,6 +9355,13 @@ export interface MarketingAnalyticsRecommendationIdentity {
 
 export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
 
+/**
+ * `negative_keyword`: the search is now excluded by a negative keyword.
+ * `brand_negative`: the brand searches of the campaigns are now excluded by negative keywords.
+ * `keyword_added`: the search is now a keyword in an active Search campaign.
+ */
+export type MarketingAnalyticsRecommendationDetectedChange = 'negative_keyword' | 'brand_negative' | 'keyword_added'
+
 export interface MarketingAnalyticsRecommendationResolution {
     /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
     id: string
@@ -9321,12 +9401,25 @@ export interface MarketingAnalyticsRecommendationCpa {
 export type MarketingAnalyticsRecommendationsDataGapKind =
     | 'conversion_action_tables_not_synced'
     | 'performance_max_search_terms_count_primary_conversions'
+    | 'posthog_conversions_not_ready'
+    | 'posthog_conversion_goals_unusable'
+    | 'posthog_campaigns_unmatched'
+    | 'posthog_conversions_failed'
 
 export interface MarketingAnalyticsRecommendationsDataGap {
     kind: MarketingAnalyticsRecommendationsDataGapKind
     /** Google Ads campaign table of the ad account the gap applies to. */
     campaignTable?: string | null
     message: string
+}
+
+/** `posthog` counts the conversion goals marked for recommendations. `google_ads` counts the conversions Google Ads reports. */
+export type MarketingAnalyticsRecommendationsConversionSourceKind = 'posthog' | 'google_ads'
+
+export interface MarketingAnalyticsRecommendationsConversionSource {
+    kind: MarketingAnalyticsRecommendationsConversionSourceKind
+    /** Names of the conversion goals CPAs count. Empty for `google_ads`. */
+    goalNames: string[]
 }
 
 export interface MarketingAnalyticsRecommendation {
@@ -9341,6 +9434,8 @@ export interface MarketingAnalyticsRecommendation {
     key: string
     /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
     resolution?: MarketingAnalyticsRecommendationResolution | null
+    /** The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one. */
+    detectedChange?: MarketingAnalyticsRecommendationDetectedChange | null
     action: string
     reason: string
     /** Monthly money impact in the account currency. Null when the rule has no money impact. */
@@ -9362,6 +9457,8 @@ export interface MarketingAnalyticsRecommendationsQueryResponse extends Analytic
     disclaimer: string
     /** Data the rules needed but could not read, so some figures use a fallback. */
     dataGaps?: MarketingAnalyticsRecommendationsDataGap[]
+    /** The conversions CPAs count. Null when no Google Ads account was read. */
+    conversionSource?: MarketingAnalyticsRecommendationsConversionSource | null
 }
 
 export type CachedMarketingAnalyticsRecommendationsQueryResponse =
@@ -9519,6 +9616,12 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
      * Defaults to false.
      */
     counts_as_revenue?: boolean
+    /**
+     * When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the
+     * conversions Google Ads reports. Conversions from every marked goal are added together, so marking
+     * two goals the same person completes counts that person twice. Defaults to false.
+     */
+    use_in_recommendations?: boolean
 }
 
 export enum AttributionMode {
@@ -10177,6 +10280,12 @@ export interface CustomerAnalyticsConfig {
     payment_event: EventsNode | ActionsNode
     account_group_type_index?: integer | null
     default_pinned_properties?: CustomerAnalyticsPinnedProperty[]
+    role_default_pinned_properties?: CustomerAnalyticsRoleDefaultPinnedProperties[]
+}
+
+export interface CustomerAnalyticsRoleDefaultPinnedProperties {
+    role_id: string
+    pinned_properties: CustomerAnalyticsPinnedProperty[]
 }
 
 /**

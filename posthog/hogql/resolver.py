@@ -353,7 +353,7 @@ def _select_type_columns(
     return list(select_type.columns.items())
 
 
-def _unify_select_set_columns(
+def unify_select_set_columns(
     select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
     dialect: HogQLDialect,
     context: HogQLContext,
@@ -586,7 +586,7 @@ class Resolver(CloningVisitor):
         ]
         result.type = ast.SelectSetQueryType(
             types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
+            columns=unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes
@@ -988,6 +988,8 @@ class Resolver(CloningVisitor):
                     first_type.columns = {
                         new_name: initial.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
                     }
+                    if cte_expr.type.columns:
+                        cte_expr.type.columns = dict(zip(node.columns, cte_expr.type.columns.values()))
 
         if node.using_key is not None:
             if node.columns:
@@ -1533,7 +1535,9 @@ class Resolver(CloningVisitor):
                 self.join_sources = outer_join_sources
             return resolved
 
-        chosen_body = swap_flag_calls(body, self.context, resolve, scope=FlagCallScope.view(view_name)).source
+        chosen_body = swap_flag_calls(
+            body, self.context, resolve, scope=FlagCallScope.view(view_name), enclosing_ctes=self.ctes
+        ).source
         self._flag_call_view_bodies[key] = chosen_body
         return clone_expr(chosen_body)
 
@@ -1659,11 +1663,11 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
-                    # Promotion moves predicates before resolution, so preserve their CTE bindings first.
-                    if node.constraint is not None:
-                        CteReferenceBinder(set(self.ctes)).visit(node.constraint)
-                    # Check for inlineable exprs in the join on the persons table
                     database_table = database_table.create_new_table_with_filter(node)
+                    # The held copy is resolved later, outside this scope, so bind its CTE references now.
+                    if database_table.filter is not None:
+                        self.context.holds_join_filters = True
+                        CteReferenceBinder(set(self.ctes)).visit(database_table.filter)
                 node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
 
             else:
@@ -2912,6 +2916,11 @@ class Resolver(CloningVisitor):
                 type=ast.FieldAliasType(alias=property_alias, type=node.type),
             )
 
+        return node
+
+    def visit_property_access(self, node: ast.PropertyAccess):
+        node = super().visit_property_access(node)
+        node.type = ast.StringType(nullable=True)
         return node
 
     def visit_array_access(self, node: ast.ArrayAccess):

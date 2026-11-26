@@ -38,7 +38,6 @@ function SummaryMarkdown({ markdown, sourceOffset, chartPlacements, className }:
 interface ReportSummaryBodyProps {
     summary: string
     chartPlacements: ChartPlacements
-    implementButton?: ReactNode
     /**
      * Says a pull request with the fix is open and links to it. Rendered under the Solution section, or after
      * the body when the summary has no sections, so a report never hides that its fix already shipped.
@@ -60,7 +59,6 @@ interface ReportSummaryBodyProps {
 export function ReportSummaryBody({
     summary,
     chartPlacements,
-    implementButton,
     pullRequestNote,
     impactMetrics,
     expectedImpact,
@@ -127,9 +125,6 @@ export function ReportSummaryBody({
                         {section.kind === 'expected-impact' && expectedImpact}
                         {section.kind === 'solution' && pullRequestNote && (
                             <div className="mt-2">{pullRequestNote}</div>
-                        )}
-                        {section.kind === 'solution' && implementButton && (
-                            <div className="mt-2">{implementButton}</div>
                         )}
                     </section>
                     {index === solutionIndex && planBlock}

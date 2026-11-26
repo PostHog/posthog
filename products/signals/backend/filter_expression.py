@@ -7,11 +7,19 @@ from posthog.hogql.visitor import clone_expr
 
 
 class FilterValidationError(ValueError):
-    def __init__(self, code: str, message: str, node: ast.Expr | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        node: ast.Expr | None = None,
+        *,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
-        self.start = node.start if node else None
-        self.end = node.end if node else None
+        self.start = node.start if node else start
+        self.end = node.end if node else end
 
 
 class FilterExpression:
@@ -31,6 +39,7 @@ class FilterExpression:
                 )
         self._nodes = 0
         self.referenced_fields: set[str] = set()
+        self._source = expression
         self._expression: ast.Expr | None = None
         if len(expression) > self.MAX_LENGTH:
             raise FilterValidationError("expression_limit", "Use an expression of at most 4096 characters.")
@@ -38,7 +47,17 @@ class FilterExpression:
             return
         try:
             parsed = parse_expr(expression)
-        except (BaseHogQLError, RecursionError) as error:
+        except BaseHogQLError as error:
+            # The pinned Rust parser reports syntax positions in UTF-8 bytes, which differ from character
+            # offsets once non-ASCII text appears. Drop them until the pin includes #129245.
+            positioned = expression.isascii()
+            raise FilterValidationError(
+                "syntax",
+                "Enter a boolean HogQL expression.",
+                start=error.start if positioned else None,
+                end=error.end if positioned else None,
+            ) from error
+        except RecursionError as error:
             raise FilterValidationError("syntax", "Enter a boolean HogQL expression.") from error
         if self._validate(parsed, 0) != "boolean":
             raise FilterValidationError("boolean_required", "The expression must return a boolean.", parsed)
@@ -46,6 +65,29 @@ class FilterExpression:
 
     def predicate(self) -> ast.Expr | None:
         return clone_expr(self._expression) if self._expression is not None else None
+
+    def conditions(self) -> tuple[str, ...] | None:
+        """The source text of each top-level AND operand, or of the whole expression when it is one condition.
+
+        None when the expression is blank or its top level is OR, because repeating the whole expression would not
+        say which part excluded a record.
+        """
+        node = self._expression
+        if node is None or isinstance(node, ast.Or):
+            return None
+        conditions: list[str] = []
+        for operand in node.exprs if isinstance(node, ast.And) else [node]:
+            if operand.start is None or operand.end is None:
+                return None
+            conditions.append(self._source[operand.start : operand.end])
+        # Parser spans can disagree with the source text (a leading BOM shifts them), so a cut that is not a
+        # valid expression on its own means no conditions rather than a failed preview.
+        try:
+            for condition in conditions:
+                FilterExpression(condition, self._fields)
+        except FilterValidationError:
+            return None
+        return tuple(conditions)
 
     def _require(self, valid: bool, node: ast.Expr, message: str) -> None:
         if not valid:
@@ -142,6 +184,9 @@ class FilterExpression:
             return "boolean"
         if name == "not" and types == ["boolean"]:
             node.name = "not"
+            return "boolean"
+        if name in {"empty", "notempty"} and types == ["array<string>"] and isinstance(node.args[0], ast.Field):
+            node.name = "empty" if name == "empty" else "notEmpty"
             return "boolean"
         if (
             name == "has"

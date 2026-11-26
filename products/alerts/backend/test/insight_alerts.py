@@ -1,4 +1,8 @@
+from datetime import datetime
 from typing import Any
+
+from django.db import transaction
+from django.utils import timezone
 
 from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 
@@ -33,3 +37,17 @@ def create_insight_alert(team: Team, **overrides: Any) -> AlertConfiguration:
     }
     fields.update(overrides)
     return AlertConfiguration.objects.create(**fields)
+
+
+def move_to_platform(alert: AlertConfiguration, *, at: datetime | None = None) -> None:
+    """Hands an insight alert to the platform, as a create does for a new one."""
+    from products.alerts.backend.platform_cutover import hand_over  # noqa: PLC0415
+
+    with transaction.atomic():
+        locked = (
+            AlertConfiguration.objects.select_for_update(of=("self",))
+            .select_related("team", "threshold")
+            .get(id=alert.id)
+        )
+        assert hand_over(locked, at or timezone.now())
+    alert.refresh_from_db()

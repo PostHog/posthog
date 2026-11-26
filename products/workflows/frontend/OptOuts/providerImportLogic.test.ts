@@ -149,6 +149,65 @@ describe('providerImportLogic', () => {
         expect(logic.values.importSettings).toEqual({})
     })
 
+    it('fills the latest run from its details, since the list leaves out items, retries a failed fetch, and fetches a finished one once', async () => {
+        const item = { label: 'Welcome email', status: 'created' as const, url: null, notes: [] }
+        const listed = importRun('completed')
+        runResponses = [[200, [listed]]]
+        let retrieveCalls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_provider_imports/:id/': () => {
+                    retrieveCalls += 1
+                    if (retrieveCalls === 1) {
+                        return [500, { detail: 'boom' }]
+                    }
+                    return [200, { ...listed, steps: [{ ...listed.steps[0], items: [item] }] }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        await expectLogic(logic, () => logic.actions.loadImportRuns()).toDispatchActions(['loadImportRunsSuccess'])
+        expect(logic.values.importRuns?.[0].steps[0].items).toEqual([])
+
+        await jest.advanceTimersByTimeAsync(2000)
+        await expectLogic(logic).toDispatchActions(['loadImportRunsSuccess'])
+        expect(logic.values.importRuns?.[0].steps[0].items).toEqual([item])
+
+        await jest.advanceTimersByTimeAsync(10000)
+        await expectLogic(logic, () => logic.actions.loadImportRuns()).toDispatchActions(['loadImportRunsSuccess'])
+
+        expect(logic.values.importRuns?.[0].steps[0].items).toEqual([item])
+        expect(retrieveCalls).toBe(2)
+    })
+
+    it('stops retrying details that keep failing, says so once, and tries again when the window opens', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        runResponses = [[200, [importRun('completed')]]]
+        let retrieveCalls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_provider_imports/:id/': () => {
+                    retrieveCalls += 1
+                    return [500, { detail: 'boom' }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.loadImportRuns()
+        await jest.advanceTimersByTimeAsync(30000)
+
+        expect(retrieveCalls).toBe(6)
+        expect(toastError).toHaveBeenCalledTimes(1)
+
+        await expectLogic(logic, () => logic.actions.openImportModal()).toDispatchActions(['loadImportRunsSuccess'])
+        expect(retrieveCalls).toBe(7)
+        toastError.mockRestore()
+    })
+
     it('blocks the start as soon as a ticked step loses a step it needs', async () => {
         useMocks({
             get: {
