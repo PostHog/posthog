@@ -36,6 +36,7 @@ from ..constants import (
     BK_RERANK_REQUEST_TIMEOUT,
     BK_SEARCH_DEFAULT_LIMIT,
     BK_SEARCH_MAX_LIMIT,
+    BK_SEARCH_MAX_QUERY_CHARS,
     MAX_URLS_PER_SOURCE,
 )
 from ..file_parse import FileParseError
@@ -742,7 +743,10 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=True,
-                description="Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.",
+                description=(
+                    "Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, "
+                    f"READY knowledge chunks in this project. At most {BK_SEARCH_MAX_QUERY_CHARS} characters."
+                ),
             ),
             OpenApiParameter(
                 "limit",
@@ -800,6 +804,10 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             requested_library = self._library_id_param(request)
         if not query or not query.strip():
             raise exceptions.ValidationError({"query": "This query parameter is required."})
+        if len(query) > BK_SEARCH_MAX_QUERY_CHARS:
+            raise exceptions.ValidationError(
+                {"query": f"Ensure this field has no more than {BK_SEARCH_MAX_QUERY_CHARS} characters."}
+            )
         limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         if not _can_read_parent_knowledge(self, request):
             raise exceptions.PermissionDenied(

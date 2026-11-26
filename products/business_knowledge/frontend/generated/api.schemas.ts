@@ -855,7 +855,7 @@ export type BusinessKnowledgeDocumentsSearchListParams = {
      */
     limit?: number
     /**
-     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
      */
     query: string
     /**

@@ -86,8 +86,18 @@ class TestLibraryLimitedKeys(APIBaseTest):
             f"{self.base}/documents/search/", {"query": "lorem", "library_id": str(self.internal.id)}, format="json"
         )
         assert other.status_code == status.HTTP_404_NOT_FOUND
-        too_long = self.client.post(f"{self.base}/documents/search/", {"query": "lorem " * 400}, format="json")
-        assert too_long.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("get",), ("post",)])
+    def test_search_rejects_a_query_past_the_length_cap(self, method: str, _ff: Any, _embed: Any) -> None:
+        query = "lorem " * 400
+
+        if method == "get":
+            response = self.client.get(f"{self.base}/documents/search/", {"query": query})
+        else:
+            response = self.client.post(f"{self.base}/documents/search/", {"query": query}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "query"
 
     def test_limited_key_searches_only_its_library(self, _ff: Any, _embed: Any) -> None:
         self._use_key(None, "whole project")
