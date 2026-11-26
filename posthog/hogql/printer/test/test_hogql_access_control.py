@@ -650,6 +650,58 @@ class TestDeniedTableError(BaseTest):
 
         assert ("trace_spans" not in database.tables.children["posthog"].children) is denied
 
+    @parameterized.expand([("tracing_none", "none", True), ("tracing_viewer", "viewer", False)])
+    def test_materialized_view_over_trace_tables_follows_tracing_access(
+        self, _name: str, access_level: str, denied: bool
+    ) -> None:
+        from posthog.hogql.database.database import read_posthog_table_scopes
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.query import create_default_modifiers_for_team
+        from posthog.hogql.resolver import resolve_types
+
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.access_control import AccessControl
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        AccessControl.objects.create(team=self.team, resource="tracing", access_level=access_level)
+        backing_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="slow_spans_backing",
+            format="Parquet",
+            url_pattern="https://bucket.example.com/slow_spans/*",
+            columns={"name": "String"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="slow_spans",
+            query={"query": "SELECT name FROM posthog.trace_spans"},
+            columns={"name": "String"},
+            table=backing_table,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+        modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(useMaterializedViews=True))
+        database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
+        context = HogQLContext(team_id=self.team.pk, database=database, modifiers=modifiers, enable_select_queries=True)
+
+        with read_posthog_table_scopes() as read_scopes:
+            if denied:
+                with self.assertRaises(TableAccessDeniedError):
+                    resolve_types(parse_select("SELECT name FROM slow_spans"), context, dialect="clickhouse")
+            else:
+                resolve_types(parse_select("SELECT name FROM slow_spans"), context, dialect="clickhouse")
+                # Caches and async statuses check later readers against this.
+                assert read_scopes == {"tracing"}
+
     def test_unknown_table_still_shows_unknown_error(self):
         """Tables that don't exist should still show 'unknown' error."""
         database = Database.create_for(team=self.team, user=self.user)

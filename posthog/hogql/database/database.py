@@ -804,6 +804,31 @@ def record_read_scopes(scopes: Collection[str]) -> None:
         read_scopes.update(scopes)
 
 
+def record_posthog_table_scopes(scopes: Collection[str]) -> None:
+    """Records reads of gated resources that reached the query through a stored copy of their rows."""
+    read_scopes = _read_posthog_table_scopes.get()
+    if read_scopes is not None:
+        read_scopes.update(scopes)
+
+
+def materialized_view_read_scopes(table: S3Table, team: Team) -> frozenset[str]:
+    """The resources gating `posthog.*` tables that a materialized view's definition reads, at any depth.
+
+    The materialized copy holds those rows but resolves as a plain S3 table, so it is gated on what its
+    definition reads instead. A definition the walk can't read fails closed on every gated resource.
+    """
+    if table.saved_query_id is None or table.saved_query_sql is None:
+        return frozenset()
+    # Deferred: posthog.schema is heavy, and the walk imports hogql back.
+    from posthog.schema import HogQLQuery  # noqa: PLC0415
+
+    from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources  # noqa: PLC0415
+
+    gated = set(access_controlled_posthog_tables().values())
+    scopes = queried_access_controlled_resources(HogQLQuery(query=table.saved_query_sql), team)
+    return frozenset(gated if scopes is None else scopes & gated)
+
+
 _credential_denied_scopes: ContextVar[frozenset[str]] = ContextVar("credential_denied_scopes", default=frozenset())
 
 
@@ -1121,6 +1146,10 @@ class Database(BaseModel):
             self._ensure_revenue_views_built()
             return self.tables.has_child(table_name)
         return False
+
+    def denied_posthog_table_scopes(self) -> set[str]:
+        """The resources whose `posthog.*` tables access control removed from this database."""
+        return {scope for name, scope in access_controlled_posthog_tables().items() if name in self._denied_tables}
 
     def is_table_access_denied(self, table_name: str | list[str]) -> bool:
         """True if access control denied this table when the HogQL database was built.
