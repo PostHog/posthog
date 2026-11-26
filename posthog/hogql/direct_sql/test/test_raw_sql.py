@@ -127,18 +127,32 @@ class TestDirectSQLQuoting(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("leading", lambda depth: "SELECT " + ") END ]" * 50 + "(" * depth),
-            ("interleaved", lambda depth: "SELECT 17 + " + "(END " * depth + "17" + ")" * depth),
-            ("wrong_kind", lambda depth: "SELECT 17 + " + "(]" * depth + "17" + ")" * depth),
-            ("qualified_end", lambda depth: "SELECT " + "CASE WHEN t.end THEN " * depth + "17" + " END" * depth),
-            ("begin_blocks", lambda depth: "SELECT 17 " + "BEGIN " * depth + "17" + " END" * depth),
+            ("leading", "clickhouse", lambda depth: "SELECT " + ") END ]" * 50 + "(" * depth),
+            ("interleaved", "clickhouse", lambda depth: "SELECT 17 + " + "(END " * depth + "17" + ")" * depth),
+            ("wrong_kind", "clickhouse", lambda depth: "SELECT 17 + " + "(]" * depth + "17" + ")" * depth),
+            (
+                "qualified_end",
+                "clickhouse",
+                lambda depth: "SELECT " + "CASE WHEN t.end THEN " * depth + "17" + " END" * depth,
+            ),
+            ("begin_blocks", "clickhouse", lambda depth: "SELECT 17 " + "BEGIN " * depth + "17" + " END" * depth),
+            # BigQuery lexes BEGIN as a command, not as the BEGIN keyword other dialects produce.
+            (
+                "bigquery_begin_blocks",
+                "bigquery",
+                lambda depth: "SELECT 17 " + "BEGIN " * depth + "17" + " END" * depth,
+            ),
         ]
     )
     def test_unmatched_closers_do_not_raise_the_nesting_allowance(
-        self, _name: str, build: Callable[[int], str]
+        self, _name: str, dialect: str, build: Callable[[int], str]
     ) -> None:
+        check = {
+            "clickhouse": ensure_read_only_raw_clickhouse_statement,
+            "bigquery": ensure_read_only_raw_bigquery_statement,
+        }[dialect]
         with self.assertRaisesMessage(ExposedHogQLError, "too complex to validate"):
-            ensure_read_only_raw_clickhouse_statement(build(MAX_DIRECT_SQL_NESTING_DEPTH + 1))
+            check(build(MAX_DIRECT_SQL_NESTING_DEPTH + 1))
 
     def test_qualified_case_columns_do_not_count_as_nesting(self) -> None:
         sql = "SELECT " + ", ".join(["t.case"] * (MAX_DIRECT_SQL_NESTING_DEPTH + 1)) + " FROM events AS t"

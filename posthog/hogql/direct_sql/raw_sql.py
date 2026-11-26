@@ -86,31 +86,21 @@ def _guard_tokens(token: "DialectToken", *, is_call: bool, is_qualified: bool, s
     return [Token(kind, value) for kind, value in (classified[:-1] if is_call else classified)]
 
 
-def _ensure_nesting_within_limit(lexed: list["DialectToken"]) -> None:
-    from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
-
+def _ensure_nesting_within_limit(tokens: list[Token]) -> None:
     # sqlparse grouping cost grows much faster than linearly with nesting depth, so deep input
-    # is rejected before grouping. The limit matches sqlparse's own MAX_GROUPING_DEPTH.
-    closer_for = {
-        TokenType.L_PAREN: TokenType.R_PAREN,
-        TokenType.L_BRACKET: TokenType.R_BRACKET,
-        TokenType.L_BRACE: TokenType.R_BRACE,
-        TokenType.CASE: TokenType.END,
-        TokenType.BEGIN: TokenType.END,
-    }
-    open_blocks: list[TokenType] = []
-    for index, token in enumerate(lexed):
-        is_qualified = (index > 0 and lexed[index - 1].token_type == TokenType.DOT) or (
-            index + 1 < len(lexed) and lexed[index + 1].token_type == TokenType.DOT
-        )
-        if is_qualified and token.token_type in {TokenType.CASE, TokenType.BEGIN, TokenType.END}:
-            # _guard_tokens turns qualified keywords into names, so sqlparse does not nest on them.
+    # is rejected before grouping. The limit matches sqlparse's own MAX_GROUPING_DEPTH. Counting
+    # the tokens handed to group(), not the dialect's tokens, keeps this in step with what sqlparse
+    # nests on: dialects lex BEGIN differently, and qualified keywords have become names here.
+    closer_for = {"(": ")", "[": "]", "{": "}", "CASE": "END", "BEGIN": "END"}
+    open_blocks: list[str] = []
+    for token in tokens:
+        if token.ttype not in sqlparse_tokens.Punctuation and token.ttype not in sqlparse_tokens.Keyword:
             continue
-        if token.token_type in closer_for:
-            open_blocks.append(token.token_type)
+        if token.normalized in closer_for:
+            open_blocks.append(token.normalized)
             if len(open_blocks) > MAX_DIRECT_SQL_NESTING_DEPTH:
                 raise ExposedHogQLError(_TOO_COMPLEX_ERROR)
-        elif open_blocks and token.token_type == closer_for[open_blocks[-1]]:
+        elif open_blocks and token.normalized == closer_for[open_blocks[-1]]:
             # A closer that does not match the innermost opener, such as the END of a block
             # that is not counted, leaves the depth unchanged.
             open_blocks.pop()
@@ -140,7 +130,6 @@ def parse_direct_statements(sql: str, *, dialect: str) -> list[Statement]:
     from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
 
     lexed = _single_statement_tokens(sql, dialect)
-    _ensure_nesting_within_limit(lexed)
     tokens: list[Token] = []
     for index, token in enumerate(lexed):
         is_call = index + 1 < len(lexed) and lexed[index + 1].token_type == TokenType.L_PAREN
@@ -149,6 +138,7 @@ def parse_direct_statements(sql: str, *, dialect: str) -> list[Statement]:
         )
         tokens.extend(_guard_tokens(token, is_call=is_call, is_qualified=is_qualified, sql=sql, dialect=dialect))
         tokens.append(Token(sqlparse_tokens.Whitespace, " "))
+    _ensure_nesting_within_limit(tokens)
     try:
         return [group(Statement(tokens))] if tokens else []
     except (SQLParseError, RecursionError) as error:
