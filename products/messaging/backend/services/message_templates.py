@@ -160,6 +160,12 @@ def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any
         # Tags live on their own rows. Saving the template too would write back every column this
         # read saw, so a tag edit would overwrite content a concurrent publish had just committed.
         if fields:
+            if (
+                "sensitive" in fields
+                and fields["sensitive"] != template.sensitive
+                and "click_tracking_enabled" not in fields
+            ):
+                fields["click_tracking_enabled"] = None
             _apply_fields(template, fields)
             template.save()
         if tags_changed:
