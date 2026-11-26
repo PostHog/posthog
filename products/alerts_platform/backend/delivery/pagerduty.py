@@ -20,7 +20,7 @@ import hashlib
 from typing import Any, Final
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest, post_json, rfc3339
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_PAGERDUTY_REGION,
@@ -124,13 +124,17 @@ class PagerDutyTransport:
     ) -> MessageHandle | None:
         routing_key = target.get("pagerduty_routing_key")
         if not routing_key:
-            raise DeliveryError("This PagerDuty destination has no integration key.", reason="destination_config")
+            raise DestinationMisconfigured(
+                "This PagerDuty destination has no integration key.",
+                remedy="Copy the integration key from your PagerDuty service into the destination on the alert.",
+            )
         try:
             region = PagerDutyRegion(target.get("pagerduty_region") or DEFAULT_PAGERDUTY_REGION)
             severity = PagerDutySeverity(target.get("pagerduty_severity") or DEFAULT_PAGERDUTY_SEVERITY)
         except ValueError:
-            raise DeliveryError(
-                "This PagerDuty destination has an unknown region or severity.", reason="destination_config"
+            raise DestinationMisconfigured(
+                "This PagerDuty destination has an unknown region or severity.",
+                remedy="Pick a region and severity for the destination on the alert.",
             ) from None
         body = pagerduty_body(message, routing_key=routing_key, severity=severity)
         post_json(

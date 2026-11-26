@@ -27,7 +27,6 @@ from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
     DestinationMisconfigured,
-    DestinationRefused,
     MessageHandle,
     RefusedEverywhere,
     RootEditor,
@@ -236,7 +235,7 @@ def _send(
             error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
         count_failed_send(message.source.value, transport.provider, error)
-        if isinstance(error, DestinationRefused):
+        if isinstance(error, DestinationMisconfigured):
             notify_refused(
                 team_id=team_id,
                 message=message,

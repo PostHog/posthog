@@ -1,4 +1,4 @@
-"""Tells an alert's creator when a destination refuses the alert's message, because every later message fails the same way.
+"""Tells an alert's creator when a destination refuses or is set up wrong, because every later message fails the same way.
 
 The creator gets an in-app notification and an email while they can still access the project and
 see the alert, by the access rules of the source that owns it. A creator who lost access to an
@@ -138,8 +138,8 @@ def _notify(team_id: int, creator: User, key: str, message: AlertMessage, refusa
             team_id=team_id,
             notification_type=NotificationType.ALERT_DESTINATION_REFUSED,
             priority=Priority.NORMAL,
-            title=clip_text(f"An alert destination refused a notification from {message.alert_name}", MAX_TITLE_CHARS),
-            body=f"{refusal} Every notification sent there will fail until the destination is fixed.",
+            title=clip_text(f"Couldn't deliver a notification from {message.alert_name}", MAX_TITLE_CHARS),
+            body=f"{refusal} Every notification sent there will fail until the destination is fixed. {refusal.remedy}",
             target_type=TargetType.USER,
             target_id=str(creator.id),
             # The query too: an insight alert's link selects the alert with `?alert_id=`.
@@ -159,7 +159,7 @@ def _email(team_id: int, creator: User, key: str, message: AlertMessage, refusal
     email = EmailMessage(
         campaign_key=key,
         template_name=EMAIL_TEMPLATE_NAME,
-        subject=f"An alert destination refused a notification from {' '.join(message.alert_name.split())}",
+        subject=f"Couldn't deliver a notification from {' '.join(message.alert_name.split())}",
         template_context={
             "alert_name": message.alert_name,
             "alert_url": message.alert_url,

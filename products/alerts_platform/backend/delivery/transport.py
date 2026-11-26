@@ -106,6 +106,8 @@ class DestinationMisconfigured(DeliveryError):
 # What an HTTP destination's owner checks.
 CHECK_THE_URL = "Check the destination's URL and the format it accepts, then update the destination on the alert."
 
+ADD_RECIPIENTS = "Add recipients to the destination on the alert, or remove the destination."
+
 
 class DestinationRefused(DestinationMisconfigured):
     """A destination rejected the request itself, so every retry and every later message fails the same way.

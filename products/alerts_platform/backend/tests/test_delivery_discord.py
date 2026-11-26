@@ -7,7 +7,11 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.alerts_platform.backend.delivery.discord import MAX_CONTENT_CHARS, DiscordTransport, content_for
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DestinationMisconfigured,
+    DestinationRefused,
+)
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageDetail, MessageLink
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, pinned_post
 
@@ -80,7 +84,7 @@ class TestDiscordTransport(SimpleTestCase):
             if posted:
                 DiscordTransport().deliver(team_id=2, target=target, message=alert_message())
             else:
-                with pytest.raises(DeliveryError):
+                with pytest.raises(DestinationMisconfigured):
                     DiscordTransport().deliver(team_id=2, target=target, message=alert_message())
 
         assert bool(adapter.sent) is posted

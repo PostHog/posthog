@@ -33,6 +33,7 @@ from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_L
 from products.alerts_platform.backend.delivery.transport import (
     DeliveryAmbiguous,
     DeliveryError,
+    DestinationMisconfigured,
     DestinationRefused,
     FailureReason,
     MessageHandle,
@@ -325,8 +326,9 @@ class SlackTransport:
         workspace_id = target.get("slack_workspace_id")
         channel = target.get("slack_channel_id")
         if workspace_id is None or channel is None:
-            raise DeliveryError(
-                "This Slack destination is missing its workspace or channel.", reason="destination_config"
+            raise DestinationMisconfigured(
+                "This Slack destination is missing its workspace or channel.",
+                remedy="Pick a Slack workspace and channel for the destination on the alert.",
             )
 
         slack = SlackIntegration(
@@ -491,6 +493,7 @@ class SlackTransport:
         try:
             return IntegrationManager.slack.oauth.get(team_id, workspace_id)
         except IntegrationNotFound as error:
-            raise DeliveryError(
-                "The Slack workspace for this alert is not connected.", reason="destination_config"
+            raise DestinationMisconfigured(
+                "The Slack workspace for this alert is not connected.",
+                remedy="Connect Slack in the project's integrations, or pick another destination for the alert.",
             ) from error
