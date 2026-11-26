@@ -298,6 +298,9 @@ class TestConversionRecommendations(APIBaseTest):
         )
         EventDefinition.objects.create(team=self.team, name="order_settled", last_seen_at=now)
         EventProperty.objects.create(team=self.team, event="order_settled", property="amount")
+        EventProperty.objects.bulk_create(
+            [EventProperty(team=self.team, event="order_settled", property=f"$sdk_{index:02}") for index in range(50)]
+        )
         PropertyDefinition.objects.create(
             team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, is_numerical=True
         )

@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Literal, TypeVar
 
 from django.db import transaction
+from django.db.models import Case, Value, When
 from django.db.models.functions import Substr
 from django.utils import timezone
 
@@ -298,7 +299,7 @@ class ConversionRecommendationService:
                     .alias(effective_project_id=effective_project_id_expr())
                     .filter(effective_project_id=self.team.project_id, event=candidate.event)
                     .exclude(property__in=restricted)
-                    .order_by("property")
+                    .order_by(Case(When(property__startswith="$", then=Value(1)), default=Value(0)), "property")
                     .values_list("property", flat=True)[:50]
                 )
                 candidate.property_names = properties
