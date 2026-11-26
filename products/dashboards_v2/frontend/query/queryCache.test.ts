@@ -1,5 +1,5 @@
-import type { QueryResult, RunQuery } from '../vizTypes'
 import { MAX_CACHED_QUERIES, cachedResult, runCachedQuery } from './queryCache'
+import type { QueryResult, RunQuery } from './queryTypes'
 
 const KEY = JSON.stringify({ language: 'hogql', query: 'select 1' })
 const RESULT: QueryResult = { frames: [{ fields: [] }] }

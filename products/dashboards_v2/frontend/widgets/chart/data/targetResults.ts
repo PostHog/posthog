@@ -1,6 +1,6 @@
+import type { DataFrame } from '../../../query/queryTypes'
+import type { QueryFrames } from '../../../query/useQueryFrames'
 import type { ChartTarget } from '../chartSpec'
-import type { DataFrame } from '../vizTypes'
-import type { QueryFrames } from './useQueryFrames'
 
 export type TargetFailure = {
     refId: string

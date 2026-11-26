@@ -1,25 +1,26 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DashboardActions } from '../dashboard/actions/DashboardActions'
 import { DashboardView } from '../dashboard/DashboardView'
-import { createQueryBatchRunner } from '../data/queryBatchRunner'
 import { ANALYTICS_FILTER_TYPES } from '../filters/analytics/analyticsFilterTypes'
 import { useDashboardFilters } from '../filters/useDashboardFilters'
 import { runSampleQuery } from '../fixtures/runSampleQuery'
+import { createQueryBatchRunner } from '../query/queryBatchRunner'
 import { createChartWidget } from '../widgets/chart/createChartWidget'
-import { DEFAULT_WIDGETS } from '../widgets/defaultWidgets'
+import { markdownWidget } from '../widgets/markdown/markdownSpec'
 import { dashboardSceneLogic } from './dashboardSceneLogic'
 
-const NON_CHART_WIDGETS = DEFAULT_WIDGETS.filter((widget) => widget.type !== 'chart')
-const SAMPLE_WIDGETS = [createChartWidget({ runQuery: runSampleQuery }), ...NON_CHART_WIDGETS]
+const SAMPLE_WIDGETS = [createChartWidget({ runQuery: runSampleQuery }), markdownWidget]
 
 export const scene: SceneExport = {
     component: DashboardScene,
@@ -41,6 +42,12 @@ function DashboardV2(): JSX.Element {
     const { currentTeamId, timezone } = useValues(teamLogic)
     const tabRef = useRef(activeTabId)
     tabRef.current = activeTabId
+    // The same check as v1 insights: a project that has sent no events yet sees sample charts instead of empty ones.
+    const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+    // TODO(2026-11-25): Remove with the kitchen sink fixture, once the scene loads dashboards from the API.
+    // Lets the "Tile states" tab show the sample data state in a project that already has events.
+    const { searchParams } = useValues(router)
+    const forceSampleData = searchParams.sample_data === true || searchParams.sample_data === 'true'
     // The same pair of flags as the v1 dashboard query layer: the project turns it on, the person sees it.
     const runsRealQueries =
         !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
@@ -57,7 +64,7 @@ function DashboardV2(): JSX.Element {
                               context: () => ({ dashboard_tab_id: tabRef.current }),
                           }),
                       }),
-                      ...NON_CHART_WIDGETS,
+                      markdownWidget,
                   ]
                 : SAMPLE_WIDGETS,
         [runsRealQueries, currentTeamId]
@@ -70,6 +77,8 @@ function DashboardV2(): JSX.Element {
     })
     return (
         <DashboardView
+            surface="dashboard-v2-scene"
+            sampleData={shouldShowSampleData || forceSampleData}
             dashboard={dashboard}
             activeTabId={activeTabId}
             widgets={widgets}
