@@ -9,6 +9,7 @@ from posthog.temporal.ai_observability.sentiment.constants import (
 )
 
 from products.ai_observability.backend.facade.evaluation_runtime import extract_content_text
+from products.ai_observability.backend.text_repr.formatters.otel_parts import flatten_parts_message
 
 HEAD_TAIL_SEPARATOR = "\n...\n"
 
@@ -24,6 +25,15 @@ def _is_tool_result_message(content: object) -> bool:
     if not isinstance(content, list) or not content:
         return False
     return all(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
+
+
+def _user_message_text(msg: dict) -> str:
+    parts = msg.get("parts")
+    if isinstance(parts, list):
+        text_parts = [part for part in parts if isinstance(part, dict) and part.get("type") == "text"]
+        msg = {**msg, "parts": text_parts}
+    flattened = flatten_parts_message(msg)[0]
+    return extract_content_text(flattened.get("content", ""))
 
 
 def extract_user_messages_individually(ai_input: object) -> list[tuple[int, str]]:
@@ -44,7 +54,7 @@ def extract_user_messages_individually(ai_input: object) -> list[tuple[int, str]
 
     if isinstance(ai_input, dict):
         if ai_input.get("role") == "user":
-            text = extract_content_text(ai_input.get("content", ""))
+            text = _user_message_text(ai_input)
             return [(0, text)] if text else []
         return []
 
@@ -56,7 +66,7 @@ def extract_user_messages_individually(ai_input: object) -> list[tuple[int, str]
         if isinstance(msg, dict) and msg.get("role") == "user":
             if _is_tool_result_message(msg.get("content")):
                 continue
-            text = extract_content_text(msg.get("content", ""))
+            text = _user_message_text(msg)
             if text:
                 result.append((i, text))
     return result[-MAX_USER_MESSAGES:]
