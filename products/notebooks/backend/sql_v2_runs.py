@@ -9,13 +9,15 @@ its own block in sql_v2_callback.py.
 """
 
 from typing import Any
+from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
 
-from products.notebooks.backend.models import NotebookNodeRun
+from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots, renew_run_slots
 from products.notebooks.backend.sql_v2_metrics import OUTCOME_TIMED_OUT, outcome_for_status, record_node_run_terminal
 
@@ -97,6 +99,36 @@ def touch_run_progress(team_id: int, notebook_short_id: str, run_id: str) -> Non
         # The id comes out of a signed token, so a malformed one means the minting side has a
         # bug. Swallow it here rather than failing the sandbox's fetch over it.
         logger.warning("notebook_run_progress_touch_invalid_run_id", run_id=run_id, team_id=team_id)
+
+
+def record_kernel_read_scopes(team_id: int, run_id: str, read_scopes: set[str]) -> None:
+    """Add what the data plane served `run_id` to its kernel's read scopes, before the rows leave.
+
+    Not best effort: a lost write would let the kernel's later outputs reach readers denied these
+    resources, so a failure fails the fetch.
+    """
+    kernel_runtime_id = (
+        NotebookNodeRun.objects.for_team(team_id).filter(id=run_id).values_list("kernel_runtime_id", flat=True).first()
+    )
+    if kernel_runtime_id is None:
+        return
+    with transaction.atomic():
+        runtime = KernelRuntime.objects.select_for_update().filter(id=kernel_runtime_id, team_id=team_id).first()
+        if runtime is None or read_scopes.issubset(runtime.read_scopes or []):
+            return
+        runtime.read_scopes = sorted(read_scopes.union(runtime.read_scopes or []))
+        runtime.save(update_fields=["read_scopes"])
+
+
+def kernel_read_scopes(team_id: int, kernel_runtime_id: UUID | None) -> list[str]:
+    if kernel_runtime_id is None:
+        return []
+    scopes = (
+        KernelRuntime.objects.filter(id=kernel_runtime_id, team_id=team_id)
+        .values_list("read_scopes", flat=True)
+        .first()
+    )
+    return sorted(scopes or [])
 
 
 def seconds_until_kernel_run_is_stale(run: NotebookNodeRun) -> float | None:

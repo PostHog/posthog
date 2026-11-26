@@ -1653,6 +1653,40 @@ class TestSQLV2RunResult(APIBaseTest):
         mock_status.side_effect = QueryNotFoundError()
         self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
 
+    @parameterized.expand([("none", 403), ("viewer", 200)])
+    @patch("products.notebooks.backend.sql_v2_data_plane.get_query_status", return_value=_TRACE_STATUS)
+    def test_kernel_run_output_follows_what_its_kernel_read(self, access_level, expected, _mock_status):
+        _set_tracing_access(self, access_level)
+        producer = User.objects.create_and_join(
+            self.organization, "producer@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        runtime = KernelRuntime.objects.create(
+            team=self.team, notebook=self.notebook, notebook_short_id=self.notebook.short_id, user=producer
+        )
+        # The second run fetches nothing: it reads a frame the first one left in the kernel.
+        fetching, reusing = (
+            self._create_run(NotebookNodeRun.Status.RUNNING, node_type=NotebookNodeRun.NodeType.PYTHON)
+            for _ in range(2)
+        )
+        for run in (fetching, reusing):
+            with team_scope(self.team.id):
+                run.kernel_runtime_id = runtime.id
+                run.save(update_fields=["kernel_runtime_id"])
+        token = mint_data_plane_token(self.notebook.short_id, self.team.id, producer.id, str(fetching.id))
+        response = self.client.get("/internal/notebooks/data_plane/query/q1/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(response.status_code, 200)
+
+        for run in (fetching, reusing):
+            callback = self.client.post(
+                f"/internal/notebooks/runs/{run.id}/result/",
+                # A sandbox claiming its output read nothing must not lift the gate.
+                data=json.dumps({"envelope": {"status": "ok", "first_page": [["GET /api"]], "read_scopes": []}}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {mint_callback_token(str(run.id), self.team.id)}",
+            )
+            self.assertEqual(callback.status_code, 200)
+            self.assertEqual(self.client.get(self._url(str(run.id))).status_code, expected)
+
     @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
     def test_completed_query_never_overwrites_an_interrupt(self, mock_status):
         # The race: the user interrupts while a poller holds a stale RUNNING row and the

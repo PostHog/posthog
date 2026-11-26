@@ -48,7 +48,7 @@ from products.notebooks.backend.sql_v2 import (
     verify_data_plane_token,
 )
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
-from products.notebooks.backend.sql_v2_runs import touch_run_progress
+from products.notebooks.backend.sql_v2_runs import record_kernel_read_scopes, touch_run_progress
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
 logger = structlog.get_logger(__name__)
@@ -283,6 +283,9 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
             assert_read_scopes_readable(read_scopes, Team.objects.get(id=claims.team_id), user)
         except PermissionDenied as error:
             return JsonResponse({"error": str(error.detail)}, status=403)
+        # The kernel keeps these rows past this response, so its outputs must stay gated on them.
+        if claims.run_id:
+            record_kernel_read_scopes(claims.team_id, claims.run_id, read_scopes)
 
     results: dict[str, Any] = status.results or {}
 

@@ -215,6 +215,10 @@ class KernelRuntime(UUIDTModel):
     # arrive out of order, so a slow older callback must not overwrite a newer snapshot. Runs
     # are created before dispatch, so created_at orders them the same way the kernel ran them.
     frames_run_created_at = models.DateTimeField(null=True, blank=True)
+    # Resources gating every `posthog.*` table the data plane served this kernel, recorded by the
+    # server. Any later output of the kernel may carry those rows, through a cached input or a
+    # DuckDB frame built from one, so each run's callback stamps the whole set on its envelope.
+    read_scopes: JSONField = JSONField(default=None, null=True, blank=True)
     # The shape this sandbox was actually provisioned with. The notebook holds the configured
     # shape, which a live kernel does not adopt until it restarts, so pricing the running sandbox
     # needs the size recorded here rather than derived from the notebook. Null on rows created
