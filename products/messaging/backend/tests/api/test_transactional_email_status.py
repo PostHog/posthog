@@ -323,22 +323,35 @@ class TestMatchSentMessageIds(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("us_east_1", "<0100018c-ours-000000@email.amazonses.com>", True),
-            ("another_region", "<0100018c-ours-000000@eu-central-1.amazonses.com>", True),
-            ("not_an_ses_domain", "<0100018c-ours-000000@example.com>", False),
-            ("another_teams_send", "<0100018c-theirs-000000@email.amazonses.com>", False),
-            ("never_sent", "<0100018c-unknown-000000@email.amazonses.com>", False),
+            ("us_east_1", "<0100018c-ours-000000@email.amazonses.com>", "<0100018c-ours-000000@email.amazonses.com>"),
+            (
+                "another_region",
+                "<0100018c-ours-000000@eu-central-1.amazonses.com>",
+                "<0100018c-ours-000000@eu-central-1.amazonses.com>",
+            ),
+            (
+                "a_references_header",
+                "<a@mail.gmail.com> <0100018c-unknown-000000@email.amazonses.com> "
+                "<0100018c-ours-000000@email.amazonses.com>",
+                "<0100018c-ours-000000@email.amazonses.com>",
+            ),
+            ("not_an_ses_domain", "<0100018c-ours-000000@example.com>", ""),
+            ("unbracketed", "0100018c-ours-000000@email.amazonses.com", ""),
+            ("another_teams_send", "<0100018c-theirs-000000@email.amazonses.com>", ""),
+            ("never_sent", "<0100018c-unknown-000000@email.amazonses.com>", ""),
         ]
     )
-    def test_matches_a_wire_message_id_to_this_teams_send(self, _name, wire_message_id, matches):
+    def test_matches_a_wire_message_id_to_this_teams_send(self, _name, header, matched_wire_id):
         send_id = str(UUIDT())
         self._sent_row(self.team, send_id, "0100018c-ours-000000")
         other_team = Team.objects.create(organization=self.organization)
         self._sent_row(other_team, str(UUIDT()), "0100018c-theirs-000000")
 
-        found = match_sent_message_ids(self.team.id, [wire_message_id])
+        found = match_sent_message_ids(self.team.id, [header])
 
-        assert found == ((SentMessageMatch(wire_message_id=wire_message_id, send_id=send_id),) if matches else ())
+        assert found == (
+            (SentMessageMatch(wire_message_id=matched_wire_id, send_id=send_id),) if matched_wire_id else ()
+        )
 
 
 class TestKeyedMessageId(SimpleTestCase):

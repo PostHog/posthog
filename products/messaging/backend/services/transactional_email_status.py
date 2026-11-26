@@ -158,7 +158,7 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
 
 # SES replaces our Message-ID with `<MessageId@email.amazonses.com>`, or `@<region>.amazonses.com` outside us-east-1,
 # and the sent row keeps only the MessageId its API returned.
-_SES_WIRE_MESSAGE_ID = re.compile(r"<?([^<>@\s]+)@(?:[a-z0-9-]+\.)*amazonses\.com>?", re.IGNORECASE)
+_SES_WIRE_MESSAGE_ID = re.compile(r"<([^<>@\s]+)@[a-z0-9-]+\.amazonses\.com>", re.IGNORECASE)
 # A reply carries no send time, so this reads every partition the retention keeps and skips granules by the index.
 _SENT_MESSAGE_QUERY = f"""
 SELECT provider_message_id, any(message_id)
@@ -170,12 +170,12 @@ GROUP BY provider_message_id
 
 
 @events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
-def match_sent_message_ids(team_id: int, message_ids: Sequence[str]) -> tuple[SentMessageMatch, ...]:
-    """The sends of this team among these wire Message-IDs, such as a reply's In-Reply-To and References."""
+def match_sent_message_ids(team_id: int, headers: Sequence[str]) -> tuple[SentMessageMatch, ...]:
+    """The sends of this team named in these header values, such as a reply's raw In-Reply-To and References."""
     wire_ids: dict[str, str] = {}
-    for wire_id in message_ids:
-        if match := _SES_WIRE_MESSAGE_ID.fullmatch(wire_id.strip()):
-            wire_ids.setdefault(match[1], wire_id)
+    for header in headers:
+        for match in _SES_WIRE_MESSAGE_ID.finditer(header):
+            wire_ids.setdefault(match[1], match[0])
     if not wire_ids:
         return ()
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
