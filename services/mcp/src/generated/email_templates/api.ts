@@ -251,7 +251,7 @@ export const MessagingTemplatesListQueryParams = () => zod.object({
         .union([zod.literal('email'), zod.literal('push'), zod.literal(null)])
         .nullish()
         .describe(
-            'List only templates of this type. Leave out to list every type.\n\n\* `email` - email\n\* `push` - push'
+            'List only templates of this type. Leave out to list every type.\n\n\* `email` - Email\n\* `push` - Push'
         ),
 })
 
