@@ -1,7 +1,7 @@
 import re
 import json
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import cache, cached_property
 from time import monotonic
 from typing import TYPE_CHECKING, Any
@@ -319,19 +319,26 @@ def get_account_sql_formatting_bytecodes() -> dict[str, str]:
     }
 
 
+def validate_sql_query_connection_config(config: Mapping[str, object]) -> list[str]:
+    if "connectionId" not in config:
+        return []
+    connection_id = config["connectionId"]
+    if isinstance(connection_id, str):
+        try:
+            if str(UUID(connection_id)) == connection_id.lower():
+                return []
+        except ValueError:
+            pass
+    return ["SQL connectionId must be a UUID string. Choose a connection again."]
+
+
 def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
     if not set(config) <= {"query", "visualization", "connectionId"}:
         return [
             "SQL query config must contain only a query, an optional connection, and optional visualization settings."
         ]
-    if "connectionId" in config:
-        connection_id = config["connectionId"]
-        if not isinstance(connection_id, str):
-            return ["SQL connectionId must be a UUID string. Choose a connection again."]
-        try:
-            UUID(connection_id)
-        except ValueError:
-            return ["SQL connectionId must be a UUID string. Choose a connection again."]
+    if connection_errors := validate_sql_query_connection_config(config):
+        return connection_errors
     query = config.get("query")
     if not isinstance(query, str) or not query.strip():
         return ["SQL query config needs a query."]

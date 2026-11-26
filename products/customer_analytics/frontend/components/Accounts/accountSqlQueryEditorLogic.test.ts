@@ -154,24 +154,37 @@ describe('accountSqlQueryEditorLogic', () => {
         }
     )
 
-    it('blocks a malformed saved connection until another source is selected', async () => {
-        const config = { query, connectionId: 123 }
-        const { logic, editor, onChange } = await mountEditor(config)
-        logic.actions.runPreview()
-        expect(logic.values.previewConfig).toBeNull()
-        expect(logic.values.config).toEqual(config)
-        expect(onChange).not.toHaveBeenCalled()
-        expect(editor.values.queryInput).toEqual(query)
+    it.each([123, connectionId.replace(/-/g, ''), 'not-a-uuid'])(
+        'blocks saved connection %s across the restricted editor mount until a source is selected',
+        async (invalidId) => {
+            const config = { query, connectionId: invalidId }
+            const { logic, editor, onChange } = await mountEditor(config)
+            const restrictedBinding = sqlEditorLogic({
+                tabId: logic.props.tabId,
+                mode: SQLEditorMode.Embedded,
+                captureQueryTelemetry: false,
+                allowRawSql: false,
+            })
+            await expectLogic(logic, () => {
+                unmounts.push(restrictedBinding.mount())
+            }).toFinishAllListeners()
+            expect(restrictedBinding.values.rawSqlAllowed).toBe(false)
+            logic.actions.runPreview()
+            expect(logic.values.previewConfig).toBeNull()
+            expect(logic.values.config).toEqual(config)
+            expect(onChange).not.toHaveBeenCalled()
+            expect(editor.values.queryInput).toEqual(query)
 
-        editor.actions.setSourceQuery({
-            kind: NodeKind.DataVisualizationNode,
-            source: { kind: NodeKind.HogQLQuery, query, connectionId },
-        })
-        logic.actions.runPreview()
-        expect(logic.values.previewConfig).toEqual({
-            query,
-            connectionId,
-            visualization: { display: ChartDisplayType.ActionsTable },
-        })
-    })
+            editor.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query, connectionId },
+            })
+            logic.actions.runPreview()
+            expect(logic.values.previewConfig).toEqual({
+                query,
+                connectionId,
+                visualization: { display: ChartDisplayType.ActionsTable },
+            })
+        }
+    )
 })

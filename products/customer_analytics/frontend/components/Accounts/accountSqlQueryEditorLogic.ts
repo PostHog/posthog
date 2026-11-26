@@ -107,13 +107,23 @@ export const accountSqlQueryEditorLogic: LogicWrapper<accountSqlQueryEditorLogic
         path((key) => ['products', 'customer_analytics', 'accountSqlQueryEditorLogic', key]),
         connect(({ tabId, projectId, accountId }: AccountSqlQueryEditorLogicProps) => ({
             values: [
-                sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded, captureQueryTelemetry: false }),
+                sqlEditorLogic({
+                    tabId,
+                    mode: SQLEditorMode.Embedded,
+                    captureQueryTelemetry: false,
+                    allowRawSql: false,
+                }),
                 ['queryInput'],
                 accountPropertyDataLogic({ projectId, accountId }),
                 ['account', 'accountLoading', 'accountLoadFailed'],
             ],
             actions: [
-                sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded, captureQueryTelemetry: false }),
+                sqlEditorLogic({
+                    tabId,
+                    mode: SQLEditorMode.Embedded,
+                    captureQueryTelemetry: false,
+                    allowRawSql: false,
+                }),
                 ['setQueryInput', 'setSourceQuery', 'setPlaceholders'],
                 accountPropertyDataLogic({ projectId, accountId }),
                 ['loadAccount', 'loadAccountSuccess'],

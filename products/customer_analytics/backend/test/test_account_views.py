@@ -233,7 +233,9 @@ class TestAccountViewContentValidation(SimpleTestCase):
                     },
                     "SQL connectionId must be a UUID string. Choose a connection again.",
                 )
-                for index, connection_id in enumerate([None, "", " ", "not-a-uuid", 123, True, {}, []])
+                for index, connection_id in enumerate(
+                    [None, "", " ", "not-a-uuid", "11111111111141118111111111111111", 123, True, {}, []]
+                )
             ],
             (
                 "extra_field",
