@@ -15,9 +15,9 @@ import {
 import { QuillSyncFrequencySelect } from 'scenes/data-warehouse/saved_queries/QuillSyncFrequencySelect'
 
 import { countOf, isDeprecatePayload, isMaterializePayload, suggestionCountsText } from '../suggestionCopy'
-import { catalogEditBlockedReason } from '../warehouseSuggestionsLogic'
+import { DeprecateAction, catalogEditBlockedReason } from '../warehouseSuggestionsLogic'
 import { BulkIntervalChoice, warehouseSuggestionsSectionLogic } from '../warehouseSuggestionsSectionLogic'
-import { ActionChoice, RefreshChoice } from './DeprecateSuggestionModal'
+import { RefreshChoice } from './DeprecateSuggestionModal'
 import { QuillChoice, QuillChoiceGroup } from './QuillChoiceGroup'
 
 const INTERVAL_CHOICES: QuillChoice<BulkIntervalChoice>[] = [
@@ -35,7 +35,7 @@ const INTERVAL_CHOICES: QuillChoice<BulkIntervalChoice>[] = [
     },
 ]
 
-const ACTION_CHOICES: QuillChoice<ActionChoice>[] = [
+const ACTION_CHOICES: QuillChoice<DeprecateAction>[] = [
     {
         value: 'deprecate',
         label: 'Mark them deprecated',
@@ -114,7 +114,7 @@ export function QuillBulkAcceptSuggestionsDialog(): JSX.Element {
                             </div>
                         )}
                         {selectedViewDeprecations.length > 0 && (
-                            <QuillChoiceGroup<ActionChoice>
+                            <QuillChoiceGroup<DeprecateAction>
                                 legend="Unused views"
                                 idPrefix="bulk-accept-deprecate"
                                 value={acceptChoices.deleteViews ? 'delete' : 'deprecate'}

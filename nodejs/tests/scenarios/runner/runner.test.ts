@@ -80,6 +80,7 @@ jest.mock('~/common/utils/request', () => {
 
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
 const SMOKE = load(SMOKE_CARD)
+const RAMP_INVARIANTS = SMOKE.card.invariants.filter(({ name }) => name !== 'no_loss')
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
 const PROFILE_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:1/scenario'
 const NEVER_ABORTED = new AbortController().signal
@@ -1157,11 +1158,11 @@ describe('runner through seed, drive and judge', () => {
         {
             replicas = {},
             parks = 0,
-            invariants = SMOKE.card.invariants,
             measures = SMOKE.card.measure,
             load: loadTargets,
             backlog,
             ramp,
+            invariants = ramp ? RAMP_INVARIANTS : SMOKE.card.invariants,
             stopOnBreak,
             bars = [],
             driveFor = '2s',
@@ -1379,12 +1380,18 @@ describe('runner through seed, drive and judge', () => {
             {
                 status: 'failed',
                 statusReason: expect.stringMatching(
-                    /^not converged: 0 unfinished jobs, [1-9]\d* units without a delivery record; at_least_once failed: [\w-]+-\d+ email: the edge never received it$/
+                    /^not converged: 0 unfinished jobs, [1-9]\d* units without a delivery record; at_least_once failed: [\w-]+-\d+ email: the edge never received it; no_loss failed: [\w-]+-\d+ email: accepted 0 times by the recovery horizon, expected 1/
                 ),
                 invariants: [
                     { name: 'at_least_once', passed: false, observed: expect.any(Number) },
                     { name: 'duplicate_sends', passed: true },
                     { name: 'refused_at_intake', passed: true },
+                    {
+                        name: 'no_loss',
+                        passed: false,
+                        missing: expect.arrayContaining([expect.stringMatching(/^[\w-]+-\d+$/)]),
+                        extra: [],
+                    },
                 ],
             },
             undefined,
@@ -1444,7 +1451,7 @@ describe('runner through seed, drive and judge', () => {
         30_000
     )
     it.each([
-        ['passes a duplicate send the janitor reset accounts for', 1, true],
+        ['lets duplicate_sends pass a duplicate the janitor reset accounts for, which no_loss still fails', 1, true],
         ['fails a duplicate send that no janitor reset accounts for', 0, false],
     ])(
         '%s',
@@ -1462,10 +1469,16 @@ describe('runner through seed, drive and judge', () => {
             const result = await run('all', [], 'event_webhook')
 
             expect(result).toMatchObject({
-                status: passed ? 'passed' : 'failed',
+                status: 'failed',
                 janitorResets: resets,
                 invariants: expect.arrayContaining([
                     expect.objectContaining({ name: 'duplicate_sends', passed, observed: 1, gate: 0 }),
+                    expect.objectContaining({
+                        name: 'no_loss',
+                        passed: false,
+                        missing: [],
+                        extra: [expect.any(String)],
+                    }),
                 ]),
             })
             expect(api.captured[0]?.properties).toMatchObject({ janitor_resets: resets, inv_duplicate_sends_gate: 0 })
@@ -1679,31 +1692,11 @@ describe('runner through seed, drive and judge', () => {
     }
 
     it.each<[string, (role: Role) => RoleExit[], object, Parameters<typeof shortSmoke>[2]]>([
-        ['passes a run whose only exit is the kill its card scheduled', exitOfTheKill, { status: 'passed' }, {}],
         [
-            'calls a run invalid whose valve left too short a baseline to admit its load, and measures the kill',
+            'passes a run whose only exit is the kill its card scheduled, and measures the kill',
             exitOfTheKill,
-            {
-                status: 'invalid',
-                statusReason: expect.stringMatching(
-                    /^the load admission failed: the baseline was too short to measure: /
-                ),
-                admissions: [
-                    {
-                        name: 'load',
-                        passed: false,
-                        reason: expect.stringMatching(
-                            /^the baseline was too short to measure: [0-9.]+s, under the 30s minimum$/
-                        ),
-                    },
-                ],
-                measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }],
-            },
-            {
-                measures: [{ name: 'pg_client_errors', params: {} }],
-                load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
-                settings: SES_ROOM,
-            },
+            { status: 'passed', measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }] },
+            { measures: [{ name: 'pg_client_errors', params: {} }] },
         ],
         [
             'fails a run in which a role exits that no valve killed',
@@ -1820,7 +1813,7 @@ describe('runner through seed, drive and judge', () => {
         expect(result).toMatchObject({
             status: 'invalid',
             statusReason:
-                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
+                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-intake-transactional-email, cdp-intake-workflow-webhook, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
             timeline: [],
         })
         expect(api.captured[0]?.properties.topology_hash).toEqual(result.topologyHash)
@@ -1953,12 +1946,23 @@ describe('runner through seed, drive and judge', () => {
         60_000
     )
 
-    it.each<[string, true | undefined]>([
-        ['the scale card', undefined],
-        ['a ramp that stops on a break', true],
+    const noWriter = {
+        name: 'writer_cpu_under',
+        unit: '%',
+        limit: 70,
+        value: null,
+        key: null,
+        part: null,
+        passed: null,
+        unjudged: 'the local stack has no Aurora writer to read CPU from',
+    }
+
+    it.each<[string, true | undefined, unknown]>([
+        ['the scale card', undefined, undefined],
+        ['a ramp that stops on a break', true, [[noWriter], [noWriter]]],
     ])(
         'names the writer CPU bar as not judged for %s on a host without a run manifest',
-        async (_story, stopOnBreak) => {
+        async (_story, stopOnBreak, stepBars) => {
             const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
                 ({ name }) => name === 'writer_cpu_under'
             )
@@ -1975,6 +1979,9 @@ describe('runner through seed, drive and judge', () => {
                 statusReason: result.statusReason,
                 bars: result.bars,
                 steps: result.units?.steps.map(({ scale }) => scale),
+                stepBars: (api.captured[0]?.properties.ramp_steps as { bars: unknown }[] | undefined)?.map(
+                    ({ bars }) => bars
+                ),
                 reads: [...new Set(reads.map(({ read }) => JSON.stringify(read)))],
             }).toEqual({
                 status: 'invalid',
@@ -1989,6 +1996,7 @@ describe('runner through seed, drive and judge', () => {
                     },
                 ],
                 steps: [1, 2],
+                stepBars,
                 reads: [JSON.stringify({ unsourced: 'the local stack has no Aurora writer to read CPU from' })],
             })
         },
@@ -2105,6 +2113,7 @@ describe('runner through seed, drive and judge', () => {
                     expect.objectContaining({ scale: 1, lost: null }),
                     expect.objectContaining({ scale: 2, lost: null }),
                 ],
+                readings: [[], []],
             },
         })
     }, 30_000)

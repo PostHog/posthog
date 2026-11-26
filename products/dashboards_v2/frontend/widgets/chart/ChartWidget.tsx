@@ -1,22 +1,16 @@
-import { useMemo } from 'react'
-
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import clsx from 'clsx'
+import { useContext, useMemo } from 'react'
 
 import type { ContentWidget } from '../../dashboard/dashboardTypes'
-import type { ChartConfig } from './chartSpec'
+import { TimeRangeContext } from '../timeRangeContext'
+import { WidgetLoading } from '../WidgetLoading'
+import { type ChartConfig, chartTargets } from './chartSpec'
+import { type TargetFailure, combineTargetResults } from './targetResults'
 import { useQueryFrames } from './useQueryFrames'
 import type { ChartStates, DataFrame, RunQuery, VizDefinition } from './vizTypes'
 
 function Message({ children }: { children: string }): JSX.Element {
     return <div className="flex h-full items-center justify-center text-center text-secondary text-sm">{children}</div>
-}
-
-function DefaultLoading(): JSX.Element {
-    return (
-        <div className="flex h-full items-center justify-center">
-            <Spinner />
-        </div>
-    )
 }
 
 function DefaultEmpty(): JSX.Element {
@@ -25,6 +19,21 @@ function DefaultEmpty(): JSX.Element {
 
 function DefaultError({ message }: { message: string }): JSX.Element {
     return <Message>{`Couldn't run this query. ${message}`}</Message>
+}
+
+function TargetFailures({ failures }: { failures: TargetFailure[] }): JSX.Element | null {
+    if (failures.length === 0) {
+        return null
+    }
+    return (
+        <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-xs text-danger">
+            {failures.map(({ refId, message }) => (
+                <li key={refId} className="truncate" title={message}>
+                    {`Query ${refId} couldn't run. ${message}`}
+                </li>
+            ))}
+        </ul>
+    )
 }
 
 function hasNoValues(frames: DataFrame[]): boolean {
@@ -42,13 +51,24 @@ function ChartData({
     runQuery: RunQuery
     states?: ChartStates
 }): JSX.Element {
-    const result = useQueryFrames(widget.config.query, runQuery)
+    const surroundingTime = useContext(TimeRangeContext)
+    const time = widget.config.time ?? surroundingTime
+    const targets = chartTargets(widget.config)
+    const results = useQueryFrames(
+        targets.map(({ query, legend }) => (legend ? { query, time, legend } : { query, time })),
+        runQuery
+    )
+    // Rebuilt only when a result arrives, so the chart keeps its frames, and skips a redraw, on every other render.
+    const result = useMemo(
+        () => combineTargetResults(chartTargets(widget.config), results, !!widget.config.targets),
+        [results, widget.config]
+    )
     const parsed = useMemo(
         () => viz.optionsSchema.safeParse(widget.config.viz.options ?? {}),
         [viz.optionsSchema, widget.config.viz.options]
     )
     // The kind of chart wins over the host's defaults, which win over the built-in states.
-    const Loading = viz.Loading ?? states?.Loading ?? DefaultLoading
+    const Loading = viz.Loading ?? states?.Loading ?? WidgetLoading
     const Empty = viz.Empty ?? states?.Empty ?? DefaultEmpty
     const ErrorState = viz.Error ?? states?.Error ?? DefaultError
     const isEmpty = viz.isEmpty ?? states?.isEmpty ?? hasNoValues
@@ -63,10 +83,23 @@ function ChartData({
     if (result.status === 'error') {
         return <ErrorState message={result.message} options={options} />
     }
-    if (isEmpty(result.frames)) {
-        return <Empty options={options} />
-    }
-    return <viz.Component frames={result.frames} options={options} />
+    return (
+        <div
+            className={clsx(
+                'flex min-h-0 flex-1 flex-col transition-opacity motion-reduce:transition-none',
+                result.refreshing && 'opacity-50'
+            )}
+            // Always rendered, so the chart inside keeps its instance when a refresh starts or ends.
+            aria-busy={result.refreshing || undefined}
+        >
+            <TargetFailures failures={result.failures} />
+            {isEmpty(result.frames) ? (
+                <Empty options={options} />
+            ) : (
+                <viz.Component frames={result.frames} options={options} />
+            )}
+        </div>
+    )
 }
 
 export function ChartWidget({

@@ -9,6 +9,9 @@
             <h2 class="quill-card__title m-0 text-[13px]" data-slot="card-title">{{ table.title }}</h2>
         </div>
     {% endif %}
+    {% if table.progress %}
+        {% include "admin_console/_progress.html" with progress=table.progress %}
+    {% endif %}
     <div class="quill-card__content overflow-x-auto{% if table.scrolls %} overflow-y-auto max-h-[480px]{% endif %}"
          data-slot="card-content">
         {% if table.rows %}

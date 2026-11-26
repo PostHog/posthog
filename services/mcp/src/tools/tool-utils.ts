@@ -1,4 +1,5 @@
 import { formatResponse } from '@/lib/response'
+import { serializeInformationalJson } from '@/lib/response-budget'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_INFORMATIONAL_RESPONSE_KEY,
@@ -70,10 +71,7 @@ export function withInformationalResponse<T>(result: T, tag: string, purpose?: s
         enumerable: false,
         get: () => {
             if (formattedResult === undefined) {
-                const serializedResult = (JSON.stringify(wrappedResult) ?? String(wrappedResult)).replace(
-                    /[<>&]/g,
-                    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
-                )
+                const serializedResult = serializeInformationalJson(wrappedResult)
                 formattedResult = `${message}\n<${tag} informational="true" instructional="false">\n${serializedResult}\n</${tag}>`
             }
             return formattedResult

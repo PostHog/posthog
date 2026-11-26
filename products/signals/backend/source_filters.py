@@ -143,6 +143,40 @@ def writable_source(*, organization_id: str, source_product: str, source_type: s
     return found[0]
 
 
+@frozen
+class SourceFilterValidation:
+    catalog_version: int
+    error: str | None = None
+    error_code: str | None = None
+    error_start: int | None = None
+    error_end: int | None = None
+
+    @property
+    def valid(self) -> bool:
+        return self.error_code is None
+
+
+def validate_source_filter(
+    *, organization_id: str, source_product: str, source_type: str, expression: str
+) -> SourceFilterValidation:
+    """Check an unsaved expression against the active catalog, without reading warehouse data.
+
+    Raises `FilterValidationError("not_available")` when this organization cannot write the source's filter.
+    """
+    source = writable_source(organization_id=organization_id, source_product=source_product, source_type=source_type)
+    try:
+        FilterExpression(expression, source.field_types)
+    except FilterValidationError as error:
+        return SourceFilterValidation(
+            catalog_version=source.catalog_version,
+            error=str(error),
+            error_code=error.code,
+            error_start=error.start,
+            error_end=error.end,
+        )
+    return SourceFilterValidation(catalog_version=source.catalog_version)
+
+
 def compile_source_filter(
     *, organization_id: str, source_product: str, source_type: str, expression: str
 ) -> SavedSourceFilter:

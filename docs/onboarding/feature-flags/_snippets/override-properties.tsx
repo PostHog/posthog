@@ -10,8 +10,7 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
             posthog.setPersonPropertiesForFlags({'property1': 'value', property2: 'value2'})
         `,
         'node.js': dedent`
-            await client.getFeatureFlag(
-                'flag-key',
+            const flags = await client.evaluateFlags(
                 'distinct_id_of_the_user',
                 {
                     personProperties: {
@@ -29,12 +28,13 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
                             'group_property_name': 'value'
                         },
                     },
+                    flagKeys: ['flag-key'],
                 }
             )
+            const flagValue = flags.getFlag('flag-key')
         `,
         python: dedent`
-            posthog.get_feature_flag(
-                'flag-key',
+            flags = posthog.evaluate_flags(
                 'distinct_id_of_the_user',
                 person_properties={'property_name': 'value'},
                 groups={
@@ -44,7 +44,9 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
                     'your_group_type': {'group_property_name': 'value'},
                     'another_group_type': {'group_property_name': 'value'}
                 },
+                flag_keys=['flag-key'],
             )
+            flag_value = flags.get_flag('flag-key')
         `,
         php: dedent`
             PostHog::getFeatureFlag(
@@ -85,16 +87,15 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
             )
         `,
         go: dedent`
-            enabledVariant, err := client.GetFeatureFlag(
-                FeatureFlagPayload{
-                    Key:        "flag-key",
+            flags, err := client.EvaluateFlags(
+                posthog.EvaluateFlagsPayload{
                     DistinctId: "distinct_id_of_the_user",
                     Groups: posthog.NewGroups().
                         Set("your_group_type", "your_group_id").
                         Set("another_group_type", "your_group_id"),
                     PersonProperties: posthog.NewProperties().
                         Set("property_name", "value"),
-                    GroupProperties: map[string]map[string]interface{}{
+                    GroupProperties: map[string]posthog.Properties{
                         "your_group_type": {
                             "group_property_name": "value",
                         },
@@ -102,8 +103,13 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
                             "group_property_name": "value",
                         },
                     },
+                    FlagKeys: []string{"flag-key"},
                 },
             )
+            if err == nil && flags != nil {
+                enabledVariant := flags.GetFlag("flag-key")
+                _ = enabledVariant
+            }
         `,
         dotnet: dedent`
             var flags = await posthog.EvaluateFlagsAsync(

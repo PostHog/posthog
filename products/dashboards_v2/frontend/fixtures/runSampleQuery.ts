@@ -15,10 +15,10 @@ function seriesNames(query: WidgetQuery): string[] {
     return / by (?!day)|breakdown|sum by|serviceNames/.test(text) ? ['Chrome', 'Safari', 'Firefox'] : ['Value']
 }
 
-// TODO(2026-11-23): Replace this with a runner that sends queries through the dashboard-v2 query batch endpoint.
-// The data is temporary. It is made up from each query's text, so the same query always draws the same chart.
-export const runSampleQuery: RunQuery = async (query) => {
-    const random = seededRandom(JSON.stringify(query))
+// Draws charts for people outside the dashboard-v2 query flags, and for stories. The data is made up from each
+// query's text, so the same query always draws the same chart.
+export const runSampleQuery: RunQuery = async ({ query, time, legend }) => {
+    const random = seededRandom(JSON.stringify({ query, time }))
     const today = new Date('2026-11-23T00:00:00Z')
     const days = Array.from({ length: DAYS }, (_, index) => {
         const day = new Date(today)
@@ -26,9 +26,9 @@ export const runSampleQuery: RunQuery = async (query) => {
         return day.toISOString().slice(0, 10)
     })
     const base = 200 + Math.round(random() * 2000)
-    return seriesNames(query).map(
+    const frames = seriesNames(query).map(
         (name, position): DataFrame => ({
-            name,
+            name: legend ? legend.replace(/\{\{\s*[\w.]+\s*\}\}/g, name) : name,
             fields: [
                 { name: 'time', type: 'time', values: days },
                 {
@@ -41,4 +41,5 @@ export const runSampleQuery: RunQuery = async (query) => {
             ],
         })
     )
+    return { frames }
 }

@@ -96,7 +96,6 @@ class Command(BaseCommand):
         # tenacity in labels.py already owns retries; the SDK's own internal retries underneath
         # would multiply that budget nine-fold per row.
         client = build_openai_client(
-            product="growth",
             ai_product="growth",
             properties={"ai_feature": AI_ENRICHMENT_FEATURE, "surface": "dry_run"},
         ).with_options(max_retries=0)
