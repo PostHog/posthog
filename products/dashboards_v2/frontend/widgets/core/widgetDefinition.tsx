@@ -34,8 +34,9 @@ export type WidgetDefinition<Config, Type extends string = string> = WidgetSpec<
     HeaderExtra?: ComponentType<{ widget: ContentWidget<Config> }>
     Footer?: ComponentType<{ widget: ContentWidget<Config> }>
     /**
-     * Receives the tile's built-in right-click actions and returns the list to show. Use it to add entries, such as a
-     * chart's options, or to remove or disable built-in ones by `MenuAction.key`. The host's `tileActions` runs after it.
+     * Receives the tile's own built-in actions and returns the list to show. Use it to add entries, such as a chart's
+     * options, or to remove or disable built-in ones by `MenuAction.key`. It never sees where the tile sits, such as
+     * `move` or `remove`. The host's `tileActions` runs after it.
      */
     menuActions?: (actions: MenuAction[], context: WidgetMenuContext<Config>) => MenuAction[]
 }
