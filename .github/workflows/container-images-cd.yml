@@ -628,6 +628,8 @@ jobs:
 
                       sessionReplay:
                         - 'posthog/temporal/session_replay/**'
+                        - 'products/replay/backend/**'
+                        - '.github/workflows/container-images-cd.yml'
                         - 'products/signals/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'

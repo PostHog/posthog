@@ -195,6 +195,8 @@ export function scorecardOf(
         profile_name: profile.name,
         profile_hash: result.profileHash,
         topology_hash: result.topologyHash ?? null,
+        config_hash: result.configHash ?? null,
+        service_versions: result.services ?? null,
         head_sha: provenance.headSha,
         head_dirty: provenance.headDirty,
         origin: result.origin,

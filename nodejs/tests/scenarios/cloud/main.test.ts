@@ -45,6 +45,7 @@ const pairedCard = (driveFor = '60s'): string => {
         ...card,
         id: PAIRED_CARD,
         pair: true,
+        unpaired: undefined,
         drive: { ...card.drive, for: driveFor },
         invariants: [...card.invariants, { name: 'no_loss' }],
     })
@@ -456,6 +457,7 @@ describe('cloud controller', () => {
                         ...parse(readFileSync(path.join(__dirname, '..', 'cards', 'destination-errors.yaml'), 'utf8')),
                         id: PAIRED_CARD,
                         pair: true,
+                        unpaired: undefined,
                     }),
                 },
             },

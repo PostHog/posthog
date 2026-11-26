@@ -124,7 +124,7 @@ export async function startEngine(
             { timeout: DOCKER_RUN_MS }
         )
     const stop = async (): Promise<void> => {
-        await run('docker', ['rm', '-f', ...names]).catch(() => undefined)
+        await run('docker', ['rm', '-f', ...names], { timeout: DOCKER_RUN_MS }).catch(() => undefined)
         rmSync(dir, { recursive: true, force: true })
     }
     try {

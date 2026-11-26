@@ -16,7 +16,7 @@ import { residentBacklogOf } from '../backlog/backlog'
 import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, Step, Target, stepsOf } from '../cards'
 import { runManifestOf } from '../cloud/lease'
 import { durationMs } from '../duration'
-import { Environment, defaultStateDir } from '../environment/environment'
+import { Environment, RunConfig, defaultStateDir } from '../environment/environment'
 import { nameOf } from '../environment/identity'
 import {
     ConsumerGroup,
@@ -61,7 +61,7 @@ import { Provenance, provenanceOf } from '../scorecard/provenance'
 import { ScorecardProperties, scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
-import { ValveTimelineEntry, createValves } from '../valves/valves'
+import { ValveTimelineEntry, createValves, cyclotronThroughEdge } from '../valves/valves'
 import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
 import { type RunStop, openLiveLog } from './live'
@@ -117,6 +117,8 @@ export type RunResult = {
     cardHash: string
     profileHash: string
     topologyHash?: string
+    configHash?: string
+    services?: string[]
     origin: 'local-agent'
     target: Target
     units?: DriveSummary
@@ -549,7 +551,13 @@ export function createRunner(
     }
 
     const stage = {
-        async judge(loaded: LoadedCard, signal: AbortSignal, role?: PairRole): Promise<Judged> {
+        // A pair's control resets with its faulted run's routing, so the two runs differ in the fault alone.
+        async judge(
+            loaded: LoadedCard,
+            signal: AbortSignal,
+            role?: PairRole,
+            throughEdge = cyclotronThroughEdge(loaded.card.valves)
+        ): Promise<Judged> {
             if (restartRequired !== undefined) {
                 throw restartRequired
             }
@@ -591,6 +599,7 @@ export function createRunner(
             let counters: CounterReading | undefined
             let offered: Offered | undefined
             let recorded: Wiring | undefined
+            let runConfig: RunConfig | undefined
             const writerCpuReads: (DriveWindow & { read: WriterCpu })[] = []
             let phase: RunStop['phase'] = 'connect'
             const enter = (next: Exclude<RunStop['phase'], 'connect'>, at = Date.now(), driveForMs?: number): void => {
@@ -607,12 +616,17 @@ export function createRunner(
             try {
                 await opened.connect()
                 enter('reset')
-                await environment.reset(profile.settings, profile.replicas).catch((error: unknown) => {
-                    restartRequired = new Error(
-                        `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
-                    )
-                    throw error
-                })
+                await environment
+                    .reset(profile.settings, profile.replicas, {
+                        cyclotronThroughEdge: throughEdge,
+                    })
+                    .catch((error: unknown) => {
+                        restartRequired = new Error(
+                            `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
+                        )
+                        throw error
+                    })
+                runConfig = await environment.runConfig()
                 enter('seed')
                 const seeded = await opened.seed(signal).catch((error: unknown) => {
                     if (error instanceof SeedingCutShort) {
@@ -679,6 +693,7 @@ export function createRunner(
                     teams: seeded.teamIds,
                     commits: probes.commits,
                     manifest,
+                    seed: card.seed,
                     startedAt: driveStartedAt,
                     endsAt: driveStartedAt + durationMs(card.drive.for),
                 })
@@ -888,6 +903,8 @@ export function createRunner(
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
                 ...(recorded && recorded.processes.length > 0 ? { topologyHash: recorded.hash } : {}),
+                ...(runConfig?.configHash != null && { configHash: runConfig.configHash }),
+                ...(runConfig?.services != null && { services: runConfig.services }),
                 origin: 'local-agent',
                 target: runTarget.name,
                 timeline: valves.timeline(),
@@ -900,6 +917,7 @@ export function createRunner(
                 const { journal, truth } = judge.evidence()
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
+                writeJson(evidenceDir, 'faults.json', { seed: card.seed, faults: valves.fired() })
                 writeJson(evidenceDir, 'metrics.json', sampled)
                 if (loaded.admission.load) {
                     writeJson(evidenceDir, 'load-targets.json', loaded.admission.load)
@@ -981,7 +999,12 @@ export function createRunner(
         },
 
         async runPair(loaded, signal) {
-            const control = await stage.judge(controlOf(loaded), signal, 'control')
+            const control = await stage.judge(
+                controlOf(loaded),
+                signal,
+                'control',
+                cyclotronThroughEdge(loaded.card.valves)
+            )
             const faulted = signal.aborted
                 ? { missing: 'the run was interrupted before the faulted run' }
                 : await stage.judge(loaded, signal).catch((error: unknown) => ({ missing: messageOf(error) }))

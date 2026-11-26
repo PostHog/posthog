@@ -1,6 +1,6 @@
 """Service layer for experiment metrics recalculation.
 
-Module-level free functions (not methods on ExperimentService) so the API view can compose them directly:
+Module-level free functions (not methods on ExperimentService) so the facade can compose them directly:
 
 - ``request_recalculation`` — idempotent create: returns the active run if one exists, else creates a pending job.
 - ``get_latest_recalculation`` — most recent recalc row for an experiment, or ``None``.
@@ -8,6 +8,7 @@ Module-level free functions (not methods on ExperimentService) so the API view c
   (no FK on ExperimentMetricResult; the store finds a run's rows from the job row and the current metric config).
 """
 
+import asyncio
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
@@ -31,6 +32,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import get_current_team_id, team_scope
 from posthog.models.user import User
 from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
@@ -40,6 +42,7 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
+    ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.organization_flags import organization_flag_enabled
 from products.experiments.backend.result_serialization import strip_step_sessions
@@ -48,6 +51,7 @@ from products.experiments.backend.temporal.recalculation.dispatch import (
     cancel_superseded_workflows,
     workflow_may_still_run,
 )
+from products.experiments.backend.temporal.timeseries.models import ExperimentTimeseriesRecalculationWorkflowInputs
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
@@ -346,6 +350,27 @@ def build_job_payload(
         if live_progress is not None:
             payload.update(live_progress)
     return payload
+
+
+def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: int) -> None:
+    """Dispatch the timeseries backfill workflow for a row that request_timeseries_recalculation just created. If the
+    start fails, the row is marked FAILED and the exception propagates to the caller."""
+    try:
+        temporal = sync_connect()
+        asyncio.run(
+            temporal.start_workflow(
+                "experiment-timeseries-recalculation-workflow",
+                ExperimentTimeseriesRecalculationWorkflowInputs(recalculation_id=recalculation_id),
+                id=f"experiment-recalculation-{recalculation_id}",
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            )
+        )
+    except Exception:
+        # The team filter stops the rollback from reaching another team's row, whatever the source of the id.
+        ExperimentTimeseriesRecalculation.objects.filter(team_id=team_id, id=recalculation_id).update(
+            status=ExperimentTimeseriesRecalculation.Status.FAILED
+        )
+        raise
 
 
 def _refresh_window_enforced(experiment: Experiment) -> bool:

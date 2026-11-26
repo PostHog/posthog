@@ -6,6 +6,7 @@ import path from 'path'
 import { LoadedCard, load, loadText } from '../cards'
 import type { InvariantResult } from '../judge/judge'
 import { RunResult } from '../runner/runner'
+import { RunReport } from '../store/runs'
 import { FakeProjectApi, TOKEN, startFakeProjectApi } from './fake-project-api'
 import { Provenance, provenanceOf } from './provenance'
 import { scorecardOf } from './scorecard'
@@ -146,6 +147,8 @@ describe('scorecard', () => {
                     profile_name: 'synthetic',
                     profile_hash: SMOKE.profileHash,
                     topology_hash: null,
+                    config_hash: null,
+                    service_versions: null,
                     head_sha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
                     head_dirty: true,
                     origin: 'local-agent',
@@ -757,6 +760,19 @@ describe('scorecard', () => {
         const after = scorecardOf(RESULT, loaded, provenance).fingerprint
 
         expect(after !== before).toBe(changes)
+    })
+
+    it('keeps the config hash and service versions through the run store, which takes unknown keys', () => {
+        const scorecard = scorecardOf(
+            { ...RESULT, configHash: 'a'.repeat(64), services: ['plugins example/plugins@sha256:1 sha256:2'] },
+            SMOKE,
+            PROVENANCE
+        )
+
+        expect(RunReport.parse({ scorecard }).scorecard).toMatchObject({
+            config_hash: 'a'.repeat(64),
+            service_versions: ['plugins example/plugins@sha256:1 sha256:2'],
+        })
     })
 
     it('gives no fingerprint when the code versions are unknown', () => {

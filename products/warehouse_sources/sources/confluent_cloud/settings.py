@@ -7,6 +7,16 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 CONFLUENT_CLOUD_BASE_URL = "https://api.telemetry.confluent.cloud"
 DATASET = "cloud"
 
+# The Cloud management API takes the same Cloud API key as the Metrics API.
+CLOUD_API_BASE_URL = "https://api.confluent.cloud"
+CLOUD_API_PAGE_SIZE = 100
+
+# Costs API limits: the start date can be at most one year back, one request covers at most one
+# month, and cost data can take up to 72 hours to settle.
+COSTS_LOOKBACK_DAYS = 364
+COSTS_QUERY_WINDOW = timedelta(days=28)
+COSTS_INCREMENTAL_OVERLAP = timedelta(days=3)
+
 # Granularity of the time-series buckets we request. PT1H keeps rows compact and, per the API's
 # validation table, allows intervals of any length (finer granularities cap the interval).
 GRANULARITY = "PT1H"
@@ -37,14 +47,25 @@ _TIMESTAMP_INCREMENTAL_FIELD: list[IncrementalField] = [
     },
 ]
 
+_START_DATE_INCREMENTAL_FIELD: list[IncrementalField] = [
+    {
+        "label": "start_date",
+        "type": IncrementalFieldType.Date,
+        "field": "start_date",
+        "field_type": IncrementalFieldType.Date,
+    },
+]
+
 
 @dataclass(frozen=False)
 class ConfluentCloudEndpointConfig:
     name: str
-    kind: Literal["descriptors", "metrics"]
+    kind: Literal["descriptors", "metrics", "cloud_list", "kafka_clusters", "costs"]
     primary_keys: list[str]
     # Descriptor endpoints: path under /v2/metrics/{dataset}/.
     descriptor_path: Optional[str] = None
+    # Cloud management API endpoints: path under CLOUD_API_BASE_URL.
+    cloud_api_path: Optional[str] = None
     # Metrics endpoints: the descriptor `resources` type, its id label, the source-config field
     # holding the user's resource ids, and a known-stable metric used to probe credentials.
     resource_type: Optional[str] = None
@@ -123,7 +144,29 @@ CONFLUENT_CLOUD_ENDPOINTS: dict[str, ConfluentCloudEndpointConfig] = {
         partition_key="timestamp",
         incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
     ),
+    "environments": ConfluentCloudEndpointConfig(
+        name="environments",
+        kind="cloud_list",
+        cloud_api_path="org/v2/environments",
+        primary_keys=["id"],
+    ),
+    "kafka_clusters": ConfluentCloudEndpointConfig(
+        name="kafka_clusters",
+        kind="kafka_clusters",
+        cloud_api_path="cmk/v2/clusters",
+        primary_keys=["environment_id", "id"],
+    ),
+    "costs": ConfluentCloudEndpointConfig(
+        name="costs",
+        kind="costs",
+        cloud_api_path="billing/v1/costs",
+        primary_keys=["id"],
+        partition_key="start_date",
+        incremental_fields=_START_DATE_INCREMENTAL_FIELD,
+    ),
 }
+
+CLOUD_API_KINDS = frozenset({"cloud_list", "kafka_clusters", "costs"})
 
 ENDPOINTS = tuple(CONFLUENT_CLOUD_ENDPOINTS.keys())
 

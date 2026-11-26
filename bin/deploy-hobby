@@ -9,6 +9,11 @@ export DEBIAN_FRONTEND=noninteractive
 export RESTART_MODE=l
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
 
+# docker-compose reads its settings from .env, but a variable set in the calling shell wins over .env.
+# A shell set up for another compose project, such as the PostHog dev stack, can carry these.
+# COMPOSE_PROJECT_NAME would point this install at that project's containers and volumes.
+unset COMPOSE_PROJECT_NAME COMPOSE_FILE COMPOSE_PROFILES CADDY_HOST CADDY_TLS_BLOCK
+
 # Talk to the user
 echo "Welcome to the single instance PostHog installer 🦔"
 echo ""
@@ -65,6 +70,16 @@ echo "Ok! We'll take it from here 🚀"
 
 echo "Making sure any stack that might exist is stopped"
 sudo -E docker-compose -f docker-compose.yml stop &> /dev/null || true
+
+# Caddy serves PostHog on ports 80 and 443. Check them now, so the install does not fail at the end.
+for port in 80 443; do
+    if sudo ss -Hltn "sport = :$port" | grep -q .; then
+        echo "Port $port is already in use. PostHog needs ports 80 and 443 for its web server."
+        echo "Stop the service below and run this script again:"
+        sudo ss -Hltnp "sport = :$port"
+        exit 1
+    fi
+done
 
 # send log of this install for continued support!
 curl -o /dev/null -L --header "Content-Type: application/json" -d "{
@@ -298,11 +313,45 @@ rm -f docker-compose.yml
 cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml
 cp posthog/.env.services .env.services
+
+# On a fresh install, most services wait for the web container to migrate the database.
+# docker-compose up prints nothing during that wait, so print the migration count to show it is not stuck.
+print_migration_progress() {
+    local minutes=$(( (SECONDS - $1) / 60 ))
+    local applied
+    applied=$(sudo docker-compose -f docker-compose.yml logs --no-log-prefix web 2> /dev/null | sed -n 's/^ *Applying \([^ ]*\)\.\.\..*/\1/p')
+    if [ -n "$applied" ]; then
+        echo "⏳ Migrating the database: $(wc -l <<< "$applied") migrations applied, latest $(tail -n 1 <<< "$applied") (${minutes} min)"
+    else
+        echo "⏳ Starting the stack (${minutes} min)"
+    fi
+}
+
+start_stack() {
+    sudo -E docker-compose -f docker-compose.yml pull || return 1
+    local started=$SECONDS
+    local next_report=$((SECONDS + 30))
+    # Plain output, so the lines from print_migration_progress do not break compose's terminal UI.
+    # The images are pulled above, because plain output prints a line per layer every second.
+    sudo -E docker-compose --progress plain -f docker-compose.yml up -d --no-build --remove-orphans &
+    local up_pid=$!
+    while kill -0 "$up_pid" 2> /dev/null; do
+        sleep 5
+        if [ "$SECONDS" -ge "$next_report" ]; then
+            print_migration_progress "$started"
+            next_report=$((SECONDS + 30))
+        fi
+    done
+    wait "$up_pid"
+}
+
 echo "Starting the stack!"
-# Retry docker-compose up with --pull always up to 3 times
+echo "The first start downloads over 10 GB of images and migrates the database."
+echo "Expect 30 minutes or more before PostHog is up. Progress prints every 30 seconds after the download."
+# Retry the pull and docker-compose up up to 3 times
 for attempt in 1 2 3; do
     echo "Starting stack (attempt $attempt/3)..."
-    if sudo -E docker-compose -f docker-compose.yml up -d --no-build --pull always --remove-orphans; then
+    if start_stack; then
         echo "Stack started successfully"
         break
     else
@@ -318,9 +367,8 @@ done
 
 if [ -z "$SKIP_HEALTH_CHECK" ]; then
     # Normal hobby deployment: wait for health check
-    echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"
     echo ""
-    echo "⏳ Waiting for PostHog web to boot (this will take a few minutes)"
+    echo "⏳ Waiting for PostHog web to start and for the TLS certificate"
     echo "   (timeout after 10 minutes if app doesn't start)"
     
     # Wait for health check with 600 second timeout

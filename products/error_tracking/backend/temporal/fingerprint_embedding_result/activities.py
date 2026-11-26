@@ -243,6 +243,7 @@ def _reopened_target(
     issue: ErrorTrackingIssue,
     *,
     event_reference: str,
+    previous_status: str | None,
 ) -> AutoMergeReopenedTarget:
     # Same key shape cymbal uses for a reopen it detects during linking, so the two paths
     # cannot deliver two notifications for one exception.
@@ -259,6 +260,7 @@ def _reopened_target(
             severity=issue.severity,
         ),
         assignee=current_assignee.property_value if current_assignee is not None else None,
+        previous_status=previous_status,
     )
 
 
@@ -302,7 +304,9 @@ def _merge_into_candidate(
         },
     )
     reopened_target = (
-        _reopened_target(target_issue, event_reference=event_reference) if merge_outcome.reopened else None
+        _reopened_target(target_issue, event_reference=event_reference, previous_status=merge_outcome.previous_status)
+        if merge_outcome.reopened
+        else None
     )
     return AutoMergeOutcome(
         merged_count=1,
