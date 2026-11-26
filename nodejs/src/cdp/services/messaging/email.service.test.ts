@@ -3489,24 +3489,40 @@ describe('EmailService', () => {
                 }
             )
 
-            it('counts the load retries across reschedules and fails the send on the 11th try', async () => {
-                const emailService = sender()
-                bucket.answer = 'refuse'
+            it.each([
+                ['the bucket does not answer on every try', ['bucket']],
+                ['the bucket and the SES connection take turns failing', ['bucket', 'ses']],
+            ] as const)(
+                'counts the retries across reschedules when %s, and fails the send on the 11th try',
+                async (_faults, faults) => {
+                    const emailService = sender()
+                    const reachableSes = emailService.sesTransport
+                    const failTry = (tries: number): void => {
+                        const fault = faults[tries % faults.length]
+                        bucket.answer = fault === 'bucket' ? 'refuse' : 'pass'
+                        emailService.sesTransport =
+                            fault === 'ses'
+                                ? sesTransportFor({ endpoint: ENDPOINT_THAT_REFUSES_CONNECTIONS })
+                                : reachableSes
+                    }
 
-                let result = await emailService.executeSendEmail(invocation)
-                let tries = 1
-                while (!result.finished && tries < 20) {
-                    result = await emailService.executeSendEmail(result.invocation)
-                    tries++
+                    failTry(0)
+                    let result = await emailService.executeSendEmail(invocation)
+                    let tries = 1
+                    while (!result.finished && tries < 20) {
+                        failTry(tries)
+                        result = await emailService.executeSendEmail(result.invocation)
+                        tries++
+                    }
+
+                    expect({ tries, finished: result.finished, error: result.error }).toEqual({
+                        tries: 11,
+                        finished: true,
+                        error: expect.stringMatching(/^attachment_unavailable: .* after 11 tries\./),
+                    })
+                    expect(ses.sent).toEqual([])
                 }
-
-                expect({ tries, finished: result.finished, error: result.error }).toEqual({
-                    tries: 11,
-                    finished: true,
-                    error: expect.stringMatching(/^attachment_unavailable: .* after 11 tries\./),
-                })
-                expect(ses.sent).toEqual([])
-            })
+            )
 
             it.each([
                 ['$workflows_email_sent', null],
