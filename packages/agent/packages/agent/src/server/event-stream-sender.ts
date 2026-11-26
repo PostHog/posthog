@@ -144,6 +144,14 @@ function isMediaBlock(value: unknown): boolean {
   );
 }
 
+function isApprovalRequest(event: Record<string, unknown>): boolean {
+  if (event.type !== "permission_request") {
+    return false;
+  }
+  const meta = asRecord(asRecord(event.toolCall)?._meta);
+  return meta?.codeToolKind !== "question";
+}
+
 function rejectOnlyPermissionRequest(
   event: Record<string, unknown>,
 ): Record<string, unknown> | null {
@@ -862,10 +870,9 @@ export class TaskRunEventStreamSender {
       return trimmedEvent;
     }
 
-    const truncatedEvent =
-      trimmedEvent.type === "permission_request"
-        ? null
-        : this.truncateOversizedEvent(trimmedEvent);
+    const truncatedEvent = isApprovalRequest(trimmedEvent)
+      ? null
+      : this.truncateOversizedEvent(trimmedEvent);
     if (!truncatedEvent) {
       this.config.logger.warn("Dropped oversized task run event", {
         eventBytes: trimmedEventBytes,

@@ -654,16 +654,29 @@ describe("TaskRunEventStreamSender", () => {
     });
   });
 
-  it("keeps an oversized permission request that has no reject option", () => {
+  it("truncates an oversized question instead of dropping it", async () => {
+    const requestBodies = stubRecordingFetch();
     const sender = createSender({ maxEventBytes: 1000 });
+    const options = [{ kind: "allow_once", optionId: "yes", name: "Yes" }];
     const request = {
       type: "permission_request",
       requestId: "request-1",
-      options: [{ kind: "allow_once", optionId: "yes", name: "Yes" }],
-      toolCall: { toolCallId: "tool-1", title: "q".repeat(2000) },
+      options,
+      toolCall: {
+        toolCallId: "tool-1",
+        title: "q".repeat(2000),
+        _meta: { codeToolKind: "question" },
+      },
     };
 
     expect(sender.rejectOnlyIfOversized(request)).toBeNull();
+    sender.enqueue(request);
+    await sender.stop();
+
+    expect(parseLines(requestBodies[1])[0].event).toMatchObject({
+      type: "permission_request",
+      options,
+    });
   });
 
   it.each([
