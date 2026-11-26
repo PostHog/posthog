@@ -233,6 +233,7 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
         flows = [self._flow(), self._flow()]
         for flow in flows:
             self._metric(flow, NOW - timedelta(hours=2))
+            self._metric(flow, NOW + timedelta(hours=20))
         flow_ids = {flow.id for flow in flows}
         with connection.cursor() as cursor:
             cursor.execute("CREATE SEQUENCE first_real_send_test_updates")
@@ -258,12 +259,14 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
 
         stamped = {flow.id for flow in HogFlow.objects.filter(pk__in=flow_ids, first_real_send_at__isnull=False)}
         assert len(stamped) == 1
-        first_uuids = {event["properties"]["hog_flow_id"]: event["uuid"] for event in captured_events(scoped_capture)}
-        assert set(first_uuids) == {str(flow_id) for flow_id in flow_ids}
+        first_events = {event["properties"]["hog_flow_id"]: event for event in captured_events(scoped_capture)}
+        assert set(first_events) == {str(flow_id) for flow_id in flow_ids}
 
         scoped_capture.reset_mock()
-        capture_workflow_first_real_sends()
+        with time_machine.travel(NOW + timedelta(days=1), tick=False):
+            capture_workflow_first_real_sends()
 
         assert HogFlow.objects.filter(pk__in=flow_ids, first_real_send_at__isnull=True).count() == 0
         [retried] = captured_events(scoped_capture)
-        assert first_uuids[retried["properties"]["hog_flow_id"]] == retried["uuid"]
+        first_event = first_events[retried["properties"]["hog_flow_id"]]
+        assert (retried["uuid"], retried["timestamp"]) == (first_event["uuid"], first_event["timestamp"])
