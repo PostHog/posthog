@@ -101,7 +101,7 @@ describe('handleToken', () => {
 
         // Verify redirect_uri was rewritten to proxy callback
         const sentBody = new URLSearchParams(fetchCall[1]!.body as string)
-        expect(sentBody.get('redirect_uri')).toBe('https://oauth.posthog.com/oauth/callback/')
+        expect(sentBody.get('redirect_uri')).toBe('https://oauth.posthog.com/oauth/callback/eu_real_id/')
         expect(sentBody.get('client_id')).toBe('eu_real_id')
     })
 
@@ -150,7 +150,7 @@ describe('handleToken', () => {
         const sentBody = new URLSearchParams(fetchCall[1]!.body as string)
         expect(sentBody.get('client_id')).toBe('eu_real_id')
         expect(sentBody.get('client_secret')).toBe('eu_secret_xyz')
-        expect(sentBody.get('redirect_uri')).toBe('https://oauth.posthog.com/oauth/callback/')
+        expect(sentBody.get('redirect_uri')).toBe('https://oauth.posthog.com/oauth/callback/eu_real_id/')
     })
 
     it('returns error for authorization_code grant when region is unknown', async () => {

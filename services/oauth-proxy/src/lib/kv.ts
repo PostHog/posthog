@@ -64,19 +64,38 @@ export interface PendingCallback {
     state: string | null
 }
 
-export async function putPendingCallback(kv: KVNamespace, nonce: string, record: PendingCallback): Promise<void> {
-    await kv.put(`${PENDING_CALLBACK_PREFIX}${await hashKey(nonce)}`, JSON.stringify(record), {
+// The key includes the client's callback path, so a code that a region delivers on another
+// client's path never finds this record.
+async function pendingCallbackKey(callbackPath: string, nonce: string): Promise<string> {
+    return `${PENDING_CALLBACK_PREFIX}${await hashKey(`${callbackPath}\n${nonce}`)}`
+}
+
+export async function putPendingCallback(
+    kv: KVNamespace,
+    callbackPath: string,
+    nonce: string,
+    record: PendingCallback
+): Promise<void> {
+    await kv.put(await pendingCallbackKey(callbackPath, nonce), JSON.stringify(record), {
         expirationTtl: PENDING_CALLBACK_TTL,
     })
 }
 
-export async function getPendingCallback(kv: KVNamespace, nonce: string): Promise<PendingCallback | null> {
-    const data = await kv.get(`${PENDING_CALLBACK_PREFIX}${await hashKey(nonce)}`, 'json')
+export async function getPendingCallback(
+    kv: KVNamespace,
+    callbackPath: string,
+    nonce: string
+): Promise<PendingCallback | null> {
+    const data = await kv.get(await pendingCallbackKey(callbackPath, nonce), 'json')
     return data as PendingCallback | null
 }
 
-export async function deletePendingCallback(kv: KVNamespace, nonce: string): Promise<void> {
-    await kv.delete(`${PENDING_CALLBACK_PREFIX}${await hashKey(nonce)}`)
+export async function deletePendingCallback(kv: KVNamespace, callbackPath: string, nonce: string): Promise<void> {
+    await kv.delete(await pendingCallbackKey(callbackPath, nonce))
+}
+
+export function regionalClientIdFor(mapping: ClientMapping, region: Region): string {
+    return region === 'eu' ? mapping.eu_client_id : mapping.us_client_id
 }
 
 /**
@@ -88,7 +107,7 @@ export function resolveMappingRewrite(
     mapping: ClientMapping,
     region: Region
 ): { regionalClientId: string; clientSecretRewrite?: { from: string; to: string } } | null {
-    const regionalClientId = region === 'eu' ? mapping.eu_client_id : mapping.us_client_id
+    const regionalClientId = regionalClientIdFor(mapping, region)
     if (!regionalClientId) {
         return null
     }

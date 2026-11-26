@@ -15,6 +15,7 @@ import { handleClientManifest, handleMetadata, handleOpenIdConfiguration, handle
 import { handleIntrospect, handleJwks, handleRevoke, handleUserInfo } from '@/handlers/passthrough'
 import { handleRegister } from '@/handlers/register'
 import { handleToken } from '@/handlers/token'
+import { CALLBACK_PATH } from '@/lib/constants'
 import type { SigningKeyEnv } from '@/lib/idtoken'
 import { type Validator, errorResponse, noDuplicateParams, runValidators } from '@/lib/validation'
 
@@ -26,6 +27,7 @@ type Handler = (request: Request, kv: KVNamespace, env: Env) => Response | Promi
 
 interface Route {
     paths: string[]
+    pathPrefixes?: string[]
     method?: string
     validators?: Validator[]
     handler: Handler
@@ -77,7 +79,8 @@ const routes: Route[] = [
         handler: handleAuthorize,
     },
     {
-        paths: ['/oauth/callback'],
+        paths: [],
+        pathPrefixes: [CALLBACK_PATH],
         handler: handleCallback,
     },
     {
@@ -125,7 +128,10 @@ export default {
                 if (route.method && request.method !== route.method) {
                     continue
                 }
-                if (route.paths.some((p) => normalizePath(p) === normalized)) {
+                if (
+                    route.paths.some((p) => normalizePath(p) === normalized) ||
+                    route.pathPrefixes?.some((prefix) => normalized.startsWith(prefix))
+                ) {
                     if (route.validators) {
                         const validationError = runValidators(route.validators, request, url)
                         if (validationError) {

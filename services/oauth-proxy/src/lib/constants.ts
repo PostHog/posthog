@@ -24,3 +24,19 @@ export function regionForBaseUrl(baseUrl: string): Region | null {
 export function proxyOrigin(request: Request): string {
     return new URL(request.url).origin
 }
+
+export const CALLBACK_PATH = '/oauth/callback/'
+
+/** Registered at DCR. A region accepts each client's own path under it, see OAuthApplication.redirect_uri_allowed. */
+export function sharedCallbackUrl(origin: string): string {
+    return `${origin}${CALLBACK_PATH}`
+}
+
+export function clientCallbackUrl(origin: string, regionalClientId: string): string {
+    return `${sharedCallbackUrl(origin)}${encodeURIComponent(regionalClientId)}/`
+}
+
+/** Whether a path has the shape `clientCallbackUrl` builds: one segment under the shared callback. */
+export function isClientCallbackPath(pathname: string): boolean {
+    return pathname.startsWith(CALLBACK_PATH) && /^[^/]+\/$/.test(pathname.slice(CALLBACK_PATH.length))
+}

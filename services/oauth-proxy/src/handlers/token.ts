@@ -1,5 +1,5 @@
 import { rewriteEmaSetupEndpointInResponse } from '@/handlers/ema'
-import { type Region, proxyOrigin } from '@/lib/constants'
+import { type Region, clientCallbackUrl, proxyOrigin } from '@/lib/constants'
 import { type SigningKeyEnv } from '@/lib/idtoken'
 import {
     getCallbackRedirectUri,
@@ -131,12 +131,7 @@ async function routeToken(
         if (region) {
             // If we intercepted the authorize callback, rewrite redirect_uri
             // so the regional server sees the proxy callback URL (which the auth code was issued for)
-            const storedRedirectUri = await getCallbackRedirectUri(kv, clientId)
-            let redirectUriRewrite: { from: string; to: string } | undefined
-            if (storedRedirectUri) {
-                const proxyCallbackUrl = `${new URL(request.url).origin}/oauth/callback/`
-                redirectUriRewrite = { from: storedRedirectUri, to: proxyCallbackUrl }
-            }
+            const interceptedRedirectUri = await getCallbackRedirectUri(kv, clientId)
 
             console.info(
                 JSON.stringify({
@@ -147,7 +142,7 @@ async function routeToken(
                     region,
                 })
             )
-            const response = await proxyWithMapping(rebuild(), kv, clientId, region, redirectUriRewrite)
+            const response = await proxyWithMapping(rebuild(), kv, clientId, region, interceptedRedirectUri)
             console.info(
                 JSON.stringify({
                     handler: 'token',
@@ -306,13 +301,19 @@ async function proxyWithMapping(
     kv: KVNamespace,
     proxyClientId: string | null,
     region: Region,
-    redirectUriRewrite?: { from: string; to: string }
+    interceptedRedirectUri: string | null
 ): Promise<Response> {
     if (proxyClientId) {
         const mapping = await getClientMapping(kv, proxyClientId)
         if (mapping) {
             const rewrite = resolveMappingRewrite(mapping, region)
             if (rewrite) {
+                const redirectUriRewrite = interceptedRedirectUri
+                    ? {
+                          from: interceptedRedirectUri,
+                          to: clientCallbackUrl(proxyOrigin(request), rewrite.regionalClientId),
+                      }
+                    : undefined
                 return proxyPostWithClientId(
                     request,
                     region,
