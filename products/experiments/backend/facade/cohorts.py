@@ -4,13 +4,11 @@ import json
 
 from django.db.models import Model, QuerySet
 
+from products.experiments.backend.cohort_references import COHORT_FILTER_JSONPATH
 from products.experiments.backend.facade.contracts import ExperimentCohortReference
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
 
 __all__ = ["experiments_using_cohort"]
-
-# A cohort filter can hold the cohort id as a number or as a string.
-_COHORT_FILTER_PATH = '$.** ? (@.type == "cohort" && (@.value == $id || @.value == $id_text))'
 
 
 def experiments_using_cohort(*, project_id: int, cohort_id: int) -> tuple[ExperimentCohortReference, ...]:
@@ -45,11 +43,9 @@ def experiments_using_cohort(*, project_id: int, cohort_id: int) -> tuple[Experi
 
 
 def _with_cohort_filter[M: Model](queryset: QuerySet[M], fields: tuple[str, ...], path_vars: str) -> QuerySet[M]:
-    # The table name comes from the model's metadata and the field names are constants of this module. The cohort id
-    # goes in as a parameter.
     table = queryset.model._meta.db_table
     condition = " OR ".join(
-        f"jsonb_path_exists({table}.{field}, '{_COHORT_FILTER_PATH}', %s::jsonb)" for field in fields
+        f"jsonb_path_exists({table}.{field}, '{COHORT_FILTER_JSONPATH}', %s::jsonb)" for field in fields
     )
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
     return queryset.extra(where=[condition], params=[path_vars] * len(fields))

@@ -70,6 +70,7 @@ from products.approvals.backend.actions.experiments import LaunchExperimentActio
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.cohort_references import cohort_ids
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentVersionConflict
 from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
 from products.experiments.backend.facade.launch_signals import experiment_launched
@@ -2061,6 +2062,7 @@ class ExperimentService:
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
         self.assert_user_may_run_warehouse_native_sources(experiment)
+        self._reject_deleted_cohorts(experiment, action="launching")
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
@@ -2278,6 +2280,7 @@ class ExperimentService:
         """
         if not experiment.archived:
             raise ValidationError("Experiment is not archived.")
+        self._reject_deleted_cohorts(experiment, action="unarchiving")
 
         experiment.archived = False
         self._bump_version_and_save(experiment, update_fields=["archived"])
@@ -2287,6 +2290,56 @@ class ExperimentService:
         self._report_lifecycle_event(experiment, "experiment unarchived", request=request)
 
         return experiment
+
+    def _reject_deleted_cohorts(
+        self,
+        experiment: Experiment,
+        *,
+        action: str,
+        update_data: dict | None = None,
+        saved_metric_ids: Iterable[int] | None = None,
+    ) -> None:
+        """Refuse to launch, unarchive or restore an experiment that filters on a deleted or missing cohort.
+
+        HogQL rejects such a cohort, so the exposure query and every metric of the experiment would fail. The cohort
+        delete guard skips archived and deleted experiments, so their cohorts can be deleted in the meantime.
+        ``update_data`` and ``saved_metric_ids`` give the values a PATCH is about to write.
+        """
+        update_data = update_data or {}
+        saved_metrics = (
+            ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids, team_id=self.team.id)
+            if saved_metric_ids is not None
+            else experiment.saved_metrics.all()
+        )
+        ids = cohort_ids(
+            [
+                *(
+                    update_data.get(field, getattr(experiment, field))
+                    for field in ("exposure_criteria", "metrics", "metrics_secondary")
+                ),
+                *saved_metrics.values_list("query", flat=True),
+            ]
+        )
+        if not ids:
+            return
+        cohorts = {
+            cohort.pk: cohort
+            for cohort in Cohort.objects.filter(team__project_id=self.team.project_id, pk__in=ids).only(
+                "pk", "name", "deleted"
+            )
+        }
+        gone = [cohort_id for cohort_id in sorted(ids) if cohort_id not in cohorts or cohorts[cohort_id].deleted]
+        if gone:
+            labels = ", ".join(
+                f"'{cohorts[cohort_id].name}' (ID {cohort_id})"
+                if cohort_id in cohorts and cohorts[cohort_id].name
+                else f"ID {cohort_id}"
+                for cohort_id in gone
+            )
+            raise ValidationError(
+                f"This experiment filters on deleted or missing cohorts: {labels}. Restore them, or remove them from "
+                f"the exposure criteria and metrics, before {action} the experiment."
+            )
 
     def _unarchive_linked_feature_flag(
         self, experiment: Experiment, *, can_write_feature_flag: bool = True, request: Any | None = None
@@ -3862,6 +3915,16 @@ class ExperimentService:
         update_variants = self._flag_config_variants(feature_flag_config)
         stats_config_updated = "stats_config" in update_data
         launching = experiment.is_draft and update_data.get("start_date") is not None
+        returning = (experiment.archived or experiment.deleted) and not (
+            update_data.get("archived", experiment.archived) or update_data.get("deleted", experiment.deleted)
+        )
+        if launching or returning:
+            self._reject_deleted_cohorts(
+                experiment,
+                action="launching" if launching else "unarchiving" if experiment.archived else "restoring",
+                update_data=update_data,
+                saved_metric_ids=list(_links_by_id(saved_metrics_data)) if update_saved_metrics else None,
+            )
         durable_baseline_pin: dict | None = None
         if stats_config_updated or update_variants is not None or launching:
             variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)

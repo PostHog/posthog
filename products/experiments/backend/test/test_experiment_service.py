@@ -3615,6 +3615,76 @@ class TestExperimentService(APIBaseTest):
 
         assert "not archived" in str(ctx.exception)
 
+    @parameterized.expand(
+        [
+            ("unarchive", "unarchive", "metric", False, True),
+            ("unarchive_by_patch_with_id_as_text", "unarchive_by_patch", "exposure_criteria", True, True),
+            ("restore_by_patch", "restore_by_patch", "shared_metric", False, True),
+            ("launch", "launch", "metric", False, True),
+            ("launch_by_patch", "launch_by_patch", "secondary_metric", False, True),
+            ("live_cohort", "unarchive", "metric", False, False),
+        ]
+    )
+    def test_refuses_to_bring_back_or_launch_an_experiment_on_a_deleted_cohort(
+        self, _name: str, path: str, place: str, id_as_text: bool, cohort_deleted: bool
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Retired cohort")
+        cohort_filter = {"key": "id", "type": "cohort", "value": str(cohort.id) if id_as_text else cohort.id}
+        metric = {
+            **self._DEFAULT_METRIC,
+            "source": {"kind": "EventsNode", "event": "$pageview", "properties": [cohort_filter]},
+        }
+        kwargs: dict[str, Any] = {
+            "metric": {"metrics": [metric]},
+            "secondary_metric": {"metrics_secondary": [{**metric, "uuid": "m2"}]},
+            "exposure_criteria": {
+                "exposure_criteria": {
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$pageview",
+                        "properties": [cohort_filter],
+                    }
+                }
+            },
+            "shared_metric": {},
+        }[place]
+        create = self._create_launchable_experiment if path.startswith("launch") else self._create_ended_experiment
+        experiment = create(name="Retired cohort test", feature_flag_key="retired-cohort-flag", **kwargs)
+        if place == "shared_metric":
+            saved_metric = ExperimentSavedMetric.objects.create(team=self.team, name="Shared", query=metric)
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment, saved_metric=saved_metric, metadata={"type": "primary"}
+            )
+        service = self._service()
+        if path.startswith("unarchive"):
+            service.archive_experiment(experiment)
+        if path == "restore_by_patch":
+            Experiment.objects.filter(pk=experiment.pk).update(deleted=True)
+            experiment.refresh_from_db()
+        Cohort.objects.filter(pk=cohort.pk).update(deleted=cohort_deleted)
+        before = (experiment.archived, experiment.deleted, experiment.start_date)
+        call = {
+            "unarchive": lambda: service.unarchive_experiment(experiment),
+            "unarchive_by_patch": lambda: service.update_experiment(experiment, {"archived": False}),
+            "restore_by_patch": lambda: service.update_experiment(experiment, {"deleted": False}),
+            "launch": lambda: service.launch_experiment(experiment),
+            "launch_by_patch": lambda: service.update_experiment(experiment, {"start_date": timezone.now()}),
+        }[path]
+
+        if not cohort_deleted:
+            assert call().archived is False
+            return
+        with self.assertRaises(ValidationError) as ctx:
+            call()
+
+        action = {"unarchive": "unarchiving", "restore": "restoring", "launch": "launching"}[path.split("_")[0]]
+        assert ctx.exception.detail == [
+            f"This experiment filters on deleted or missing cohorts: 'Retired cohort' (ID {cohort.id}). Restore them, "
+            f"or remove them from the exposure criteria and metrics, before {action} the experiment."
+        ]
+        experiment.refresh_from_db()
+        assert (experiment.archived, experiment.deleted, experiment.start_date) == before
+
     # ------------------------------------------------------------------
     # End
     # ------------------------------------------------------------------
