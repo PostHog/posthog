@@ -14,6 +14,7 @@ import {
 } from '@posthog/quill'
 
 import { QuillTableSkeleton } from 'lib/components/QuillTableSkeleton/QuillTableSkeleton'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CoreEvent } from '~/queries/schema/schema-general'
@@ -57,7 +58,7 @@ export function QuillCoreEventsSettings({
                 id: 'type',
                 header: 'Type',
                 cell: ({ row }) => (
-                    <Text size="xs" render={<span />}>
+                    <Text size="xs" className="whitespace-nowrap" render={<span />}>
                         {getFilterTypeLabel(row.original.filter)}
                     </Text>
                 ),
@@ -66,7 +67,7 @@ export function QuillCoreEventsSettings({
                 id: 'filter',
                 header: 'Filter',
                 cell: ({ row }) => (
-                    <Text size="xs" variant="muted" render={<span />}>
+                    <Text size="xs" variant="muted" className="whitespace-nowrap" render={<span />}>
                         {getFilterSummary(row.original.filter)}
                     </Text>
                 ),
@@ -77,7 +78,7 @@ export function QuillCoreEventsSettings({
                 cell: ({ row }) => {
                     const { category } = row.original
                     return (
-                        <Text size="xs" render={<span />}>
+                        <Text size="xs" className="whitespace-nowrap" render={<span />}>
                             {category
                                 ? CATEGORY_OPTIONS.find((option) => option.value === category)?.label || category
                                 : '-'}
@@ -136,8 +137,9 @@ export function QuillCoreEventsSettings({
         )
     }
 
+    // The event picker in the dialog reads the quill surface to render its quill version.
     return (
-        <>
+        <QuillSurfaceContext.Provider value>
             <SceneTitleSection
                 name="Core events"
                 description="Core events are key business events used across Marketing analytics, Customer analytics, and Revenue analytics."
@@ -151,6 +153,6 @@ export function QuillCoreEventsSettings({
             />
             {renderBody()}
             <QuillCoreEventDialog open={dialogOpen} {...dialogProps} />
-        </>
+        </QuillSurfaceContext.Provider>
     )
 }
