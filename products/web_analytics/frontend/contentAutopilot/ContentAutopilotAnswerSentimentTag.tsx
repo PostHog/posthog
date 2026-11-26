@@ -1,5 +1,6 @@
+import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+
 import type { LemonTagType } from 'lib/lemon-ui/LemonTag'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { percentage } from 'lib/utils/numbers'
 
 import { AiVisibilityTag } from './AiVisibilityTag'
@@ -20,22 +21,30 @@ export const ContentAutopilotAnswerSentimentTag = ({
 }): JSX.Element | null => {
     if (!sentiment) {
         return namesBrand ? (
-            <Tooltip title="Answers that mention you are scored a few minutes after each check.">
-                <AiVisibilityTag type="muted" data-attr="content-autopilot-prompt-answer-sentiment">
-                    Sentiment not scored yet
-                </AiVisibilityTag>
+            <Tooltip>
+                <TooltipTrigger render={<span className="inline-flex" />}>
+                    <AiVisibilityTag type="muted" data-attr="content-autopilot-prompt-answer-sentiment">
+                        Sentiment not scored yet
+                    </AiVisibilityTag>
+                </TooltipTrigger>
+                <TooltipContent>Answers that mention you are scored a few minutes after each check.</TooltipContent>
             </Tooltip>
         ) : null
     }
     return (
-        <Tooltip title="Sentiment of the sentences that mention you, averaged. Hover a highlighted sentence to see its own.">
-            <AiVisibilityTag
-                type={TAG_TYPES[sentiment] ?? 'default'}
-                data-attr="content-autopilot-prompt-answer-sentiment"
-            >
-                {SENTIMENT_LABELS[sentiment] ?? sentiment} about you
-                {score !== null ? ` (${percentage(score, 0)} confidence)` : ''}
-            </AiVisibilityTag>
+        <Tooltip>
+            <TooltipTrigger render={<span className="inline-flex" />}>
+                <AiVisibilityTag
+                    type={TAG_TYPES[sentiment] ?? 'default'}
+                    data-attr="content-autopilot-prompt-answer-sentiment"
+                >
+                    {SENTIMENT_LABELS[sentiment] ?? sentiment} about you
+                    {score !== null ? ` (${percentage(score, 0)} confidence)` : ''}
+                </AiVisibilityTag>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-80">
+                Sentiment of the sentences that mention you, averaged. Hover a highlighted sentence to see its own.
+            </TooltipContent>
         </Tooltip>
     )
 }

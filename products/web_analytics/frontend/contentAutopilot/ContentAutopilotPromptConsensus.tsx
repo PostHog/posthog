@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 
-import { LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
@@ -23,10 +24,15 @@ const heatClass = (share: number | null): string =>
               : 'bg-success/70'
 
 const HeatCell = ({ cell, checks }: { cell: PromptConsensusCell; checks: number }): JSX.Element => (
-    <Tooltip title={`${cell.checksCiting} of ${pluralize(checks, 'answer')} link to ${cell.domain}`}>
-        <span className={clsx('block rounded px-2 py-1 text-right tabular-nums', heatClass(cell.share))}>
+    <Tooltip>
+        <TooltipTrigger
+            render={
+                <span className={clsx('block rounded-sm px-2 py-1 text-right tabular-nums', heatClass(cell.share))} />
+            }
+        >
             {cell.share === null ? '-' : percentage(cell.share, 0)}
-        </span>
+        </TooltipTrigger>
+        <TooltipContent>{`${cell.checksCiting} of ${pluralize(checks, 'answer')} link to ${cell.domain}`}</TooltipContent>
     </Tooltip>
 )
 
@@ -38,15 +44,16 @@ export const ContentAutopilotPromptConsensus = ({ matrix }: { matrix: PromptCons
             render: (_, row) => (
                 <span className="whitespace-nowrap">
                     <ContentAutopilotEngineLabel engine={row.engine} />{' '}
-                    <span className="text-muted">({pluralize(row.checks, 'answer')})</span>
+                    <span className="text-muted-foreground">({pluralize(row.checks, 'answer')})</span>
                 </span>
             ),
         },
         ...matrix.domains.map(
             (domain, index): LemonTableColumn<ConsensusRow, keyof ConsensusRow | undefined> => ({
                 title: (
-                    <Tooltip title={domain}>
-                        <span className="block max-w-32 truncate">{domain}</span>
+                    <Tooltip>
+                        <TooltipTrigger render={<span className="block max-w-32 truncate" />}>{domain}</TooltipTrigger>
+                        <TooltipContent>{domain}</TooltipContent>
                     </Tooltip>
                 ),
                 key: domain,
