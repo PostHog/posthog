@@ -24,7 +24,7 @@ from products.messaging.backend.models.message_preferences import (
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 from products.messaging.backend.services.suppression import block_transactional_for_hard_bounces
 
-from .customerio_client import CustomerIOAPIError, CustomerIOClient
+from .customerio_client import REDIRECT_STATUSES, CustomerIOAPIError, CustomerIOClient
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ class CustomerIOImportService:
                 client.get_subscription_topics()
             except CustomerIOAPIError as e:
                 # A key from the other region gets a redirect there.
-                if e.status_code not in (301, 401, 403):
+                if e.status_code not in (*REDIRECT_STATUSES, 401, 403):
                     unavailable = e
                 continue
             self.client = client
