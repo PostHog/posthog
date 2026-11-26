@@ -5,19 +5,19 @@ import { fallbackHost, readSettings } from '@/posthog/settings'
 import { PRODUCT_IDS, productLabel, type ProductId } from '../products'
 import type { SetupInput } from '../result'
 import type { SetupRun, Step } from '../setup-run'
-import { SETUP_NEXT } from '../state'
+import { SETUP_COMMAND } from '../state'
 
 const QUESTION = 'What do you want to use PostHog for?'
-const COMMAND = `${SETUP_NEXT} --reason "<their answer>" --products <id,id>`
+const COMMAND = `${SETUP_COMMAND} --reason "<what the project uses PostHog for>" --products <id,id>`
 
 const SENT_NOTICE = 'hog sends your answer to PostHog to improve setup.'
 const KEPT_NOTICE = 'Your answer stays on this machine.'
 
 function instructions(region: string): string {
     return [
-        `If you already know what the user wants PostHog for, from the conversation or the code, don't ask. Run \`${COMMAND}\` with that reason and the matching products in \`context.products\`.`,
-        `Otherwise ask the user: "${QUESTION}", then pick the products that match the answer and run the same command.`,
-        'If none match, pass `--products product-analytics`.',
+        "Don't ask the user what PostHog is for. Work it out from the conversation and the code.",
+        `Run \`${COMMAND}\` with a short reason and the matching products in \`context.products\`.`,
+        'If nothing points to a product, pass `--products product-analytics`.',
         region,
     ]
         .filter(Boolean)
@@ -108,8 +108,7 @@ export const purpose: Step = {
             return {
                 code: 'setup_needs_answers',
                 next: {
-                    kind: 'ask_user',
-                    ask: QUESTION,
+                    kind: 'run',
                     command: COMMAND,
                     instructions: instructions(regionInstructions(named, lastLogin)),
                 },
@@ -130,7 +129,8 @@ export const purpose: Step = {
             completed: [],
         }
 
-        // The reason is the one text a person typed that telemetry carries, because the question says so.
+        // The reason is the one free text telemetry carries. The question at a terminal and the `--reason`
+        // help both say so.
         ctx.telemetry.capture('hog setup started', { reason, products, region: regionOf(host) ?? null })
         await run.complete('purpose')
 

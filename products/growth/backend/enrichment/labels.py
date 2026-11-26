@@ -1,7 +1,7 @@
 """Classifier runner for versioned AI enrichment labels.
 
 Pure functions only: no persistence, no client construction. Callers build the OpenAI
-client via `build_openai_client(product="growth", ai_product="growth", properties=...)` and pass it in —
+client via `build_openai_client(ai_product="growth", properties=...)` and pass it in —
 this module just turns an archived Harmonic payload plus a prompt config into a stamped verdict.
 """
 

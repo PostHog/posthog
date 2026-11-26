@@ -4,7 +4,7 @@
 //! event properties. Accessing a nested global runs it through `json_to_hog`, so this exercises the
 //! guard end to end.
 
-use hogvm::{sync_execute, ExecutionContext, Program, MAX_JSON_SERDE_DEPTH};
+use hogvm::{sync_execute, ExecutionContext, OrderedJson, Program, MAX_JSON_SERDE_DEPTH};
 use serde_json::{json, Value};
 
 const OP_GET_GLOBAL: i64 = 1;
@@ -36,6 +36,19 @@ fn return_deep_global(globals: Value) -> Result<Value, hogvm::VmFailure> {
     sync_execute(&ctx, false)
 }
 
+// `return length(deep)` over `with_ordered_globals`, which has its own conversion. The result is a number, so only the conversion of the global can refuse the depth.
+fn length_of_deep_ordered_global(depth: usize) -> Result<Value, hogvm::VmFailure> {
+    let mut deep = OrderedJson::Null;
+    for _ in 0..depth {
+        deep = OrderedJson::Array(vec![deep]);
+    }
+    let bc: Vec<Value> =
+        serde_json::from_str(r#"["_H", 1, 32, "deep", 1, 1, 2, "length", 1, 38]"#).unwrap();
+    let ctx = ExecutionContext::with_defaults(Program::new(bc).unwrap())
+        .with_ordered_globals(OrderedJson::Object(vec![("deep".into(), deep)]));
+    sync_execute(&ctx, false)
+}
+
 #[test]
 fn nesting_within_the_cap_deserializes() {
     // Just under the cap (and well past the old value of 64): must round-trip unchanged.
@@ -52,4 +65,9 @@ fn nesting_past_the_cap_still_errors() {
         return_deep_global(json!({ "deep": nested_array(MAX_JSON_SERDE_DEPTH + 50) })).is_err(),
         "nesting beyond MAX_JSON_SERDE_DEPTH should still error"
     );
+    assert_eq!(
+        length_of_deep_ordered_global(MAX_JSON_SERDE_DEPTH - 50).unwrap(),
+        json!(1)
+    );
+    assert!(length_of_deep_ordered_global(MAX_JSON_SERDE_DEPTH + 50).is_err());
 }

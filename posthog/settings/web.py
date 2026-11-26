@@ -137,6 +137,7 @@ PRODUCTS_APPS = [
     "products.subscriptions.backend.apps.SubscriptionsConfig",
     "products.uptime_monitoring.backend.apps.UptimeMonitoringConfig",
     "products.authorization.backend.apps.AuthorizationConfig",
+    "products.agent_transcripts.backend.apps.AgentTranscriptsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -1165,22 +1166,12 @@ HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY
 # Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
 # opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
 HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 500000))
-# Persons per page when the batch resolver enumerates a workflow audience. Each page is a separate
-# ClickHouse query, so a bigger page means fewer scans per run; the resolver inserts a page as one
-# Postgres transaction, which is why this is not unbounded.
+# Persons per page when the batch resolver reads a run's stored audience. The resolver inserts a page
+# as one Postgres transaction, which is why this is not unbounded.
 WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 5000))
 if WORKFLOWS_PERSON_BATCH_SIZE < 1:
     # An empty page reports has_more, so the resolver would refetch it forever.
     raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
-# ClickHouse execution cap for one audience page of the batch resolver. Interactive HogQL runs under the
-# 60s default; a page query is background work for one caller, so it gets more time. The resolver's
-# HTTP budget (CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS) must stay above this value, so ClickHouse
-# always ends a slow query before the client gives up and a retry never overlaps a query that is still running.
-WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS = int(
-    get_from_env("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS", 180)
-)
-if WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS < 1:
-    raise ImproperlyConfigured("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS must be at least 1")
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
@@ -1397,6 +1388,14 @@ ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDI
 # e.g. "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
 ID_JAG_ALLOWED_RESOURCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_RESOURCES", ""))
 
+# Callback URLs of services/oauth-proxy. See OAuthApplication.redirect_uri_allowed for the paths under them.
+# Each ends in "/" because a client's own path is the callback followed by "<client_id>/".
+OAUTH_PROXY_CALLBACK_URLS: list[str] = [
+    url if url.endswith("/") else f"{url}/"
+    for url in get_list(get_from_env("OAUTH_PROXY_CALLBACK_URLS", "https://oauth.posthog.com/oauth/callback/"))
+    if url
+]
+
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
 TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10
 TOOLBAR_OAUTH_APPLICATION_NAME = "PostHog Toolbar"
@@ -1429,9 +1428,13 @@ AI_GATEWAY_INTERNAL_URL = get_from_env("AI_GATEWAY_INTERNAL_URL", "")
 AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 
 # AI gateway inference endpoint: OpenAI-compatible URL (include /v1) + phs_ project
-# secret for routing LLM calls through the gateway. Unset = direct to the provider.
-AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
-AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
+# secret. Unset, every gateway client builder raises. Local dev defaults to the sibling
+# Go gateway and the key `bin/setup-gateway-e2e` registers.
+_LOCAL_AI_GATEWAY = DEBUG and not TEST
+AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "http://localhost:8080/v1" if _LOCAL_AI_GATEWAY else "")
+AI_GATEWAY_API_KEY = get_from_env(
+    "AI_GATEWAY_API_KEY", "phs_localgatewaye2elocalgatewaye2e0001" if _LOCAL_AI_GATEWAY else ""
+)
 
 # Decision model behind the HogQL `jev` function. Per environment, so a
 # different model can be measured without a code change.

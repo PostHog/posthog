@@ -141,18 +141,29 @@ export interface searchListsLogicMeta {
         showUnreleased: (isDev: boolean | undefined, user: UserType | null) => boolean
         showTerminal: (featureFlags: FeatureFlagsSet, arg: boolean) => boolean
         hasOrganizationIntegrations: (organizationIntegrations: IntegrationType[] | null) => boolean
-        starredItems: (cachedStarred: FileSystemEntry[], featureFlags: FeatureFlagsSet) => SearchItem[]
+        starredItems: (
+            cachedStarred: FileSystemEntry[],
+            featureFlags: FeatureFlagsSet,
+            isAdminOrOwner: boolean | null
+        ) => SearchItem[]
         productsItems: (
             featureFlags: FeatureFlagsSet,
             showUnreleased: boolean,
-            sceneLogViewsByRef: Record<string, string>
+            sceneLogViewsByRef: Record<string, string>,
+            isAdminOrOwner: boolean | null
         ) => SearchItem[]
         dataManagementItems: (
             featureFlags: FeatureFlagsSet,
             showUnreleased: boolean,
-            sceneLogViewsByRef: Record<string, string>
+            sceneLogViewsByRef: Record<string, string>,
+            isAdminOrOwner: boolean | null
         ) => SearchItem[]
-        newItems: (featureFlags: FeatureFlagsSet, showUnreleased: boolean, arg: boolean) => SearchItem[]
+        newItems: (
+            featureFlags: FeatureFlagsSet,
+            showUnreleased: boolean,
+            arg: boolean,
+            isAdminOrOwner: boolean | null
+        ) => SearchItem[]
         peopleItems: (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         healthItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         actionItems: (showTerminal: boolean) => SearchItem[]
@@ -249,30 +260,45 @@ export const searchListsLogic = kea<searchListsLogicType>([
             (organizationIntegrations: IntegrationType[] | null): boolean => !!organizationIntegrations?.length,
         ],
         starredItems: [
-            (s) => [s.cachedStarred, s.featureFlags],
-            (cachedStarred: FileSystemEntry[], featureFlags: FeatureFlagsSet): SearchItem[] =>
-                starredSearchItems(cachedStarred, featureFlags),
+            (s) => [s.cachedStarred, s.featureFlags, s.isAdminOrOwner],
+            (
+                cachedStarred: FileSystemEntry[],
+                featureFlags: FeatureFlagsSet,
+                isAdminOrOwner: boolean | null
+            ): SearchItem[] => starredSearchItems(cachedStarred, featureFlags, !!isAdminOrOwner),
         ],
         productsItems: [
-            (s) => [s.featureFlags, s.showUnreleased, s.sceneLogViewsByRef],
+            (s) => [s.featureFlags, s.showUnreleased, s.sceneLogViewsByRef, s.isAdminOrOwner],
             (
                 featureFlags: FeatureFlagsSet,
                 showUnreleased: boolean,
-                sceneLogViewsByRef: Record<string, string>
-            ): SearchItem[] => productSearchItems(featureFlags, showUnreleased, sceneLogViewsByRef),
+                sceneLogViewsByRef: Record<string, string>,
+                isAdminOrOwner: boolean | null
+            ): SearchItem[] => productSearchItems(featureFlags, showUnreleased, sceneLogViewsByRef, !!isAdminOrOwner),
         ],
         dataManagementItems: [
-            (s) => [s.featureFlags, s.showUnreleased, s.sceneLogViewsByRef],
+            (s) => [s.featureFlags, s.showUnreleased, s.sceneLogViewsByRef, s.isAdminOrOwner],
             (
                 featureFlags: FeatureFlagsSet,
                 showUnreleased: boolean,
-                sceneLogViewsByRef: Record<string, string>
-            ): SearchItem[] => dataManagementSearchItems(featureFlags, showUnreleased, sceneLogViewsByRef),
+                sceneLogViewsByRef: Record<string, string>,
+                isAdminOrOwner: boolean | null
+            ): SearchItem[] =>
+                dataManagementSearchItems(featureFlags, showUnreleased, sceneLogViewsByRef, !!isAdminOrOwner),
         ],
         newItems: [
-            (s) => [s.featureFlags, s.showUnreleased, (_, props: SearchListsLogicProps) => props.commandPalette],
-            (featureFlags: FeatureFlagsSet, showUnreleased: boolean, commandPalette: boolean): SearchItem[] =>
-                newSearchItems(featureFlags, showUnreleased, commandPalette),
+            (s) => [
+                s.featureFlags,
+                s.showUnreleased,
+                (_, props: SearchListsLogicProps) => props.commandPalette,
+                s.isAdminOrOwner,
+            ],
+            (
+                featureFlags: FeatureFlagsSet,
+                showUnreleased: boolean,
+                commandPalette: boolean,
+                isAdminOrOwner: boolean | null
+            ): SearchItem[] => newSearchItems(featureFlags, showUnreleased, commandPalette, !!isAdminOrOwner),
         ],
         peopleItems: [
             (s) => [s.treeGroupItems, s.sceneLogViewsByRef],

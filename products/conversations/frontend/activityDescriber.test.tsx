@@ -30,6 +30,29 @@ const ticketLogItem = (overrides: Partial<ActivityLogItem>): ActivityLogItem => 
 })
 
 describe('ticketActivityDescriber', () => {
+    it('shows both names when a tag is renamed', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'Ticket #2043',
+                    changes: [
+                        {
+                            type: ActivityScope.TICKET,
+                            action: 'changed',
+                            field: 'tag',
+                            before: 'trial',
+                            after: 'customer',
+                        },
+                    ],
+                },
+            })
+        )
+
+        expect(getTextContent(result)).toContain('renamed tag trial to customer')
+    })
+
     const statusChange: ActivityChange = {
         type: ActivityScope.TICKET,
         action: 'changed',

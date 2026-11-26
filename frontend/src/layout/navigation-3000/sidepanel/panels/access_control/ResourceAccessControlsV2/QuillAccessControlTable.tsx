@@ -163,7 +163,7 @@ export function QuillAccessControlTable(props: AccessControlTableProps): JSX.Ele
             data={props.entries}
             getRowId={(entry) => getEntryId(entry)}
             fullWidth
-            pageSize={props.entries.length > ENTRIES_PER_PAGE ? ENTRIES_PER_PAGE : undefined}
+            pageSize={ENTRIES_PER_PAGE}
             onRowClick={props.canEditAny ? props.onEdit : undefined}
             rowClassName={(entry) => (getEntryId(entry) === props.selectedEntryId ? 'bg-fill-selected' : undefined)}
             empty={

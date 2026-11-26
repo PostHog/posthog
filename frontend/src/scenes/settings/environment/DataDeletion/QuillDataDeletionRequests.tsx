@@ -26,7 +26,6 @@ import {
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import type { DataDeletionRequestApi } from '~/generated/core/api.schemas'
@@ -40,7 +39,7 @@ const BADGE_VARIANT: Partial<Record<LemonTagType, BadgeVariant>> = {
     danger: 'destructive',
 }
 
-const COLUMN_COUNT = 5
+const COLUMN_COUNT = 4
 
 export function QuillDataDeletionRequests({
     requests,
@@ -103,7 +102,6 @@ export function QuillDataDeletionRequests({
                         <TableRow>
                             <TableHead className="w-0" />
                             <TableHead>Status</TableHead>
-                            <TableHead>Matched events</TableHead>
                             <TableHead>Submitted</TableHead>
                             <TableHead>Approved</TableHead>
                         </TableRow>
@@ -145,13 +143,6 @@ export function QuillDataDeletionRequests({
                                                     />
                                                     <TooltipContent>{status.description}</TooltipContent>
                                                 </Tooltip>
-                                            </TableCell>
-                                            <TableCell>
-                                                {request.count === null ? (
-                                                    <span className="text-muted-foreground">Not counted yet</span>
-                                                ) : (
-                                                    <span translate="no">{humanFriendlyNumber(request.count)}</span>
-                                                )}
                                             </TableCell>
                                             <TableCell>
                                                 <TZLabel time={request.created_at} />

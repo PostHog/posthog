@@ -119,13 +119,24 @@ class TestRetiredTokenTeamMetadataClear(BaseTest):
 
     @parameterized.expand(
         [
-            ("team_delete", lambda team, user: team.delete()),
-            ("token_reset", lambda team, user: team.reset_token_and_save(user=user, is_impersonated_session=False)),
+            (f"{action}_{redis_case}", retire_token, flags_redis_url)
+            for action, retire_token in (
+                ("team_delete", lambda team, user: team.delete()),
+                ("token_reset", lambda team, user: team.reset_token_and_save(user=user, is_impersonated_session=False)),
+            )
+            for redis_case, flags_redis_url in (
+                ("with_flags_redis", "redis://localhost:6379"),
+                ("without_flags_redis", ""),
+            )
         ]
     )
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
     def test_retiring_token_clears_its_team_metadata_cache_in_redis_and_s3(
-        self, _name: str, retire_token: Callable[[Team, User], None], _mock_push_vercel: Mock
+        self,
+        _name: str,
+        retire_token: Callable[[Team, User], None],
+        retiring_process_flags_redis_url: str,
+        _mock_push_vercel: Mock,
     ) -> None:
         update_team_metadata_cache(self.team)
         api_token = self.team.api_token
@@ -139,6 +150,7 @@ class TestRetiredTokenTeamMetadataClear(BaseTest):
                 "apply_async",
                 wraps=clear_team_metadata_cache_for_token_task.apply_async,
             ) as spy_apply_async,
+            override_settings(FLAGS_REDIS_URL=retiring_process_flags_redis_url),
             self.captureOnCommitCallbacks(execute=True),
         ):
             retire_token(self.team, self.user)
@@ -194,17 +206,6 @@ class TestRetiredTokenTeamMetadataClear(BaseTest):
 
         mock_auth_retry.assert_called_once_with(args=[self.team.id], countdown=5)
         mock_clear.assert_called_once_with(old_token)
-
-    @override_settings(FLAGS_REDIS_URL="")
-    @patch("posthog.tasks.team_metadata.clear_team_metadata_cache_for_token_task.delay")
-    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
-    def test_token_reset_without_flags_redis_does_not_enqueue_the_clear(
-        self, _mock_push_vercel: Mock, mock_clear: Mock
-    ) -> None:
-        with self.captureOnCommitCallbacks(execute=True):
-            self.team.reset_token_and_save(user=self.user, is_impersonated_session=False)
-
-        mock_clear.assert_not_called()
 
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")

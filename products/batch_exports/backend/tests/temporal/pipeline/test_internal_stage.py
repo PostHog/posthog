@@ -87,7 +87,7 @@ def mock_clickhouse_client():
     """Fixture to mock ClickHouse client."""
     mock_client = MockClickHouseClient()
     with patch(
-        "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
+        "products.batch_exports.backend.temporal.clickhouse.get_client",
         return_value=mock_client.mock_client_cm,
     ):
         yield mock_client
@@ -171,9 +171,10 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         override_settings(
             BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_native_schema else 0,
             CLICKHOUSE_BATCH_EXPORTS_HTTP_URL=batch_exports_url,
+            CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL=None,
         ),
         patch(
-            "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
+            "products.batch_exports.backend.temporal.clickhouse.get_client",
             return_value=mock_clickhouse_client.mock_client_cm,
         ) as get_client,
     ):
@@ -187,13 +188,17 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         },
     )
     reads_recent_table = expected_table in ("events_recent", "distributed_events_recent", "events_json_recent")
-    connected_url = get_client.call_args.kwargs["clickhouse_url"]
-    assert (connected_url == batch_exports_url) == reads_recent_table
+    expected_url = batch_exports_url if reads_recent_table else settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    assert get_client.call_args.kwargs["clickhouse_url"] == expected_url
 
 
 @pytest.mark.parametrize(
-    "native_switch,expected_table",
-    [("off", "events"), ("batch-exports-rollout", "events_json"), ("project-rollout-flag", "events")],
+    "native_switch,expected_table,expected_cluster",
+    [
+        ("off", "events", "main"),
+        ("batch-exports-rollout", "events_json", "events"),
+        ("project-rollout-flag", "events", "main"),
+    ],
 )
 async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     mock_clickhouse_client,
@@ -201,6 +206,7 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     ateam,
     native_switch: str,
     expected_table: str,
+    expected_cluster: str,
 ):
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
         team_id=ateam.pk,
@@ -216,21 +222,82 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
         destination_default_fields=None,
     )
 
+    events_url = "http://events.example.com:8123/"
     with (
         override_settings(
-            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if native_switch == "batch-exports-rollout" else 0
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if native_switch == "batch-exports-rollout" else 0,
+            CLICKHOUSE_EVENTS_OFFLINE_HOST="events.example.com",
+            CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL=events_url,
         ),
         patch("posthog.models.event.new_events_schema.is_cloud", return_value=native_switch == "project-rollout-flag"),
         patch(
             "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
             side_effect=lambda flag, *args, **kwargs: flag == EVENTS_TABLE_ROLLOUT_FLAG,
         ),
+        patch(
+            "products.batch_exports.backend.temporal.clickhouse.get_client",
+            return_value=mock_clickhouse_client.mock_client_cm,
+        ) as get_client,
     ):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
 
     mock_clickhouse_client.expect_select_from_table(expected_table)
     if expected_table == "events":
         assert "events_json" not in mock_clickhouse_client.calls[0].query
+    expected_url = events_url if expected_cluster == "events" else settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    assert get_client.call_args.kwargs["clickhouse_url"] == expected_url
+
+
+@pytest.mark.parametrize("switch", ["app-rollout-flag", "batch-exports-rollout"])
+@pytest.mark.parametrize("model_name", ["persons", "sessions", "hogql"])
+async def test_insert_into_stage_activity_connects_other_models_by_the_table_they_read(
+    mock_clickhouse_client,
+    activity_environment,
+    ateam,
+    auser,
+    model_name: str,
+    switch: str,
+):
+    """Needed only during the migration to the new events tables, while the app-wide switch and the batch exports
+    switch can disagree. Persons and sessions read main cluster tables, and a HogQL export follows the app-wide switch.
+    """
+    models: dict[str, AnyBatchExportModel] = {
+        "persons": BatchExportPersonsModel(),
+        "sessions": BatchExportSessionsModel(),
+        "hogql": BatchExportHogQLModel(query="SELECT event AS event FROM events", user_id=auser.pk, modifiers={}),
+    }
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start=(TEST_DATA_INTERVAL_END - dt.timedelta(hours=1)).isoformat(),
+        data_interval_end=TEST_DATA_INTERVAL_END.isoformat(),
+        batch_export_model=models[model_name],
+    )
+
+    events_url = "http://events.example.com:8123/"
+    with (
+        override_settings(
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if switch == "batch-exports-rollout" else 0,
+            CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+            CLICKHOUSE_EVENTS_OFFLINE_HOST="events.example.com",
+            CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL=events_url,
+        ),
+        patch("posthog.models.event.new_events_schema.is_cloud", return_value=switch == "app-rollout-flag"),
+        patch(
+            "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == EVENTS_TABLE_ROLLOUT_FLAG,
+        ),
+        patch(
+            "products.batch_exports.backend.temporal.clickhouse.get_client",
+            return_value=mock_clickhouse_client.mock_client_cm,
+        ) as get_client,
+    ):
+        await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    reads_events_json = model_name == "hogql" and switch == "app-rollout-flag"
+    assert ("events_json" in mock_clickhouse_client.calls[0].query) is reads_events_json
+    expected_url = events_url if reads_events_json else settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    assert get_client.call_args.kwargs["clickhouse_url"] == expected_url
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
@@ -395,7 +462,7 @@ async def test_write_batch_export_record_batches_to_internal_stage_rejects_futur
         patch(
             "products.batch_exports.backend.temporal.pipeline.internal_stage.wait_for_delta_past_data_interval_end"
         ) as mock_wait,
-        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as mock_get_client,
+        patch("products.batch_exports.backend.temporal.clickhouse.get_client") as mock_get_client,
         override_settings(DEBUG=False, TEST=False),
     ):
         with pytest.raises(DataIntervalInFutureError, match="The provided 'data_interval_end'.*is in the future"):
@@ -1510,7 +1577,6 @@ async def test_insert_into_stage_activity_applies_settings_and_log_comment(
 
 
 @pytest.mark.parametrize("export_path", ["stage", "producer"])
-@pytest.mark.parametrize("interval_minutes", [5, 60])
 @pytest.mark.parametrize(
     "table,host,database",
     [
@@ -1526,14 +1592,12 @@ async def test_exports_route_compiled_queries_to_their_workload(
     ateam: Team,
     auser: User,
     export_path: str,
-    interval_minutes: int,
     table: str | None,
     host: str,
     database: str,
 ) -> None:
     settings.CLICKHOUSE_DATABASE = "main_db"
     settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
-    settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST = "http://five-minute.example.com:8123/"
     settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
     settings.CLICKHOUSE_LOGS_CLUSTER_HOST = "logs.example.com"
     settings.CLICKHOUSE_LOGS_CLUSTER_SECURE = False
@@ -1546,9 +1610,8 @@ async def test_exports_route_compiled_queries_to_their_workload(
     settings.CLICKHOUSE_PASSWORD_FILE = None
 
     start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
-    end = start + dt.timedelta(minutes=interval_minutes)
-    expected_host = "five-minute" if host == "offline" and interval_minutes == 5 else host
-    expected_url = f"http://{expected_host}.example.com:8123/"
+    end = start + dt.timedelta(hours=1)
+    expected_url = f"http://{host}.example.com:8123/"
     request_url = re.compile(r"^" + re.escape(expected_url) + r"\?")
     model = (
         HogQLQueryRecordBatchModel(
@@ -1610,7 +1673,6 @@ async def test_exports_route_compiled_queries_to_their_workload(
             assert json.loads(request.kwargs["params"]["log_comment"])["product"] == "batch_export"
 
 
-@pytest.mark.parametrize("interval_minutes", [5, 60])
 @pytest.mark.parametrize(
     "batch_exports_url,reads_recent_events,expected_host",
     [
@@ -1623,20 +1685,18 @@ async def test_exports_route_compiled_queries_to_their_workload(
 async def test_stage_routes_recent_events_queries_to_batch_exports_cluster(
     settings: "Settings",
     ateam: Team,
-    interval_minutes: int,
     batch_exports_url: str | None,
     reads_recent_events: bool,
     expected_host: str | None,
 ) -> None:
     settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
-    settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST = "http://five-minute.example.com:8123/"
     settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
     settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL = batch_exports_url
     settings.CLICKHOUSE_PASSWORD_FILE = None
 
     start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
-    end = start + dt.timedelta(minutes=interval_minutes)
-    expected_host = expected_host or ("five-minute" if interval_minutes == 5 else "offline")
+    end = start + dt.timedelta(hours=1)
+    expected_host = expected_host or "offline"
     expected_url = f"http://{expected_host}.example.com:8123/"
     s3_client = AsyncMock()
     s3_client.__aenter__.return_value = s3_client

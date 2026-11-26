@@ -233,6 +233,13 @@ export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlert
     return count ? { kind: 'groupsSnoozed', count } : null
 }
 
+export function listRowFiringSince(row: PlatformAlertListRow): string | null {
+    const { configuration } = row
+    const only = configuration.enabled && configuration.alerts.length === 1 ? configuration.alerts[0] : null
+    const alert = row.kind === 'group' ? row.group : only
+    return alert?.state === 'firing' ? alert.firing_started_at : null
+}
+
 export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
     return configuration.owner === PlatformAlertOwnerEnumApi.Platform
 }

@@ -3,9 +3,11 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconCheck, IconPlus } from '@posthog/icons'
-import { Badge, Button, Card, DataTable, Text, cn } from '@posthog/quill'
+import { Button, Card, DataTable, Text, cn } from '@posthog/quill'
 
 import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
+import { QuillTableSkeleton } from 'lib/components/QuillTableSkeleton/QuillTableSkeleton'
+import { QuillTagsCell } from 'lib/components/QuillTagsCell/QuillTagsCell'
 import { TZLabel } from 'lib/components/TZLabel'
 import { AnalyticsOwner } from 'scenes/analytics/AnalyticsOwner'
 import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
@@ -17,11 +19,8 @@ import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 import { InsightIcon } from './InsightIcon'
 import { QuillSavedInsightsEmptyState } from './QuillSavedInsightsEmptyState'
 import { QuillSavedInsightsFilterMenu } from './QuillSavedInsightsFilterMenu'
-import { QuillSavedInsightsTableSkeleton } from './QuillSavedInsightsTableSkeleton'
 import { SavedInsightFilters } from './savedInsightsLogic'
 import { SavedInsightsTableProps } from './SavedInsightsTable'
-
-const VISIBLE_TAGS = 2
 
 function usesNonSearchFilters(filters: SavedInsightFilters): boolean {
     return (
@@ -88,30 +87,7 @@ export function QuillSavedInsightsTable({
                 id: 'tags',
                 header: 'Tags',
                 enableSorting: false,
-                cell: ({ row }) => {
-                    const tags = row.original.tags ?? []
-                    if (!tags.length) {
-                        return (
-                            <Text size="xs" variant="muted">
-                                –
-                            </Text>
-                        )
-                    }
-                    return (
-                        <div className="flex items-center gap-1">
-                            {tags.slice(0, VISIBLE_TAGS).map((tag) => (
-                                <Badge key={tag} className="max-w-24 truncate">
-                                    {tag}
-                                </Badge>
-                            ))}
-                            {tags.length > VISIBLE_TAGS && (
-                                <Text size="xs" variant="muted" title={tags.slice(VISIBLE_TAGS).join(', ')}>
-                                    {`+${tags.length - VISIBLE_TAGS}`}
-                                </Text>
-                            )}
-                        </div>
-                    )
-                },
+                cell: ({ row }) => <QuillTagsCell tags={row.original.tags ?? []} />,
             },
             {
                 id: 'created_by',
@@ -178,7 +154,7 @@ export function QuillSavedInsightsTable({
 
     const renderBody = (): JSX.Element => {
         if (!hasLoadedInsights) {
-            return <QuillSavedInsightsTableSkeleton />
+            return <QuillTableSkeleton label="Loading insights" />
         }
         if (!insightsLoading && insights.count < 1) {
             return (

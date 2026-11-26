@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconGear } from '@posthog/icons'
+import { IconBuilding, IconExternal } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
+    DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
@@ -18,37 +17,45 @@ import { urls } from 'scenes/urls'
 
 import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 
-type InternalUsersMode = 'include' | 'exclude'
-
 export function McpInternalUsersFilter({ dataAttr }: { dataAttr: string }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { filterTestAccounts } = useValues(mcpAnalyticsFiltersLogic)
     const { setFilterTestAccounts } = useActions(mcpAnalyticsFiltersLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     const excluded = hasFilters && filterTestAccounts
+    const label = excluded ? 'Internal users excluded' : 'Internal users included'
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="outline" data-attr={dataAttr} />}>
-                <span>{excluded ? 'Internal users excluded' : 'Internal users included'}</span>
-                <IconChevronDown />
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        aria-label={label}
+                        aria-pressed={excluded}
+                        title={label}
+                        data-attr={dataAttr}
+                    />
+                }
+            >
+                <span className="relative flex size-4 items-center justify-center">
+                    <IconBuilding className={excluded ? 'size-4 text-[var(--primary)]' : 'size-4'} />
+                    {excluded ? (
+                        <span className="absolute h-px w-5 -rotate-45 rounded-full bg-[var(--primary)]" aria-hidden />
+                    ) : null}
+                </span>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-64">
-                <DropdownMenuRadioGroup
-                    value={excluded ? 'exclude' : 'include'}
-                    onValueChange={(value: InternalUsersMode) => setFilterTestAccounts(value === 'exclude')}
+            <DropdownMenuContent align="end" className="w-60">
+                <DropdownMenuCheckboxItem
+                    checked={excluded}
+                    disabled={!hasFilters}
+                    closeOnClick={false}
+                    title={hasFilters ? undefined : 'Configure internal and test users first.'}
+                    onCheckedChange={(checked: boolean) => setFilterTestAccounts(checked)}
                 >
-                    <DropdownMenuRadioItem value="include" closeOnClick>
-                        Include internal and test users
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem
-                        value="exclude"
-                        closeOnClick
-                        disabledReason={hasFilters ? undefined : 'Configure internal and test users first.'}
-                    >
-                        Exclude internal and test users
-                    </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
+                    Exclude internal and test users
+                </DropdownMenuCheckboxItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     render={
@@ -64,7 +71,7 @@ export function McpInternalUsersFilter({ dataAttr }: { dataAttr: string }): JSX.
                         />
                     }
                 >
-                    <IconGear />
+                    <IconExternal />
                     Configure internal and test users
                 </DropdownMenuItem>
             </DropdownMenuContent>

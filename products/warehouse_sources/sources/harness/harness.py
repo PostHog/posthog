@@ -37,6 +37,8 @@ class HarnessResumeConfig:
     completed: list[str] | None = None
     current: str | None = None
     child_state: dict[str, Any] | None = None
+    # The parent page that a resumed fan-out starts its parent listing from.
+    parent: dict[str, Any] | None = None
 
 
 def base_url(config: "HarnessSourceConfig") -> str:
@@ -47,25 +49,44 @@ def base_url(config: "HarnessSourceConfig") -> str:
 
 def endpoint_config(config: "HarnessSourceConfig", name: str, size: int = 100) -> Endpoint:
     endpoint = schema_for_resource(ENDPOINTS, name)
-    params: dict[str, Any] = {"accountIdentifier": config.account_id}
+    params: dict[str, Any] = {}
+    if endpoint.scope == "v1":
+        params["org"] = config.organization_id
+        params["project"] = config.project_id
+    else:
+        params["accountIdentifier"] = config.account_id
     if endpoint.scope == "project":
         params["orgIdentifier"] = config.organization_id
         params["projectIdentifier"] = config.project_id
-    params[endpoint.size_param] = size
+    if endpoint.paginated:
+        params[endpoint.size_param] = size
     path = endpoint.path
     if endpoint.parent is not None:
-        params["parent_identifier"] = {"type": "resolve", "resource": endpoint.parent.name, "field": "identifier"}
-        path = f"{path}?{endpoint.parent.param}={{parent_identifier}}"
+        parent = endpoint.parent
+        params["parent_identifier"] = {"type": "resolve", "resource": parent.name, "field": parent.field}
+        query = [f"{parent.param}={{parent_identifier}}"] if parent.param is not None else []
+        for param, field in parent.extra:
+            params[f"parent_{field}"] = {"type": "resolve", "resource": parent.name, "field": field}
+            query.append(f"{param}={{parent_{field}}}")
+        if query:
+            path = f"{path}?{'&'.join(query)}"
     request: Endpoint = {
         "path": path,
         "method": endpoint.method,
         "params": params,
-        "paginator": {"type": "page_number", "page_param": endpoint.page_param, "total_path": "data.totalPages"},
-        "data_selector": "data.content",
-        "data_selector_required": True,
+        "paginator": (
+            {"type": "page_number", "page_param": endpoint.page_param, "total_path": "data.totalPages"}
+            if endpoint.paginated
+            else {"type": "single_page"}
+        ),
+        "data_selector": endpoint.data_selector,
+        "data_selector_required": endpoint.paginated,
     }
     if endpoint.filter_type is not None:
         request["json"] = {"filterType": endpoint.filter_type}
+    if endpoint.parent is not None and not endpoint.paginated:
+        # An execution can expire between the executions page and its child request.
+        request["response_actions"] = [{"status_code": 404, "action": "ignore"}]
     return request
 
 
@@ -124,7 +145,7 @@ def row_normalizer(name: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
                 raise ValueError(f"Harness returned a {name} row without an identifier.")
             row = {**details, **{key: value for key, value in row.items() if key != endpoint.wrapper}}
         if endpoint.parent is not None:
-            row[endpoint.parent.column] = row.pop(make_parent_key_name(endpoint.parent.name, "identifier"))
+            row[endpoint.parent.column] = row.pop(make_parent_key_name(endpoint.parent.name, endpoint.parent.field))
         if not all(row.get(key) for key in endpoint.primary_keys):
             raise ValueError(f"Harness returned a {name} row without an identifier.")
         return row
@@ -147,7 +168,8 @@ def harness_source(
     }
     resources: list[str | EndpointResource] = [resource_config]
     if endpoint.parent is not None:
-        resource_config["include_from_parent"] = ["identifier"]
+        resource_config["include_from_parent"] = [endpoint.parent.field]
+        resource_config["resume_parent_pagination"] = True
         resources.insert(
             0,
             {
@@ -164,6 +186,7 @@ def harness_source(
             "allowed_hosts": [],
             "allow_redirects": False,
             "request_timeout": 60,
+            **({"headers": {"Harness-Account": config.account_id}} if endpoint.scope == "v1" else {}),
         },
         "resources": resources,
     }
@@ -192,12 +215,18 @@ def harness_source(
                         completed=fanout_state.get("completed"),
                         current=fanout_state.get("current"),
                         child_state=fanout_state.get("child_state"),
+                        parent=fanout_state.get("parent"),
                     )
                 )
 
         initial_state = (
-            {"completed": state.completed or [], "current": state.current, "child_state": state.child_state}
-            if state is not None and (state.completed or state.current)
+            {
+                "completed": state.completed or [],
+                "current": state.current,
+                "child_state": state.child_state,
+                "parent": state.parent,
+            }
+            if state is not None and (state.completed or state.current or state.parent)
             else None
         )
         resource = next(
@@ -214,6 +243,9 @@ def harness_source(
         )
 
     resource.add_map(row_normalizer(name))
+    if endpoint.require_field is not None:
+        field = endpoint.require_field
+        resource.add_filter(lambda row: bool(row.get(field)))
     return SourceResponse(
         name=name,
         items=lambda: resource,

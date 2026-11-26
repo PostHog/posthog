@@ -729,7 +729,6 @@ async def collect_topics_into_snapshot(
         team_id=team_id, snapshot_id=snapshot_id, telemetry_team_id=telemetry_team_id
     )
     async with build_async_anthropic_client(
-        product="django",
         ai_product="data_catalog_usage_topics",
         team_id=team_id,
         trace_id=f"data-catalog-usage-{snapshot_id}",

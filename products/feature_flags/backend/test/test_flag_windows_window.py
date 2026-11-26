@@ -12,9 +12,9 @@ from parameterized import param, parameterized
 from products.feature_flags.backend.exposure_change import FlagExposureConfig
 from products.feature_flags.backend.flag_windows.baseline import HOUR
 from products.feature_flags.backend.flag_windows.errors import ErrorCounts
-from products.feature_flags.backend.flag_windows.exposure import ConditionExposure, ExposureBucket, ExposureCounts
-from products.feature_flags.backend.flag_windows.last_values import LastValueBucket, LastValueCounts
-from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedEdit
+from products.feature_flags.backend.flag_windows.exposure import ExposureBucket
+from products.feature_flags.backend.flag_windows.last_values import LastValueBucket
+from products.feature_flags.backend.flag_windows.query import ConditionMatch, SplitCounts, WatchedEdit
 from products.feature_flags.backend.flag_windows.score import ScoreParameters
 from products.feature_flags.backend.flag_windows.window import (
     CloseReason,
@@ -24,6 +24,7 @@ from products.feature_flags.backend.flag_windows.window import (
     WindowState,
     advance_window,
 )
+from products.feature_flags.backend.test.flag_window_fixtures import exposure_counts, split
 
 EDITED_AT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 PEOPLE = 1000
@@ -84,22 +85,14 @@ def _window(state: WindowState = OPEN, enables: bool = False) -> ObservationWind
 def _exposure(
     shares: Sequence[float],
     exposed: int = PEOPLE,
-    in_condition: Mapping[ConditionMatch, ConditionExposure] | None = None,
+    errors: tuple[int, int] = (0, 0),
+    in_condition: Mapping[ConditionMatch, SplitCounts] | None = None,
 ) -> list[ExposureBucket]:
-    since_edit = ExposureCounts(
-        with_flag=2 * PEOPLE,
-        exposed=exposed,
-        unexposed=2 * PEOPLE - exposed,
-        by_variant={},
-        in_condition=in_condition or {},
-    )
     return [
         ExposureBucket(
             start=EDITED_AT + index * HOUR,
-            in_bucket=ExposureCounts(
-                with_flag=PEOPLE, exposed=round(share * PEOPLE), unexposed=PEOPLE - round(share * PEOPLE), by_variant={}
-            ),
-            since_edit=since_edit,
+            in_bucket=exposure_counts(split(round(share * PEOPLE), PEOPLE - round(share * PEOPLE))),
+            since_edit=exposure_counts(split(exposed, 2 * PEOPLE - exposed, errors), in_condition=in_condition),
         )
         for index, share in enumerate(shares)
     ]
@@ -107,18 +100,12 @@ def _exposure(
 
 def _last_values(exposure: Sequence[ExposureBucket], errors: tuple[int, int] = (0, 0)) -> list[LastValueBucket]:
     """The same people as in `exposure`, with the exposed and the unexposed errors."""
-
-    def counts(carried: ExposureCounts) -> LastValueCounts:
-        return LastValueCounts(
-            with_flag=carried.with_flag,
-            exposed=carried.exposed,
-            unexposed=carried.unexposed,
-            exposed_with_errors=errors[0],
-            unexposed_with_errors=errors[1],
-        )
-
     return [
-        LastValueBucket(start=bucket.start, in_bucket=counts(bucket.in_bucket), since_edit=counts(bucket.since_edit))
+        LastValueBucket(
+            start=bucket.start,
+            in_bucket=split(bucket.in_bucket.exposed, bucket.in_bucket.unexposed, errors),
+            since_edit=split(bucket.since_edit.exposed, bucket.since_edit.unexposed, errors),
+        )
         for bucket in exposure
     ]
 
@@ -135,13 +122,8 @@ RISING_EXPOSURE = _exposure(RISING)
 STABLE_WITH_A_GAP = [bucket for index, bucket in enumerate(_exposure(_rising_then_flat(30))) if index not in (2, 3, 4)]
 NOBODY_EXPOSED = _exposure([0.0] * 12, exposed=0)
 # Level 1 finds the exposed people significantly worse.
-SUSPICIOUS_ERRORS = ErrorCounts(
-    with_errors=210,
-    with_new_errors=0,
-    exposed_with_errors=200,
-    unexposed_with_errors=10,
-    by_variant={},
-)
+SUSPICIOUS_ERRORS = (200, 10)
+SUSPICIOUS_EXPOSURE = _exposure(RISING, errors=SUSPICIOUS_ERRORS)
 
 
 def _closed(reason: CloseReason, successor_config_before: FlagExposureConfig | None = None) -> TickOutcome:
@@ -211,7 +193,7 @@ class TestAdvanceWindow(SimpleTestCase):
                 hours_since_edit=12,
                 exposure=_exposure(
                     RISING,
-                    in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=50, exposed=0, unexposed=50)},
+                    in_condition={ConditionMatch.REASON: split(0, 50)},
                 ),
                 condition_match=ConditionMatch.REASON,
                 expected=_closed(CloseReason.NO_REACH),
@@ -223,7 +205,7 @@ class TestAdvanceWindow(SimpleTestCase):
                 expected=_stays(OPEN),
                 scored=True,
             ),
-            param("suspicious_score", errors=SUSPICIOUS_ERRORS, expected=_stays(SUSPICIOUS), scored=True),
+            param("suspicious_score", exposure=SUSPICIOUS_EXPOSURE, expected=_stays(SUSPICIOUS), scored=True),
             param(
                 "no_regression",
                 hours_since_edit=28,
@@ -288,7 +270,7 @@ class TestAdvanceWindow(SimpleTestCase):
                 exposure=_exposure(
                     [0.0] * 12,
                     exposed=0,
-                    in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=0, exposed=0, unexposed=0)},
+                    in_condition={ConditionMatch.REASON: split(0, 0)},
                 ),
                 last_values=_last_values(_exposure(_rising_then_flat(12))),
                 condition_match=ConditionMatch.REASON,
@@ -301,7 +283,7 @@ class TestAdvanceWindow(SimpleTestCase):
                 exposure=_exposure(
                     [0.0] * 12,
                     exposed=0,
-                    in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=50, exposed=0, unexposed=50)},
+                    in_condition={ConditionMatch.REASON: split(0, 50)},
                 ),
                 last_values=_last_values(_exposure(_rising_then_flat(12))),
                 condition_match=ConditionMatch.REASON,
@@ -322,7 +304,7 @@ class TestAdvanceWindow(SimpleTestCase):
                 exposure=[],
                 last_values=_last_values(RISING_EXPOSURE, errors=(50, 10)),
                 # No error event carries the flag.
-                errors=dataclasses.replace(SUSPICIOUS_ERRORS, exposed_with_errors=0, unexposed_with_errors=0),
+                errors=ErrorCounts(with_errors=60, with_new_errors=0, by_variant={}),
                 expected=_stays(SUSPICIOUS),
                 scored=True,
             ),
@@ -386,7 +368,7 @@ class TestAdvanceWindow(SimpleTestCase):
             param(
                 "expired_wins_over_a_suspicious_score",
                 hours_since_edit=7 * 24,
-                errors=SUSPICIOUS_ERRORS,
+                exposure=SUSPICIOUS_EXPOSURE,
                 expected=_closed(CloseReason.EXPIRED),
             ),
             param(
@@ -405,8 +387,7 @@ class TestAdvanceWindow(SimpleTestCase):
             param(
                 "suspicious_score_wins_over_no_regression",
                 hours_since_edit=28,
-                exposure=_exposure(_rising_then_flat(28)),
-                errors=SUSPICIOUS_ERRORS,
+                exposure=_exposure(_rising_then_flat(28), errors=SUSPICIOUS_ERRORS),
                 expected=_stays(SUSPICIOUS),
                 scored=True,
             ),

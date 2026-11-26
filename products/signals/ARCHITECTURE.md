@@ -1964,6 +1964,7 @@ products/signals/
 │   ├── signals-scout-logs/          # Scout fleet: logs anomaly watcher
 │   ├── signals-scout-error-tracking/         # Scout fleet: error tracking anomaly watcher
 │   ├── signals-scout-revenue-analytics/      # Scout fleet: revenue anomaly watcher
+│   ├── signals-scout-business-metrics/       # Scout fleet: warehouse business metrics + key driver analysis
 │   ├── signals-scout-surveys/                # Scout fleet: surveys anomaly + theme-aggregation watcher
 │   ├── signals-scout-observability-gaps/     # Scout fleet: structural-gap watcher (P3 recommendations)
 │   └── signals-scout-csp-violations/         # Scout fleet: CSP violation watcher

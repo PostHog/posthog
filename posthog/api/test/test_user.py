@@ -16,6 +16,7 @@ from unittest.mock import ANY, patch
 from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
+from django.core.signing import TimestampSigner
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -25,6 +26,7 @@ from django.utils.text import slugify
 import responses
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
@@ -2404,6 +2406,39 @@ class TestUserAPI(APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @parameterized.expand([(True, None), (True, 123), (False, None), (False, 123)])
+    @responses.activate
+    def test_redirect_to_website(self, impersonated: bool, strapi_id: int | None) -> None:
+        self.user.strapi_id = strapi_id
+        self.user.save(update_fields=["strapi_id"])
+        if impersonated:
+            staff = User.objects.create_user(
+                email="website-staff@example.com", password="x", first_name="Staff", is_staff=True
+            )
+            session = self.client.session
+            session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(str(staff.pk))
+            session.save()
+
+        responses.post(
+            "https://squeak.posthog.cc/api/auth/local/register",
+            json={"jwt": "website-token", "user": {"id": 456}},
+        )
+
+        response = self.client.get("/api/user/redirect_to_website?appUrl=https://posthog.com/handbook")
+
+        self.user.refresh_from_db()
+        if impersonated:
+            assert response.status_code == 403
+            assert "Location" not in response
+            assert response.json()["detail"] == "End impersonation before signing in to posthog.com."
+            assert not responses.calls
+            assert self.user.strapi_id == strapi_id
+        else:
+            assert response.status_code == 302
+            assert response["Location"].startswith("https://posthog.com/auth?userData=")
+            assert self.user.strapi_id == (strapi_id or 456)
+            assert len(responses.calls) == (0 if strapi_id else 1)
 
     def test_redirect_user_to_site_with_toolbar(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]

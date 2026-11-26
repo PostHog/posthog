@@ -17,11 +17,23 @@ from products.warehouse_sources.sources.sdk import frozen
 #   keyed_history -> body["data"] is a dict like keyed_rows, but each value nests its rows under
 #                    "history"; each history row gets the key and the parent fields
 #                    (e.g. /states/history/cases)
+#   keyed_nested_rows -> body["data"] is a dict of dicts keyed by two levels; both keys are injected,
+#                    under `key_field` and `nested_key_field` (e.g. /states/age-groups)
 #   data_list     -> body["data"] is already a list of rows (e.g. /germany/history/cases)
 #   data_history  -> the rows live at body["data"]["history"] (e.g. /germany/history/frozen-incidence)
 ParseKind = Literal[
-    "snapshot", "data_snapshot", "dict_rows", "keyed_rows", "keyed_history", "data_list", "data_history"
+    "snapshot",
+    "data_snapshot",
+    "dict_rows",
+    "keyed_rows",
+    "keyed_history",
+    "keyed_nested_rows",
+    "data_list",
+    "data_history",
 ]
+
+
+NullColumnType = Literal["bigint", "double"]
 
 
 @frozen
@@ -33,12 +45,17 @@ class RKICovidEndpointConfig:
     primary_keys: Optional[list[str]]
     # Set for keyed_rows and keyed_history endpoints: the column the dict key is injected under.
     key_field: Optional[str] = None
+    # Set for keyed_nested_rows endpoints: the column the inner dict key is injected under.
+    nested_key_field: Optional[str] = None
     # A stable date column used for datetime partitioning. History rows are keyed by reporting day
     # and never move to another day, so `date` is safe. None for snapshot tables.
     partition_key: Optional[str] = None
     # Whether the endpoint accepts the optional `/:days` path suffix to trim the returned history
     # window server-side.
     supports_days: bool = False
+    # Columns that are null in every row of a short history window. Null values are dropped from the
+    # rows and the columns get these types, so they are not stored as text before values arrive.
+    null_column_types: tuple[tuple[str, NullColumnType], ...] = ()
     description: Optional[str] = None
 
 
@@ -112,6 +129,15 @@ RKI_COVID_ENDPOINTS: dict[str, RKICovidEndpointConfig] = {
         supports_days=True,
         description="Daily 7-day hospitalization cases and incidence for Germany, including reporting-delay adjusted values. One row per day. Full refresh.",
     ),
+    "germany_history_r_value": RKICovidEndpointConfig(
+        name="germany_history_r_value",
+        path="/germany/history/rValue",
+        kind="data_list",
+        primary_keys=["date"],
+        partition_key="date",
+        supports_days=True,
+        description="Daily COVID-19 reproduction number (R value) estimates for Germany, as 4-day and 7-day values. One row per day. Full refresh. The series ends in June 2023, so leave the history window empty to import it.",
+    ),
     "states": RKICovidEndpointConfig(
         name="states",
         path="/states",
@@ -149,6 +175,33 @@ RKI_COVID_ENDPOINTS: dict[str, RKICovidEndpointConfig] = {
         supports_days=True,
         description="Daily 7-day incidence per 100k inhabitants per German federal state. One row per state and day. Full refresh.",
     ),
+    "states_history_hospitalization": RKICovidEndpointConfig(
+        name="states_history_hospitalization",
+        path="/states/history/hospitalization",
+        kind="keyed_history",
+        primary_keys=["abbreviation", "date"],
+        key_field="abbreviation",
+        partition_key="date",
+        supports_days=True,
+        null_column_types=(
+            ("adjustedCases7Days", "bigint"),
+            ("adjustedLowerCases7Days", "bigint"),
+            ("adjustedUpperCases7Days", "bigint"),
+            ("adjustedIncidence7Days", "double"),
+            ("adjustedLowerIncidence7Days", "double"),
+            ("adjustedUpperIncidence7Days", "double"),
+        ),
+        description="Daily 7-day hospitalization cases and incidence per German federal state, including reporting-delay adjusted values. One row per state and day. Full refresh.",
+    ),
+    "states_age_groups": RKICovidEndpointConfig(
+        name="states_age_groups",
+        path="/states/age-groups",
+        kind="keyed_nested_rows",
+        primary_keys=["abbreviation", "age_group"],
+        key_field="abbreviation",
+        nested_key_field="age_group",
+        description="Cases and deaths by sex, and hospitalization, per German federal state and age group. One row per state and age group. Full refresh.",
+    ),
     "districts": RKICovidEndpointConfig(
         name="districts",
         path="/districts",
@@ -175,6 +228,15 @@ RKI_COVID_ENDPOINTS: dict[str, RKICovidEndpointConfig] = {
         partition_key="date",
         supports_days=True,
         description="Daily 7-day incidence per 100k inhabitants per German district (Landkreis), keyed by AGS. One row per district and day. Full refresh.",
+    ),
+    "districts_age_groups": RKICovidEndpointConfig(
+        name="districts_age_groups",
+        path="/districts/age-groups",
+        kind="keyed_nested_rows",
+        primary_keys=["ags", "age_group"],
+        key_field="ags",
+        nested_key_field="age_group",
+        description="Cases and deaths per German district (Landkreis), keyed by AGS and broken down by age group and sex. One row per district and age group. Full refresh.",
     ),
     "testing_history": RKICovidEndpointConfig(
         name="testing_history",

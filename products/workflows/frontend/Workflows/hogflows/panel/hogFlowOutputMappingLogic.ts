@@ -18,16 +18,34 @@ import { hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 export type OutputMapping = { key: string; result_path: string; spread?: boolean | null }
 // The variable types the output schema of an AI task step can express. Other input types stay
 // selectable only from the variables tab.
-export type WorkflowVariableType = 'string' | 'number' | 'boolean'
+export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'json'
 export const WORKFLOW_VARIABLE_TYPE_OPTIONS: { value: WorkflowVariableType; label: string }[] = [
     { value: 'string', label: 'Text' },
     { value: 'number', label: 'Number' },
     { value: 'boolean', label: 'True or false' },
+    { value: 'json', label: 'JSON' },
 ]
 
 // A key must be addressable as `variables.<key>` in a template, so only identifier characters survive.
 export function sanitizeVariableKey(key: string): string {
     return key.replace(/[^A-Za-z0-9_]+/g, '_')
+}
+
+// Names the task result uses for itself (RUN_OUTPUT_RESERVED_KEYS in the tasks API), which it refuses as fields.
+const RESERVED_AGENT_FIELD_NAMES = new Set([
+    'final_message',
+    'pr_url',
+    'pr_urls',
+    'head_branches',
+    'pr_state',
+    'pr_merged',
+    'ci_status',
+    'commit_push',
+])
+
+// The tasks API also rejects a leading digit, so an agent field name gets an underscore in front.
+export function sanitizeAgentFieldName(name: string): string {
+    return sanitizeVariableKey(name).replace(/^(\d)/, '_$1').slice(0, 64)
 }
 
 export function normalizeOutputVariable(raw: HogFlowAction['output_variable']): OutputMapping[] {
@@ -108,6 +126,13 @@ export interface hogFlowOutputMappingLogicActions {
     selectPath: (path: string) => {
         path: string
     }
+    setAgentField: (
+        index: number,
+        name: string
+    ) => {
+        index: number
+        name: string
+    }
     setMappingVariable: (
         index: number,
         key: string
@@ -132,6 +157,13 @@ export interface hogFlowOutputMappingLogicActions {
     }
     setTestResultData: (data: unknown | null) => {
         data: unknown
+    }
+    setVariableDescription: (
+        key: string,
+        description: string
+    ) => {
+        description: string
+        key: string
     }
     setVariableType: (
         key: string,
@@ -201,6 +233,8 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
         updateMappingResultPath: (index: number, path: string) => ({ index, path }),
         setMappingVariable: (index: number, key: string) => ({ index, key }),
         setVariableType: (key: string, type: WorkflowVariableType) => ({ key, type }),
+        setVariableDescription: (key: string, description: string) => ({ key, description }),
+        setAgentField: (index: number, name: string) => ({ index, name }),
         addMapping: true,
         removeMapping: (index: number) => ({ index }),
         selectPath: (path: string) => ({ path }),
@@ -274,6 +308,24 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                     updated[index] = { ...updated[index], key }
                     return updated
                 },
+                setAgentField: (state, { index, name }) => {
+                    const path = name ? `output.${name}` : ''
+                    // A new field names its variable too; an existing one keeps the variable later steps read.
+                    const key = state[index].key || name
+                    // Clearing a saved field's name would turn it into a mapping of the whole result.
+                    if ((!name && state[index].key) || RESERVED_AGENT_FIELD_NAMES.has(name)) {
+                        return state
+                    }
+                    const isNew = !state[index].key
+                    const taken = (m: OutputMapping, i: number): boolean =>
+                        i !== index && (m.result_path === path || (isNew && m.key === key))
+                    if (name && state.some(taken)) {
+                        return state
+                    }
+                    const updated = [...state]
+                    updated[index] = { ...updated[index], key, result_path: path }
+                    return updated
+                },
                 addMapping: (state) => [...state, { key: '', result_path: '' }],
                 removeMapping: (state, { index }) => state.filter((_, i) => i !== index),
                 assignPendingPathToMapping: (state) => state,
@@ -329,7 +381,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => {
+    listeners(({ actions, values, props, selectors }) => {
         const persistMappings = (newMappings: OutputMapping[]): void => {
             const selectedNode = values.selectedNode
             if (!selectedNode) {
@@ -361,6 +413,13 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
             })
         }
 
+        const updateVariable = (key: string, patch: Record<string, unknown>): void => {
+            const existingVars = values.workflow.variables ?? []
+            workflowLogic(props).actions.setWorkflowInfo({
+                variables: existingVars.map((v) => (v.key === key ? { ...v, ...patch } : v)),
+            })
+        }
+
         return {
             setSelectedActionId: () => {
                 const selectedNode = values.selectedNode
@@ -382,12 +441,20 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 }
                 persistMappings(values.mappings)
             },
-            setVariableType: ({ key, type }) => {
-                const existingVars = values.workflow.variables ?? []
-                workflowLogic(props).actions.setWorkflowInfo({
-                    variables: existingVars.map((v) => (v.key === key ? { ...v, type } : v)),
-                })
+            setAgentField: ({ index }, _, __, previousState) => {
+                const mapping = values.mappings[index]
+                if (mapping === selectors.mappings(previousState)[index]) {
+                    return // refused
+                }
+                const key = mapping?.key
+                // Also brings back a variable deleted in the variables tab, so type and description edits land.
+                if (key) {
+                    ensureVariable(key, key)
+                }
+                persistMappings(values.mappings)
             },
+            setVariableType: ({ key, type }) => updateVariable(key, { type }),
+            setVariableDescription: ({ key, description }) => updateVariable(key, { description }),
             addMapping: () => {
                 persistMappings(values.mappings)
             },
