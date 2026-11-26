@@ -1,7 +1,7 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from '~/lib/api.mock'
+import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor, within } from '@testing-library/dom'
+import { within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -9,14 +9,11 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
-import { expect, userEvent } from 'storybook/test'
+import { expect } from 'storybook/test'
 
 import { modelLab } from './aiLabs'
 import { labMark } from './aiLabs'
-import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
 import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
 
 const KPI_RESULTS = [
@@ -991,6 +988,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-06-07T12:00:00Z',
         pageUrl: urls.mcpAnalyticsDashboard(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_REDESIGN],
     },
 }
 export default meta
@@ -1012,7 +1010,7 @@ export const DashboardNarrow: Story = {
 
 export const DashboardWithMenuBar: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SCENE_MENU_BAR],
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_REDESIGN, FEATURE_FLAGS.SCENE_MENU_BAR],
     },
 }
 
@@ -1028,100 +1026,6 @@ export const Activity: Story = {
         await expect(await canvas.findAllByText('claude-opus-5-5', {}, { timeout: 15000 })).not.toHaveLength(0)
         await expect(canvasElement.querySelector('[data-attr=hogqlx-brand-mark-label] svg')).toBeVisible()
     },
-}
-
-const WEEKLY_REPORT_BUTTON = '[data-attr=mcp-analytics-activity-next-step-weekly-report]'
-
-const WEEKLY_REPORT_OFFER_GET_MOCKS = {
-    '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
-    '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
-    '/api/projects/:team_id/subscriptions': EMPTY_PAGINATED_RESPONSE,
-}
-
-const CREATED_WEEKLY_REPORT = {
-    id: 1,
-    title: 'MCP tool health',
-    enabled: true,
-    target_type: 'email',
-    target_value: MOCK_DEFAULT_USER.email,
-    next_delivery_date: '2026-06-08T09:00:00Z',
-}
-
-const WEEKLY_REPORT_OFFER_PARAMETERS = {
-    featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
-    msw: {
-        mocks: {
-            get: WEEKLY_REPORT_OFFER_GET_MOCKS,
-            post: { '/api/projects/:team_id/subscriptions': CREATED_WEEKLY_REPORT },
-        },
-    },
-    testOptions: { waitForSelector: WEEKLY_REPORT_BUTTON },
-}
-
-async function clickWeeklyReportButton(): Promise<void> {
-    // A bare querySelector misses while the card is still loading, and the click would silently do nothing.
-    const button = await waitFor(() => {
-        const element = document.querySelector<HTMLElement>(WEEKLY_REPORT_BUTTON)
-        if (!element) {
-            throw new Error('The weekly report button is not rendered')
-        }
-        return element
-    })
-    await userEvent.click(button)
-}
-
-export const ActivityWeeklyReportOffer: Story = {
-    parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, pageUrl: urls.mcpAnalyticsActivity() },
-}
-
-export const ActivityWeeklyReportOfferNarrow: Story = {
-    parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, layout: 'padded' },
-    render: () => (
-        <div className="w-[520px]">
-            <ActivityNextSteps />
-        </div>
-    ),
-}
-
-export const ActivityWeeklyReportOfferFailed: Story = {
-    parameters: {
-        ...WEEKLY_REPORT_OFFER_PARAMETERS,
-        pageUrl: urls.mcpAnalyticsActivity(),
-        msw: {
-            mocks: {
-                get: WEEKLY_REPORT_OFFER_GET_MOCKS,
-                post: {
-                    '/api/projects/:team_id/subscriptions': (): [number, { detail: string }] => [
-                        400,
-                        { detail: 'Your plan is limited to 5 subscriptions.' },
-                    ],
-                },
-            },
-        },
-        testOptions: { waitForSelector: '[data-attr=mcp-analytics-activity-next-steps] [role=alert]' },
-    },
-    play: clickWeeklyReportButton,
-}
-
-export const ActivityWeeklyReportOfferNeedsConsent: Story = {
-    parameters: {
-        ...WEEKLY_REPORT_OFFER_PARAMETERS,
-        pageUrl: urls.mcpAnalyticsActivity(),
-        msw: {
-            mocks: {
-                get: {
-                    ...WEEKLY_REPORT_OFFER_GET_MOCKS,
-                    '/api/organizations/@current/': {
-                        ...MOCK_DEFAULT_ORGANIZATION,
-                        is_ai_data_processing_approved: false,
-                    },
-                },
-                post: { '/api/projects/:team_id/subscriptions': CREATED_WEEKLY_REPORT },
-            },
-        },
-        testOptions: { waitForSelector: '[data-attr=ai-consent-approve]' },
-    },
-    play: clickWeeklyReportButton,
 }
 
 export const Sessions: Story = {
@@ -1143,7 +1047,7 @@ export const ToolQuality: Story = {
 export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_REDESIGN, FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
     },
 }
 
@@ -1159,7 +1063,7 @@ const REDACTED_CLUSTER_SNAPSHOT = {
 export const IntentClusteringRedacted: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_REDESIGN, FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
         msw: { mocks: { get: { '/api/projects/:team_id/mcp_analytics/intent_clusters/': REDACTED_CLUSTER_SNAPSHOT } } },
         testOptions: { waitForSelector: '[data-attr=mcp-cluster-row]' },
     },
@@ -1170,7 +1074,7 @@ export const IntentClusteringRedacted: Story = {
 export const IntentClusteringJourney: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_REDESIGN, FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
         testOptions: {
             viewport: { width: 1280, height: 1800 },
             waitForSelector: '[data-attr=mcp-cluster-journey-sankey] [data-attr=hog-chart-sankey-node-label]',
