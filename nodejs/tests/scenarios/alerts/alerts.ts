@@ -116,6 +116,10 @@ function thresholdOf(query: string): AlertTransition['threshold'] {
         : undefined
 }
 
+function evaluationAfter(activeAt: number, evaluatedAt: number, intervalMs: number): number {
+    return activeAt + (Math.floor((evaluatedAt - activeAt) / intervalMs) + 1) * intervalMs
+}
+
 function transitionOf(rule: VmRule, alert: VmAlert, state: AlertState, at: number): AlertTransition {
     const value = Number(alert.value)
     const threshold = thresholdOf(rule.query)
@@ -210,13 +214,13 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
                     record(alert.state === 'pending' ? pending : { ...pending, value: null })
                 }
                 if (alert.state === 'firing' && was !== 'firing') {
-                    // vmalert evaluates on its group's grid from activeAt and fires at the first evaluation past `for:`,
-                    // unless an evaluation this recorder saw still pending pushed it later.
                     const intervalMs = intervalMsOf.get(rule.id)!
-                    const grid = activeAt + Math.ceil(Math.round(rule.duration * 1000) / intervalMs) * intervalMs
+                    const due = activeAt + Math.ceil(Math.round(rule.duration * 1000) / intervalMs) * intervalMs
                     const afterPending =
-                        was === 'pending' ? Date.parse(previous!.rule.lastEvaluation) + intervalMs : grid
-                    record(transitionOf(rule, alert, 'firing', Math.max(grid, afterPending)))
+                        was === 'pending'
+                            ? evaluationAfter(activeAt, Date.parse(previous!.rule.lastEvaluation), intervalMs)
+                            : due
+                    record(transitionOf(rule, alert, 'firing', Math.max(due, afterPending)))
                 }
                 open.set(key, { rule, alert })
             }
@@ -224,8 +228,12 @@ export function recordAlerts(engine: Engine, since: number, excluded: string[], 
         for (const [key, { rule, alert }] of open) {
             if (!seen.has(key)) {
                 open.delete(key)
-                const { lastEvaluation } = rules.find(({ id }) => id === rule.id) ?? rule
-                record(transitionOf(rule, alert, 'resolved', Date.parse(lastEvaluation)))
+                const at = evaluationAfter(
+                    Date.parse(alert.activeAt),
+                    Date.parse(rule.lastEvaluation),
+                    intervalMsOf.get(rule.id)!
+                )
+                record(transitionOf(rule, alert, 'resolved', at))
             }
         }
     }

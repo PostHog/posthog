@@ -237,7 +237,7 @@ describe('alerts on a scenario run', () => {
         ENGINE_MS
     )
 
-    type Seen = { state: 'pending' | 'firing'; evaluatedAfterMs: number; value: string }
+    type Seen = { state: 'pending' | 'firing' | 'resolved'; evaluatedAfterMs: number; value: string }
     const snapshotOf = (activeAt: number, interval: number, duration: number, seen: Seen): unknown => ({
         data: {
             groups: [
@@ -251,15 +251,18 @@ describe('alerts on a scenario run', () => {
                             duration,
                             lastError: '',
                             lastEvaluation: new Date(activeAt + seen.evaluatedAfterMs).toISOString(),
-                            alerts: [
-                                {
-                                    id: '2',
-                                    state: seen.state,
-                                    activeAt: new Date(activeAt).toISOString(),
-                                    value: seen.value,
-                                    labels: {},
-                                },
-                            ],
+                            alerts:
+                                seen.state === 'resolved'
+                                    ? []
+                                    : [
+                                          {
+                                              id: '2',
+                                              state: seen.state,
+                                              activeAt: new Date(activeAt).toISOString(),
+                                              value: seen.value,
+                                              labels: {},
+                                          },
+                                      ],
                         },
                     ],
                 },
@@ -280,7 +283,9 @@ describe('alerts on a scenario run', () => {
             stop: () => Promise.resolve(),
         }
     }
-    const recordedFrom = (engine: Engine): { alerts: ReturnType<typeof recordAlerts>; firing: Promise<void> } => {
+    const recordedFrom = (
+        engine: Engine
+    ): { alerts: ReturnType<typeof recordAlerts>; firing: Promise<void>; reach(state: string): Promise<void> } => {
         const transitions = transitionsSeen()
         const alerts = recordAlerts(engine, Math.floor(Date.now() / 1000), [], {
             alerts: { rules: 'rules.yaml', labels: 'labels.yaml', exclude: [] },
@@ -288,7 +293,7 @@ describe('alerts on a scenario run', () => {
             onTransition: transitions.record,
             pollMs: 10,
         })
-        return { alerts, firing: transitions.reach('firing') }
+        return { alerts, firing: transitions.reach('firing'), reach: transitions.reach }
     }
     const firstSeenFiring: Seen = { state: 'firing', evaluatedAfterMs: 3000, value: '50' }
 
@@ -307,9 +312,17 @@ describe('alerts on a scenario run', () => {
             'an evaluation that stayed pending past the grid',
             1,
             2,
-            [{ state: 'pending', evaluatedAfterMs: 2000, value: '12' }, firstSeenFiring],
+            [{ state: 'pending', evaluatedAfterMs: 2350, value: '12' }, firstSeenFiring],
             5000,
             { pendingValue: 12, firedAfterMs: 3000, fired: ['SyntheticQueueDeep'] },
+        ],
+        [
+            'a pending evaluation that started late',
+            1,
+            2,
+            [{ state: 'pending', evaluatedAfterMs: 1350, value: '12' }, firstSeenFiring],
+            5000,
+            { pendingValue: 12, firedAfterMs: 2000, fired: ['SyntheticQueueDeep'] },
         ],
         [
             'an interval that does not divide in floating point',
@@ -344,6 +357,27 @@ describe('alerts on a scenario run', () => {
             expect.objectContaining({ state: 'firing', at: activeAt + expected.firedAfterMs, value: 50 }),
         ])
         expect(coverage).toMatchObject({ fired: expected.fired })
+    })
+
+    it('dates a resolution by the evaluation after the last one that showed the alert', async () => {
+        const activeAt = Date.now() - 6000
+        const { alerts, reach } = recordedFrom(
+            engineAnswering(
+                [
+                    snapshotOf(activeAt, 1, 0, { state: 'firing', evaluatedAfterMs: 2350, value: '50' }),
+                    snapshotOf(activeAt, 1, 0, { state: 'resolved', evaluatedAfterMs: 5350, value: '' }),
+                ],
+                false
+            )
+        )
+        await reach('resolved')
+
+        const { lines } = await alerts.finish({ startedAt: activeAt }, [], Date.now())
+
+        expect(lines.filter((line) => line.type === 'transition')).toEqual([
+            expect.objectContaining({ state: 'firing', at: activeAt }),
+            expect.objectContaining({ state: 'resolved', at: activeAt + 3000 }),
+        ])
     })
 
     it('keeps the transitions it recorded when the final read fails', async () => {
