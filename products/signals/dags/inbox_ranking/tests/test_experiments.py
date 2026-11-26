@@ -1308,12 +1308,9 @@ def test_a_report_family_recipe_has_no_pair_keys_so_its_hash_stays_as_it_was():
         for family in (NN_WITH_PRIO_ML_FEATURES_V2_FAMILY, backfill)
     )
     assert {key for key in served if served[key] != experiment[key]} == {"feature_set"}
-    # A family without its own network settings reads the shared ones, so its hash stays as it was.
     for family in MODEL_FAMILIES:
         if family.network_config is None:
             assert nn_dag.family_network_config(family) == config
-    # The narrow projection serves the recipe its experiment reads, and differs from its baseline in
-    # the projection alone.
     narrow, narrow_experiment = (
         network_recipe(family, nn_dag.family_network_config(family), PROJECT_VECTOR_KINDS)
         for family in (

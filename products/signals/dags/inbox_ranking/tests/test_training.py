@@ -2387,8 +2387,7 @@ def test_the_cap_drops_cross_family_entries_before_the_paired_read():
 
 @pytest.mark.parametrize("served", [family.name for family in serving_families()])
 def test_the_default_manifest_scores_every_serving_family(served):
-    # Challengers come after the recent versions, so a serving family registered past the cap would
-    # train every day and never get an online score.
+    # A serving family past the cap trains every day and never gets an online score.
     decision = compose_manifest(
         [],
         served=_serving_metadata(served, "2026-08-15"),

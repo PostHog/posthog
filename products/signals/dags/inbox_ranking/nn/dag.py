@@ -143,7 +143,7 @@ NN_WITH_PRIO_ML_FEATURES_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_ml_feature
 NN_WITH_PRIO_ML_FEATURES_PROJ8_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_ml_features_proj8_model_candidate"
 NN_WITH_PRIO_ML_FEATURES_PROJ8_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_ml_features_proj8_model_champion"
 
-# The settings the prototype compared against the champion recipe with, for every family that sets none.
+# The settings the prototype compared against the champion recipe with.
 NETWORK_CONFIG = NetworkConfig()
 # The seeds an experiment and its baseline are both fit with for the paired comparison.
 EXPERIMENT_SEEDS = (0, 1, 2)

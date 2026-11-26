@@ -52,12 +52,10 @@ NN_WITH_PRIO_ML_FEATURES_V2_MODEL_NAME = "nn_with_prio_ml_features_v2"
 NN_WITH_PRIO_ML_FEATURES_BACKFILL_MODEL_NAME = "nn_with_prio_ml_features_backfill_v1"
 NN_WITH_PRIO_ML_FEATURES_BACKFILL_AS_OF_MODEL_NAME = "nn_with_prio_ml_features_backfill_as_of_v1"
 ML_FEATURES_EXPERIMENT_EXPIRES = datetime.date(2026, 12, 9)
-# `nn_with_prio_ml_features_v1` stops here: `nn_with_prio_ml_features_v2` reads its recipe in shadow.
 ML_FEATURES_V1_EXPERIMENT_EXPIRES = datetime.date(2026, 11, 26)
 NN_WITH_PRIO_ML_FEATURES_PROJ8_MODEL_NAME = "nn_with_prio_ml_features_proj8_v1"
 NN_WITH_PRIO_ML_FEATURES_PROJ8_EXPERIMENT_MODEL_NAME = "nn_with_prio_ml_features_proj8_experiment_v1"
-# The report vector projected to 8 numbers rather than 64, so the network has less room to fit the
-# vector to tell teams apart.
+# A narrower projection leaves less room to fit the report vector to tell teams apart.
 NARROW_PROJECTION_NETWORK_CONFIG = NetworkConfig(projection_dim=8)
 # Room for three reads seven days apart.
 NARROW_PROJECTION_EXPERIMENT_EXPIRES = datetime.date(2026, 12, 23)
@@ -68,7 +66,7 @@ NN_WITH_PRIO_FIXED_MODEL_NAME = "nn_with_prio_fixed_v1"
 NN_WITH_PRIO_FIXED_NODISMISS_MODEL_NAME = "nn_with_prio_fixed_nodismiss_v1"
 FIXED_EXPERIMENT_EXPIRES = datetime.date(2026, 11, 27)
 NN_WITH_PRIO_AA_MODEL_NAME = "nn_with_prio_aa_v1"
-# As long as the narrow projection experiment, whose reads are judged against the A/A deltas of the same days.
+# The narrow projection experiment's reads are judged against the A/A deltas of the same days.
 AA_EXPERIMENT_EXPIRES = NARROW_PROJECTION_EXPERIMENT_EXPIRES
 # Far from any baseline seed, so the A/A arm never shares an initialization with its baseline.
 AA_SEED_OFFSET = 100
@@ -244,13 +242,11 @@ class ModelFamily:
 # then `ML_FEATURES_BACKFILL_BATCH_ID` for a late group the snapshot never recorded. Unlike the
 # experiments, it trains on a day the batch does not cover. It took the place of the sources
 # challenger `nn_with_prio_sources_v2` (`RETIRED_MODEL_NAMES`), whose columns its set holds.
-# `nn_with_prio_ml_features_proj8_v1` is `nn_with_prio_ml_features_v2` with the report vector
-# projected to 8 numbers, read in shadow as a challenger. `nn_with_prio_ml_features_proj8_experiment_v1`
-# is the same recipe graded against `nn_with_prio_ml_features_v2` on the same rows and seeds, so the
-# two arms differ only in the projection.
-# `nn_with_prio_ml_features_v1` was an experiment until 2026-11-26: the sources set plus one-hot report
-# facts (length, judgments, signal count, content counts and authorship, creation time), graded
-# against `nn_with_prio_v2`, with the holdout AUC each group carries recorded by shuffling it.
+# `nn_with_prio_ml_features_proj8_v1` and its experiment are `nn_with_prio_ml_features_v2` with
+# `NARROW_PROJECTION_NETWORK_CONFIG`; the experiment arms differ only in the projection.
+# `nn_with_prio_ml_features_v1` is an experiment: the sources set plus one-hot report facts (length,
+# judgments, signal count, content counts and authorship, creation time), graded against
+# `nn_with_prio_v2`, with the holdout AUC each group carries recorded by shuffling it.
 # `nn_with_prio_ml_features_backfill_v1` is that experiment with the content and `already_addressed`
 # values its snapshots never recorded filled from `ML_FEATURES_BACKFILL_BATCH_ID`, approximate values
 # included. `nn_with_prio_ml_features_backfill_as_of_v1` takes only the values known by the report's
