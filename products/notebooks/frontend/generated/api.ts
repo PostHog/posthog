@@ -481,7 +481,7 @@ export const getNotebooksAppPreviewCreateUrl = (projectId: string, shortId: stri
 export const notebooksAppPreviewCreate = async (
     projectId: string,
     shortId: string,
-    notebookAppLayoutApi: NotebookAppLayoutApi,
+    notebookAppLayoutApi: NonReadonly<NotebookAppLayoutApi>,
     options?: RequestInit
 ): Promise<NotebookAppReleaseReviewApi> => {
     return apiMutator<NotebookAppReleaseReviewApi>(getNotebooksAppPreviewCreateUrl(projectId, shortId), {

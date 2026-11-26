@@ -460,6 +460,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 }
 
                 if (props.onInspect) {
+                    const tableSelection = props.context?.onSelectResultRow
                     const sourceRowIndex = isTransposed ? index - 1 : data.rowIndex
                     const sourceColumns = isTransposed ? sourceTabularColumns : tabularColumns
                     return (
@@ -468,13 +469,15 @@ export const Table = (props: TableProps): JSX.Element => {
                             size="xsmall"
                             // The negative margin cancels the button padding, so the value lines up with the header text
                             className="-mx-1.5 max-w-[calc(100%+0.75rem)] !text-inherit"
-                            tooltip="Explore this result"
+                            tooltip={tableSelection ? 'Select this row' : 'Explore this result'}
                             onClick={() =>
                                 props.onInspect?.(
                                     Object.fromEntries(
                                         sourceColumns.map((column, index) => [
                                             column.column.name,
-                                            getSourceTableCell(sourceRowIndex, index).value,
+                                            tableSelection
+                                                ? tableResults[sourceRowIndex][column.column.dataIndex]
+                                                : getSourceTableCell(sourceRowIndex, index).value,
                                         ])
                                     )
                                 )

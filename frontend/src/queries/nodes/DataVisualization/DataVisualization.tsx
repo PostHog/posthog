@@ -618,7 +618,7 @@ function DataTableVisualizationContent({
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
                 embedded={props.embedded}
-                onInspect={canDrill ? inspect : undefined}
+                onInspect={props.context?.onSelectResultRow ?? (canDrill ? inspect : undefined)}
             />
         )
     } else if (sqlChartData) {

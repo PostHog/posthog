@@ -67,11 +67,13 @@ export function PublishedNotebookQuery({
     pinned,
     sessionId,
     chartInputFilters,
+    onSelectResultRow,
 }: {
     cell: NotebookComponentBlockNode
     current?: ViewerOutput
     pinned?: PublishedRunResult
     sessionId: string
+    onSelectResultRow?: QueryContext['onSelectResultRow']
     chartInputFilters: QueryContext['chartInputFilters']
 }): JSX.Element {
     const attributes = { ...cell.props, ...getSqlV2PropsFromQueryProp(cell.props) }
@@ -103,7 +105,7 @@ export function PublishedNotebookQuery({
                     uniqueKey={'SQLEditor-notebook-app-' + key}
                     query={viz}
                     cachedResults={result}
-                    context={{ chartInputFilters }}
+                    context={{ chartInputFilters, onSelectResultRow }}
                     readOnly
                     embedded
                 />

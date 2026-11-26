@@ -8,6 +8,7 @@ import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariabl
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
 import { appCellTitle } from './notebookAppLayout'
+import { NotebookAppSelectionSettings } from './NotebookAppSelectionSettings'
 
 const SLIDER_FIELDS = [
     { key: 'min', label: 'Minimum', defaultValue: 0 },
@@ -34,6 +35,7 @@ export function NotebookAppInspector({
     onClose: () => void
     onSource: (id: string) => void
 }): JSX.Element {
+    const source = cells.find((cell) => cell.id === block?.node_id)
     const variableType = variables.find((variable) => variable.name === block?.variable)?.type
     return (
         <aside
@@ -143,6 +145,16 @@ export function NotebookAppInspector({
                                 ]}
                                 onChange={(display) => onBlock(block.id, { display })}
                             />
+                            {source?.type === 'component' &&
+                                source.tagName === 'SQLV2' &&
+                                block.display !== 'source' && (
+                                    <NotebookAppSelectionSettings
+                                        cell={source}
+                                        block={block}
+                                        layout={layout}
+                                        onChange={(selection) => onBlock(block.id, { selection })}
+                                    />
+                                )}
                             <LemonButton size="small" type="secondary" onClick={() => onSource(block.node_id || '')}>
                                 Open source cell
                             </LemonButton>

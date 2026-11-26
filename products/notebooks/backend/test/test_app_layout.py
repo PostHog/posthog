@@ -13,6 +13,7 @@ from posthog.models import Team
 
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun, NotebookRun
+from products.notebooks.backend.presentation.app_serializers import NotebookAppLayoutSerializer
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
 
 LAYOUT = {
@@ -43,6 +44,44 @@ def test_partial_notebook_update_requires_a_complete_valid_app_layout(layout: di
     serializer = NotebookSerializer(data={"app_draft": layout}, partial=True)
     assert not serializer.is_valid()
     assert "app_draft" in serializer.errors
+
+
+@pytest.mark.parametrize(
+    ("condition", "variable", "tab", "valid"),
+    [
+        ("value > 0", "account", "overview", True),
+        ("value >", "account", "", False),
+        ("", "unpublished", "", False),
+        ("", "account", "removed", False),
+    ],
+)
+def test_app_selection_compiles_conditions_and_resolves_targets(
+    condition: str, variable: str, tab: str, valid: bool
+) -> None:
+    layout = NotebookAppLayoutSerializer(
+        data={
+            "tabs": LAYOUT["tabs"],
+            "blocks": [
+                {"id": "account", "kind": "input", "tab_id": "overview", "variable": "account"},
+                {
+                    "id": "table",
+                    "kind": "cell",
+                    "tab_id": "overview",
+                    "node_id": "rows",
+                    "selection": {
+                        "column": "id",
+                        "variable": variable,
+                        "tab_id": tab,
+                        "condition": condition,
+                        "condition_bytecode": ["provided"],
+                    },
+                },
+            ],
+        }
+    )
+    assert layout.is_valid() is valid
+    if valid:
+        assert layout.validated_data["blocks"][1]["selection"]["condition_bytecode"][0] == "_H"
 
 
 class TestNotebookAppLayout(APIBaseTest):

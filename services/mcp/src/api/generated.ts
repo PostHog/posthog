@@ -78003,6 +78003,31 @@ export namespace Schemas {
       Slider: 'slider',
     } as const;
 
+    export interface NotebookAppSelection {
+      /**
+         * Result column whose selected value sets the input.
+         * @maxLength 256
+         */
+      column: string;
+      /**
+         * Published input to update.
+         * @maxLength 80
+         */
+      variable: string;
+      /**
+         * Tab to open after selection.
+         * @maxLength 80
+         */
+      tab_id?: string;
+      /**
+         * Optional Hog condition over row, value, and inputs.
+         * @maxLength 1200
+         */
+      condition?: string;
+      /** Compiled Hog condition for this selection. */
+      readonly condition_bytecode: readonly unknown[];
+    }
+
     /**
      * * `output` - Output
      * * `source` - Source
@@ -78073,6 +78098,8 @@ export namespace Schemas {
          * @items.maxLength 1000
          */
       options?: string[];
+      /** Action when a viewer selects a result. */
+      selection?: NotebookAppSelection | null;
       /** Slider minimum. */
       min?: number;
       /** Slider maximum. */

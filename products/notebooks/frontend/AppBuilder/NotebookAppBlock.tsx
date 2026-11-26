@@ -33,7 +33,7 @@ export function NotebookAppBlock({
     canInteract: boolean
     onInput: (name: string, value: NotebookVariableValue) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
-    renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
+    renderOutput?: (cell: NotebookBlockNode, block: NotebookAppBlockApi) => JSX.Element | undefined
 }): JSX.Element {
     if (block.kind === 'divider') {
         return <hr aria-label={block.title || undefined} />
@@ -105,7 +105,7 @@ export function NotebookAppBlock({
                 </pre>
             ) : null}
             {block.display !== 'source' &&
-                (renderOutput?.(cell) ?? (
+                (renderOutput?.(cell, block) ?? (
                     <ComponentPanelContext.Provider
                         value={{
                             componentPanels: { filters: false, results: true },
