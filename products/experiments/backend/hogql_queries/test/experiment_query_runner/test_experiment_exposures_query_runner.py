@@ -27,10 +27,12 @@ from posthog.schema import (
     ExperimentExposureHealthFindingSeverity,
     ExperimentExposureQuery,
     ExperimentWarehouseNativeExposureConfig,
+    ExperimentWarehouseNativeRowsLeftOut,
     HogQLQueryResponse,
     MultipleVariantHandling,
 )
 
+from posthog.hogql.direct_sql.adapter import DirectQueryTimeoutError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.query_access_check import denied_query_resources
@@ -150,30 +152,69 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.execute_hogql_query"
             ) as warehouse,
         ):
-            warehouse.return_value = HogQLQueryResponse(
-                columns=["day", "variant", "exposures"],
-                results=[
-                    [date(2024, 1, 2), "control", 3],
-                    [date(2024, 1, 2), "test", 2],
-                    [date(2024, 1, 3), "control", 1],
-                    [date(2024, 1, 3), MULTIPLE_VARIANT_KEY, 1],
-                ],
-            )
+            warehouse.side_effect = [
+                HogQLQueryResponse(
+                    columns=["day", "variant", "exposures"],
+                    results=[
+                        [date(2024, 1, 2), "control", 3],
+                        [date(2024, 1, 2), "test", 2],
+                        [date(2024, 1, 3), "control", 1],
+                        [date(2024, 1, 3), MULTIPLE_VARIANT_KEY, 1],
+                    ],
+                ),
+                # The second statement counts the rows the first one left out, by reason.
+                HogQLQueryResponse(
+                    columns=["reason", "value", "rows"],
+                    results=[["unknown_variant", "Control", 3], ["empty_id", None, 1]],
+                ),
+            ]
             response = ExperimentExposuresQueryRunner(
                 team=self.team, query=self._warehouse_native_query(str(connection.id))
             ).calculate()
 
-        statement = warehouse.call_args.kwargs
+        statement, left_out = (call.kwargs for call in warehouse.call_args_list)
         assert statement["send_raw_query"] is True
         assert statement["connection_id"] == str(connection.id)
         assert "FROM exposures" in statement["query"]
         assert "DATE(" in statement["query"] and "'UTC'" in statement["query"]
+        assert left_out["connection_id"] == str(connection.id) and "unknown_variant" in left_out["query"]
+        assert response.rows_left_out == ExperimentWarehouseNativeRowsLeftOut(
+            unknown_variants={"Control": 3}, empty_id=1
+        )
         assert response.total_exposures == {"control": 4, "test": 2, MULTIPLE_VARIANT_KEY: 1}
         control = next(series for series in response.timeseries if series.variant == "control")
         assert control.exposure_counts == [0, 3, 4, 4, 4, 4, 4]
         assert response.exposed_by_library is None
         # The exposure health checks read flag calls and exposure events, which a warehouse has neither of.
         assert {check.status for check in response.health_checks} == {ExperimentExposureHealthCheckStatus.NOT_CHECKED}
+
+    def test_a_failing_diagnostic_keeps_the_exposures(self):
+        connection = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        with (
+            patch(
+                "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.execute_hogql_query"
+            ) as warehouse,
+        ):
+            warehouse.side_effect = [
+                HogQLQueryResponse(columns=["day", "variant", "exposures"], results=[[date(2024, 1, 2), "control", 3]]),
+                DirectQueryTimeoutError("BigQuery query timed out."),
+            ]
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._warehouse_native_query(str(connection.id))
+            ).calculate()
+
+        assert response.total_exposures["control"] == 3
+        assert response.rows_left_out is None
 
     def test_publishing_and_shared_links_need_access_to_the_connection(self):
         connection = ExternalDataSource.objects.create(

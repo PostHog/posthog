@@ -937,8 +937,9 @@ def _cache_key(
     # new fields.
     spec = json.dumps(
         [
-            # Which event the default exposure resolved to. The $experiment_exposure rollout can
-            # flip under a team, and cards computed on the other event are a different population.
+            # Which event the default exposure resolved to. It follows the start date and the
+            # EXPERIMENT_EXPOSURE_EVENT_CUTOFF setting, and cards computed on the other event are a
+            # different population.
             default_exposure_event,
             # The window end moves with wall-clock time on a running experiment, so it is quantized
             # to the cache's own TTL rather than to the minute: at minute resolution the key changes

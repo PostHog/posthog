@@ -43,9 +43,8 @@ const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 // its scopes are read again after this delay. Reconnecting the client does not help: same token.
 export const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
-// An empty answer is re-read sooner so that newly added data shows up within a minute.
-const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
-const METRIC_CATALOG_CACHE_TTL_MS = 60 * 60 * 1000 // 60 minutes
+const AVAILABILITY_CACHE_TTL_MS = 60 * 60 * 1000 // 60 minutes
+const AVAILABILITY_RETRY_AFTER_FAILURE_MS = 60 * 1000 // 1 minute
 // The integration list only adds a line to the environment prompt, so a slow response must not
 // hold `switch-project` for the full default request deadline. The caller serves the cached list.
 const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
@@ -625,6 +624,7 @@ export class StateManager {
         /** Skip the error report when the fetch hits its deadline. Use it for optional data with a short timeout. */
         expectTimeouts?: boolean
         discardOnError?: (cached: State[D]) => boolean
+        retryAfterFailureMs?: number
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
@@ -651,7 +651,12 @@ export class StateManager {
             if (!(opts.expectTimeouts && hasTimeoutCause(error))) {
                 this._reportException(error, `get_or_fetch_${opts.name}`)
             }
-            await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
+            // Backdated so the entry goes stale again after the retry window, not after a full lifetime.
+            const fetchedAtAfterFailure =
+                opts.retryAfterFailureMs === undefined
+                    ? Date.now()
+                    : Date.now() - (ttlMs ?? CACHE_TTL_MS) + opts.retryAfterFailureMs
+            await this._cache.set(opts.fetchedAtKey, fetchedAtAfterFailure as State[F]).catch(() => {})
             if (opts.discardOnError?.(cached)) {
                 await this._cache.delete(opts.cacheKey).catch(() => {})
                 return undefined as State[D]
@@ -761,7 +766,6 @@ export class StateManager {
         })
     }
 
-    /** An empty project is re-read on the short TTL, so a source the user just added gets its search guidance within a minute. */
     async getOrFetchBusinessKnowledgeContent(projectId: string): Promise<BusinessKnowledgeContent | undefined> {
         return this.getOrFetchCached({
             name: 'business_knowledge_content',
@@ -780,10 +784,18 @@ export class StateManager {
                         typeof availability.has_repositories === 'boolean' ? availability.has_repositories : undefined,
                 }
             },
-            ttlMs: (cached) =>
-                cached?.hasSources === false && cached.hasRepositories === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS,
+            ttlMs: AVAILABILITY_CACHE_TTL_MS,
             expectTimeouts: true,
+            discardOnError: (cached) => cached?.hasSources === false && cached.hasRepositories === false,
+            retryAfterFailureMs: AVAILABILITY_RETRY_AFTER_FAILURE_MS,
         })
+    }
+
+    async clearBusinessKnowledgeContent(projectId: string): Promise<void> {
+        await Promise.all([
+            this._cache.delete(`businessKnowledgeContent:${projectId}`),
+            this._cache.delete(`businessKnowledgeContentFetchedAt:${projectId}`),
+        ])
     }
 
     async getOrFetchMetricCatalog(projectId: string): Promise<MetricCatalogContent | undefined> {
@@ -800,10 +812,11 @@ export class StateManager {
                 })
                 return { hasMetrics: availability.has_metrics }
             },
-            ttlMs: METRIC_CATALOG_CACHE_TTL_MS,
+            ttlMs: AVAILABILITY_CACHE_TTL_MS,
             expectTimeouts: true,
             // A stale "no metrics" would keep agents skipping a metric saved since, so fall back to lookup.
             discardOnError: (cached) => cached?.hasMetrics === false,
+            retryAfterFailureMs: AVAILABILITY_RETRY_AFTER_FAILURE_MS,
         })
     }
 

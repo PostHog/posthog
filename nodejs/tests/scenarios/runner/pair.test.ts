@@ -239,6 +239,24 @@ describe('pairOf', () => {
         })
     })
 
+    it('summarises a queue read more often than one call takes arguments', () => {
+        const reads = 200_000
+        const queue = Array.from({ length: reads }, (_, read) => ({
+            at: DRIVE.startedAt + (read * (DRIVE.endedAt - DRIVE.startedAt)) / reads,
+            due: read === reads - 1 ? 900 : 3,
+            running: 0,
+            oldestDueSeconds: read === reads - 1 ? 60 : 1,
+            inserted: read,
+        }))
+
+        expect(pairOf(CARD, CLEAN, { ...BREACHED, queue }).runs?.[1].queue).toEqual({
+            dueAtStart: 3,
+            peakDue: 900,
+            growth: 897,
+            peakOldestDueSeconds: 60,
+        })
+    })
+
     it('hashes the control as the card it runs: the same card with its valves removed', () => {
         const yaml = parse(readFileSync(path.join(CARDS, 'destination-errors.yaml'), 'utf8'))
         const valveFree = loadText('valve-free', {

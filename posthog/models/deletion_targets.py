@@ -5,8 +5,9 @@ that stores rows attributable to a person. This module is the one list of those 
 that starts carrying person data gets registered here rather than found by an auditor months later.
 
 Every target is swept with predicates built only from columns all of them declare: ``team_id``,
-``person_id``, ``distinct_id``, ``timestamp``, ``uuid``, ``event``, plus the ingestion-time column
-each target names in ``inserted_at_column``.
+``person_id``, ``distinct_id``, ``timestamp``, ``uuid``, plus the ingestion-time column each target
+names in ``inserted_at_column``. Event removal also reads ``event``, and property removal
+``properties``, on the targets that store events.
 
 The reasoning behind each registration, exclusion and known gap is in
 docs/internal/clickhouse-deletion-coverage.md.
@@ -26,6 +27,14 @@ from clickhouse_driver.errors import ServerException
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
+from posthog.clickhouse.preaggregation.experiment_exposures_sql import (
+    DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE,
+    SHARDED_EXPERIMENT_EXPOSURES_TABLE,
+)
+from posthog.clickhouse.preaggregation.experiment_metric_events_sql import (
+    DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE,
+    SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE,
+)
 from posthog.models.ai_events.sql import (
     DATA_TABLE_NAME as AI_EVENTS_DATA_TABLE,
     TABLE_BASE_NAME as AI_EVENTS_TABLE,
@@ -142,6 +151,12 @@ class DeletionTarget:
     # ``properties`` or ``person_properties`` and has both columns. Where it cannot, a property
     # removal counts every row in the request's window and events instead.
     property_presence_checkable: bool = True
+    # True where every row is a summary built from events rather than a copy of one. Event removal
+    # and property removal skip such a table instead of counting its rows: it has no ``event`` or
+    # ``properties`` column to match a request on. A build after the events are removed does not
+    # write the row again, and the TTL drops it. Person, team and queued-uuid sweeps and the squash
+    # still run here, because the row names a person.
+    derived_from_events: bool = False
 
     @property
     def cluster_name(self) -> str:
@@ -262,8 +277,45 @@ AI_EVENTS = DeletionTarget(
     property_presence_checkable=False,
 )
 
+# The experiment precompute cache. A row summarizes one person's exposure to an experiment, or one
+# metric event of that person, and stores the person_id, the distinct_id and the uuid of the event it
+# was built from. The person, team and queued-uuid sweeps match on the ``timestamp``, ``uuid`` and
+# ``inserted_at`` aliases both tables declare, and the squash rewrites person_id. Event removal and
+# property removal skip both tables (``derived_from_events``). A row can keep a value derived from a
+# removed property, for example a breakdown value, until its TTL drops it. A row built with the
+# experiments-precompute-person-resolution flag off stores no distinct_id, so the squash cannot
+# rewrite it, and it keeps the person_id of its build until it expires. Turning the flag on for a
+# team builds its rows again with the distinct_id. docs/internal/clickhouse-deletion-coverage.md
+# records both bounds.
+EXPERIMENT_EXPOSURES = DeletionTarget(
+    data_table=SHARDED_EXPERIMENT_EXPOSURES_TABLE(),
+    read_table=DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE(),
+    accepts_person_id_rewrite=True,
+    # A row carries the uuid of the exposure event it was built from, which the events targets queue.
+    queue_uuid_candidates=False,
+    derived_from_events=True,
+)
+
+EXPERIMENT_METRIC_EVENTS = DeletionTarget(
+    data_table=SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(),
+    read_table=DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE(),
+    optional=True,
+    cluster_setting="CLICKHOUSE_AUX_CLUSTER",
+    node_role=NodeRole.AUX,
+    accepts_person_id_rewrite=True,
+    # A row carries the uuid of the metric event it was built from, which the events targets queue.
+    queue_uuid_candidates=False,
+    derived_from_events=True,
+)
+
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
-PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS, AI_EVENTS)
+PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (
+    *EVENTS_TARGETS,
+    FLAG_EVALUATIONS,
+    AI_EVENTS,
+    EXPERIMENT_EXPOSURES,
+    EXPERIMENT_METRIC_EVENTS,
+)
 
 # The targets deletes_job sweeps and deletion requests verify by default. Leaving a target out
 # keeps it registered while its rows stay in place; see COVERAGE_DOC.
@@ -487,6 +539,7 @@ def count_surviving_rows(cluster: ClickhouseCluster, target: DeletionTarget, pre
 
 
 _STORES_NONE_OF_THE_EVENTS = "it stores none of the request's events"
+_HOLDS_DERIVED_ROWS = "its rows are summaries built from events and expire on their TTL"
 
 
 @dataclass(frozen=True)
@@ -522,9 +575,12 @@ def assert_no_unsweepable_rows(
     nothing to strand.
     """
     for target in targets:
-        criteria = (
-            predicate_for(target) if target.may_hold_any_of(events) else NotCounted(reason=_STORES_NONE_OF_THE_EVENTS)
-        )
+        if target.derived_from_events:
+            criteria: tuple[str, dict] | NotCounted = NotCounted(reason=_HOLDS_DERIVED_ROWS)
+        elif not target.may_hold_any_of(events):
+            criteria = NotCounted(reason=_STORES_NONE_OF_THE_EVENTS)
+        else:
+            criteria = predicate_for(target)
         if isinstance(criteria, NotCounted):
             if log:
                 log.info(f"{target.read_table}: not counted, because {criteria.reason}")
