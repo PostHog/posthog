@@ -87,7 +87,7 @@ Trusted floor raises, decay, suspension drops, admin recomputes, and the backfil
 
 An email step categorized as transactional is never delayed by the send-time bucket, in any mode.
 A password reset or a receipt that arrives two hours late has already failed the person waiting for it, so pacing it achieves nothing that dropping it would not.
-The billing quota is narrower: it exempts only the email step the transactional send API makes, and support workflows that trigger on the support product's own events.
+The billing quota is narrower: it exempts only the email step the transactional send API makes, and support workflows that trigger on the support product's own events and whose email steps are all transactional.
 A workflow email in a transactional category still counts against the email quota.
 
 The send still drains the bucket by what it costs, so transactional volume displaces the project's marketing while tokens remain.

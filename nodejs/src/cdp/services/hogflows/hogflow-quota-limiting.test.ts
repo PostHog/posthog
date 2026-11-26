@@ -101,7 +101,11 @@ describe('HogFlow Quota Limiting', () => {
             {
                 name: 'a transactional send is not limited',
                 trigger: { type: 'api' },
-                actions: [transactionalSendEmail],
+                actions: [
+                    { id: 'trigger_node', type: 'trigger', config: { type: 'api' } },
+                    transactionalSendEmail,
+                    { id: 'exit_node', type: 'exit', config: { reason: 'Default exit' } },
+                ],
                 limitedResources: ['workflow_emails'],
                 expected: false,
             },
