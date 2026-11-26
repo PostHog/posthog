@@ -32,6 +32,8 @@ rules:
       owners: team-billing
     - match: '/heatmaps/'
       owners: team-analytics
+    - match: ['/helpers/ai_signup_attribution.py', '/helpers/tests/test_ai_signup_attribution.py']
+      owners: team-growth
     - match: '/hogql/'
       owners: team-data-tools
     - match:
