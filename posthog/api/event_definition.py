@@ -9,7 +9,7 @@ from typing import Any, Literal, Optional, cast
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, connections, transaction
-from django.db.models import Field, Manager, Prefetch
+from django.db.models import Field, Manager
 from django.http import Http404
 from django.utils import timezone
 
@@ -52,7 +52,7 @@ from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import ObjectMediaPreview, TaggedItem, Team
+from posthog.models import ObjectMediaPreview, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.event_filter_config import add_event_name_drop
 from posthog.models.tagged_item_registry import content_type_for
@@ -931,11 +931,7 @@ class EventDefinitionViewSet(
         validated = serializer.validated_data
         validated_ids = validated["ids"]
 
-        objects = list(
-            EventDefinition.objects.filter(id__in=validated_ids, team__project_id=self.project_id).prefetch_related(
-                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
-            )
-        )
+        objects = list(EventDefinition.objects.filter(id__in=validated_ids, team__project_id=self.project_id))
 
         found_ids = {obj.id for obj in objects}
         skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in found_ids]
@@ -947,9 +943,12 @@ class EventDefinitionViewSet(
             # The single-object event-definition update path logs under the "changed" verb.
             activity="changed",
         )
-        self.validate_bulk_tag_changes(objects, validated["action"], validated["tags"])
         updated = apply_bulk_tag_changes(
-            objects, validated["action"], validated["tags"], activity_context=activity_context
+            objects,
+            validated["action"],
+            validated["tags"],
+            activity_context=activity_context,
+            validate=self.validate_bulk_tag_changes,
         )
         return response.Response({"updated": updated, "skipped": skipped})
 

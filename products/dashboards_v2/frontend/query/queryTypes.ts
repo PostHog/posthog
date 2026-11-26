@@ -1,8 +1,8 @@
-import type { WidgetQuery } from '../dashboard/document/dashboardSchema'
+import type { PanelQuery } from '../dashboard/document/dashboardSchema'
 import type { TimeRange } from '../dashboard/document/dashboardTypes'
 import type { AppliedFilter } from '../filters/filtersContext'
 
-/** A query's result in one shape every widget reads, so a chart can switch kind without running its query again. */
+/** A query's result in one shape every panel reads, so a chart can switch kind without running its query again. */
 export type DataFrame = {
     name?: string
     refId?: string
@@ -14,9 +14,9 @@ export type DataFrame = {
     }[]
 }
 
-/** What a widget asks the host's runner to run. The time range is the widget's own, or the one around it. */
+/** What a panel asks the host's runner to run. The time range is the panel's own, or the one around it. */
 export type QueryRequest = {
-    query: WidgetQuery
+    query: PanelQuery
     /** Left out, the query runs on the range saved in it. */
     time?: TimeRange
     legend?: string
@@ -33,5 +33,5 @@ export type QueryResult = {
     stale?: boolean
 }
 
-/** Runs a widget's query and returns its result. The host supplies it, so the dashboard never fetches data itself. */
+/** Runs a panel's query and returns its result. The host supplies it, so the dashboard never fetches data itself. */
 export type RunQuery = (request: QueryRequest) => Promise<QueryResult>
