@@ -1485,6 +1485,6 @@ def restore_board(
     return v2_boards.restore_board(team_id, uid, user_id, version, base_version)
 
 
-def delete_board(team_id: int, uid: str) -> None:
+def delete_board(team_id: int, uid: str, user_id: int) -> None:
     """Soft-delete a native board, which frees its uid. Raises `BoardReadOnly` for any other board."""
-    v2_boards.delete_board(team_id, uid)
+    v2_boards.delete_board(team_id, uid, user_id)

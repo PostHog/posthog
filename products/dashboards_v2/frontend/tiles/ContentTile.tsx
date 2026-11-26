@@ -1,19 +1,35 @@
-import type { ContentWidget } from '../dashboard/dashboardTypes'
-import { useDashboardV2 } from '../dashboard/dashboardV2Context'
-import { useContentTileActions } from './TileContextMenu'
-import { WidgetCard } from './WidgetCard'
+import { useCallback, useRef } from 'react'
 
-/** A widget card inside a dashboard, with the actions the dashboard allows on it. */
+import type { ContentPanel } from '../dashboard/dashboardTypes'
+import { useDashboardV2 } from '../dashboard/dashboardV2Context'
+import { PanelCard } from './PanelCard'
+import { useContentTileActions } from './TileContextMenu'
+
+/** A panel card inside a dashboard, with the actions the dashboard allows on it. */
 export function ContentTile({
     id,
-    widget,
+    panel,
     editable,
 }: {
     id: string
-    widget: ContentWidget
+    panel: ContentPanel
     editable: boolean
 }): JSX.Element {
-    const { widgets } = useDashboardV2()
-    const actions = useContentTileActions(id, widget)
-    return <WidgetCard widget={widget} widgets={widgets} actions={actions} editable={editable} />
+    const { panels, disabledReasonFor, onEdit } = useDashboardV2()
+    const actions = useContentTileActions(id, panel)
+    const canSetConfig = !disabledReasonFor('setPanelConfig')
+    // `onEdit` changes with every dashboard edit; a stable `setConfig` keeps `PanelView`'s memo, so moving tiles
+    // doesn't re-render every panel.
+    const onEditRef = useRef(onEdit)
+    onEditRef.current = onEdit
+    const setConfig = useCallback((config: unknown) => onEditRef.current({ edit: 'setPanelConfig', id, config }), [id])
+    return (
+        <PanelCard
+            panel={panel}
+            panels={panels}
+            actions={actions}
+            editable={editable}
+            setConfig={canSetConfig ? setConfig : undefined}
+        />
+    )
 }

@@ -3,7 +3,7 @@ import { TextDecoder, TextEncoder } from 'node:util'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import type { QueryRequest } from '../widgets/chart/vizTypes'
+import type { QueryRequest } from '../panels/chart/vizTypes'
 import { BUSY_ERROR, createQueryBatchRunner } from './queryBatchRunner'
 
 const TIME = { from: 'now-7d', to: 'now' }

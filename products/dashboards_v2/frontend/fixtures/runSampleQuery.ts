@@ -1,4 +1,4 @@
-import type { DataFrame, RunQuery, WidgetQuery } from '../widgets/chart/vizTypes'
+import type { DataFrame, RunQuery, PanelQuery } from '../panels/chart/vizTypes'
 
 const DAYS = 14
 
@@ -10,7 +10,7 @@ function seededRandom(seed: string): () => number {
     }
 }
 
-function seriesNames(query: WidgetQuery): string[] {
+function seriesNames(query: PanelQuery): string[] {
     const text = typeof query.query === 'string' ? query.query : JSON.stringify(query.query)
     return / by (?!day)|breakdown|sum by|serviceNames/.test(text) ? ['Chrome', 'Safari', 'Firefox'] : ['Value']
 }

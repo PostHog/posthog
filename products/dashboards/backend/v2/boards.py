@@ -26,7 +26,14 @@ from products.dashboards.backend.facade.contracts import (
 )
 from products.dashboards.backend.facade.enums import BoardManagedBy
 from products.dashboards.backend.models.dashboard_v2_board import DashboardV2Board, DashboardV2BoardVersion
-from products.dashboards.backend.v2.board_schema import check_size, folder_of, tags_of, title_of, upgrade
+from products.dashboards.backend.v2.board_schema import (
+    check_size,
+    check_storable,
+    folder_of,
+    tags_of,
+    title_of,
+    upgrade,
+)
 
 # Each version holds a whole document of up to `MAX_BOARD_SPEC_BYTES`, so history is capped per board to keep its
 # storage bounded however often the board is saved or restored.
@@ -69,6 +76,7 @@ def _detail(board: DashboardV2Board) -> BoardDetail:
 def _prepare(spec: dict[str, Any]) -> dict[str, Any]:
     spec = upgrade(spec)
     check_size(spec)
+    check_storable(spec)
     return spec
 
 
@@ -195,8 +203,9 @@ def _save(board: DashboardV2Board, user_id: int, spec: dict[str, Any], base_vers
     _record_version(board, user_id, message)
 
 
-def delete_board(team_id: int, uid: str) -> None:
+def delete_board(team_id: int, uid: str, user_id: int) -> None:
     with transaction.atomic():
         board = _locked_native(team_id, uid)
         board.deleted = True
-        board.save(update_fields=["deleted", "last_modified_at"])
+        board.last_modified_by_id = user_id
+        board.save(update_fields=["deleted", "last_modified_by", "last_modified_at"])

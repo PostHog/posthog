@@ -34,7 +34,12 @@ class TestBoardSchemaUpgrade(SimpleTestCase):
         assert upgraded["version"] == CURRENT_SCHEMA_VERSION
         assert upgraded["aFieldFromANewerClient"] == {"kept": True}
         assert [tab["id"] for tab in upgraded["tabs"]] == [tab["id"] for tab in stored["tabs"]]
-        assert [tile["id"] for tile in upgraded["tabs"][0]["tiles"]] == ["t-stat", "t-shared", "s-more"]
+        tiles = upgraded["tabs"][0]["tiles"]
+        assert [tile["id"] for tile in tiles] == ["t-stat", "t-shared", "s-more"]
+        assert list(upgraded["panels"]) == ["shared-count"] and "widgets" not in upgraded
+        nested = tiles[2]["panel"]["tiles"]
+        assert all("panel" in tile and "widget" not in tile for tile in [*tiles, *nested])
+        assert nested[0]["panel"]["config"] == {"text": "Hello"}
 
 
 def _board(title: str = "Kitchen sink", **extra: Any) -> dict:
@@ -153,6 +158,7 @@ class TestDashboardV2Boards(APIBaseTest):
             ("newer_schema_than_this_server", {**_board(), "version": CURRENT_SCHEMA_VERSION + 1}),
             ("no_schema_version", {"title": "x", "tabs": []}),
             ("too_large", _board(description="x" * MAX_BOARD_SPEC_BYTES)),
+            ("nul_character", {**_board(), "tabs": [{"id": "t", "tiles": [{"id": "a\x00b"}]}]}),
         ]
     )
     def test_rejects_a_document_that_is_not_a_version_2_board(self, _name: str, spec: Any) -> None:
@@ -171,6 +177,12 @@ class TestDashboardV2Boards(APIBaseTest):
         assert patched.status_code == status.HTTP_404_NOT_FOUND
         assert self.client.delete(self._url(uid, other_team.pk)).status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(self._url(uid)).json()["title"] == "Kitchen sink"
+
+    def test_a_child_environment_of_the_project_is_not_found(self) -> None:
+        child = Team.objects.create(organization=self.organization, project=self.team.project, name="Child")
+
+        assert self.client.get(self._url(team_id=child.pk)).status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.post(self._url(team_id=child.pk), {"spec": _board()}, format="json").status_code == 404
 
     def _member(self) -> User:
         self.organization.available_product_features = [
@@ -193,6 +205,11 @@ class TestDashboardV2Boards(APIBaseTest):
         assert self.client.get(self._url(hidden["uid"])).status_code in (403, 404)
         patched = self.client.patch(self._url(hidden["uid"]), {"spec": _board("x")}, format="json")
         assert patched.status_code in (403, 404)
+
+        admin = User.objects.create_and_join(self.organization, "admin@posthog.com", "password")
+        OrganizationMembership.objects.filter(user=admin).update(level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin)
+        assert {row["uid"] for row in self.client.get(self._url()).json()["results"]} == {shown["uid"], hidden["uid"]}
 
     def test_without_dashboard_access_a_member_sees_only_granted_and_own_boards(self) -> None:
         granted = self._create(_board("Granted")).json()

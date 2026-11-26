@@ -14,11 +14,11 @@ import { DashboardV2View } from './dashboard/DashboardV2View'
 import { dashboardV2Logic } from './dashboardV2Logic'
 import { createQueryBatchRunner } from './data/queryBatchRunner'
 import { runSampleQuery } from './fixtures/runSampleQuery'
-import { createChartWidget } from './widgets/chart/createChartWidget'
-import { DEFAULT_WIDGETS } from './widgets/defaultWidgets'
+import { createChartPanel } from './panels/chart/createChartPanel'
+import { DEFAULT_PANELS } from './panels/defaultPanels'
 
-const NON_CHART_WIDGETS = DEFAULT_WIDGETS.filter((widget) => widget.type !== 'chart')
-const SAMPLE_WIDGETS = [createChartWidget({ runQuery: runSampleQuery }), ...NON_CHART_WIDGETS]
+const NON_CHART_PANELS = DEFAULT_PANELS.filter((panel) => panel.type !== 'chart')
+const SAMPLE_PANELS = [createChartPanel({ runQuery: runSampleQuery }), ...NON_CHART_PANELS]
 
 export const scene: SceneExport = {
     component: DashboardV2Scene,
@@ -45,18 +45,18 @@ function DashboardV2(): JSX.Element {
         !!currentTeamId
     // The chart cache is keyed by runner, so a runner per visit drops results checked against this person's access
     // when they leave, instead of showing them again after their access changes.
-    const widgets = useMemo(
+    const panels = useMemo(
         () =>
             runsRealQueries && currentTeamId
-                ? [createChartWidget({ runQuery: createQueryBatchRunner(currentTeamId) }), ...NON_CHART_WIDGETS]
-                : SAMPLE_WIDGETS,
+                ? [createChartPanel({ runQuery: createQueryBatchRunner(currentTeamId) }), ...NON_CHART_PANELS]
+                : SAMPLE_PANELS,
         [runsRealQueries, currentTeamId]
     )
     const controller = useMemo<DashboardV2Controller>(
         () => ({
             dashboard,
             activeTabId,
-            widgets,
+            panels,
             disabledReasonFor,
             onEdit: applyDashboardEdit,
             onActiveTabChange: setActiveTab,
@@ -66,7 +66,7 @@ function DashboardV2(): JSX.Element {
         [
             dashboard,
             activeTabId,
-            widgets,
+            panels,
             disabledReasonFor,
             applyDashboardEdit,
             setActiveTab,

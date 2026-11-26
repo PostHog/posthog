@@ -161,6 +161,7 @@ rules:
                               |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardV2Board
                               |DashboardWidget
                               |DashboardV2Board
                               |DashboardV2BoardVersion
@@ -725,6 +726,7 @@ rules:
                         |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardV2Board
                         |DashboardWidget
                         |DashboardV2Board
                         |DashboardV2BoardVersion

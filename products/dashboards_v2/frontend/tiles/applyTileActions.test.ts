@@ -1,12 +1,12 @@
-import type { Widget } from '../dashboard/dashboardTypes'
+import type { Panel } from '../dashboard/dashboardTypes'
 import type { MenuAction } from '../dashboard/menuAction'
 import { applyTileActionFilters } from './applyTileActions'
 
 const action = (key: string): MenuAction => ({ key, label: key, dataAttr: key, disabledReason: null })
-const tile = { id: 't1', widget: { type: 'text', config: {} } as unknown as Widget }
+const tile = { id: 't1', panel: { type: 'text', config: {} } as unknown as Panel }
 
 describe('applyTileActionFilters', () => {
-    it('lets the host remove an action after the widget type added it', () => {
+    it('lets the host remove an action after the panel type added it', () => {
         const result = applyTileActionFilters(
             [action('move'), action('remove')],
             tile,
@@ -16,7 +16,7 @@ describe('applyTileActionFilters', () => {
         expect(result.map((entry) => entry.key)).toEqual(['move'])
     })
 
-    it('gives the host what the widget filter returned', () => {
+    it('gives the host what the panel filter returned', () => {
         const seen: string[][] = []
         applyTileActionFilters(
             [action('remove')],

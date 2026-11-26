@@ -1,21 +1,21 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType } from '~/types'
 
-import type { WidgetQuery } from '../dashboard/dashboardSchema'
-import { type ContentWidget, type Dashboard, GRID, type Tile } from '../dashboard/dashboardTypes'
-import type { ChartConfig } from '../widgets/chart/chartSpec'
-import { type StatOptions, statSpec } from '../widgets/chart/viz/stat/statSpec'
+import type { PanelQuery } from '../dashboard/dashboardSchema'
+import { type ContentPanel, type Dashboard, GRID, type Tile } from '../dashboard/dashboardTypes'
+import type { ChartConfig } from '../panels/chart/chartSpec'
+import { type StatOptions, statSpec } from '../panels/chart/viz/stat/statSpec'
 
-const chartOf = (title: string, query: WidgetQuery, viz: ChartConfig['viz']): ContentWidget<ChartConfig> => ({
+const chartOf = (title: string, query: PanelQuery, viz: ChartConfig['viz']): ContentPanel<ChartConfig> => ({
     type: 'chart',
     title,
     config: { query, viz },
 })
-const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(title, { language: 'hogql', query: sql }, viz)
-const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(title, { language: 'metrics', query: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql } }, viz)
-const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(
         title,
         {
@@ -24,24 +24,24 @@ const traces = (title: string, service: string, viz: ChartConfig['viz']): Conten
         },
         viz
     )
-const stat = (title: string, sql: string, format?: StatOptions['format']): ContentWidget<ChartConfig> =>
+const stat = (title: string, sql: string, format?: StatOptions['format']): ContentPanel<ChartConfig> =>
     chart(title, sql, format ? { type: 'stat', options: { format } } : { type: 'stat' })
-const line = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'line' })
-const bar = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'bar' })
-const text = (markdown: string): ContentWidget => ({ type: 'markdown', config: { text: markdown } })
+const line = (title: string, sql: string): ContentPanel<ChartConfig> => chart(title, sql, { type: 'line' })
+const bar = (title: string, sql: string): ContentPanel<ChartConfig> => chart(title, sql, { type: 'bar' })
+const text = (markdown: string): ContentPanel => ({ type: 'markdown', config: { text: markdown } })
 
-const tile = (id: string, x: number, y: number, w: number, h: number, widget: Tile['widget']): Tile => ({
+const tile = (id: string, x: number, y: number, w: number, h: number, panel: Tile['panel']): Tile => ({
     id,
     place: { x, y, w, h },
-    widget,
+    panel,
 })
 const section = (id: string, x: number, y: number, w: number, title: string, tiles: Tile[], collapsed = false): Tile =>
     tile(id, x, y, w, GRID.collapsedSectionRows, { type: 'section', title, tiles, collapsed })
 
 const STAT_ROWS = statSpec.size.h
-const statRow = (prefix: string, y: number, cols: number, stats: ContentWidget<ChartConfig>[]): Tile[] => {
+const statRow = (prefix: string, y: number, cols: number, stats: ContentPanel<ChartConfig>[]): Tile[] => {
     const w = Math.floor(cols / stats.length)
-    return stats.map((widget, index) => tile(`${prefix}-${index}`, index * w, y, w, STAT_ROWS, widget))
+    return stats.map((panel, index) => tile(`${prefix}-${index}`, index * w, y, w, STAT_ROWS, panel))
 }
 
 // The SQL reads the dashboard's time range through `{filters}`.
@@ -161,7 +161,7 @@ const BIG_TILE_COUNT = 120
 export const kitchenSinkDashboard: Dashboard = {
     version: 2,
     title: 'Dashboards v2',
-    description: 'Every widget, section and chart option on one dashboard.',
+    description: 'Every panel, section and chart option on one dashboard.',
     time: { from: 'now-14d', to: 'now' },
     tabs: [
         {
@@ -197,7 +197,7 @@ export const kitchenSinkDashboard: Dashboard = {
                 section('ks-queries', 0, 98, 24, 'Every query language and chart option', [
                     tile('ks-q-hogql', 0, 0, 8, 14, line('HogQL query', SQL.pageviewsOverTime)),
                     tile('ks-q-metrics', 8, 0, 8, 14, metrics('Metrics query', 'sum(rate(http_requests_total[5m]))', { type: 'line' })),
-                    tile('ks-q-traces', 16, 0, 8, 14, traces('Trace query', 'checkout', { type: 'bar' })),
+                    tile('ks-q-traces', 16, 0, 8, 14, traces('Trace query', 'posthog-web-django', { type: 'bar' })),
                     tile('ks-q-stacked', 0, 14, 12, 14, chart('Stacked bars', SQL.eventsByType, { type: 'bar', options: { stack: true } })),
                     tile('ks-q-currency', 12, 14, 6, STAT_ROWS, stat('Revenue', SQL.revenue, 'currency')),
                     tile('ks-q-number', 18, 14, 6, STAT_ROWS, stat('Signups', SQL.signups, 'number')),
@@ -312,8 +312,8 @@ export const kitchenSinkDashboard: Dashboard = {
                 tile('apm-requests', 0, 8, 12, 16, metrics('Requests and errors', 'sum by (status) (rate(http_server_requests_total[5m]))', { type: 'line' })),
                 tile('apm-latency', 12, 8, 12, 16, metrics('Latency', 'histogram_quantile(0.95, sum by (le) (rate(http_server_duration_bucket[5m])))', { type: 'line' })),
                 section('apm-endpoints', 0, 24, 24, 'Endpoints', [
-                    tile('apm-slowest', 0, 0, 12, 16, traces('Slowest operations', 'checkout', { type: 'bar' })),
-                    tile('apm-busiest', 12, 0, 12, 16, traces('Busiest operations', 'checkout', { type: 'bar', options: { stack: true } })),
+                    tile('apm-slowest', 0, 0, 12, 16, traces('Slowest operations', 'posthog-web-django', { type: 'bar' })),
+                    tile('apm-busiest', 12, 0, 12, 16, traces('Busiest operations', 'posthog-web-django', { type: 'bar', options: { stack: true } })),
                 ]),
             ],
         },

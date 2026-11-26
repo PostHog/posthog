@@ -1,10 +1,10 @@
 import type { ComponentType } from 'react'
 import type { z } from 'zod'
 
-import type { WidgetQuery } from '../../dashboard/dashboardSchema'
-import type { TimeRange, WidgetSize } from '../../dashboard/dashboardTypes'
+import type { PanelQuery } from '../../dashboard/dashboardSchema'
+import type { TimeRange, PanelSize } from '../../dashboard/dashboardTypes'
 
-export type { WidgetQuery }
+export type { PanelQuery }
 
 /** A query's result in one shape every kind of chart reads, so a chart can switch kind without running its query again. */
 export interface DataFrame {
@@ -20,7 +20,7 @@ export interface DataFrame {
 
 /** What a chart asks the host's runner to run. The time range is the chart's own, or the one around it. */
 export interface QueryRequest {
-    query: WidgetQuery
+    query: PanelQuery
     time: TimeRange
     legend?: string
 }
@@ -43,14 +43,14 @@ export interface VizSpec<Options = unknown> {
     type: string
     /** The name the add menu shows. */
     label: string
-    size: WidgetSize
+    size: PanelSize
     /** The shape of `config.viz.options`. Missing options are `{}`. */
     optionsSchema: z.ZodType<Options>
 }
 
 /**
  * What a chart shows before it has rows to draw. Each one is optional: a kind of chart can set its own, the host can
- * set defaults for every chart with `createChartWidget`, and the chart widget has built-in ones for the rest. The
+ * set defaults for every chart with `createChartPanel`, and the chart panel has built-in ones for the rest. The
  * built-in kinds of chart set a skeleton shaped like the chart, which a host's `states.Loading` replaces.
  */
 export interface ChartStates<Options = unknown> {

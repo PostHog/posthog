@@ -392,6 +392,56 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual([line["result"]["cache"]["stale"] for line in lines], [True, True, True])
         self.assertEqual(len(refreshed), 1)
 
+    @parameterized.expand(
+        [
+            ("span_refresh_idle", False, 4, 1),
+            ("span_refresh_in_flight", True, 4, 1),
+            ("span_slots_taken", False, 0, 1),
+            ("one_span_refresh_per_board", False, 4, 2),
+        ]
+    )
+    def test_a_span_refresh_in_flight_holds_back_only_the_next_span_refresh(
+        self, _name: str, busy: bool, span_slots: int, span_tiles: int
+    ) -> None:
+        self._warm_via_query_endpoint("$pageview")
+        span_panels = [
+            {
+                "target": {
+                    "refId": f"traces{n}",
+                    "language": "query",
+                    "query": json.dumps(
+                        {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": f"-{24 + n}h"}}
+                    ),
+                },
+                "time": _LAST_7_DAYS,
+                "swr": True,
+            }
+            for n in range(span_tiles)
+        ]
+        self._lines(span_panels, format="frames")
+        shares = query_batch_module._share_keys(self.team.organization_id, self.user.pk)
+        refreshed: list[str] = []
+
+        with (
+            patch.object(query_batch_module, "_span_refresh_shares", set(shares) if busy else set()),
+            patch.object(query_batch_module, "_span_refresh_slots", Semaphore(span_slots)),
+            patch("products.dashboards.backend.v2.query_batch._is_stale", return_value=True),
+            patch(
+                "products.dashboards.backend.v2.query_batch.process_query_dict",
+                side_effect=lambda team, query, **kwargs: refreshed.append(query["kind"]),
+            ),
+        ):
+            self._lines([*span_panels, _insight("$pageview", swr=True)], format="frames")
+            wait_until(
+                lambda: (
+                    query_batch_module._refresh_slots._value == query_batch_module.MAX_QUEUED_REFRESHES
+                    and query_batch_module._span_refresh_slots._value == span_slots
+                )
+            )
+
+        expected = ["DataTableNode"] if busy or not span_slots else ["DataTableNode", "TraceSpansAggregationQuery"]
+        self.assertEqual(sorted(refreshed), sorted(expected))
+
     @parameterized.expand([("stream_deadline", "MAX_STREAM_SECONDS"), ("idle_deadline", "MAX_IDLE_SECONDS")])
     def test_a_client_that_stops_reading_gives_its_place_back(self, _name: str, deadline: str) -> None:
         inputs = _cache_only_inputs()
@@ -516,6 +566,59 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
         )
         # A SQL tile is fresh for as long as its range's interval allows, so the hour tile expires first.
         self.assertEqual([line["result"]["cache"]["stale"] for line in later[1:]], [False, True])
+
+    @parameterized.expand(
+        [
+            (kind, access_level)
+            for kind in ("TraceSpansQuery", "TraceSpansAggregationQuery")
+            for access_level in ("none", "viewer")
+        ]
+    )
+    def test_a_traces_tile_runs_only_in_the_batch_and_only_with_tracing_access(
+        self, kind: str, access_level: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level=access_level)
+        self.client.force_login(
+            self._create_user("traces-member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        )
+        query = {"kind": kind, "dateRange": {"date_from": "-24h"}, "serviceNames": ["posthog-web-django"]}
+        target = {"refId": "traces", "language": "query", "query": json.dumps(query)}
+
+        [line] = self._lines([{"target": target, "time": _LAST_7_DAYS}], format="frames")
+
+        if access_level == "viewer":
+            self.assertNotIn("error", line)
+            self.assertEqual(line["result"]["format"], "frames")
+            self.assertIsInstance(line["result"]["frames"], list)
+            # The same viewer is refused on /query: only the batch opts span kinds in.
+            response = self.client.post(f"/api/environments/{self.team.pk}/query/", {"query": query}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+            self.assertEqual(
+                response.json()["detail"],
+                "Access control failure. You don't have `viewer` access to the `tracing` resource.",
+            )
+        else:
+            self.assertEqual(
+                line,
+                {
+                    "i": 0,
+                    "refId": "traces",
+                    "error": "Access control failure. You don't have `viewer` access to the `tracing` resource.",
+                },
+            )
+
+    def test_a_signed_out_traces_tile_is_refused(self) -> None:
+        self.client.logout()
+        query = {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": "-24h"}}
+        target = {"refId": "traces", "language": "query", "query": json.dumps(query)}
+
+        response = self._batch([{"target": target, "time": _LAST_7_DAYS}])
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_frames_format_draws_hogql_as_frames_and_keeps_a_table_node_as_its_result(self) -> None:
         sql = "select toStartOfDay(now()) as day, 'web' as app, 2 as n union all select toStartOfDay(now()), 'api', 3"

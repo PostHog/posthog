@@ -565,3 +565,107 @@ class TestFrameConverters(SimpleTestCase):
         assert first["hash"] == same["hash"] != changed["hash"]
         assert frame_json(frame([Decimal("1.5"), 2]))["hash"] == frame_json(frame([1.5, 2]))["hash"]
         assert first["meta"]["end"] == 2000
+
+    def _span_aggregate(self, name: str, count: int, errors: int, p95_ms: float) -> dict[str, Any]:
+        nanos = p95_ms * 1_000_000
+        return {
+            "service_name": "web",
+            "name": name,
+            "count": count,
+            "error_count": errors,
+            "avg_duration_nano": nanos / 2,
+            "p50_duration_nano": nanos / 2,
+            "p95_duration_nano": nanos,
+            "p99_duration_nano": nanos,
+            "p999_duration_nano": nanos,
+            "total_duration_nano": nanos * count,
+        }
+
+    def test_span_aggregation_is_one_bar_per_operation_in_milliseconds(self) -> None:
+        result = {
+            "results": [self._span_aggregate("GET /a", 40, 4, 250.0), self._span_aggregate("GET /b", 10, 0, 80.0)],
+            "resolved_date_range": {"date_from": "2026-09-18T12:00:00+00:00", "date_to": NOW},
+        }
+        query = {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": "-24h"}}
+
+        frames = frames_for(QueryBatchLanguage.QUERY, query, result)
+
+        assert frames is not None
+        assert [(frame["name"], frame["labels"]) for frame in frames] == [
+            ("web / GET /a", {"service": "web", "operation": "GET /a"}),
+            ("web / GET /b", {"service": "web", "operation": "GET /b"}),
+        ]
+        # Bar charts draw a frame's first number field, so traffic leads; impact numbers the query skipped are absent.
+        assert [(field["name"], field["values"], field.get("unit")) for field in frames[0]["fields"]] == [
+            ("time", [_ms(NOW)], None),
+            ("count", [40], None),
+            ("error_count", [4], None),
+            ("error_rate", [10.0], "%"),
+            ("avg_duration", [125.0], "ms"),
+            ("p50_duration", [125.0], "ms"),
+            ("p95_duration", [250.0], "ms"),
+            ("p99_duration", [250.0], "ms"),
+        ]
+
+    def test_span_aggregation_as_a_table_is_one_row_per_operation(self) -> None:
+        result = {"results": [self._span_aggregate("GET /a", 40, 4, 250.0), self._span_aggregate("GET /b", 0, 0, 0.0)]}
+        query = {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": "-24h"}}
+
+        frames = frames_for(QueryBatchLanguage.QUERY, query, result, target_format=QueryBatchTargetFormat.TABLE)
+
+        assert _shape(frames)[0][2][:4] == [["web", "web"], ["GET /a", "GET /b"], [40, 0], [4, 0]]
+        assert frames is not None
+        error_rate = next(field for field in frames[0]["fields"] if field["name"] == "error_rate")
+        assert error_rate["values"] == [10.0, None]
+
+    @parameterized.expand(
+        [
+            ("too_many_operations", [f"GET /{n}" for n in range(MAX_PIVOT_SERIES + 1)]),
+            ("names_too_long", ["x" * (MAX_PIVOT_LABEL_BYTES // 4)]),
+        ]
+    )
+    def test_span_aggregation_stays_a_table_when_bars_would_grow_too_large(self, _name: str, names: list[str]) -> None:
+        result = {
+            "results": [self._span_aggregate(name, 1, 0, 1.0) for name in names],
+            "resolved_date_range": {"date_from": "2026-09-18T12:00:00+00:00", "date_to": NOW},
+        }
+        query = {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": "-24h"}}
+
+        frames = frames_for(QueryBatchLanguage.QUERY, query, result)
+
+        assert frames is not None
+        assert len(frames) == 1
+        assert frames[0]["fields"][1]["values"] == names
+
+    def test_span_list_is_one_table_frame(self) -> None:
+        span = {
+            "uuid": "u1",
+            "trace_id": "t1",
+            "span_id": "s1",
+            "parent_span_id": "",
+            "name": "GET /a",
+            "kind": 2,
+            "service_name": "web",
+            "status_code": 0,
+            "timestamp": dt.datetime(2026, 9, 19, 12, tzinfo=dt.UTC),
+            "end_time": dt.datetime(2026, 9, 19, 12, tzinfo=dt.UTC),
+            "duration_nano": 3_500_000,
+            "is_root_span": True,
+        }
+
+        frames = frames_for(QueryBatchLanguage.QUERY, {"kind": "TraceSpansQuery"}, {"results": [span], "hasMore": True})
+
+        assert frames is not None
+        [frame] = frames
+        assert [(field["name"], field["values"]) for field in frame["fields"]] == [
+            ("time", [_ms(NOW)]),
+            ("service", ["web"]),
+            ("operation", ["GET /a"]),
+            ("duration", [3.5]),
+            ("status_code", [0]),
+            ("kind", [2]),
+            ("is_root_span", [True]),
+            ("trace_id", ["t1"]),
+            ("span_id", ["s1"]),
+        ]
+        assert frame["meta"]["truncated"] is True

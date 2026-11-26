@@ -24,6 +24,39 @@ UPGRADES: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
 UNTITLED_BOARD = "Untitled board"
 
 
+def rename_legacy_panel_fields(spec: dict[str, Any]) -> dict[str, Any]:
+    """Return the document with a tile's `widget` named `panel` and the document's `widgets` named `panels`.
+
+    Version 2 documents written before panels were named panels use the old names. The rename keeps the schema
+    version, because no board was stored under the old names.
+    """
+    spec = dict(spec)
+    if "widgets" in spec and "panels" not in spec:
+        spec["panels"] = spec.pop("widgets")
+    tabs = spec.get("tabs")
+    if not isinstance(tabs, list):
+        return spec
+    spec["tabs"] = [dict(tab) if isinstance(tab, dict) else tab for tab in tabs]
+    # A loop over a stack, not recursion, so a deeply nested hostile document cannot exhaust Python's stack.
+    holders: list[dict[str, Any]] = [tab for tab in spec["tabs"] if isinstance(tab, dict)]
+    while holders:
+        holder = holders.pop()
+        tiles = holder.get("tiles")
+        if not isinstance(tiles, list):
+            continue
+        holder["tiles"] = [dict(tile) if isinstance(tile, dict) else tile for tile in tiles]
+        for tile in holder["tiles"]:
+            if not isinstance(tile, dict):
+                continue
+            if "widget" in tile and "panel" not in tile:
+                tile["panel"] = tile.pop("widget")
+            panel = tile.get("panel")
+            if isinstance(panel, dict) and isinstance(panel.get("tiles"), list):
+                tile["panel"] = dict(panel)
+                holders.append(tile["panel"])
+    return spec
+
+
 def upgrade(spec: dict[str, Any]) -> dict[str, Any]:
     """Return the document at `CURRENT_SCHEMA_VERSION`. Raise `BoardSpecInvalid` for a version this code can't read."""
     schema_version = spec.get("version")
@@ -36,6 +69,7 @@ def upgrade(spec: dict[str, Any]) -> dict[str, Any]:
             f"The board document's `version` must be a schema version from {FIRST_SCHEMA_VERSION} to "
             f"{CURRENT_SCHEMA_VERSION}."
         )
+    spec = rename_legacy_panel_fields(spec)
     while schema_version < CURRENT_SCHEMA_VERSION:
         spec = UPGRADES[schema_version](spec)
         schema_version += 1
@@ -47,6 +81,22 @@ def check_size(spec: dict[str, Any]) -> None:
     size = len(json.dumps(spec, separators=(",", ":")).encode())
     if size > MAX_BOARD_SPEC_BYTES:
         raise BoardSpecInvalid(f"The board document is {size} bytes. The limit is {MAX_BOARD_SPEC_BYTES} bytes.")
+
+
+def _has_nul(value: Any) -> bool:
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(_has_nul(key) or _has_nul(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_has_nul(item) for item in value)
+    return False
+
+
+def check_storable(spec: dict[str, Any]) -> None:
+    # Postgres refuses a NUL character anywhere in a jsonb value, so the save would fail with a 500.
+    if _has_nul(spec):
+        raise BoardSpecInvalid("The board document contains a NUL character (\\u0000), which cannot be saved.")
 
 
 def title_of(spec: dict[str, Any]) -> str:

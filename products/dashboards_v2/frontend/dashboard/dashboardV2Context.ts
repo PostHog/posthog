@@ -1,11 +1,11 @@
 import { createContext, useContext } from 'react'
 
 import type { DashboardV2Action } from '../access/dashboardV2Access'
-import type { WidgetDefinition } from '../widgets/widgetDefinition'
+import type { PanelDefinition } from '../panels/panelDefinition'
 import type { AutoRefreshProps } from './AutoRefreshButton'
 import type { DashboardEdit, View } from './dashboardEdits'
 import type { ImageFormat } from './dashboardImage'
-import type { Dashboard, GridTab, SizeOf, Widget } from './dashboardTypes'
+import type { Dashboard, GridTab, SizeOf, Panel } from './dashboardTypes'
 import type { MenuAction } from './menuAction'
 
 /**
@@ -17,8 +17,8 @@ export interface DashboardV2Controller {
     dashboard: Dashboard
     /** Unknown or unset shows the first tab. */
     activeTabId: string | null
-    /** The widget types this dashboard can show and add. Keep the array stable between renders, or every tile re-renders. */
-    widgets: WidgetDefinition[]
+    /** The panel types this dashboard can show and add. Keep the array stable between renders, or every tile re-renders. */
+    panels: PanelDefinition[]
     disabledReasonFor: (action: DashboardV2Action) => string | null
     /**
      * Called with each edit, and with how the person saw the dashboard when they made it. Pass `view` to `applyEdit`,
@@ -27,10 +27,10 @@ export interface DashboardV2Controller {
     onEdit: (edit: DashboardEdit, view: View) => void
     onActiveTabChange: (tabId: string) => void
     /**
-     * Receives the full right-click action list of a content tile or a section, after the widget type's own changes, and
+     * Receives the full right-click action list of a content tile or a section, after the panel type's own changes, and
      * returns the list to show. Lets a page hide, disable or add actions by `MenuAction.key`, such as `remove`.
      */
-    tileActions?: (actions: MenuAction[], tile: { id: string; widget: Widget }) => MenuAction[]
+    tileActions?: (actions: MenuAction[], tile: { id: string; panel: Panel }) => MenuAction[]
     /** Like `tileActions`, for the dashboard menu. */
     dashboardActions?: (actions: MenuAction[]) => MenuAction[]
     /**
