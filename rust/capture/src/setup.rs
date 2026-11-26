@@ -25,7 +25,7 @@ use crate::outputs::{Output, OutputRegistry};
 use crate::producers::{self, ProducerConfig, ProducerName, ProducerRegistry};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
-    is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
+    is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, QuotaRedisClients,
 };
 use crate::router;
 use crate::router::{AI_BODY_SIZE, BATCH_BODY_SIZE};
@@ -197,15 +197,10 @@ pub async fn build_components(
         )
     });
 
-    // add new "scoped" quota limiters here as new quota tracking buckets are added
-    // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
-    // global billing limiter applied here to every event batch. You must supply the
-    // QuotaResource type and a predicate function that will match events to be limited
-    let quota_limiter =
-        CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
-            .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
-            .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
-            .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
+    let quota_limiter = build_quota_limiter(
+        &config,
+        CaptureQuotaLimiter::build_redis_clients(&config, redis_client.clone()),
+    );
 
     // TODO: remove this once we have a billing limiter
     let token_dropper = config
@@ -410,6 +405,21 @@ pub async fn build_components(
         event_restriction_service,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
     }
+}
+
+fn build_quota_limiter(config: &Config, redis: QuotaRedisClients) -> CaptureQuotaLimiter {
+    // add new "scoped" quota limiters here as new quota tracking buckets are added
+    // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
+    // global billing limiter applied here to every event batch. You must supply the
+    // QuotaResource type and a predicate function that will match events to be limited
+    let quota_limiter = CaptureQuotaLimiter::new(config, redis.limiters, Duration::from_secs(5))
+        .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
+        .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
+        .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
+    if let Some(copy) = redis.observations {
+        quota_limiter.spawn_observations(copy);
+    }
+    quota_limiter
 }
 
 fn ai_events_overflow_limiter_enabled(config: &Config) -> bool {
@@ -850,9 +860,10 @@ fn create_event_restriction_service(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_redis::MockRedisClient;
     use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
     use rstest::rstest;
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
 
     fn warnings_config(enabled: bool, hosts: &str, topic: &str) -> Config {
         let cfg_env: HashMap<String, String> = [
@@ -1440,5 +1451,99 @@ mod tests {
             Some(("ok".to_string(), 1.0)),
             "healthy and failed emissions must share a label set",
         );
+    }
+
+    fn quota_config(env: &[(&str, &str)]) -> Config {
+        let env: HashMap<String, String> = [("REDIS_URL", "redis://localhost:6379/")]
+            .iter()
+            .chain(env)
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        envconfig::Envconfig::init_from_hashmap(&env).expect("test config")
+    }
+
+    fn quota_resources() -> [QuotaResource; 4] {
+        [
+            QuotaResource::Events,
+            QuotaResource::Exceptions,
+            QuotaResource::Surveys,
+            QuotaResource::LLMEvents,
+        ]
+    }
+
+    fn limiting(token: &str, key_prefix: &str) -> MockRedisClient {
+        let mut redis = MockRedisClient::new();
+        for resource in quota_resources() {
+            let key = format!(
+                "{key_prefix}{}{}",
+                limiters::redis::QUOTA_LIMITER_CACHE_KEY,
+                resource.as_str()
+            );
+            redis = redis.zrangebyscore_ret(&key, vec![token.to_string()]);
+        }
+        redis
+    }
+
+    fn read_keys(redis: &MockRedisClient) -> BTreeSet<String> {
+        redis
+            .get_calls()
+            .into_iter()
+            .filter(|call| call.op == "zrangebyscore")
+            .map(|call| call.key)
+            .collect()
+    }
+
+    fn closed_port_url() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        format!(
+            "redis://127.0.0.1:{}",
+            listener.local_addr().unwrap().port()
+        )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shadow_observes_the_limiter_keys_and_changes_no_limit() {
+        let config = quota_config(&[("REDIS_KEY_PREFIX", "prefix/")]);
+        let shared = limiting("phc_shared", "prefix/");
+        let copy = limiting("phc_copy", "prefix/");
+
+        let limiter = build_quota_limiter(
+            &config,
+            QuotaRedisClients {
+                limiters: Arc::new(shared.clone()),
+                observations: Some(Arc::new(copy.clone())),
+            },
+        );
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        for resource in quota_resources() {
+            assert!(limiter.is_quota_limited_v1("phc_shared", &resource).await);
+            assert!(!limiter.is_quota_limited_v1("phc_copy", &resource).await);
+        }
+        assert_eq!(read_keys(&shared).len(), 4);
+        assert_eq!(read_keys(&copy), read_keys(&shared));
+    }
+
+    #[rstest]
+    #[case::closed_port(closed_port_url())]
+    #[case::unroutable("redis://192.0.2.1:6379".to_string())]
+    #[tokio::test(start_paused = true)]
+    async fn live_starts_on_an_unreachable_copy_and_limits_nobody(#[case] url: String) {
+        let config = quota_config(&[
+            ("QUOTA_LIMITING_REDIS_READ_MODE", "live"),
+            ("QUOTA_LIMITING_REDIS_URL", &url),
+            ("QUOTA_LIMITING_REDIS_CONNECTION_TIMEOUT_MS", "60000"),
+        ]);
+        let shared = limiting("phc_shared", "");
+
+        let limiter = build_quota_limiter(
+            &config,
+            CaptureQuotaLimiter::build_redis_clients(&config, Arc::new(shared)),
+        );
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        for resource in quota_resources() {
+            assert!(!limiter.is_quota_limited_v1("phc_shared", &resource).await);
+        }
     }
 }

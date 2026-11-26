@@ -269,6 +269,18 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub event_restrictions_fail_open_after_secs: u64,
 
+    pub quota_limiting_redis_url: Option<String>,
+
+    /// `disabled`: the quota limiters read `redis_url`. `shadow`: they still do, and capture also
+    /// reads each quota set from the copy cache for metrics only. `live`: they read the copy
+    /// cache. Any other value acts as `disabled`, so a typo never stops capture from starting.
+    #[envconfig(default = "disabled")]
+    pub quota_limiting_redis_read_mode: String,
+
+    pub quota_limiting_redis_response_timeout_ms: Option<u64>,
+
+    pub quota_limiting_redis_connection_timeout_ms: Option<u64>,
+
     pub otel_url: Option<String>,
 
     #[envconfig(default = "false")]
