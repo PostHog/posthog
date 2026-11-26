@@ -182,7 +182,7 @@ def _accept_for_finalize(
 ) -> None:
     """Accept what finalize accepts by itself: removals nobody rejected, and with `approve_all` every open change.
 
-    Neither ever replaces a rejection.
+    Neither ever replaces a rejection, and an agent never replaces a person's undo.
     """
     review = review_decisions.review_run(run, decisions)
     removals = [
@@ -191,6 +191,7 @@ def _accept_for_finalize(
         if snapshot.result == SnapshotResult.REMOVED
         and not snapshot.effective.rejected
         and not snapshot.effective.accepted
+        and _may_fill(snapshot, via)
     ]
     fills = []
     if approve_all:

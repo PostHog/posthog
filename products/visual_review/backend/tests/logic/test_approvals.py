@@ -736,18 +736,35 @@ class TestReviewDecisions:
         assert refused.value.code == code
         assert _history(run) == history
 
-    @pytest.mark.parametrize("rejected", [False, True])
-    def test_finalize_accepts_a_removal_unless_it_was_rejected(self, ledger, user, bob, rejected):
+    @pytest.mark.parametrize(
+        ("history", "finalize_via", "refused"),
+        [
+            pytest.param([], WEB, None, id="undecided"),
+            pytest.param([REJECT], WEB, "rejected", id="rejected"),
+            pytest.param([ACCEPT, CLEAR], WEB, None, id="person_undid_person_finalizes"),
+            pytest.param([ACCEPT, CLEAR], MCP, "needs_review", id="person_undid_agent_finalizes"),
+        ],
+    )
+    def test_finalize_accepts_a_removal_unless_it_was_rejected_or_an_agent_would_replace_an_undo(
+        self, ledger, user, bob, history, finalize_via, refused
+    ):
         repo, git, flow = ledger
         run = _push(git, flow, "p1a", SEED, {"Card": "b1"})
-        if rejected:
-            _decide(run, bob, REJECT, new_hash=None, reason="Still in use")
+        for action in history:
+            if action == REJECT:
+                _decide(run, bob, REJECT, new_hash=None, reason="Still in use")
+            else:
+                _decide(run, bob, action)
+        if refused is not None:
             with pytest.raises(errors.RunNotFullyResolvedError) as not_resolved:
-                approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True)
-            assert [r.identifier for r in not_resolved.value.rejected] == ["Button"]
+                approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, via=finalize_via)
+            assert {
+                "rejected": [r.identifier for r in not_resolved.value.rejected],
+                "needs_review": not_resolved.value.needs_review,
+            }[refused] == ["Button"]
             return
 
-        approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True)
+        approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, via=finalize_via)
         rows = BaselineApproval.objects.filter(repo=repo, pr_number=1).values_list("identifier", "content_hash")
         assert sorted(rows) == [("Button", ""), ("Card", "b1")]
 
