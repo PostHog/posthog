@@ -49,6 +49,7 @@ from products.aeo.backend import (
     keyword_suggestions,
     keywords,
     movers,
+    prompt_limit,
     rankings,
     suggestions,
 )
@@ -249,9 +250,11 @@ def update_prompt(team_id: int, prompt_id: str, change: PromptUpdate, *, user_id
     """
     text = _validated_text(change.prompt) if change.prompt is not None else None
     with transaction.atomic():
+        limit = prompt_limit.lock(team_id) if change.active else None
         # Locks the prompt row, so two concurrent text edits cannot take the same version number.
         prompt = _get_prompt_row(team_id, prompt_id, lock=True)
         _check_update_allowed(prompt, change)
+        was_on = prompt.active and prompt.archived_at is None
         if change.archived:
             _archive(prompt)
         else:
@@ -267,6 +270,8 @@ def update_prompt(team_id: int, prompt_id: str, change: PromptUpdate, *, user_id
                 _add_version(prompt, text, description=change.version_description or "", user_id=user_id)
             elif change.current_version is not None and change.current_version != prompt.current_version:
                 _switch_to_version(prompt, change.current_version)
+            if limit is not None and prompt.active and not was_on:
+                prompt_limit.check_room(limit, 1)
             _save_edit(prompt)
     return _to_prompts(team_id, [prompt])[0]
 

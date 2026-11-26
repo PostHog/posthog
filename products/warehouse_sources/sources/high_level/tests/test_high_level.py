@@ -183,6 +183,28 @@ class TestKeysetEndpoints:
         assert result.params("sortBy") == ["last_message_date", "last_message_date"]
 
 
+class TestTasks:
+    @pytest.mark.parametrize("id_field", ["id", "_id"])
+    def test_pages_with_skip_in_the_post_body_until_a_short_page(self, id_field: str) -> None:
+        result = _driver().run(
+            "tasks",
+            [
+                ScriptedResponse(json={"tasks": [{id_field: f"t{i}", "completed": False} for i in range(100)]}),
+                ScriptedResponse(json={"tasks": [{id_field: "t100", "completed": True}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [f"t{i}" for i in range(101)]
+        assert [request.method for request in result.requests] == ["POST", "POST"]
+        assert result.paths == [f"/locations/{LOCATION_ID}/tasks/search"] * 2
+        assert [request.json() for request in result.requests] == [
+            {"skip": 0, "limit": 100},
+            {"skip": 100, "limit": 100},
+        ]
+        assert [request.query for request in result.requests] == [{}, {}]
+
+
 class TestDateFilteredEndpoints:
     @pytest.mark.parametrize(
         ("schema_name", "channel"),
@@ -265,6 +287,18 @@ class TestLocationScoping:
                 {"lostReasons": [], "total": 0},
                 "/opportunities/lost-reason",
                 {"locationId": LOCATION_ID, "skip": "0", "limit": "100"},
+            ),
+            (
+                "estimates",
+                {"estimates": [], "total": 0},
+                "/invoices/estimate/list",
+                {"altId": LOCATION_ID, "altType": "location", "offset": "0", "limit": "100"},
+            ),
+            (
+                "coupons",
+                {"data": [], "totalCount": 0},
+                "/payments/coupon/list",
+                {"altId": LOCATION_ID, "altType": "location", "offset": "0", "limit": "100"},
             ),
         ],
     )
@@ -392,6 +426,38 @@ class TestFanOutEndpoints:
         assert all("_contacts_id" not in row for row in result.rows)
         assert [request.query for request in result.requests if request.path.endswith("/notes")] == [{}, {}, {}]
 
+    def test_product_prices_fan_out_over_every_product(self) -> None:
+        result = _driver().run(
+            "product_prices",
+            route(
+                {
+                    "/products/": [
+                        ScriptedResponse(
+                            json={"products": [{"_id": "p1"}, {"_id": "p2"}, {"_id": "p3"}], "total": [{"total": 3}]}
+                        )
+                    ],
+                    "/products/p1/price": [
+                        ScriptedResponse(json={"prices": [{"_id": "pr1", "product": "p1", "amount": 1999}], "total": 1})
+                    ],
+                    # The product was deleted after the listing.
+                    "/products/p2/price": [ScriptedResponse(status=404, json={"message": "Product not found"})],
+                    "/products/p3/price": [
+                        ScriptedResponse(json={"prices": [{"_id": "pr2", "amount": 500}], "total": 1})
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["product"], row["_id"]) for row in result.rows] == [("p1", "pr1"), ("p3", "pr2")]
+        assert all("_products__id" not in row for row in result.rows)
+        assert {
+            (request.param("locationId"), request.param("offset"), request.param("limit"))
+            for request in result.requests
+            if request.path.endswith("/price")
+        } == {(LOCATION_ID, "0", "100")}
+        assert result.response is not None and result.response.primary_keys == ["product", "_id"]
+
     def test_users_search_reads_the_company_id_from_the_location(self) -> None:
         result = _driver().run(
             "users",
@@ -446,6 +512,14 @@ class TestValidateCredentials:
             ),
             ("contacts", 200, {"contacts": [], "hasMore": False}, True, None),
             ("invoices", 200, {"invoices": [], "total": 0}, True, None),
+            ("tasks", 200, {"tasks": []}, True, None),
+            (
+                "tasks",
+                401,
+                {"statusCode": 401, "message": "The token is not authorized for this scope."},
+                False,
+                "`locations/tasks.readonly` scope",
+            ),
         ],
     )
     def test_maps_the_probe_answer_to_a_result(
@@ -470,6 +544,10 @@ class TestValidateCredentials:
         if schema_name == "contacts":
             assert request.method == "POST"
             assert request.json()["pageLimit"] == 1
+        elif schema_name == "tasks":
+            assert request.method == "POST"
+            assert request.path == f"/locations/{LOCATION_ID}/tasks/search"
+            assert request.json() == {"skip": 0, "limit": 1}
         elif schema_name == "invoices":
             assert {name: values[0] for name, values in request.query.items()} == {
                 "altId": LOCATION_ID,
@@ -525,6 +603,18 @@ class TestValidateCredentials:
                 True,
                 None,
                 {"companyId": "comp_1", "locationId": LOCATION_ID, "skip": "0", "limit": "1"},
+            ),
+            (
+                "product_prices",
+                {
+                    "/products/": [ScriptedResponse(json={"products": [{"_id": "p1"}], "total": [{"total": 1}]})],
+                    "/products/p1/price": [
+                        ScriptedResponse(status=401, json={"message": "The token is not authorized for this scope."})
+                    ],
+                },
+                False,
+                "`products/prices.readonly` scope",
+                {"locationId": LOCATION_ID, "offset": "0", "limit": "1"},
             ),
             (
                 "contact_notes",

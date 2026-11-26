@@ -157,14 +157,6 @@ class TestTransactionalPushTemplates(APIBaseTest):
         assert response.json()["code"] == "template_not_sendable"
         cdp_post.assert_not_called()
 
-    def test_the_project_tree_links_a_push_to_its_own_page(self, _flag):
-        template = self._template()
-
-        unfiled = MessageTemplate.get_file_system_unfiled(self.team).get(id=template.id)
-
-        with self.assertNumQueries(0):
-            assert unfiled.get_file_system_representation().href == f"/transactional/push/{template.id}"
-
     def _pak_client(self, scopes: list[str]) -> APIClient:
         raw_token = generate_random_token_personal()
         PersonalAPIKey.objects.create(

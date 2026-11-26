@@ -8,6 +8,7 @@ import {
     formatRunCost,
     filedOrAddedLabel,
     groupScoutRuns,
+    liveLaneRun,
     mostRecentEmittedRuns,
     runMatchesFilter,
     runResponseCoversFleet,
@@ -283,6 +284,31 @@ describe('scoutRunsWindow report channel', () => {
             const rollup = computeScoutRollups(runs).get(skill)!
             expect([...rollup.authoredReportIds]).toEqual(['r-1'])
             expect([...rollup.editedReportIds].sort()).toEqual(['r-1', 'r-2'])
+        })
+    })
+
+    describe('liveLaneRun', () => {
+        const running = { status: 'in_progress' as const, completed_at: null }
+        it.each([
+            ['a running run', [makeRun(running)], 'run-1'],
+            ['a queued run', [makeRun({ status: 'queued', completed_at: null })], 'run-1'],
+            ['a finished run', [makeRun()], null],
+            ['a private trial run', [makeRun({ ...running, metadata: { scout_trial: { version: 1 } } })], null],
+            [
+                'a run past the stale cutoff',
+                [makeRun({ ...running, created_at: '2026-06-27T20:00:00Z', started_at: '2026-06-27T20:00:00Z' })],
+                null,
+            ],
+            [
+                'the newest of two live runs',
+                [
+                    makeRun({ ...running, run_id: 'run-old', created_at: '2026-06-27T21:00:00Z' }),
+                    makeRun({ ...running, run_id: 'run-new', created_at: '2026-06-27T21:30:00Z' }),
+                ],
+                'run-new',
+            ],
+        ])('returns %s', (_name, runs, expected) => {
+            expect(liveLaneRun(runs, NOW)?.run_id ?? null).toEqual(expected)
         })
     })
 

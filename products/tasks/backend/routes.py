@@ -8,9 +8,17 @@ import products.tasks.backend.presentation.views.desktop_access as desktop_acces
 import products.tasks.backend.presentation.views.task_usage_api as task_usage
 import products.tasks.backend.presentation.views.sandbox_pricing_api as sandbox_pricing
 import products.tasks.backend.presentation.views.repo_routing_rules_api as repo_routing_rules
+from products.tasks.backend.presentation.views.agent_egress_git import AgentEgressGitGrantViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    uuid_pattern = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    routers.projects.register(
+        rf"internal/agent_egress/runs/(?P<run_id>{uuid_pattern})/executions/(?P<execution_id>{uuid_pattern})/git_read_grant",
+        AgentEgressGitGrantViewSet,
+        "project_agent_egress_git_grant",
+        ["team_id"],
+    )
     # Static `tasks/...` prefixes are registered before the `tasks` viewset so they can't be
     # swallowed by its `tasks/{pk}` detail pattern.
     routers.organizations.register(

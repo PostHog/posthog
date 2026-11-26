@@ -262,7 +262,7 @@ def test_persist_uploads_only_what_changed_since_the_baseline(storage: FakeStora
         }
     )
 
-    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert storage.writes == [_key(REPO_SLUG, "new.md")]
     assert storage.objects[_key(WORKSPACE_SLUG, "MEMORY.md")] == b"newer, saved by another sandbox"
@@ -275,10 +275,19 @@ def test_persist_uploads_only_what_changed_since_the_baseline(storage: FakeStora
 
     sandbox.reads.clear()
     storage.writes.clear()
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert storage.writes == []
     assert sandbox.reads == [SANDBOX_BASELINE_PATH]
+
+
+def test_persist_writes_nothing_once_the_team_is_deleted(storage: FakeStorage) -> None:
+    sandbox = FakeSandbox({_memory_path(REPO_SLUG, "MEMORY.md"): b"written after the team was deleted"})
+
+    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: False)  # type: ignore[arg-type]
+
+    assert storage.writes == []
+    assert counts.skipped["team_deleted"] == 1
 
 
 @pytest.mark.parametrize(
@@ -299,7 +308,7 @@ def test_deleting_the_last_memory_file_propagates_only_against_a_valid_baseline(
     else:
         sandbox.files[SANDBOX_BASELINE_PATH] = b"{truncated"
 
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert (_key(REPO_SLUG, "MEMORY.md") not in storage.objects) is expected_deleted
 
@@ -331,7 +340,7 @@ def test_a_new_slug_beyond_the_slug_capacity_is_neither_uploaded_nor_treated_as_
         sandbox.files[_memory_path(slug, "MEMORY.md")] = b"new checkout"
         sandbox.mtimes[_memory_path(slug, "MEMORY.md")] = 1.0
 
-    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert storage.writes == []
     assert set(storage.objects) == {_key(slug, "MEMORY.md") for slug in slugs}
@@ -346,20 +355,20 @@ def test_replacing_one_of_fifty_slugs_keeps_a_valid_baseline(storage: FakeStorag
     sandbox.files[_memory_path("-a", "MEMORY.md")] = b"new checkout"
     sandbox.mtimes[_memory_path("-a", "MEMORY.md")] = 1.0
 
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert _key(slugs[0], "MEMORY.md") not in storage.objects
     assert _key("-a", "MEMORY.md") not in storage.objects
 
     # The slot the deletion freed is counted from storage on the next persist.
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert storage.objects[_key("-a", "MEMORY.md")] == b"new checkout"
     assert len(parse_baseline(sandbox.files[SANDBOX_BASELINE_PATH])) == MAX_SLUGS_PER_USER
 
     storage.writes.clear()
     sandbox.reads.clear()
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert storage.writes == []
     assert sandbox.reads == [SANDBOX_BASELINE_PATH]
@@ -381,7 +390,7 @@ def test_a_slug_cannot_grow_past_the_file_cap_by_dropping_the_baseline(
     sandbox.set_baseline({REPO_SLUG: {name: {"md5": _md5(b"note"), "size": 4, "mtime": 1.0} for name in tracked}})
     stored_before = dict(storage.objects)
 
-    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert storage.writes == []
     assert storage.objects == stored_before
@@ -394,14 +403,14 @@ def test_a_retry_after_a_failed_upload_does_not_resend_the_files_already_saved(s
     storage.failing_writes.add(_key(REPO_SLUG, "b.md"))
 
     with pytest.raises(ObjectStorageError):
-        persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+        persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert storage.writes == [_key(REPO_SLUG, "a.md")]
     assert set(parse_baseline(sandbox.files[SANDBOX_BASELINE_PATH])[REPO_SLUG]) == {"a.md"}
     storage.objects[_key(REPO_SLUG, "a.md")] = b"a v2, saved by another sandbox meanwhile"
     storage.failing_writes.clear()
 
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert storage.writes == [_key(REPO_SLUG, "a.md"), _key(REPO_SLUG, "b.md")]
     assert storage.objects[_key(REPO_SLUG, "a.md")] == b"a v2, saved by another sandbox meanwhile"
@@ -413,7 +422,7 @@ def test_files_that_grow_after_the_listing_cannot_exceed_the_slug_byte_budget(st
     sandbox.set_baseline({})
     sandbox.grown_on_read = b"x" * MAX_FILE_BYTES
 
-    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert counts.skipped == {"slug_too_large": 1}
     assert storage.writes == []
@@ -424,7 +433,7 @@ def test_a_refused_baseline_checkpoint_fails_the_persist(storage: FakeStorage) -
     sandbox.failing_writes.add(SANDBOX_BASELINE_PATH)
 
     with pytest.raises(BaselineCheckpointError):
-        persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+        persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
 
 def test_a_partial_restore_does_not_later_overwrite_newer_stored_memory(storage: FakeStorage) -> None:
@@ -435,7 +444,7 @@ def test_a_partial_restore_does_not_later_overwrite_newer_stored_memory(storage:
     result = restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
     storage.objects[_key(REPO_SLUG, "MEMORY.md")] = b"newer, saved by another sandbox"
     storage.writes.clear()
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, team_exists=lambda: True)  # type: ignore[arg-type]
 
     assert result.complete is False
     assert storage.writes == []

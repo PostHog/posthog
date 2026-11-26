@@ -46,7 +46,7 @@ export const ContentAutopilotPromptMoversTable = ({
                 title: 'Now',
                 key: 'mention_rate',
                 align: 'right',
-                tooltip: `Share of the prompt's answers in this date range that mention you.`,
+                tooltip: 'Visibility in this date range.',
                 render: (_, { mention_rate, answers }) => (
                     <span className="tabular-nums whitespace-nowrap">
                         {percentage(mention_rate, 0)} <span className="text-secondary">of {answers}</span>
@@ -57,7 +57,7 @@ export const ContentAutopilotPromptMoversTable = ({
                 title: 'Before',
                 key: 'previous_mention_rate',
                 align: 'right',
-                tooltip: `Share of the prompt's answers in the ${days} days before that mention you.`,
+                tooltip: `Visibility in the ${days} days before.`,
                 render: (_, { previous_mention_rate, previous_answers }) => (
                     <span className="tabular-nums whitespace-nowrap">
                         {percentage(previous_mention_rate, 0)}{' '}

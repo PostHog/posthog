@@ -239,7 +239,6 @@ class AIEnrichmentViewSet(viewsets.ViewSet):
         # budget several-fold per fetch and actively worsen a 429 the tenacity layer is already
         # backing off from.
         client = build_openai_client(
-            product="growth",
             ai_product="growth",
             properties={"ai_feature": AI_ENRICHMENT_FEATURE, "surface": "staff_run"},
         ).with_options(max_retries=0)

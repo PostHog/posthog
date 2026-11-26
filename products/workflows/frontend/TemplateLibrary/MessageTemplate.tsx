@@ -22,6 +22,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { cn } from 'lib/utils/css-classes'
 import { uuid } from 'lib/utils/dom'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { emailTemplaterLogic, saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
@@ -104,6 +105,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSavingSensitive,
         isTransactional,
         section,
+        failedTagSaves,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -144,9 +146,14 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         )
     }
 
+    const isLoaded = props.id === 'new' || originalTemplate.id === props.id
+    // Only the saved template tells its type, and the two types have different headers.
+    if (!isLoaded && templateLoading && transactionalEmailsEnabled && section !== 'transactional') {
+        return <SpinnerOverlay sceneLevel />
+    }
+
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
-    const isLoaded = props.id === 'new' || originalTemplate.id === props.id
     // Only the saved template tells its type, so until it loads the page takes the one its section mostly holds.
     const isLibraryTemplate = isLoaded ? !isTransactional : section !== 'transactional'
     const showMenuBar = sceneMenuBarEnabled && isLibraryTemplate
@@ -209,21 +216,28 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         </div>
     )
 
+    const activeTab =
+        !sendLinks && transactionalTab === 'sends'
+            ? 'runs'
+            : (!impact || !transactionalHogFlowId) && transactionalTab === 'impact'
+              ? 'design'
+              : transactionalTab
     const tabs = (
         <LemonTabs
-            activeKey={
-                !sendLinks && transactionalTab === 'sends'
-                    ? 'runs'
-                    : (!impact || !transactionalHogFlowId) && transactionalTab === 'impact'
-                      ? 'design'
-                      : transactionalTab
-            }
+            activeKey={activeTab}
             onChange={setTransactionalTab}
-            className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
+            className={cn(
+                'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow',
+                // The new editor scrolls on its own, so its tab fits the page. The other tabs scroll the page.
+                activeTab === 'design' &&
+                    'has-[[data-attr=email-document-editor]]:basis-0 has-[[data-attr=email-document-editor]]:min-h-0 has-[[data-attr=email-document-editor]]:[&>div]:basis-0 has-[[data-attr=email-document-editor]]:[&>div]:min-h-0'
+            )}
             tabs={[
                 // Unmounting the editor would drop a canvas edit it hasn't exported yet.
                 { key: 'design', label: 'Design', content: editor, keepMounted: true },
-                impact && !!transactionalHogFlowId && impactTab(transactionalHogFlowId),
+                impact &&
+                    !!transactionalHogFlowId &&
+                    impactTab(transactionalHogFlowId, { alwaysSensitive: !!originalTemplate.sensitive }),
                 ...(transactionalHogFlowId
                     ? [
                           {
@@ -514,6 +528,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
                 {!showMenuBar && (
                     <SceneTags
+                        // The row keeps its own copy of the tags while it is edited.
+                        key={failedTagSaves}
                         tags={[...(template.tags ?? [])]}
                         onSave={saveTags}
                         canEdit={canEditTags}

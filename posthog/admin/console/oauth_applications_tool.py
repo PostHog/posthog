@@ -46,7 +46,6 @@ from posthog.api.oauth.provisioning_review import (
     partner_provisioning_status,
     review_workflow_id,
 )
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
@@ -133,7 +132,7 @@ KIND_FILTERS = {
 ACTIVE_OFF = Q(_provisioning_config__active=False) | Q(_provisioning_config__active__isnull=True)
 DISABLED_OFF = Q(_provisioning_config__disabled=False) | Q(_provisioning_config__disabled__isnull=True)
 
-# These follow the partner gates, and `_provisioning_filter` adds the organization link when staff require one.
+# These follow the partner gates, and `_provisioning_filter` adds the organization link the gates also require.
 # `provisioning_status` labels the same states.
 PROVISIONING_FILTERS = {
     "partner": Q(is_provisioning_partner=True),
@@ -144,8 +143,6 @@ PROVISIONING_FILTERS = {
 
 
 def _provisioning_filter(state: str) -> Q:
-    if not get_instance_setting("CIMD_PROVISIONING_REQUIRES_ORGANIZATION"):
-        return PROVISIONING_FILTERS[state]
     # The gates also refuse an active self-registered partner with no organization behind it.
     held_back = Q(
         is_cimd_client=True,
