@@ -2,15 +2,13 @@ name: Feature-flags binary key
 description: |
     Computes the key for the debug `feature-flags` binary that MCP CI runs, which is also
     the name of the artifact master uploads it under.
-    The key hashes every tracked file of the crate and of each crate it reaches through
-    path dependencies, plus the workspace manifests, cargo config, the protos its build
-    script compiles, the protoc pin, the toolchain and RUSTFLAGS. Reads only the index,
-    the Cargo.toml files and the symlinks in that set, so a sparse checkout of rust/ and
-    proto/ is enough.
-    The output is empty when the inputs cannot be hashed faithfully (a crate path outside
-    the repo or through a symlink, an untracked crate, a symlink leaving the hashed set, a
-    build script or include macro that reads outside it, a repo-root .cargo/, a path in a
-    cargo config [env] entry), and callers then build from source.
+    The key is deliberately coarse. It hashes the index entries of everything tracked under
+    rust/ and proto/, the repo-root .cargo/ and rust-toolchain files, the MCP CI workflow
+    (its build step and env), the composite actions the build and lookup use, the toolchain
+    and RUSTFLAGS. A change to any of them builds from source.
+    The output is empty when the index does not describe those inputs faithfully (a symlink
+    that leaves the hashed set, a submodule, a cargo [env] value that names a path), and
+    callers then build from source.
 
 inputs:
     toolchain:
@@ -36,12 +34,11 @@ runs:
               FLAGS: ${{ inputs.rustflags }}
           run: |
               set -euo pipefail
-              # Everything below reads PR-controlled files. A key that matches master's while
-              # the compiled sources differ would make the PR test master's binary, so any
-              # input that git's index does not describe faithfully refuses the key instead.
+              # A key that matches master's while the compiled sources differ would make a PR
+              # test master's binary, so any input the index does not describe refuses the key.
               status=0
               SOURCE_HASH=$(GIT_LITERAL_PATHSPECS=1 python3 - <<'PY'
-              import hashlib, os, re, subprocess, sys, tomllib
+              import hashlib, os, subprocess, sys, tomllib
 
               root = os.path.realpath(subprocess.run(
                   ["git", "rev-parse", "--show-toplevel"], check=True, capture_output=True, text=True
@@ -49,131 +46,51 @@ runs:
               os.chdir(root)
 
               def refuse(msg):
+                  # msg holds PR-controlled names. Escape it as GitHub escapes command data, so it
+                  # cannot end the ::warning:: line and start another workflow command.
+                  msg = msg.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
                   print(f"::warning::feature-flags binary key refused, building from source: {msg}", file=sys.stderr)
                   sys.exit(3)
 
-              index = {}
-              for entry in subprocess.run(["git", "ls-files", "-s", "-z"], check=True, capture_output=True).stdout.split(b"\0"):
-                  if entry:
-                      meta, path = entry.split(b"\t", 1)
-                      index[path.decode()] = meta.split(b" ")[0].decode()
-
-              def check_crate(path):
-                  # Paths come from PR-controlled Cargo.toml files. Each must name a real,
-                  # tracked crate directory inside the repo, reached without a symlink, so
-                  # the pathspec git hashes is the directory cargo compiles.
-                  if os.path.isabs(path) or not re.fullmatch(r"[A-Za-z0-9._/-]+", path) or path == ".." or path.startswith("../"):
-                      refuse(f"unexpected crate path {path!r}")
-                  full = os.path.join(root, path)
-                  if os.path.realpath(full) != full:
-                      refuse(f"crate path {path!r} is a symlink or leaves the repo")
-                  parts = path.split("/")
-                  if any("/".join(parts[:i]) in index for i in range(1, len(parts) + 1)):
-                      refuse(f"crate path {path!r} is tracked as a file, not a directory")
-                  if index.get(f"{path}/Cargo.toml") not in ("100644", "100755"):
-                      refuse(f"crate path {path!r} has no tracked Cargo.toml")
-
-              def load(path):
-                  with open(path, "rb") as f:
-                      return tomllib.load(f)
-
-              ws_deps = load("rust/Cargo.toml").get("workspace", {}).get("dependencies", {})
-
-              def dep_tables(manifest):
-                  sections = [manifest] + list(manifest.get("target", {}).values())
-                  for section in sections:
-                      for kind in ("dependencies", "build-dependencies", "dev-dependencies"):
-                          yield section.get(kind, {})
-
-              def dep_path(base, rel):
-                  if not isinstance(rel, str) or os.path.isabs(rel):
-                      refuse(f"unexpected dependency path {rel!r} in {base}")
-                  return os.path.normpath(os.path.join(base, rel))
-
-              # Path-dependency closure of rust/feature-flags, all dependency kinds and
-              # targets, resolving `workspace = true` through [workspace.dependencies].
-              seen, todo = set(), ["rust/feature-flags"]
-              while todo:
-                  crate = todo.pop()
-                  if crate in seen:
-                      continue
-                  check_crate(crate)
-                  seen.add(crate)
-                  for table in dep_tables(load(f"{crate}/Cargo.toml")):
-                      for name, spec in table.items():
-                          if not isinstance(spec, dict):
-                              continue
-                          if spec.get("workspace"):
-                              ws = ws_deps.get(spec.get("package", name), ws_deps.get(name))
-                              if isinstance(ws, dict) and "path" in ws:
-                                  todo.append(dep_path("rust", ws["path"]))
-                          elif "path" in spec:
-                              todo.append(dep_path(crate, spec["path"]))
-
-              crates = sorted(seen)
-              print("Crates in the key:", *crates, sep="\n", file=sys.stderr)
-              # usage-ingestion-proto's build.rs compiles protos from the repo-root proto/ tree.
-              # Rustup honours a toolchain file in rust/ or the root, so those are hashed whether
-              # or not they exist. A root .cargo/ refuses the key below.
               # GIT_LITERAL_PATHSPECS (set on this step): no glob or `:(exclude)` magic can drop files.
-              hashed = crates + [
-                  "rust/Cargo.toml", "rust/Cargo.lock", "rust/.cargo", "proto",
-                  "rust-toolchain", "rust-toolchain.toml",
-                  "rust/rust-toolchain", "rust/rust-toolchain.toml",
-                  ".github/actions/setup-protoc", ".github/actions/feature-flags-binary-key",
+              # Paths that do not exist add nothing to the hash.
+              hashed = [
+                  "rust", "proto", ".cargo", "rust-toolchain", "rust-toolchain.toml",
+                  ".github/workflows/ci-mcp.yml",
+                  ".github/actions/setup-protoc",
+                  ".github/actions/feature-flags-binary-key",
+                  ".github/actions/find-feature-flags-binary",
               ]
-              entries = subprocess.run(["git", "ls-files", "-s", "--", *hashed], check=True, capture_output=True).stdout
 
-              # The index stores a symlink's target string, not the target's contents, so a
-              # symlink is only hashed faithfully when it resolves into the hashed set.
               def inside_hashed(path):
                   return any(path == h or path.startswith(h + "/") for h in hashed)
 
-              # A cargo config can point a build script at other sources, for example through
-              # an [env] entry such as PROTO_ROOT. rust/.cargo is hashed, and its [env] entries
-              # must not name a path. A repo-root .cargo/ is not supported, so it refuses the key.
-              if any(path.startswith(".cargo/") for path in index):
-                  refuse("a repo-root .cargo/ exists")
-              for path, mode in index.items():
-                  if path.startswith("rust/.cargo/") and os.path.basename(path) in ("config", "config.toml"):
-                      for name, value in load(path).get("env", {}).items():
-                          if not isinstance(value, str) or "/" in value or "\\" in value or ".." in value:
-                              refuse(f"{path} sets [env] {name} to a table or a path")
-
-              # Build scripts and include macros can read files outside their crate. Each such
-              # path literal must land in the hashed set; anything else refuses the key.
-              # Build scripts run with the crate directory as their working directory, and
-              # include macros resolve against the directory of the file that uses them.
-              include_re = re.compile(r'(?:include(?:_bytes|_str)?!\s*\(|#\[path\s*=)\s*"([^"]+)"')
-              escape_re = re.compile(r'"(\.\.(?:/[^"]*)?|/[A-Za-z][^"]*)"')
-              for crate in crates:
-                  build = load(f"{crate}/Cargo.toml").get("package", {}).get("build", "build.rs")
-                  build = build if isinstance(build, str) else "build.rs"
-                  for path, mode in index.items():
-                      if not (path.startswith(crate + "/") and path.endswith(".rs")) or mode == "120000":
-                          continue
-                      with open(path, encoding="utf-8", errors="replace") as f:
-                          text = f.read()
-                      reads = [os.path.join(os.path.dirname(path), lit) for lit in include_re.findall(text)]
-                      if path == f"{crate}/{build}":
-                          reads += [os.path.join(crate, lit) for lit in escape_re.findall(text)]
-                      for read in reads:
-                          resolved = os.path.normpath(read)
-                          if os.path.isabs(resolved) or resolved.startswith("..") or not inside_hashed(resolved):
-                              refuse(f"{path} reads {resolved!r}, which is outside the hashed sources")
-
-              for entry in subprocess.run(["git", "ls-files", "-s", "-z", "--", *hashed], check=True, capture_output=True).stdout.split(b"\0"):
+              listing = subprocess.run(["git", "ls-files", "-s", "-z", "--", *hashed], check=True, capture_output=True).stdout
+              for entry in listing.split(b"\0"):
                   if not entry:
                       continue
-                  meta, path = entry.split(b"\t", 1)
-                  path, mode = path.decode(), meta.split(b" ")[0].decode()
+                  meta, raw_path = entry.split(b"\t", 1)
+                  path, mode = raw_path.decode(errors="replace"), meta.split(b" ")[0].decode()
                   if mode == "160000":
                       refuse(f"{path!r} is a submodule")
+                  # The index stores a symlink's target string, not the target's contents, so a
+                  # symlink is only hashed faithfully when it resolves into the hashed set.
                   if mode == "120000":
                       resolved = os.path.realpath(os.path.join(root, path))
                       if os.path.commonpath([root, resolved]) != root or not inside_hashed(os.path.relpath(resolved, root)):
                           refuse(f"symlink {path!r} resolves outside the hashed sources")
+                      continue
+                  # A cargo [env] entry can point a build script at sources outside the hashed set,
+                  # for example PROTO_ROOT for usage-ingestion-proto, so it must not name a path.
+                  parts = path.split("/")
+                  if len(parts) >= 2 and parts[-2] == ".cargo" and parts[-1] in ("config", "config.toml"):
+                      with open(path, "rb") as f:
+                          env = tomllib.load(f).get("env", {})
+                      for name, value in env.items():
+                          if not isinstance(value, str) or "/" in value or "\\" in value or ".." in value:
+                              refuse(f"{path!r} sets [env] {name!r} to a table or a path")
 
+              entries = subprocess.run(["git", "ls-files", "-s", "--", *hashed], check=True, capture_output=True).stdout
               print(hashlib.sha256(entries).hexdigest()[:40])
               PY
               ) || status=$?
@@ -184,4 +101,4 @@ runs:
                   exit "$status"
               fi
               FLAGS_HASH=$(printf '%s' "$FLAGS" | sha256sum | cut -c1-8)
-              echo "key=feature-flags-debug-v1-${RUNNER_OS}-${RUNNER_ARCH}-${ImageOS:-unknown}-rust${TOOLCHAIN}-${FLAGS_HASH}-${SOURCE_HASH}" >> "$GITHUB_OUTPUT"
+              echo "key=feature-flags-debug-v2-${RUNNER_OS}-${RUNNER_ARCH}-${ImageOS:-unknown}-rust${TOOLCHAIN}-${FLAGS_HASH}-${SOURCE_HASH}" >> "$GITHUB_OUTPUT"
