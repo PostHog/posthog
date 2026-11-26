@@ -3984,6 +3984,12 @@ class TestCurrentAliasUsage(APIBaseTest):
             ("flat_route_follows_the_user", "/api/feature_flag/", False, [("api/feature_flag/", "user")]),
             ("flat_route_with_a_token", "/api/cohort/", True, [("api/cohort/", "token")]),
             ("nested_route", "/api/projects/{team_id}/feature_flags/", False, []),
+            (
+                "view_outside_the_mixin",
+                "/api/user_home_settings/@me/",
+                False,
+                [("api/user_home_settings/{uuid}/", "user")],
+            ),
         ]
     )
     def test_reports_flat_route_callers(

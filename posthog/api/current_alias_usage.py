@@ -14,6 +14,7 @@ from posthog.api.scope_resolution import (
     CURRENT_ALIAS,
     TokenOnProjectPath,
     is_flat_route,
+    reads_user_state,
     scope_resolution,
     token_on_project_path,
 )
@@ -94,7 +95,7 @@ def record_scope_usage(request: HttpRequest, *, route: str, status_class: str) -
     token_on_path: TokenOnProjectPath | None = None
     if scope := current_alias_scope(request.path):
         report = _CURRENT_ALIAS_REPORT
-    elif is_flat_route(request):
+    elif is_flat_route(request) or reads_user_state(request):
         report, scope = _FLAT_ROUTE_REPORT, CurrentAliasScope.PROJECT
     elif token_on_path := token_on_project_path(request):
         report, scope = _TOKEN_ON_PROJECT_PATH_REPORT, CurrentAliasScope.PROJECT
@@ -171,7 +172,8 @@ def _record(
     method = request.method or ""
     token_attributes = {"token_matches_path": token_on_path.token_matches_path} if token_on_path else {}
     resolution = scope_resolution(request)
-    project_from = resolution.source.value if resolution else ""
+    # A flat route outside TeamAndOrgViewSetMixin records no resolution, and it reads the user's state by definition.
+    project_from = resolution.source.value if resolution else ("user" if report is _FLAT_ROUTE_REPORT else "")
     credential_pins_scope = resolution.credential_pins_scope if resolution else False
 
     client = posthoganalytics.default_client

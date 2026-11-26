@@ -1,7 +1,6 @@
 import re
 import random
 import pathlib
-import importlib
 import importlib.util
 from datetime import timedelta
 from typing import Any
@@ -16,7 +15,7 @@ from django.db.models import Count
 from django.db.models.functions import Lower
 from django.test import Client, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
-from django.urls import include, path
+from django.urls import URLResolver, get_resolver, include, path
 from django.utils import timezone
 
 import structlog
@@ -36,6 +35,7 @@ from posthog.api.current_alias_deprecation import (
 )
 from posthog.api.request_scope import ScopeLevel, resolve_request_scope
 from posthog.api.routing import DefaultRouterPlusPlus, PathParameter, RouterRegistry, TeamAndOrgViewSetMixin
+from posthog.api.scope_resolution import STATE_DEPENDENT_VIEWS, view_name
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -904,6 +904,22 @@ class TestCurrentAliasDeprecationHeaders(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("Deprecation", response)
+
+
+class TestStateDependentViews(SimpleTestCase):
+    def test_every_entry_names_a_routed_view(self) -> None:
+        routed: set[str] = set()
+        patterns = list(get_resolver().url_patterns)
+        while patterns:
+            pattern = patterns.pop()
+            if isinstance(pattern, URLResolver):
+                patterns.extend(pattern.url_patterns)
+                continue
+            name = view_name(pattern.callback)
+            routed.add(name)
+            routed.update(f"{name}.{action}" for action in (getattr(pattern.callback, "actions", None) or {}).values())
+
+        assert sorted(STATE_DEPENDENT_VIEWS - routed) == []
 
 
 class TestResolveRequestScope(SimpleTestCase):
