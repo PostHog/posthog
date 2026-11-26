@@ -2247,6 +2247,7 @@ infrastructure-direction	clickhouse_client	access_control	1
 level:isolated	account_audits	1
 level:isolated	actions	1
 level:isolated	aeo	1
+level:isolated	agent_transcripts	1
 level:isolated	ai_gateway	1
 level:isolated	ai_training	1
 level:isolated	alerts_platform	1
@@ -3772,6 +3773,4 @@ thin-commands	products.workflows.backend.management.commands.backfill_workflows_
 thin-commands	products.workflows.backend.management.commands.backfill_workflows_slack_integration	products.workflows.backend.models.hog_flow.hog_flow	1
 thin-commands	products.workflows.backend.management.commands.migrate_hog_flow_secret_inputs	products.workflows.backend.models.hog_flow.hog_flow	1
 thin-commands	products.workflows.backend.management.commands.refresh_hog_flows	products.workflows.backend.models.hog_flow.hog_flow	1
-thin-commands	products.workflows.backend.management.commands.rewrite_email_asset_url	products.workflows.backend.models.hog_flow.hog_flow	1
-thin-commands	products.workflows.backend.management.commands.rewrite_email_asset_url	products.workflows.backend.models.hog_flow.hog_flow_template	1
 thin-commands	products.workflows.backend.management.commands.strip_placeholder_sender_overrides	products.workflows.backend.models.hog_flow.hog_flow	1
