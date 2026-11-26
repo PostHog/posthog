@@ -165,10 +165,8 @@ class SlackIntegration:
         """
         return sorted(self._list_channels_by_type("public_channel"), key=lambda x: x["name"])
 
-    def is_channel_member(self, channel_id: str, authed_user: str | None) -> bool:
-        """Whether a Slack user is in a channel. Raises SlackMembershipUnknown when the scan can't finish.
-
-        Slack caps conversations.members at 1000 ids per call whatever limit is asked for, so a
+    def _is_channel_member(self, channel_id: str, authed_user: str | None) -> bool:
+        """Slack caps conversations.members at 1000 ids per call whatever limit is asked for, so a
         member past the first page needs the cursor followed rather than a bigger limit."""
         cursor = None
         requests = 0
@@ -205,7 +203,7 @@ class SlackIntegration:
 
             membership_unknown = False
             try:
-                is_member = self.is_channel_member(channel_id, authed_user)
+                is_member = self._is_channel_member(channel_id, authed_user)
             except SlackMembershipUnknown:
                 # The scan could not finish, so membership is unproven rather than disproven. Return
                 # the channel: the picker shows it and flags that the app may not be in it, which is
