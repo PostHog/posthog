@@ -13,15 +13,18 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
 from products.cdp.backend.abuse import rules
-from products.cdp.backend.abuse.classifier import build_state
-from products.cdp.backend.abuse.shadow import ScoredHogFunction, content_of
+from products.cdp.backend.abuse.classifier import HogFunctionContent, build_state
+from products.cdp.backend.abuse.shadow import ScoredHogFunction, _with_secret_inputs, content_of
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.services.destination_test_runs import redact_secrets_in_origins, stored_secret_values
 from products.ml_inference.backend.facade.contracts import JsonValue
 
 MAX_HISTORY_ENTRIES = 30
 MAX_ORG_FUNCTIONS = 50
 MAX_HOSTS_PER_FUNCTION = 20
 MAX_HISTORY_CODE_CHARS = 4_000
+MAX_ORIGINS_PER_TEST = 20
+MAX_ORIGIN_CHARS = 300
 MAX_CASE_FILE_CHARS = 200_000
 _TRUNCATED_MARKER = " [truncated]"
 # Only these fields of an update show their new value. The activity log masks the inputs, but not every field that
@@ -51,7 +54,9 @@ class FunctionUnderReview:
     enabled: bool
     created_at: datetime
     saved_at: datetime
+    # Hosts that a rule flags come first.
     named_hosts: tuple[str, ...]
+    named_hosts_omitted: int
     # The public content as Jev reads it: code, inputs without secret values, filters, mappings and masking.
     config: dict[str, JsonValue]
     config_truncated: bool
@@ -65,7 +70,8 @@ class HistoryEntry:
     changed_fields: tuple[str, ...] = ()
     code: str | None = None
     enabled: bool | None = None
-    # A test that sent real requests records the origins it reached, with secret values already redacted.
+    # A test that sent real requests records the origins it reached. Redacted again against the secrets stored now,
+    # because the row only redacts the secrets that were stored when the test ran.
     request_origins: tuple[str, ...] | None = None
     mocked_async_functions: bool | None = None
 
@@ -92,6 +98,8 @@ class OrgFunction:
     created_at: datetime
     updated_at: datetime
     named_hosts: tuple[str, ...]
+    named_hosts_omitted: int
+    # Matched with the secret inputs too, like a save is. Only the rule names leave, never the values.
     rule_hits: tuple[str, ...]
 
 
@@ -129,6 +137,7 @@ def build_case_file(hog_function: HogFunction, scored: ScoredHogFunction) -> Cas
 def _function_under_review(hog_function: HogFunction, scored: ScoredHogFunction) -> FunctionUnderReview:
     content = content_of(hog_function, hog_function.template)
     config, truncated = build_state(content)
+    hosts = _named_hosts(content)
     verdict = scored.verdict
     return FunctionUnderReview(
         name=hog_function.name,
@@ -138,7 +147,8 @@ def _function_under_review(hog_function: HogFunction, scored: ScoredHogFunction)
         enabled=hog_function.enabled,
         created_at=hog_function.created_at,
         saved_at=hog_function.updated_at,
-        named_hosts=rules.named_hosts(content)[:MAX_HOSTS_PER_FUNCTION],
+        named_hosts=hosts.shown,
+        named_hosts_omitted=hosts.omitted,
         config=config,
         config_truncated=truncated,
         classification=Classification(
@@ -159,7 +169,9 @@ def _account_facts(hog_function: HogFunction, team: Team, scored: ScoredHogFunct
     organization = team.organization
     return AccountFacts(
         age_days=scored.account.age.days,
-        minutes_from_signup_to_save=int((hog_function.updated_at - organization.created_at).total_seconds() // 60),
+        minutes_from_signup_to_save=max(
+            int((hog_function.updated_at - organization.created_at).total_seconds() // 60), 0
+        ),
         has_active_subscription=scored.account.has_active_subscription,
         member_count=scored.account.member_count,
         team_count=Team.objects.filter(organization_id=organization.id).count(),
@@ -178,20 +190,40 @@ def _history(hog_function: HogFunction) -> _History:
     logged = ActivityLog.objects.filter(team_id=hog_function.team_id, scope="HogFunction", item_id=str(hog_function.id))
     total = logged.count()
     latest = list(logged.order_by("-created_at").only("activity", "created_at", "detail")[:MAX_HISTORY_ENTRIES])
+    rows = list(reversed(latest))
+    secrets = stored_secret_values(
+        hog_function.team_id,
+        _tested_integration_ids(rows),
+        [hog_function.encrypted_inputs, hog_function.draft_encrypted_inputs],
+    )
     return _History(
-        entries=tuple(_history_entry(row) for row in reversed(latest)),
+        entries=tuple(_history_entry(row, secrets) for row in rows),
         omitted=max(total - MAX_HISTORY_ENTRIES, 0),
     )
 
 
-def _history_entry(row: ActivityLog) -> HistoryEntry:
+def _tested_integration_ids(rows: list[ActivityLog]) -> list[int]:
+    ids: set[int] = set()
+    for row in rows:
+        listed = _test_context(row).get("integration_ids")
+        if isinstance(listed, list):
+            ids.update(value for value in listed if isinstance(value, int) and not isinstance(value, bool))
+    return sorted(ids)
+
+
+def _test_context(row: ActivityLog) -> dict[str, JsonValue]:
+    detail = row.detail if isinstance(row.detail, dict) else {}
+    context = detail.get("context") if row.activity == "tested" else None
+    return context if isinstance(context, dict) else {}
+
+
+def _history_entry(row: ActivityLog, secrets: list[str]) -> HistoryEntry:
     detail = row.detail if isinstance(row.detail, dict) else {}
     changes = [change for change in detail.get("changes") or [] if isinstance(change, dict)]
     new_values = {
         change["field"]: change.get("after") for change in changes if change.get("field") in _HISTORY_VALUE_FIELDS
     }
-    context = detail.get("context") if row.activity == "tested" else None
-    test = context if isinstance(context, dict) else {}
+    test = _test_context(row)
     code = test.get("hog") if test else new_values.get("hog")
     enabled = new_values.get("enabled")
     origins = test.get("request_origins")
@@ -202,9 +234,14 @@ def _history_entry(row: ActivityLog) -> HistoryEntry:
         changed_fields=tuple(str(change.get("field")) for change in changes if change.get("field")),
         code=_cut(code, MAX_HISTORY_CODE_CHARS) if isinstance(code, str) else None,
         enabled=enabled if isinstance(enabled, bool) else None,
-        request_origins=tuple(str(origin) for origin in origins) if isinstance(origins, list) else None,
+        request_origins=_redacted_origins(origins, secrets) if isinstance(origins, list) else None,
         mocked_async_functions=mocked if isinstance(mocked, bool) else None,
     )
+
+
+def _redacted_origins(origins: list[JsonValue], secrets: list[str]) -> tuple[str, ...]:
+    shown = [_cut(str(origin), MAX_ORIGIN_CHARS) for origin in origins[:MAX_ORIGINS_PER_TEST]]
+    return tuple(redact_secrets_in_origins(shown, secrets))
 
 
 @frozen
@@ -219,15 +256,20 @@ def _org_functions(hog_function: HogFunction) -> _OrgFunctions:
         pk=hog_function.pk
     )
     total = others.count()
-    latest = others.select_related("hog_function_template").order_by("-updated_at")[:MAX_ORG_FUNCTIONS]
+    latest = (
+        others.select_related("hog_function_template")
+        .defer("bytecode", "transpiled", "draft", "draft_encrypted_inputs")
+        .order_by("-updated_at")[:MAX_ORG_FUNCTIONS]
+    )
     return _OrgFunctions(
         entries=tuple(_org_function(other) for other in latest), omitted=max(total - MAX_ORG_FUNCTIONS, 0)
     )
 
 
 def _org_function(hog_function: HogFunction) -> OrgFunction:
-    # The linked template only, so the list costs no query per function. Secret inputs stay out of the rules too.
+    # The linked template only, so the list costs no query per function.
     content = content_of(hog_function, hog_function.hog_function_template)
+    hosts = _named_hosts(content)
     return OrgFunction(
         name=hog_function.name,
         type=hog_function.type,
@@ -237,14 +279,26 @@ def _org_function(hog_function: HogFunction) -> OrgFunction:
         deleted=hog_function.deleted,
         created_at=hog_function.created_at,
         updated_at=hog_function.updated_at,
-        named_hosts=rules.named_hosts(content)[:MAX_HOSTS_PER_FUNCTION],
-        rule_hits=tuple(rule.value for rule in rules.matched_rules(content)),
+        named_hosts=hosts.shown,
+        named_hosts_omitted=hosts.omitted,
+        rule_hits=tuple(rule.value for rule in rules.matched_rules(_with_secret_inputs(hog_function, content))),
     )
+
+
+@frozen
+class _Hosts:
+    shown: tuple[str, ...]
+    omitted: int
+
+
+def _named_hosts(content: HogFunctionContent) -> _Hosts:
+    hosts = rules.named_hosts(content)
+    return _Hosts(shown=hosts[:MAX_HOSTS_PER_FUNCTION], omitted=max(len(hosts) - MAX_HOSTS_PER_FUNCTION, 0))
 
 
 def _fit(case_file: CaseFile) -> CaseFile:
     """Drop the oldest history, then the least recently updated functions of the organization, until the case
-    file fits. The function under review is capped on its own by `build_state`, so it always stays."""
+    file fits. The function under review and the account are bounded on their own, so they always stay."""
     while len(case_file.to_json()) > MAX_CASE_FILE_CHARS:
         if case_file.history:
             case_file = replace(case_file, history=case_file.history[1:], history_omitted=case_file.history_omitted + 1)

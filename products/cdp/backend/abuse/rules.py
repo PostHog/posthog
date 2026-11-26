@@ -1199,6 +1199,19 @@ def _in_domains(canonical_host: str, domains: frozenset[str]) -> bool:
     return any(canonical_host == domain or canonical_host.endswith(f".{domain}") for domain in domains)
 
 
+# The DNS name limit. A longer host cannot resolve, so the rest of it only pads what a reviewer reads.
+_MAX_NAMED_HOST_CHARS = 253
+
+
 def named_hosts(content: HogFunctionContent) -> tuple[str, ...]:
-    """The hosts of the URLs in the code, the inputs and the masking hash, for a reviewer to read."""
-    return tuple(sorted(set(_hosts_in(_texts(content)))))
+    """The hosts of the URLs in the code, the inputs and the masking hash, for a reviewer to read. Hosts that a
+    rule flags come first, so a list cut to length keeps them however many other hosts the code names."""
+    flagged: dict[str, bool] = {}
+    for host in _hosts_in(_texts(content)):
+        named = host[:_MAX_NAMED_HOST_CHARS]
+        flagged[named] = flagged.get(named, False) or _is_flagged_host(host)
+    return tuple(sorted(flagged, key=lambda host: (not flagged[host], host)))
+
+
+def _is_flagged_host(host: str) -> bool:
+    return _is_internal(host) or _is_request_catcher(host) or _is_security_callback(host)

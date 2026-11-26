@@ -295,10 +295,14 @@ def _stored_secrets(row: ActivityLog, secret_inputs: Any) -> list[str]:
     # Only stored secrets are redacted. A secret the caller submits with the test is under the caller's
     # control, so redacting it would let the caller hide the host they sent requests to.
     context = cast(Detail, row.detail).context
-    integration_ids = getattr(context, "integration_ids", None) or []
+    return stored_secret_values(row.team_id, getattr(context, "integration_ids", None) or [], secret_inputs)
+
+
+def stored_secret_values(team_id: Optional[int], integration_ids: list[int], secret_inputs: Any) -> list[str]:
+    """Every string in the stored secret inputs, in any nesting, and in the sensitive config of the integrations."""
     configs: list[Any] = []
-    if row.team_id is not None and integration_ids:
-        records = IntegrationManager.any.with_source_rows().get_many(row.team_id, integration_ids)
+    if team_id is not None and integration_ids:
+        records = IntegrationManager.any.with_source_rows().get_many(team_id, integration_ids)
         configs = [dict(record.sensitive_config) for record in records.values()]
     return [*_string_values(secret_inputs), *_string_values(configs)]
 

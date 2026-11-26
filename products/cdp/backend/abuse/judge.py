@@ -36,7 +36,7 @@ the risk cannot happen).
 - account: the organization's age, minutes from signup to this save, whether billing reports a subscription, \
 members, projects, the billing trust score for this product, and its tier (new means fresh, free and small).
 - history: the function's edit and test history, oldest first. Updates show the new code. Tests that sent real \
-requests show the origins they reached.
+requests show the origins they reached. Draft saves show only that the draft changed, never its content.
 - org_functions: the organization's other functions, including disabled and deleted ones, with the hosts each one \
 names and its rule hits.
 
@@ -56,7 +56,7 @@ for one public service are ordinary debugging.
 that only probe weigh toward abuse. A history of working integrations weighs against it.
 
 Answer with:
-- findings: at most 5 short, concrete observations from the case file that decide the verdict, each one citing \
+- findings: one to five short, concrete observations from the case file that decide the verdict, each one citing \
 what you saw (a host, a code line, a count, a time). No speculation beyond the case file.
 - verdict: true_positive when the function is abuse, false_positive when it is a legitimate use that tripped a \
 check, uncertain when the case file does not settle it.
@@ -68,7 +68,10 @@ disable_function is for abuse inside an organization that also has legitimate us
 """
 
 _Finding = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
-_OneLine = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300, pattern=r"^[^\r\n]+$")]
+_OneLine = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=300, pattern="^[^\r\n\u0085\u2028\u2029]+$"),
+]
 
 
 class Verdict(StrEnum):
@@ -88,7 +91,7 @@ class _Answer(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    findings: list[_Finding] = Field(max_length=MAX_FINDINGS)
+    findings: list[_Finding] = Field(min_length=1, max_length=MAX_FINDINGS)
     verdict: Verdict
     confidence: float = Field(ge=0, le=1)
     suggested_action: SuggestedAction
@@ -111,7 +114,7 @@ _OUTPUT_FORMAT: JSONOutputFormatParam = {
             "findings": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": f"At most {MAX_FINDINGS} observations.",
+                "description": f"One to {MAX_FINDINGS} observations.",
             },
             "verdict": {"type": "string", "enum": [verdict.value for verdict in Verdict]},
             "confidence": {"type": "number", "description": "From 0 to 1."},
@@ -177,8 +180,15 @@ def review_case(case_file: CaseFile, *, team_id: int) -> Review | ReviewFailure:
         return ReviewFailure(reason=ReviewFailureReason.GATEWAY_UNREACHABLE)
     except anthropic.APIStatusError:
         return ReviewFailure(reason=ReviewFailureReason.GATEWAY_ERROR)
+    except (anthropic.APIError, ValueError):
+        # A success status whose body is not a message. The error can quote the body, so it is not kept.
+        return ReviewFailure(reason=ReviewFailureReason.INVALID_ANSWER)
     latency_ms = (time.monotonic() - started) * 1000
-    return _review_from(response, latency_ms)
+    try:
+        return _review_from(response, latency_ms)
+    except (AttributeError, TypeError):
+        # The SDK builds the message without validating it, so a body of the wrong shape fails only on read.
+        return ReviewFailure(reason=ReviewFailureReason.INVALID_ANSWER)
 
 
 def _case_message(case_file: CaseFile) -> MessageParam:
@@ -188,13 +198,18 @@ def _case_message(case_file: CaseFile) -> MessageParam:
 def _review_from(response: anthropic.types.Message, latency_ms: float) -> Review | ReviewFailure:
     if response.stop_reason == "refusal":
         return ReviewFailure(reason=ReviewFailureReason.REFUSED, refusal_category=_refusal_category(response))
-    if response.stop_reason == "max_tokens":
+    if response.stop_reason in ("max_tokens", "model_context_window_exceeded"):
         return ReviewFailure(reason=ReviewFailureReason.TRUNCATED)
     text = "".join(block.text for block in response.content if block.type == "text")
     try:
         answer = _Answer.model_validate_json(text)
     except ValidationError:
         # The error repeats the model's text, which quotes the customer's function, so it is not kept.
+        return ReviewFailure(reason=ReviewFailureReason.INVALID_ANSWER)
+    # Typed as `object` because the SDK skips validation, so a partial `usage` can hold None here.
+    input_tokens: object = response.usage.input_tokens
+    output_tokens: object = response.usage.output_tokens
+    if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
         return ReviewFailure(reason=ReviewFailureReason.INVALID_ANSWER)
     return Review(
         verdict=answer.verdict,
@@ -204,8 +219,8 @@ def _review_from(response: anthropic.types.Message, latency_ms: float) -> Review
         admin_reason=answer.admin_reason,
         model=response.model,
         latency_ms=latency_ms,
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
 

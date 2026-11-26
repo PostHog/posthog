@@ -96,6 +96,15 @@ class TestAbuseReview(AbuseClassificationTestCase):
         sibling_team = Team.objects.create(organization=self.organization, name="Second project")
         self.other_function(sibling_team, name="Deleted probe", hog="fetch('http://localhost:8000')", deleted=True)
         self.other_function(self.team, name="Paused", hog="fetch('https://api.example.com/x')", enabled=False)
+        many_hosts = "".join(f"fetch('https://host{index:02}.example.com');" for index in range(25))
+        self.other_function(self.team, name="Many hosts", hog=many_hosts + "fetch('http://localhost:8000')")
+        self.other_function(
+            self.team,
+            name="Secret target",
+            hog="fetch(inputs.url)",
+            inputs_schema=[{"key": "url", "type": "string", "secret": True}],
+            encrypted_inputs={"url": {"value": "http://169.254.169.254/latest"}},
+        )
 
         case = self.case_of(destination)
 
@@ -127,6 +136,11 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert others["Deleted probe"]["rule_hits"] == ["internal_host"]
         assert others["Paused"]["enabled"] is False
         assert others["Paused"]["named_hosts"] == ["api.example.com"]
+        assert others["Many hosts"]["named_hosts"][0] == "localhost"
+        assert len(others["Many hosts"]["named_hosts"]) == case_file.MAX_HOSTS_PER_FUNCTION
+        assert others["Many hosts"]["named_hosts_omitted"] == 26 - case_file.MAX_HOSTS_PER_FUNCTION
+        assert others["Secret target"]["rule_hits"] == ["internal_host"]
+        assert others["Secret target"]["named_hosts"] == []
 
     def test_no_secret_value_reaches_the_case_file(self) -> None:
         destination = self.create_destination(encrypted_inputs={"api_key": {"value": SECRET_VALUE}})
@@ -143,6 +157,12 @@ class TestAbuseReview(AbuseClassificationTestCase):
                     "after": [{"key": "api_key", "secret": True, "default": SECRET_VALUE}],
                 }
             ],
+        )
+        # The row redacts only the secrets stored when the test ran, so a secret saved after it is still in clear.
+        self.log(
+            destination,
+            "tested",
+            context={"hog": "fetch(inputs.url)", "request_origins": [f"https://{SECRET_VALUE}.example.com"]},
         )
         secret_url = f"https://{SECRET_VALUE}.example.com/hook"
         self.other_function(
@@ -193,6 +213,16 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert built.history_omitted == 10
         assert 0 < len(built.org_functions) < 10
         assert len(built.org_functions) + built.org_functions_omitted == 10
+
+    def test_a_huge_host_cannot_push_the_history_out(self) -> None:
+        long_host = "a" * 60 + "." + ("b" * 60 + ".") * 2_500 + "example.com"
+        destination = self.create_destination(hog=f"fetch('http://{long_host}/')")
+        self.log(destination, "updated", changes=[{"field": "hog", "after": "fetch('http://127.0.0.1')"}])
+
+        case = self.case_of(destination)
+
+        assert len(json.dumps(case)) <= case_file.MAX_CASE_FILE_CHARS
+        assert [entry["code"] for entry in case["history"]] == ["fetch('http://127.0.0.1')"]
 
 
 class TestAbuseReviewJudge(AbuseClassificationTestCase):
@@ -273,7 +303,17 @@ class TestAbuseReviewJudge(AbuseClassificationTestCase):
                 model_message(json.dumps({**PROBE_VERDICT, "notes": "x"})),
                 ReviewFailureReason.INVALID_ANSWER,
             ),
+            (
+                "no_findings",
+                model_message(json.dumps({**PROBE_VERDICT, "findings": []})),
+                ReviewFailureReason.INVALID_ANSWER,
+            ),
             ("cut_off", model_message('{"findings": ["Fetch', stop_reason="max_tokens"), ReviewFailureReason.TRUNCATED),
+            (
+                "context_window_full",
+                model_message("", stop_reason="model_context_window_exceeded"),
+                ReviewFailureReason.TRUNCATED,
+            ),
         ]
     )
     def test_an_unusable_answer_is_a_typed_failure(
@@ -282,6 +322,22 @@ class TestAbuseReviewJudge(AbuseClassificationTestCase):
         self.gateway.response = httpx.Response(200, json=message)
 
         assert self.review() == ReviewFailure(reason=reason)
+
+    @parameterized.expand(
+        [
+            (
+                "json_type_not_json",
+                httpx.Response(200, content=b"<html>", headers={"content-type": "application/json"}),
+            ),
+            ("html_page", httpx.Response(200, content=b"<html>", headers={"content-type": "text/html"})),
+            ("empty_object", httpx.Response(200, json={})),
+            ("no_usage", httpx.Response(200, json={**model_message(json.dumps(PROBE_VERDICT)), "usage": {}})),
+        ]
+    )
+    def test_a_reply_that_is_not_a_message_is_a_typed_failure(self, _name: str, reply: httpx.Response) -> None:
+        self.gateway.response = reply
+
+        assert self.review() == ReviewFailure(reason=ReviewFailureReason.INVALID_ANSWER)
 
     def test_a_refusal_keeps_its_category(self) -> None:
         self.gateway.response = httpx.Response(
