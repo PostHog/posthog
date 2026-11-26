@@ -215,6 +215,7 @@ class HedgeboxMatrix(Matrix):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.seed_timeseries: Callable[[int, str, dt.date], None] | None = None
         elapsed = self.now - self.start
 
         # Legacy experiment (complete) - runs from 30% to 60% of simulation
@@ -1808,7 +1809,10 @@ class HedgeboxMatrix(Matrix):
             # so without this bound the backfill runs one ClickHouse query per day between the
             # simulated clock and the real today — empty results, and slow enough to hang demo
             # generation when the clock is pinned to the past.
-            backfill_experiment_timeseries(str(recalculation.id), backfill_until=self.now.date())
+            if self.seed_timeseries is None:
+                backfill_experiment_timeseries(str(recalculation.id), backfill_until=self.now.date())
+            else:
+                self.seed_timeseries(team.id, str(recalculation.id), self.now.date())
         except Exception as e:
             # Timeseries are nice-to-have; never fail demo generation over them
             capture_exception(e)

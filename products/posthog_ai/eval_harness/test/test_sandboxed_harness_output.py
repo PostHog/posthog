@@ -136,6 +136,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
         agent_runtime="codex",
         agent_model="gpt-5",
         max_sandboxes=4,
+        team_setup_concurrency=2,
         trials=1,
         case_timeout_seconds=900,
     )
@@ -185,6 +186,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
 
     output = capsys.readouterr().out
 
+    assert "Team setup concurrency: 2" in output
     assert "CASE DONE" in output
     assert "EXPERIMENT DONE" in output
     assert "SUITE DONE" in output
