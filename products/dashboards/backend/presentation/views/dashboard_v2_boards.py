@@ -36,6 +36,11 @@ class BoardSpecField(serializers.JSONField):
     def to_internal_value(self, data: Any) -> Any:
         if not isinstance(data, dict):
             raise serializers.ValidationError("The board document must be a JSON object.")
+        # Before `JSONField`, whose recursive `json.dumps` would crash on a deeply nested document.
+        try:
+            api.check_board_spec(data)
+        except BoardSpecInvalid as error:
+            raise serializers.ValidationError(str(error))
         return super().to_internal_value(data)
 
 

@@ -83,6 +83,7 @@ from products.dashboards.backend.models.dashboard_templates import DashboardTemp
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingCachedEvent
 from products.dashboards.backend.v2 import (
+    board_schema as v2_board_schema,
     board_stream as v2_board_stream,
     boards as v2_boards,
     cached_tiles as v2_cached_tiles,
@@ -1452,6 +1453,14 @@ def list_boards(
 def get_board(team_id: int, uid: str) -> contracts.BoardDetail:
     """Read one live board. Raises `BoardNotFound` for a uid of another team or a deleted board."""
     return v2_boards.get_board(team_id, uid)
+
+
+def check_board_spec(spec: dict[str, JsonValue]) -> None:
+    """Raise `BoardSpecInvalid` for a document nested too deep or holding a value Postgres refuses in jsonb.
+
+    Safe on any parsed JSON, however deep: run it before anything that serializes the document recursively.
+    """
+    v2_board_schema.check_storable(spec)
 
 
 def create_board(team_id: int, user_id: int, spec: dict[str, JsonValue]) -> contracts.BoardDetail:

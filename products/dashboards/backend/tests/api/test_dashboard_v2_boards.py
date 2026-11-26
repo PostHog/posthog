@@ -175,6 +175,15 @@ class TestDashboardV2Boards(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "spec"
 
+    def test_rejects_a_document_nested_deeper_than_json_dumps_can_recurse(self) -> None:
+        depth = 40000
+        body = '{"spec": ' + '{"k":' * depth + "1" + "}" * depth + "}"
+
+        response = self.client.post(self._url(), body, content_type="application/json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "spec"
+
     def test_another_teams_board_is_not_found(self) -> None:
         uid = self._create(_board()).json()["uid"]
         other_team = Team.objects.create(organization=self.organization, name="Other")
