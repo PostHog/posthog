@@ -5857,7 +5857,7 @@ describe('CDP API', () => {
 
                     const holders: Promise<supertest.Response>[] = []
                     let thirdOfOrg: supertest.Response
-                    let notSendableOfOrg: supertest.Response
+                    let notSendableOfOrg: supertest.Response[]
                     let ofOtherOrg: supertest.Response
                     try {
                         holders.push(sendAs(ownTeam, `ada-${new UUIDT().toString()}@example.com`))
@@ -5867,7 +5867,10 @@ describe('CDP API', () => {
                         await heldAt(secondRead, holders[1])
                         read.pass()
                         thirdOfOrg = await sendAs(sameOrg, 'cy@example.com')
-                        notSendableOfOrg = await sendAs(archivedOfOrg, 'ed@example.com')
+                        notSendableOfOrg = [
+                            await sendAs(archivedOfOrg, 'ed@example.com'),
+                            await sendAs({ ...sameOrg, flowId: otherOrg.flowId }, 'fy@example.com'),
+                        ]
                         ofOtherOrg = await sendAs(otherOrg, 'di@example.com')
                     } finally {
                         read.release()
@@ -5877,7 +5880,10 @@ describe('CDP API', () => {
                     const held = await Promise.all(holders)
 
                     expect([thirdOfOrg.status, thirdOfOrg.body]).toEqual([503, { error: 'over_capacity' }])
-                    expect([notSendableOfOrg.status, notSendableOfOrg.body]).toEqual([400, { error: 'not_sendable' }])
+                    expect(notSendableOfOrg.map(({ status, body }) => [status, body])).toEqual([
+                        [400, { error: 'not_sendable' }],
+                        [400, { error: 'not_sendable' }],
+                    ])
                     expect([ofOtherOrg.status, ofOtherOrg.body.results]).toEqual([
                         200,
                         [{ status: 202, body: expect.objectContaining({ status: 'queued' }) }],
