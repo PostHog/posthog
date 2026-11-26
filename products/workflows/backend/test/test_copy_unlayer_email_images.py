@@ -105,6 +105,8 @@ class TestReplaceInBlob(SimpleTestCase):
             ("text after the address that ends like a file name", f"{BANNER} and see example.com", [BANNER]),
             ("two addresses on their own lines", f"{BANNER}\n{BANNER}", [BANNER, BANNER]),
             ("liquid in a whole value", f"{BANNER}{{{{ person.id }}}}", []),
+            ("another address after a space", f"{BANNER} https://example.com/b.png", [BANNER]),
+            ("an image name after a space", f"{BANNER} and see logo.png", [BANNER]),
             (
                 "a file name with spaces and dots",
                 "https://assets.unlayer.com/projects/0/1-Screenshot 2024-05-01 at 10.30.45 AM.png",

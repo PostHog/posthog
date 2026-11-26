@@ -42,6 +42,7 @@ _WHOLE_VALUE = re.compile(
     r"(?:https?:)?//assets\.unlayer\.com/+projects/[0-9]+/[^\"'<>\\?#{}\n\r\t]+\.(?:png|jpe?g|gif|webp|svg|bmp|ico|avif|tiff?)",
     re.IGNORECASE | re.ASCII,
 )
+_IMAGE_NAME_THEN_TEXT = re.compile(r"\.(?:png|jpe?g|gif|webp|svg|bmp|ico|avif|tiff?)\s", re.IGNORECASE | re.ASCII)
 _PROJECT_PATH = re.compile(r"/projects/([0-9]+)/.+", re.ASCII)
 # A URL inside an inline style can be quoted with entities, as in `url(&quot;https://...&quot;)`.
 _ENTITY_QUOTE = re.compile(r"&(?:quot|#34|#39|apos);", re.IGNORECASE)
@@ -145,7 +146,13 @@ def find_sources(text: str) -> list[tuple[str, str]]:
 
 def _whole_value_key(value: str) -> str | None:
     stripped = value.strip()
-    if stripped.lower().count(UNLAYER_HOST) != 1 or not _WHOLE_VALUE.fullmatch(stripped):
+    # An image name or a second address after a space means the first address ended there.
+    if (
+        stripped.lower().count(UNLAYER_HOST) != 1
+        or stripped.count("://") > 1
+        or not _WHOLE_VALUE.fullmatch(stripped)
+        or _IMAGE_NAME_THEN_TEXT.search(stripped)
+    ):
         return None
     return source_key(stripped)
 
