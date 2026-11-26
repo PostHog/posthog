@@ -19,6 +19,7 @@ from posthog.hogql_queries.apply_dashboard_filters import dashboard_filter_from_
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.alerts.backend.evaluation.attempt_budget import attempt_outlasts
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.contracts import ClosedSeriesValues, SeriesValuesUnavailable
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner, closed_series_values
@@ -42,6 +43,7 @@ class ShadowComparison:
     buckets_missing: int = 0
     max_abs_difference: float = 0.0
     freshly_built: bool = False
+    features: tuple[str, ...] = ()
 
 
 def is_series_values_precompute_enabled(team: Team) -> bool:
@@ -83,7 +85,8 @@ def effective_trends_runner(
 
 def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, live: list[Any]) -> ShadowComparison:
     if isinstance(closed, SeriesValuesUnavailable):
-        return ShadowComparison(outcome="unavailable", reason=closed.reason)
+        return ShadowComparison(outcome="unavailable", reason=closed.reason.value)
+    features = tuple(sorted(feature.value for feature in closed.features))
     series = live[0]
     live_by_bucket = {datetime.fromisoformat(day): value for day, value in zip(series["days"], series["data"])}
     differences = [
@@ -98,6 +101,7 @@ def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, 
             reason="no_overlapping_buckets",
             buckets_missing=missing,
             freshly_built=closed.freshly_built,
+            features=features,
         )
     largest = max(differences)
     outcome: ShadowOutcome
@@ -113,6 +117,7 @@ def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, 
         buckets_missing=missing,
         max_abs_difference=largest,
         freshly_built=closed.freshly_built,
+        features=features,
     )
 
 
@@ -131,6 +136,10 @@ def compare_series_values_shadow(
         live = calculation_result.result
         if not live:
             comparison = ShadowComparison(outcome="unavailable", reason="no_live_result")
+        elif not attempt_outlasts(SHADOW_BUILD_BUDGET_SECONDS):
+            # The build runs before the check is recorded. An attempt that ends during the build loses the
+            # live result, and leaves an INSERT running that no cleanup stops.
+            comparison = ShadowComparison(outcome="unavailable", reason="attempt_out_of_time")
         else:
             runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
             closed = closed_series_values(runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
@@ -191,6 +200,7 @@ def _record(
                 "buckets_compared": comparison.buckets_compared,
                 "buckets_missing": comparison.buckets_missing,
                 "max_abs_difference": comparison.max_abs_difference,
+                "features": list(comparison.features),
                 "alert_id": str(alert.id),
                 "calculation_interval": alert.calculation_interval,
                 "alert_kind": alert_kind,

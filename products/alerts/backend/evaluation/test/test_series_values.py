@@ -215,6 +215,30 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert shadowed == live
         assert (properties["outcome"], properties["reason"]) == ("error", "RuntimeError")
 
+    def test_a_check_without_time_for_the_build_skips_it(self) -> None:
+        alert = self._alert(detector=None)
+        live = check_alert_for_insight(alert)
+
+        with patch(f"{_SHADOW}.attempt_outlasts", return_value=False):
+            shadowed, properties = self._shadowed_check(alert)
+
+        assert shadowed == live
+        assert (properties["outcome"], properties["reason"]) == ("unavailable", "attempt_out_of_time")
+        assert self._jobs() == 0
+
+    def test_a_compared_check_records_the_features_its_query_used(self) -> None:
+        plan_filter = {"key": "plan", "value": "pro", "operator": "exact", "type": "event"}
+        alert = self._alert_on(
+            {**_trends_query("day"), "properties": [plan_filter]},
+            {"type": "TrendsAlertConfig", "series_index": 0},
+            detector=None,
+            calculation_interval="daily",
+        )
+
+        _, properties = self._shadowed_check(alert)
+
+        assert properties["features"] == ["event_property_filters"]
+
     @parameterized.expand(
         [
             ("killed_query", CHQueryErrorQueryWasCancelled("killed", code=394)),
