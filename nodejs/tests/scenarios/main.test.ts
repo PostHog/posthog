@@ -10,6 +10,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { PROFILES_DIR, load, loadText } from './cards'
 import { Environment } from './environment/environment'
+import * as environment from './environment/environment'
 import * as processes from './environment/processes'
 import * as stack from './environment/stack'
 import { main, runCards } from './main'
@@ -112,6 +113,34 @@ describe('runCards', () => {
         jest.restoreAllMocks()
         rmSync(cacheHome, { recursive: true, force: true })
     })
+
+    it.each(['local argument', 'run host manifest'])(
+        'records the seed from the %s in the saved scorecard',
+        async (source) => {
+            jest.spyOn(environment, 'createEnvironment').mockReturnValue(fakeEnvironment())
+            const card = path.join(__dirname, 'cards', 'email-worker-killed-after-accept.yaml')
+            const env = runnerEnv(cacheHome)
+            const args = ['run', card]
+            if (source === 'run host manifest') {
+                const manifest = path.join(cacheHome, 'manifest.json')
+                writeFileSync(manifest, JSON.stringify(hostManifestOf(HOST_RUN_ID, { readerMinAcu: 1, seed: 0 })))
+                env.SCENARIO_RUN_MANIFEST = manifest
+            } else {
+                args.push('--seed', '0')
+            }
+
+            expect(await main(args, env)).toBe(EXIT_CODE.invalid)
+
+            const root = path.join(cacheHome, 'posthog-scenarios')
+            const scores = readdirSync(root).flatMap((entry) => {
+                const file = path.join(root, entry, 'scorecard.json')
+                return existsSync(file) ? [parseJSON(readFileSync(file, 'utf8'))] : []
+            })
+            expect(scores).toEqual([
+                expect.objectContaining({ event: expect.objectContaining({ seed: 0, seed_source: 'override' }) }),
+            ])
+        }
+    )
 
     it.each<[string, 'up' | 'first run' | 'up fails' | 'never', number, string]>([
         ['every card ran and passed', 'never', EXIT_CODE.passed, ''],

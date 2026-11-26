@@ -153,7 +153,7 @@ const pairProperties = ({
 
 export function scorecardOf(
     result: RunVerdict,
-    { card, profile, admission }: LoadedCard,
+    { card, profile, admission, seedSource = 'card' }: LoadedCard,
     provenance: Provenance,
     pair?: ScorecardPair
 ): ScorecardProperties {
@@ -189,6 +189,7 @@ export function scorecardOf(
         generator_version: provenance.generatorVersion,
         valves_version: provenance.valvesVersion,
         seed: card.seed,
+        seed_source: seedSource,
         status: result.status,
         status_reason: result.statusReason,
         ...(result.stopped && { stopped_phase: result.stopped.phase, stopped_stack: result.stopped.stack }),

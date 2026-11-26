@@ -10,6 +10,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
+import { load } from '../cards'
 import { ValveEntry } from '../cards/schema'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
 import { pinClockAfterMinuteStart } from '../cloud/fixtures'
@@ -653,9 +654,10 @@ describe('valves', () => {
             expect(valves.timeline()[0].error).toBeUndefined()
         })
 
-        it('picks the units a share dose hits from the card seed, whatever order they arrive in, and lists them', async () => {
+        it('picks the units a share dose hits from the seed override, whatever order they arrive in, and lists them', async () => {
             const ordinals = Array.from({ length: 20 }, (_, index) => index + 1)
             const firedIn = async (seed: number, arriving: number[]) => {
+                const { card } = load(path.join(__dirname, '../cards/email-worker-killed-after-accept.yaml'), { seed })
                 const runId = randomUUID()
                 const valves = createValves({ pollMs: 5 })
                 await valves.start(
@@ -668,7 +670,7 @@ describe('valves', () => {
                             for: '1m',
                         },
                     ],
-                    { ...onEdge(), seed }
+                    { ...onEdge(), seed: card.seed }
                 )
                 await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
                 const outcomes = new Map<number, string[]>()

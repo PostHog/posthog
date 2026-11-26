@@ -3,6 +3,7 @@ version: 3
 clock: real
 profile: synthetic
 seed: 8
+seedable: true
 setup:
     teams: 1
 drive:
