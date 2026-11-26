@@ -3,7 +3,6 @@ import { Form } from 'kea-forms'
 import { useRef } from 'react'
 
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -12,7 +11,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SUPPORT_TICKET_TEMPLATES, SupportTicketKind, addAttachmentToDraftMessage, supportLogic } from './supportLogic'
+import { SUPPORT_TICKET_TEMPLATES, SupportTicketKind, supportLogic } from './supportLogic'
 
 const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
     bug: "What's the bug?",
@@ -57,12 +56,7 @@ export function SupportForm({ messageLabel, messagePlaceholder }: SupportFormPro
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
-            setSendSupportRequestValue(
-                'message',
-                sendSupportRequest.ai_draft_id
-                    ? addAttachmentToDraftMessage(sendSupportRequest.message, fileName, url)
-                    : sendSupportRequest.message + `\n\nAttachment "${fileName}": ${url}`
-            )
+            setSendSupportRequestValue('message', sendSupportRequest.message + `\n\nAttachment "${fileName}": ${url}`)
         },
         onError: (detail) => {
             lemonToast.error(`Error uploading image: ${detail}`)
@@ -77,12 +71,6 @@ export function SupportForm({ messageLabel, messagePlaceholder }: SupportFormPro
             enableFormOnSubmit
             className="deprecated-space-y-4"
         >
-            {sendSupportRequest.ai_draft_id && (
-                <LemonBanner type="info">
-                    An AI agent drafted this ticket. Nothing has been sent yet. Check it and edit anything that's wrong
-                    before you send it.
-                </LemonBanner>
-            )}
             {!user && (
                 <>
                     <LemonField name="name" label="Name">

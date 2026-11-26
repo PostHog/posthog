@@ -25,6 +25,7 @@ from products.conversations.backend.api.posthog_support import PostHogSupportDra
 from products.conversations.backend.services.identity import compute_identity_hash
 from products.conversations.backend.services.posthog_support import (
     SUPPORT_PANEL_URL,
+    SupportDraftStore,
     TicketPermission,
     TicketTopic,
     check_ticket_permission,
@@ -53,7 +54,7 @@ class TestPostHogSupportAPI(APIBaseTest):
         return response.json()
 
     @patch("posthoganalytics.capture")
-    def test_token_can_draft_but_never_open_or_claim_it(self, capture: MagicMock) -> None:
+    def test_ticket_note_names_where_the_draft_came_from(self, capture: MagicMock) -> None:
         self.client.logout()
         token = self.create_personal_api_key_with_scopes(["posthog_support:write"])
         self.client.credentials(
@@ -88,7 +89,6 @@ class TestPostHogSupportAPI(APIBaseTest):
         assert api_draft["ticket_context"].startswith("Drafted through the PostHog API,")
         assert "MCP session id" not in api_draft["ticket_context"]
 
-        assert "review_url" not in draft
         assert draft["message"] == (
             "Test events from staging in the live project\n\n---\n\n"
             "Request:\n\nOur staging build sent test events last week. Please delete the 3,817 events the query below returns."
@@ -96,14 +96,6 @@ class TestPostHogSupportAPI(APIBaseTest):
             "\n\n---\n\nAlready checked:\n- Claude Code checked: the query returns 3,817 events"
         )
         assert "Claude Code" not in draft["ticket_context"]
-        assert self.client.get(f"{self.base}/drafts/{draft['id']}/").status_code == status.HTTP_403_FORBIDDEN
-        assert self.client.post(f"{self.base}/drafts/{draft['id']}/claim/").status_code == status.HTTP_403_FORBIDDEN
-
-    @parameterized.expand([("other_deletion", False), ("billing", True), ("privacy_or_security_deletion", True)])
-    def test_a_draft_says_whether_any_plan_can_send_it(self, topic: str, expected: bool) -> None:
-        response = self.client.post(f"{self.base}/drafts/", {**DRAFT_BODY, "topic": topic}, format="json")
-
-        assert response.json()["any_plan"] is expected
 
     @parameterized.expand(
         [
@@ -137,26 +129,6 @@ class TestPostHogSupportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["code"] == "feature_flag_required"
 
-    def test_only_the_claiming_browser_session_can_send_a_draft(self) -> None:
-        draft_id = self._create_draft()["id"]
-        claim_url = f"{self.base}/drafts/{draft_id}/claim/"
-
-        opened = self.client.get(f"{self.base}/drafts/{draft_id}/")
-        assert "then reviewed and sent by the person" in opened.json()["ticket_context"]
-
-        assert self.client.post(claim_url).status_code == status.HTTP_204_NO_CONTENT
-        assert self.client.post(claim_url).status_code == status.HTTP_204_NO_CONTENT
-
-        other_tab = APIClient()
-        other_tab.force_login(self.user)
-        assert other_tab.post(claim_url).status_code == status.HTTP_404_NOT_FOUND
-        assert other_tab.get(f"{self.base}/drafts/{draft_id}/").status_code == status.HTTP_404_NOT_FOUND
-
-        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
-        teammate_client = APIClient()
-        teammate_client.force_login(teammate)
-        assert teammate_client.get(f"{self.base}/drafts/{draft_id}/").status_code == status.HTTP_404_NOT_FOUND
-
 
 WIDGET_HOST = "https://support.example.com"
 WIDGET_URL = f"{WIDGET_HOST}/api/conversations/v1/widget/message"
@@ -180,21 +152,13 @@ class TestPostHogSupportSend(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()
 
-    def _browser(self) -> APIClient:
-        browser = APIClient()
-        browser.force_login(self.user)
-        return browser
-
     def test_agent_sends_an_approved_draft_once_as_the_person(self) -> None:
         draft = self._create_draft()
-        claimed_in_browser = self._create_draft()
-        assert self._browser().post(f"{self.base}/drafts/{claimed_in_browser['id']}/claim/").status_code == 204
 
         with responses.RequestsMock() as widget:
             widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID, "ticket_number": 42})
             sent = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
             retry = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
-            other = self.client.post(f"{self.base}/drafts/{claimed_in_browser['id']}/send/")
             calls = list(widget.calls)
 
         assert draft["can_send"] is True
@@ -202,7 +166,6 @@ class TestPostHogSupportSend(APIBaseTest):
         assert sent.json()["support_panel_url"] == SUPPORT_PANEL_URL
         assert sent.json()["next_step"].startswith(f"First tell the person to watch for replies at {SUPPORT_PANEL_URL}")
         assert retry.json()["ticket_id"] == TICKET_ID
-        assert other.status_code == status.HTTP_404_NOT_FOUND
         assert len(calls) == 1
         request = calls[0].request
         body = json.loads(request.body)
@@ -219,11 +182,10 @@ class TestPostHogSupportSend(APIBaseTest):
             f"Why it was drafted: Only PostHog staff can do or see what the person needs.\n"
             f"Organization id: {self.organization.id}\nProject id: {self.team.id}\nDraft id: {draft['id']}"
         )
-        assert self._browser().post(f"{self.base}/drafts/{draft['id']}/claim/").status_code == 404
 
     @parameterized.expand(
         [
-            ("widget_refused", {"status": 403, "json": {"error": "Origin not allowed"}}, 424, 204, 404),
+            ("widget_refused", {"status": 403, "json": {"error": "Origin not allowed"}}, 424, 424, 2),
             (
                 "connection_refused",
                 {
@@ -232,26 +194,25 @@ class TestPostHogSupportSend(APIBaseTest):
                     )
                 },  # type: ignore[arg-type]
                 424,
-                204,
-                404,
+                424,
+                2,
             ),
-            ("connection_dropped_mid_send", {"body": requests.ConnectionError("Connection aborted.")}, 409, 404, 409),
+            ("connection_dropped_mid_send", {"body": requests.ConnectionError("Connection aborted.")}, 409, 409, 1),
         ]
     )
     def test_failed_send_frees_the_draft_only_when_no_ticket_was_created(
-        self, _name: str, widget_answer: dict[str, Any], send_status: int, claim_status: int, retry_status: int
+        self, _name: str, widget_answer: dict[str, Any], send_status: int, retry_status: int, widget_calls: int
     ) -> None:
         draft = self._create_draft()
 
         with responses.RequestsMock() as widget:
             widget.add(responses.POST, WIDGET_URL, **widget_answer)
             failed = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
-            claim = self._browser().post(f"{self.base}/drafts/{draft['id']}/claim/")
             retry = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
             calls = list(widget.calls)
 
-        assert (failed.status_code, claim.status_code, retry.status_code) == (send_status, claim_status, retry_status)
-        assert len(calls) == 1
+        assert (failed.status_code, retry.status_code) == (send_status, retry_status)
+        assert len(calls) == widget_calls
 
     def test_draft_is_not_sent_once_the_plan_stops_including_support(self) -> None:
         draft = self._create_draft()
@@ -267,12 +228,18 @@ class TestPostHogSupportSend(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert calls == []
 
-    def test_retries_after_an_unknown_outcome_never_say_nothing_was_sent(self) -> None:
+    @parameterized.expand([("one_after_another", True, 6), ("racing", False, 2)])
+    def test_retries_after_an_unknown_outcome_never_say_nothing_was_sent(
+        self, _name: str, sees_the_mark: bool, sends: int
+    ) -> None:
         draft = self._create_draft()
+        if not sees_the_mark:
+            # A racing request checks for a running send before the first request marks it.
+            self.enterContext(patch.object(SupportDraftStore, "send_started", return_value=False))
 
         with responses.RequestsMock() as widget:
             widget.add(responses.POST, WIDGET_URL, body=requests.ConnectionError("Connection aborted."))
-            answers = [self.client.post(f"{self.base}/drafts/{draft['id']}/send/") for _ in range(6)]
+            answers = [self.client.post(f"{self.base}/drafts/{draft['id']}/send/") for _ in range(sends)]
             calls = len(widget.calls)
 
         assert {answer.status_code for answer in answers} == {status.HTTP_409_CONFLICT}
@@ -357,19 +324,22 @@ class TestPostHogSupportSend(APIBaseTest):
         assert refused.headers["Retry-After"] == retry_after
         assert next_day.status_code == status.HTTP_201_CREATED
 
-    def test_a_draft_belongs_to_the_project_it_was_made_in(self) -> None:
+    def test_a_draft_belongs_to_the_person_and_project_it_was_made_in(self) -> None:
         draft = self._create_draft()
         other_project = Team.objects.create(organization=self.organization, name="Other project")
-        other_base = f"/api/projects/{other_project.id}/posthog_support/drafts/{draft['id']}"
+        teammate = APIClient()
+        teammate.force_login(self._create_user("teammate@example.com"))
 
         with responses.RequestsMock(assert_all_requests_are_fired=False) as widget:
             widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
-            sent_elsewhere = self.client.post(f"{other_base}/send/")
-            opened_elsewhere = self._browser().get(f"{other_base}/")
+            sent_elsewhere = self.client.post(
+                f"/api/projects/{other_project.id}/posthog_support/drafts/{draft['id']}/send/"
+            )
+            sent_by_teammate = teammate.post(f"{self.base}/drafts/{draft['id']}/send/")
             calls = list(widget.calls)
 
         assert sent_elsewhere.status_code == status.HTTP_404_NOT_FOUND
-        assert opened_elsewhere.status_code == status.HTTP_404_NOT_FOUND
+        assert sent_by_teammate.status_code == status.HTTP_404_NOT_FOUND
         assert calls == []
 
     def test_a_draft_can_be_retried_three_times(self) -> None:

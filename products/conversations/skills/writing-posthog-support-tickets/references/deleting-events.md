@@ -99,6 +99,6 @@ WHERE timestamp >= toDateTime('2026-10-01 00:00:00', 'UTC')
 ---
 
 Already checked:
-- Claude Code checked: the same persons have 41,200 real events that must stay, so deleting the persons doesn't fit
+- Claude Code checked: the persons in these events have 41,200 real events that must stay, so deleting the persons doesn't fit
 - I tried: the query returns 3,817 events, all from `staging.example.com`
 ````

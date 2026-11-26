@@ -324,7 +324,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
 SCOUT_DEFAULT_WRITE_SCOPES: frozenset[str] = frozenset({"notebook:write"})
 
 
-# A PostHog support draft speaks for the person, who reviews and sends it. A sandbox run, such as a
+# A PostHog support draft speaks for the person, who approves it in chat. A sandbox run, such as a
 # scout acting as the skill's author on a prompt other members can edit, must not draft one for them.
 SANDBOX_EXCLUDED_SCOPE_OBJECTS = frozenset({"posthog_support"})
 

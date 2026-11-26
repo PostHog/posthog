@@ -1,7 +1,7 @@
 """Drafts of tickets to PostHog's own support team, written by a person's agent for the person to approve.
 
-An agent stores a draft. The person then approves it in chat so the agent sends it, or sends it from the
-web app's support form. Either way, a draft becomes at most one ticket.
+An agent stores a draft and shows it to the person in chat. When they approve it, the agent sends it.
+A draft becomes at most one ticket.
 """
 
 from __future__ import annotations
@@ -30,9 +30,6 @@ from products.conversations.backend.services.posthog_support_widget import SentS
 from ee.billing.billing_manager import BillingManager
 
 DRAFT_TTL_SECONDS = 24 * 60 * 60
-# The claimant an agent's send uses. A browser session claims with its session key, which never has
-# this value, so the web app and the agent can never both hold a draft.
-AGENT_CLAIMANT = "agent"
 MAX_SEND_ATTEMPTS = 4
 MAX_TICKETS_PER_TOPIC = 3
 TOPIC_WINDOW_SECONDS = 72 * 60 * 60
@@ -42,7 +39,7 @@ NEW_ORGANIZATION_SUPPORT_MONTHS = 3
 SUPPORT_TRIAL_TARGETS = frozenset({"boost", "scale", "enterprise"})
 BILLING_TIMEOUT_SECONDS = (3.0, 5.0)
 # Renders as a horizontal line. It needs the blank lines, because `---` right under text turns that
-# text into a Markdown heading. The support form finds sections by this string to place images.
+# text into a Markdown heading.
 SECTION_SEPARATOR = "\n\n---\n\n"
 
 
@@ -81,12 +78,6 @@ ANY_PLAN_TOPICS = frozenset({TicketTopic.BILLING, TicketTopic.PRIVACY_OR_SECURIT
 class DraftedVia(models.TextChoices):
     MCP = "mcp", "Drafted by an AI agent through the PostHog MCP"
     API = "api", "Drafted through the PostHog API"
-
-
-class SentVia(models.TextChoices):
-    WEB_APP = "web_app", "then reviewed and sent by the person"
-    # The server cannot see the person's yes in chat, so this does not claim one.
-    CHAT = "chat", "then sent by the agent. PostHog did not verify the person's approval"
 
 
 class TicketPermission(StrEnum):
@@ -145,11 +136,12 @@ class SupportTicketDraft:
     mcp_session_id: str | None = None
     mcp_conversation_id: str | None = None
 
-    def ticket_context(self, sent_via: SentVia, team: Team) -> str:
+    def ticket_context(self, team: Team) -> str:
         # The person cannot see or edit this note, so it holds only text the server writes. The MCP ids
         # come from request headers, so the API keeps a value only when it has the form of an id.
         lines = [
-            f"{DraftedVia(self.drafted_via).label}, {sent_via.label}.",
+            # The server cannot see the person's yes in chat, so this does not claim one.
+            f"{DraftedVia(self.drafted_via).label}, then sent by the agent. PostHog did not verify the person's approval.",
             f"Topic: {TicketTopic(self.topic).label}.",
             f"Why it was drafted: {FilingReason(self.filing_reason).label}.",
             f"Organization id: {team.organization_id}",
@@ -163,10 +155,9 @@ class SupportTicketDraft:
             lines.append(f"MCP conversation id: {self.mcp_conversation_id}")
         return "\n".join(lines)
 
-    def outgoing_message(self, sent_via: SentVia, team: Team) -> str:
-        # The same layout as appendTicketContext in supportLogic.ts, so support sees one shape whichever
-        # way the ticket was sent.
-        return f"{self.message}\n\n-----\n{self.ticket_context(sent_via, team)}"
+    def outgoing_message(self, team: Team) -> str:
+        # The same layout as appendTicketContext in supportLogic.ts, so support reads one note layout on every ticket.
+        return f"{self.message}\n\n-----\n{self.ticket_context(team)}"
 
 
 def compose_ticket_message(
@@ -179,7 +170,6 @@ def compose_ticket_message(
 ) -> str:
     """Lay the ticket out in the shape the writing-posthog-support-tickets skill teaches, so every
     agent-drafted ticket reads the same way to support."""
-    # Plain labels, not Markdown bold, because the web app's form shows the draft in a plain text box.
     sections = [
         ("Request", request),
         ("Details", details),
@@ -213,7 +203,7 @@ def _code_block(text: str) -> str:
 
 
 class SupportDraftStore:
-    """Short-lived drafts that wait for the person to review and send them. A draft belongs to one person
+    """Short-lived drafts that wait for the person to approve them in chat. A draft belongs to one person
     and one project, so a ticket always names the project it was drafted for."""
 
     def __init__(self, user_id: int, team_id: int) -> None:
@@ -244,12 +234,9 @@ class SupportDraftStore:
         self._cache.set(self._key(draft.id), {**asdict(draft), "topic": topic.value}, DRAFT_TTL_SECONDS)
         return draft
 
-    def get(self, draft_id: str, *, claimant: str | None = None) -> SupportTicketDraft | None:
-        """A draft nobody claimed yet, or one this claimant claimed."""
-        found = self._cache.get_many([self._key(draft_id), self._claim_key(draft_id)])
-        stored = found.get(self._key(draft_id))
-        claimed_by = found.get(self._claim_key(draft_id))
-        if stored is None or (claimed_by is not None and claimed_by != claimant):
+    def get(self, draft_id: str) -> SupportTicketDraft | None:
+        stored = self._cache.get(self._key(draft_id))
+        if stored is None:
             return None
         # Stored as a plain dict, so a draft written before a deploy still loads after it.
         return SupportTicketDraft(
@@ -263,20 +250,6 @@ class SupportDraftStore:
             mcp_session_id=stored.get("mcp_session_id"),
             mcp_conversation_id=stored.get("mcp_conversation_id"),
         )
-
-    def claim(self, draft_id: str, claimant: str) -> bool:
-        """Reserve a draft for one browser session to send. The same session can claim again, so a
-        retry after a lost response still works, but no other session can."""
-        if self.get(draft_id, claimant=claimant) is None:
-            return False
-        return bool(self._cache.add(self._claim_key(draft_id), claimant, DRAFT_TTL_SECONDS)) or (
-            self._cache.get(self._claim_key(draft_id)) == claimant
-        )
-
-    def release(self, draft_id: str, claimant: str) -> None:
-        """Give back a claim after a send that created no ticket, so the web app can send it."""
-        if self._cache.get(self._claim_key(draft_id)) == claimant:
-            self._cache.delete(self._claim_key(draft_id))
 
     def count_send_attempt(self, draft_id: str) -> int:
         self._cache.add(self._attempts_key(draft_id), 0, DRAFT_TTL_SECONDS)
@@ -323,9 +296,6 @@ class SupportDraftStore:
 
     def _sent_key(self, draft_id: str) -> str:
         return f"posthog_support_draft_sent:{self._owner}:{draft_id}"
-
-    def _claim_key(self, draft_id: str) -> str:
-        return f"posthog_support_draft_claim:{self._owner}:{draft_id}"
 
     def _key(self, draft_id: str) -> str:
         return f"posthog_support_draft:{self._owner}:{draft_id}"

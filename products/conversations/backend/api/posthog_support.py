@@ -1,8 +1,7 @@
 """Let a logged-in user's agent draft a ticket to PostHog support, for the person to approve.
 
 The agent shows the person the draft in chat. When the person approves it there, the agent sends it,
-and the server posts it to PostHog support as the person. The web app's support form can also send a
-draft, so reading a draft and claiming it for that form accept browser sessions only.
+and the server posts it to PostHog support as the person.
 """
 
 from __future__ import annotations
@@ -25,17 +24,13 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import PostHogSupportDraftCreateThrottle
 
-from products.conversations.backend.permissions import SessionAuthenticationOnly
 from products.conversations.backend.services.posthog_support import (
-    AGENT_CLAIMANT,
     ANSWERED_FILING_REASONS,
-    ANY_PLAN_TOPICS,
     MAX_SEND_ATTEMPTS,
     MAX_TICKETS_PER_TOPIC,
     SUPPORT_PANEL_URL,
     DraftedVia,
     FilingReason,
-    SentVia,
     SupportDraftStore,
     SupportTicketDraft,
     TicketPermission,
@@ -67,7 +62,7 @@ class PostHogSupportErrorSerializer(serializers.Serializer):
 
 
 # The field caps add up to well under the support widget's 10,000-character message limit, with room
-# for the headings and the ticket context the web app appends, so a valid draft always sends.
+# for the headings and the note the server appends, so a valid draft always sends.
 class PostHogSupportDraftCreateSerializer(serializers.Serializer):
     title = serializers.CharField(
         max_length=100,
@@ -163,15 +158,12 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
 class PostHogSupportDraftSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Draft id.")
     message = serializers.CharField(
-        help_text="Ticket text as drafted. A ticket sent from chat holds exactly this, then the note in ticket_context."
+        help_text="Ticket text as drafted. The sent ticket holds exactly this, then the note in ticket_context."
     )
     ticket_context = serializers.CharField(
         help_text="Note filed under the ticket for support, saying an agent drafted it and why."
     )
     expires_at = serializers.IntegerField(help_text="Unix time after which the draft is gone if nobody sent it.")
-    any_plan = serializers.BooleanField(
-        help_text="True when the draft's topic is one the person can send on any plan, such as billing."
-    )
     can_send = serializers.BooleanField(
         help_text="True when the person's plan lets them send this ticket. Offer to send it only when this is true."
     )
@@ -185,10 +177,6 @@ class PostHogSupportSentTicketSerializer(serializers.Serializer):
     )
     support_panel_url = serializers.CharField(help_text="Support panel in PostHog, where the person reads replies.")
     next_step = serializers.CharField(help_text="What to tell the person now.")
-
-
-class _SendFromWebAppOnly(SessionAuthenticationOnly):
-    message = "Only the person can open a draft or send it from the PostHog web app."
 
 
 COMMUNITY_URL = "https://posthog.com/forum"
@@ -228,18 +216,8 @@ TOPIC_LIMIT_REFUSAL = (
 )
 
 
-def _claimant(request: ValidatedRequest) -> str | None:
-    return request.session.session_key if hasattr(request, "session") else None
-
-
-def _draft_not_found() -> Response:
-    return Response({"detail": "Draft not found or expired."}, status=status.HTTP_404_NOT_FOUND)
-
-
 class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "posthog_support"
-    # The draft reads and the claim are left out on purpose: the scope check refuses tokens on
-    # unlisted actions, so only a browser session can open a draft or send it from the web app.
     scope_object_write_actions = ["create_draft", "send_draft"]
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = {"mcp-posthog-support-tickets": ["create_draft", "send_draft"]}
@@ -277,16 +255,14 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self,
         draft: SupportTicketDraft,
         permission: TicketPermission,
-        sent_via: SentVia,
         status_code: int = status.HTTP_200_OK,
     ) -> Response:
         data = PostHogSupportDraftSerializer(
             {
                 "id": draft.id,
                 "message": draft.message,
-                "ticket_context": draft.ticket_context(sent_via, self.team),
+                "ticket_context": draft.ticket_context(self.team),
                 "expires_at": draft.expires_at,
-                "any_plan": draft.topic in ANY_PLAN_TOPICS,
                 "can_send": permission == TicketPermission.ALLOWED,
                 "next_step": NEXT_STEP_BY_PERMISSION.get(permission, "Nothing has been sent."),
             }
@@ -377,66 +353,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             },
             team=self.team,
         )
-        return self._draft_response(draft, permission, SentVia.CHAT, status.HTTP_201_CREATED)
-
-    @validated_request(
-        responses={
-            200: OpenApiResponse(response=PostHogSupportDraftSerializer),
-            404: OpenApiResponse(response=PostHogSupportErrorSerializer),
-        },
-        summary="Get a PostHog support ticket draft",
-        description="A draft that has not been sent yet. Browser sessions only.",
-    )
-    @action(
-        methods=["GET"],
-        detail=False,
-        url_path=rf"drafts/(?P<draft_id>{DRAFT_ID_PATTERN})",
-        permission_classes=[_SendFromWebAppOnly],
-    )
-    def retrieve_draft(self, request: ValidatedRequest, draft_id: str, *args: Any, **kwargs: Any) -> Response:
-        draft = self._draft_store().get(draft_id, claimant=_claimant(request))
-        if draft is None:
-            return _draft_not_found()
-        return self._draft_response(draft, self._permission(draft), SentVia.WEB_APP)
-
-    @validated_request(
-        responses={
-            204: None,
-            403: OpenApiResponse(response=PostHogSupportErrorSerializer),
-            404: OpenApiResponse(response=PostHogSupportErrorSerializer),
-        },
-        summary="Claim a draft for the person to send",
-        description=(
-            "Called by the web app right before it sends the person's ticket. One browser session can claim a "
-            "draft, and can claim it again to retry, so a second browser session cannot file it twice. "
-            "Browser sessions only."
-        ),
-    )
-    @action(
-        methods=["POST"],
-        detail=False,
-        url_path=rf"drafts/(?P<draft_id>{DRAFT_ID_PATTERN})/claim",
-        permission_classes=[_SendFromWebAppOnly],
-    )
-    def claim_draft(self, request: ValidatedRequest, draft_id: str, *args: Any, **kwargs: Any) -> Response:
-        store = self._draft_store()
-        claimant = _claimant(request)
-        draft = store.get(draft_id, claimant=claimant)
-        if draft is None or claimant is None or not store.claim(draft_id, claimant):
-            return _draft_not_found()
-        # The ticket context carries the draft id, which joins this event to the ticket support receives.
-        report_user_action(
-            self._user,
-            "posthog support draft submitted",
-            {
-                "draft_id": draft_id,
-                "topic": draft.topic,
-                "filing_reason": draft.filing_reason,
-                "sent_via": SentVia.WEB_APP.value,
-            },
-            team=self.team,
-        )
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return self._draft_response(draft, permission, status.HTTP_201_CREATED)
 
     @validated_request(
         responses={
@@ -450,7 +367,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the "
             "person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling "
-            "again returns the same ticket, and a draft sent from the web app can't be sent here."
+            "again returns the same ticket."
         ),
     )
     @action(methods=["POST"], detail=False, url_path=rf"drafts/(?P<draft_id>{DRAFT_ID_PATTERN})/send")
@@ -458,12 +375,9 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         store = self._draft_store()
         if (sent := store.sent_ticket(draft_id)) is not None:
             return self._sent_response(sent)
-        draft = store.get(draft_id, claimant=AGENT_CLAIMANT)
+        draft = store.get(draft_id)
         if draft is None:
-            return Response(
-                {"detail": "Draft not found, expired, or already sent from PostHog."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return Response({"detail": "Draft not found or expired."}, status=status.HTTP_404_NOT_FOUND)
 
         may_be_sent = (
             "The ticket may already be with PostHog support, so don't send it again. Ask the person to check "
@@ -496,17 +410,14 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status.HTTP_424_FAILED_DEPENDENCY,
             )
 
-        if not store.claim(draft_id, AGENT_CLAIMANT):
-            return _draft_not_found()
         if not store.start_send(draft_id):
             return self._send_failed(draft, "already_sending", may_be_sent, status.HTTP_409_CONFLICT)
         try:
             ticket = PostHogSupportWidgetClient(resolve_support_widget_target()).send_ticket(
-                self._user, draft.outgoing_message(SentVia.CHAT, self.team)
+                self._user, draft.outgoing_message(self.team)
             )
         except SupportTicketNotSent:
             store.cancel_send(draft_id)
-            store.release(draft_id, AGENT_CLAIMANT)
             return self._send_failed(
                 draft,
                 "not_sent",
@@ -525,7 +436,6 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "draft_id": draft_id,
                 "topic": draft.topic,
                 "filing_reason": draft.filing_reason,
-                "sent_via": SentVia.CHAT.value,
                 "ticket_id": ticket.ticket_id,
             },
             team=self.team,

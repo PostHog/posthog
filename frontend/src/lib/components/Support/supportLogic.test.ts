@@ -12,7 +12,6 @@ import {
     CONVERSATIONS_MESSAGE_MAX_LENGTH,
     SUPPORT_MESSAGE_PREVIEW_MAX_LENGTH,
     SupportFormFields,
-    addAttachmentToDraftMessage,
     supportLogic,
     warnIfMessageTooLong,
 } from './supportLogic'
@@ -423,45 +422,6 @@ describe('supportLogic', () => {
             expect(logic.values.lastSubmittedTicketId).toBeNull()
             expect(sendFailures()).toHaveLength(1)
             expect(sendFailures()[0][1]).toMatchObject({ reason: 'invalid_email' })
-        })
-    })
-
-    describe('addAttachmentToDraftMessage', () => {
-        const separator = '\n\n---\n\n'
-
-        it.each([
-            {
-                name: 'puts the first attachment between Request and Details',
-                message: ['A title', 'Request:\n\nIt broke.', 'Details:\n- Project: Web app'].join(separator),
-                expected: [
-                    'A title',
-                    'Request:\n\nIt broke.',
-                    'Attachments:\n![a.png](https://x/a)',
-                    'Details:\n- Project: Web app',
-                ].join(separator),
-            },
-            {
-                name: 'adds a later attachment to the same Attachments section',
-                message: [
-                    'A title',
-                    'Request:\n\nIt broke.',
-                    'Attachments:\n![a.png](https://x/a)',
-                    'Details:\n- One',
-                ].join(separator),
-                expected: [
-                    'A title',
-                    'Request:\n\nIt broke.',
-                    'Attachments:\n![a.png](https://x/a)\n![a.png](https://x/a)',
-                    'Details:\n- One',
-                ].join(separator),
-            },
-            {
-                name: 'adds an Attachments section after a draft that is only a Request',
-                message: ['A title', 'Request:\n\nIt broke.'].join(separator),
-                expected: ['A title', 'Request:\n\nIt broke.', 'Attachments:\n![a.png](https://x/a)'].join(separator),
-            },
-        ])('$name', ({ message, expected }) => {
-            expect(addAttachmentToDraftMessage(message, 'a.png', 'https://x/a')).toEqual(expected)
         })
     })
 

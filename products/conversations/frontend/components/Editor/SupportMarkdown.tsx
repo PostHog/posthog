@@ -4,16 +4,9 @@ import clsx from 'clsx'
 
 import { LemonMarkdown, LemonMarkdownProps } from 'lib/lemon-ui/LemonMarkdown'
 
-export interface SupportMarkdownProps extends LemonMarkdownProps {}
+import { useImageLightbox } from './useImageLightbox'
 
-// Screenshots in tickets are often too detailed to read at message width, and a new tab lets the reader
-// zoom with the browser
-function openImageInNewTab(e: React.MouseEvent): void {
-    const target = e.target as HTMLElement
-    if (target instanceof HTMLImageElement) {
-        window.open(target.src, '_blank', 'noopener,noreferrer')
-    }
-}
+export interface SupportMarkdownProps extends LemonMarkdownProps {}
 
 /**
  * Markdown renderer for support messages.
@@ -26,15 +19,20 @@ export function SupportMarkdown({
     literalHtml = true,
     ...props
 }: SupportMarkdownProps): JSX.Element {
+    const { handleClick, lightbox } = useImageLightbox()
+
     return (
-        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-        <div onClick={openImageInNewTab}>
-            <LemonMarkdown
-                {...props}
-                wrapCode={wrapCode}
-                literalHtml={literalHtml}
-                className={clsx('SupportMarkdown', className)}
-            />
-        </div>
+        <>
+            {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+            <div onClick={handleClick}>
+                <LemonMarkdown
+                    {...props}
+                    wrapCode={wrapCode}
+                    literalHtml={literalHtml}
+                    className={clsx('SupportMarkdown', className)}
+                />
+            </div>
+            {lightbox}
+        </>
     )
 }

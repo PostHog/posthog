@@ -915,50 +915,12 @@ export const posthogSupportDraftsCreate = async (
     })
 }
 
-export const getPosthogSupportDraftsRetrieveUrl = (projectId: string, draftId: string) => {
-    return `/api/projects/${projectId}/posthog_support/drafts/${draftId}/`
-}
-
-/**
- * A draft that has not been sent yet. Browser sessions only.
- * @summary Get a PostHog support ticket draft
- */
-export const posthogSupportDraftsRetrieve = async (
-    projectId: string,
-    draftId: string,
-    options?: RequestInit
-): Promise<PostHogSupportDraftApi> => {
-    return apiMutator<PostHogSupportDraftApi>(getPosthogSupportDraftsRetrieveUrl(projectId, draftId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPosthogSupportDraftsClaimCreateUrl = (projectId: string, draftId: string) => {
-    return `/api/projects/${projectId}/posthog_support/drafts/${draftId}/claim/`
-}
-
-/**
- * Called by the web app right before it sends the person's ticket. One browser session can claim a draft, and can claim it again to retry, so a second browser session cannot file it twice. Browser sessions only.
- * @summary Claim a draft for the person to send
- */
-export const posthogSupportDraftsClaimCreate = async (
-    projectId: string,
-    draftId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPosthogSupportDraftsClaimCreateUrl(projectId, draftId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
 export const getPosthogSupportDraftsSendCreateUrl = (projectId: string, draftId: string) => {
     return `/api/projects/${projectId}/posthog_support/drafts/${draftId}/send/`
 }
 
 /**
- * Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling again returns the same ticket, and a draft sent from the web app can't be sent here.
+ * Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling again returns the same ticket.
  * @summary Send a drafted ticket to PostHog support after the person approved it
  */
 export const posthogSupportDraftsSendCreate = async (

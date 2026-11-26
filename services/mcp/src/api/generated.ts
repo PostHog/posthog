@@ -103387,14 +103387,12 @@ export namespace Schemas {
     export interface PostHogSupportDraft {
       /** Draft id. */
       id: string;
-      /** Ticket text as drafted. A ticket sent from chat holds exactly this, then the note in ticket_context. */
+      /** Ticket text as drafted. The sent ticket holds exactly this, then the note in ticket_context. */
       message: string;
       /** Note filed under the ticket for support, saying an agent drafted it and why. */
       ticket_context: string;
       /** Unix time after which the draft is gone if nobody sent it. */
       expires_at: number;
-      /** True when the draft's topic is one the person can send on any plan, such as billing. */
-      any_plan: boolean;
       /** True when the person's plan lets them send this ticket. Offer to send it only when this is true. */
       can_send: boolean;
       /** What to tell the person now. */
