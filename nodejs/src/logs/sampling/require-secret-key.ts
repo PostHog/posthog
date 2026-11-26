@@ -56,7 +56,7 @@ export async function findRequireSecretKeyDrops<T extends LogsIngestionMessage>(
         const totals = byTeam.get(message.teamId) ?? { messages: 0, records: 0, bytes: 0, ruleId }
         totals.messages++
         totals.records += message.recordCount
-        totals.bytes += message.bytesUncompressed
+        totals.bytes += message.bytesUncompressedRecords
         byTeam.set(message.teamId, totals)
     }
     return { dropped, byTeam }

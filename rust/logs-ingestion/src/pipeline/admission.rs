@@ -195,13 +195,13 @@ pub fn create_require_secret_key_step(context: Arc<LogsPipelineContext>) -> Admi
                         match dropped.iter_mut().find(|d| d.team_id == m.team_id) {
                             Some(d) => {
                                 d.records += m.record_count;
-                                d.bytes += m.bytes_uncompressed;
+                                d.bytes += m.bytes_uncompressed_records;
                             }
                             None => dropped.push(RuleDrop {
                                 team_id: m.team_id,
                                 rule_id: rule_id.clone(),
                                 records: m.record_count,
-                                bytes: m.bytes_uncompressed,
+                                bytes: m.bytes_uncompressed_records,
                             }),
                         }
                         record_dropped(&v.usage, m);
