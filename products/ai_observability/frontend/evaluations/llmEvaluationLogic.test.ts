@@ -694,6 +694,16 @@ return result`,
 
             it('returns false when prompt is empty', async () => {
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                await expectLogic(logic).toFinishAllListeners()
+                modelPickerLogic.actions.loadByokModelsSuccess([
+                    {
+                        id: 'gpt-5-mini',
+                        name: 'GPT-5 mini',
+                        provider: 'OpenAI',
+                        description: '',
+                        providerKeyId: 'key-1',
+                    },
+                ])
                 logic.actions.setEvaluationName('Valid Name')
                 logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
 
@@ -702,6 +712,16 @@ return result`,
 
             it('returns false when an LLM judge has no selected model', async () => {
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                await expectLogic(logic).toFinishAllListeners()
+                modelPickerLogic.actions.loadByokModelsSuccess([
+                    {
+                        id: 'gpt-5-mini',
+                        name: 'GPT-5 mini',
+                        provider: 'OpenAI',
+                        description: '',
+                        providerKeyId: 'key-1',
+                    },
+                ])
                 logic.actions.setEvaluationName('Valid Name')
                 logic.actions.setEvaluationPrompt('Valid prompt')
                 logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
@@ -1239,9 +1259,7 @@ return result`,
 
     describe('async flows', () => {
         describe('loadEvaluation', () => {
-            it('initializes new evaluation with default values', async () => {
-                // Pin the team to a state with an active key before mounting so the draft's enabled
-                // default doesn't depend on config-fetch timing.
+            it('initializes a new evaluation paused until a model with a key is picked', async () => {
                 keysLogic.actions.loadEvaluationConfigSuccess({
                     active_provider_key: mockProviderKeys[0],
                     created_at: '2024-01-01T00:00:00Z',
@@ -1257,54 +1275,10 @@ return result`,
                     evaluation: expect.objectContaining({
                         id: '',
                         name: '',
-                        enabled: true,
+                        enabled: false,
                         evaluation_type: 'llm_judge',
                         output_type: 'boolean',
                     }),
-                })
-            })
-
-            it('initializes new evaluation disabled for teams that require a provider key', async () => {
-                keysLogic.actions.loadEvaluationConfigSuccess({
-                    active_provider_key: null,
-                    created_at: '2024-01-01T00:00:00Z',
-                    updated_at: '2024-01-01T00:00:00Z',
-                })
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
-                logic.mount()
-
-                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
-                await expectLogic(logic).toMatchValues({
-                    isNewEvaluation: true,
-                    evaluation: expect.objectContaining({ enabled: false }),
-                })
-            })
-
-            it('disables an enabled new draft when a late config load says the team requires a key', async () => {
-                // The draft's enabled default is read before the config fetch resolves — the
-                // listener must correct it when the config arrives late.
-                keysLogic.actions.loadEvaluationConfigSuccess({
-                    active_provider_key: mockProviderKeys[0],
-                    created_at: '2024-01-01T00:00:00Z',
-                    updated_at: '2024-01-01T00:00:00Z',
-                })
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
-                logic.mount()
-
-                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-                await expectLogic(logic).toMatchValues({
-                    evaluation: expect.objectContaining({ enabled: true }),
-                })
-
-                keysLogic.actions.loadEvaluationConfigSuccess({
-                    active_provider_key: null,
-                    created_at: '2024-01-01T00:00:00Z',
-                    updated_at: '2024-01-01T00:00:00Z',
-                })
-
-                await expectLogic(logic).toMatchValues({
-                    evaluation: expect.objectContaining({ enabled: false }),
                 })
             })
 

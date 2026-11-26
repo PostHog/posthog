@@ -40,7 +40,6 @@ from posthog.rate_limit import (
     AIObservabilityEvaluationJudgeTestTeamThrottle,
     AIObservabilityEvaluationJudgeTestThrottle,
 )
-from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
 from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
@@ -59,7 +58,7 @@ from ..facade import (
 )
 from ..facade.contracts import Contract
 from ..hog import compile_ai_observability_hog, hog_compile_error_message
-from ..llm import DEFAULT_MODEL_BY_PROVIDER, supports_reasoning_level
+from ..llm import supports_reasoning_level
 from ..llm.decisions import is_decision_model
 from ..llm.errors import ProviderConnectionError
 from ..llm.providers.openai import OpenAIConfig
@@ -67,7 +66,6 @@ from ..llm.providers.openrouter import is_non_chat_model
 from ..logic.evaluations.preview_outcomes import outcome_counts, preview_grader
 from ..logic.evaluations.preview_queries import generation_io_preview, load_generation_events
 from ..logic.evaluations.preview_units import session_quiet_period_seconds, trace_window_seconds
-from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     MAX_CATEGORICAL_OPTIONS,
@@ -819,14 +817,15 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             return
 
         provider_key = self._effective_provider_key(data)
-        if provider_key is not None:
-            if provider_key.state != LLMProviderKey.State.OK:
-                raise serializers.ValidationError(
-                    {"enabled": "Attach a working provider API key to enable this evaluation."}
-                )
-            return
-
-        self._validate_keyless_resolution(data)
+        if provider_key is None:
+            model_config = self._effective_model_configuration(data) or {}
+            raise serializers.ValidationError(
+                {"enabled": self._missing_key_message(self.context["get_team"](), model_config.get("provider"))}
+            )
+        if provider_key.state != LLMProviderKey.State.OK:
+            raise serializers.ValidationError(
+                {"enabled": "Attach a working provider API key to enable this evaluation."}
+            )
 
     def _validate_re_enable(self, data: dict) -> None:
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
@@ -854,36 +853,6 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     }
                 )
 
-    def _validate_keyless_resolution(self, data: dict) -> None:
-        """Mirror the runtime model resolution for evals with no usable provider key (see
-        `posthog/temporal/ai_observability/model_resolution.py`). A pinned key, or an explicit
-        config's active-key fallback, is already handled by `_validate_can_run`; this covers what
-        is left: a null config resolves via the team's active key, and anything else must add a
-        provider key of its own."""
-        team = self.context["get_team"]()
-        config = EvaluationConfig.objects.filter(team=team).first()
-
-        explicit_config = self._effective_model_configuration(data)
-        if explicit_config is not None:
-            raise serializers.ValidationError(
-                {"enabled": self._missing_key_message(team, explicit_config.get("provider"))}
-            )
-
-        active_key = config.active_provider_key if config else None
-        if active_key is None:
-            raise serializers.ValidationError({"enabled": self._missing_key_message(team, None)})
-
-        if active_key.state != LLMProviderKey.State.OK:
-            raise serializers.ValidationError(
-                {"enabled": "Attach a working provider API key to enable this evaluation."}
-            )
-        if DEFAULT_MODEL_BY_PROVIDER.get(active_key.provider) is None:
-            raise serializers.ValidationError(
-                {
-                    "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
-                }
-            )
-
     def _missing_key_message(self, team: Team, provider: str | None) -> str:
         """A team with a working key the eval isn't set to use needs to pick it, not add another one."""
         keys = LLMProviderKey.objects.filter(team=team, state=LLMProviderKey.State.OK)
@@ -892,7 +861,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         if keys.exists():
             return (
                 "This project has a working AI provider API key, but this evaluation isn't set to use it. "
-                "Choose that key for the evaluation's model, or make it the project's active key, then enable the evaluation."
+                "Choose that key for the evaluation's model, then enable the evaluation."
             )
         return (
             "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet. "
@@ -920,19 +889,12 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return bool(data.get("model_configuration")) or bool(self.instance and self.instance.model_configuration_id)
 
     def _effective_provider_key(self, data: dict) -> LLMProviderKey | None:
-        """The provider key the evaluation will use after this update. With no pinned key, an
-        explicit config falls back to the team's active key for the same provider, mirroring
-        `active_key_fallback` in model_resolution.py."""
-        team = self.context["get_team"]()
-        model_config = self._effective_model_configuration(data)
-        if not model_config:
+        """The provider key the evaluation pins after this update. An enabled judge needs one, because
+        the project's active key is being retired as a fallback."""
+        provider_key_id = (self._effective_model_configuration(data) or {}).get("provider_key_id")
+        if not provider_key_id:
             return None
-        provider_key_id = model_config.get("provider_key_id")
-        if provider_key_id:
-            return LLMProviderKey.objects.filter(id=provider_key_id, team=team).first()
-        provider = model_config.get("provider")
-        config = EvaluationConfig.objects.filter(team=team).first()
-        return active_key_fallback(config, provider) if config and provider else None
+        return LLMProviderKey.objects.filter(id=provider_key_id, team=self.context["get_team"]()).first()
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int

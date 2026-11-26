@@ -1,4 +1,3 @@
-import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig, EvaluationOutputType, EvaluationType, LLMJudgeEvaluation } from './types'
 
 // Mirrors REPORTABLE_OUTPUT_TYPES_BY_TARGET in evaluation_configs.py — keep the two in step.
@@ -66,28 +65,13 @@ export function evaluationTypeUsesProviderKey(evaluationType: EvaluationType | n
     return evaluationTypeUsesModelConfiguration(evaluationType)
 }
 
+/** A judge runs only on the key it pins. The project's active key is being retired as a fallback. */
 export function evaluationCanResolveModel(
-    evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>,
-    // undefined = the team's evaluation config hasn't loaded yet — stay permissive rather than
-    // flashing a disabled state; null = loaded, and there is no active key.
-    activeProviderKey: Pick<LLMProviderKey, 'provider' | 'state'> | null | undefined
+    evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>
 ): boolean {
-    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
-        return true
-    }
-    if (evaluation.model_configuration?.provider_key_id) {
-        return true
-    }
-    if (activeProviderKey === undefined) {
-        return true
-    }
-    // No pinned key: the eval falls back to the team's active key, which must be healthy and —
-    // when the eval has an explicit model configuration — belong to the same provider (mirrors
-    // `active_key_fallback` in model_resolution.py).
-    if (activeProviderKey === null || activeProviderKey.state !== 'ok') {
-        return false
-    }
-    return !evaluation.model_configuration || evaluation.model_configuration.provider === activeProviderKey.provider
+    return (
+        !evaluationTypeUsesProviderKey(evaluation.evaluation_type) || !!evaluation.model_configuration?.provider_key_id
+    )
 }
 
 export function evaluationTypeDefaultsToBooleanOutput(evaluationType: EvaluationType | null | undefined): boolean {
