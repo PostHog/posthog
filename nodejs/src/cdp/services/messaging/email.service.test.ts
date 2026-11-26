@@ -2988,6 +2988,12 @@ describe('EmailService', () => {
                 uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 5))
             const halfTheSizeLimit = (): Promise<StoredFile> =>
                 uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2))
+            const nearTheSizeLimit = (): Promise<StoredFile> =>
+                uploadAttachment(
+                    team.id,
+                    { filename: 'a.pdf' },
+                    Buffer.alloc(Math.floor(LARGEST_SEND_FILE_BYTES * 0.95))
+                )
             type HeldCall = { holding: () => Promise<void>; release: () => void; close?: () => Promise<void> }
             type HeldStep = [(emailService: EmailService) => Promise<HeldCall>, number]
             const theDownload = (): Promise<HeldCall> => {
@@ -3077,6 +3083,22 @@ describe('EmailService', () => {
                     ],
                     failedMaybeSent,
                     1,
+                ],
+                [
+                    'an SES answer that comes after 43 s, a send of 95% of the size limit, whose deadline is 43.6 s, sends',
+                    nearTheSizeLimit,
+                    undefined,
+                    [[theSesAnswer, 43_000]],
+                    sent,
+                    1,
+                ],
+                [
+                    'a download answered after 44 s, a send of 95% of the size limit, whose deadline is 43.6 s, sends nothing and retries',
+                    nearTheSizeLimit,
+                    undefined,
+                    [[theDownload, 44_000]],
+                    retriedLoad,
+                    0,
                 ],
                 [
                     'a download answered after 24 s, a send of a fifth of the size limit, whose deadline is 22.6 s, sends nothing and retries',
