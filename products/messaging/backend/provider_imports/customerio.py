@@ -1,3 +1,4 @@
+import re
 import json
 import logging
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -339,7 +340,7 @@ def _read_segments(client: CustomerIOClient, team_id: int) -> list[_Segment]:
     """Manual segments first, because PostHog can rebuild the others from their rules."""
     segments: list[_Segment] = []
     for row in client.get("/segments").get("segments") or []:
-        if not isinstance(row, dict) or not str(row.get("id", "")).isdigit():
+        if not isinstance(row, dict) or not re.fullmatch(r"[0-9]+", str(row.get("id", ""))):
             continue
         is_manual = row.get("type") == "manual"
         problem = ""
