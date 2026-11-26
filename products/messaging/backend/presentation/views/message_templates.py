@@ -562,6 +562,11 @@ class MessageTemplateBasicSerializer(MessageTemplateSerializer):
     draft_content = None  # type: ignore[assignment]
 
 
+class MessageTemplateListType(models.TextChoices):
+    EMAIL = "email"
+    PUSH = "push"
+
+
 class MessageTemplateListQuerySerializer(serializers.Serializer):
     transactional = serializers.BooleanField(
         required=False,
@@ -589,7 +594,7 @@ class MessageTemplateListQuerySerializer(serializers.Serializer):
         help_text="List only templates created by the user with this ID.",
     )
     type = serializers.ChoiceField(
-        choices=["email", "push"],
+        choices=MessageTemplateListType.choices,
         required=False,
         allow_null=True,
         default=None,
