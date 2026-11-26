@@ -72,7 +72,7 @@ if TYPE_CHECKING:
 class TestResolveSandboxAiProduct:
     """Must agree with resolveAiProduct in
     packages/agent/packages/agent/src/utils/gateway.ts — a disagreement makes a
-    routed run mint no token (degrades to Python) or mint an unused token."""
+    routed run mint no token (the run fails) or mint an unused token."""
 
     @pytest.mark.parametrize(
         "origin_product,ai_stage,expected",
@@ -360,9 +360,10 @@ class TestMintScopedToken:
                 "deepseek-ai/deepseek-v4.1-flash-1017",
                 "deepseek-ai/deepseek-v4.1-flash-1017-fast",
                 "zai-org/glm-5.3",
-                "zai-org/glm-5.3-flash",
                 "gpt-6.1-terra",
             }
+        if product not in ("review_hog", "slack_app"):
+            expected -= {"zai-org/glm-5.3-flash"}
         assert set(pin) == expected
 
     def test_onboarding_mint_carries_the_legacy_model_pin(self, mint_settings):
@@ -894,7 +895,6 @@ class TestProvisioningBoundaries:
 
         if task.is_scout_experiment:
             assert out == {
-                "LLM_GATEWAY_URL": "",
                 "AI_GATEWAY_URL": mint_settings.SANDBOX_AI_GATEWAY_URL,
                 "AI_GATEWAY_PRODUCTS": "signals_scout",
                 "AI_GATEWAY_TOKEN": "phe_private",

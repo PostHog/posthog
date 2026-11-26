@@ -37,14 +37,15 @@ return (
 )
 ```
 
-Event handlers, `history` and `refresh` can be written inline. Keep `dashboard`, `widgets`, `filters`, `timeRange`, `disabledReasonFor`, `tileActions` and `dashboardActions` the same between renders, such as from a logic, a hook or a module constant. A new one re-renders every tile.
+Event handlers, `history` and `refresh` can be written inline. Keep `dashboard`, `widgets`, `filters`, `timeRange`, `disabledReasonFor`, `tileActions`, `tilePlacementActions` and `dashboardActions` the same between renders, such as from a logic, a hook or a module constant. A new one re-renders every tile.
 
 Leave out what you do not need. With no `filters`, `timeRange`, `refresh` or `history`, the dashboard shows no filter bar, picker, refresh button or undo.
 
 ### One tile on its own
 
 Render `WidgetCard` with the widget and the widget types that can draw it. No dashboard, grid or controller is needed.
-Wrap it in `FiltersContext` or `RefreshContext` only when the page has filters or a refresh to pass down.
+A tile's menu takes two lists: `actions` for what the tile does to itself, and `placementActions` for where it sits, such as moving or removing it. A tile on its own passes only `actions`, or neither for no menu.
+Wrap it in `FiltersContext` or `WidgetHostContext` only when the page has filters, a refresh or sample data to pass down.
 
 ```tsx
 <FiltersContext.Provider value={{ time: { from: 'now-30d', to: 'now' }, filters: [] }}>
@@ -55,5 +56,5 @@ Wrap it in `FiltersContext` or `RefreshContext` only when the page has filters o
 ## Tiles and widgets
 
 - A tile is the container. It owns what every tile shares: where it sits in the grid, dragging and resizing, the right-click menu, and its parts and appearance. Tile code lives in `frontend/tiles/`.
-- A widget is the content a tile shows, such as a chart or markdown. A team adds its own widget type through a `WidgetDefinition` and passes it to the dashboard. Widget code lives in `frontend/widgets/`.
+- A widget is the content a tile shows, such as a chart or markdown. A team adds its own widget type through a `WidgetDefinition` and passes it to the dashboard. Widget code lives in `frontend/widgets/`. To add or change a widget type, use the `/adding-dashboard-v2-widget-types` skill.
 - A tile does not know which widget it holds. Behavior that only one kind of content needs goes in that widget type, not in the tile.

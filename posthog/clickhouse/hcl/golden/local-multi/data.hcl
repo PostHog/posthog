@@ -220,7 +220,7 @@ database "posthog" {
       cluster_name    = "ai_events"
       remote_database = "posthog"
       remote_table    = "sharded_ai_events"
-      sharding_key    = "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
+      sharding_key    = "rand()"
     }
   }
 

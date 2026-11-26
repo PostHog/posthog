@@ -72,11 +72,12 @@ role "ingestion_metrics" {
   env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/shared", "roles/ingestion_metrics/shared"] }
 }
 
-# AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
-# (kafka_ai_events_json + ai_events_json_mv) with a sharded_ai_events data table
-# + distributed ai_events reader; US/EU run the WarpStream variant
-# (kafka_ai_events_json_ws + ai_events_json_ws_mv, MSK dropped by migration 0248)
-# writing into a single ai_events data table. roles/ai_events/shared holds the
+# AI_EVENTS satellite (LLM analytics). Every env stores events in a
+# sharded_ai_events ReplacingMergeTree read through a distributed ai_events table.
+# local/hobby run the MSK variant (kafka_ai_events_json + ai_events_json_mv); US/EU
+# run the WarpStream variant (kafka_ai_events_json_ws + ai_events_json_ws_mv, MSK
+# dropped by migration 0248), and their sharded_ai_events uses its own ZooKeeper
+# prefix, so each stack declares that table in its own layer. roles/ai_events/shared holds the
 # env-uniform person / person_distinct_id2 Distributed shims (0240). dev runs the
 # same WarpStream pipeline as the prod envs; roles/ai_events/dev downsizes the
 # Kafka consumer for dev volume.

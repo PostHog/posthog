@@ -1,7 +1,7 @@
 import './WidgetCard.css'
 
 import clsx from 'clsx'
-import type { CSSProperties } from 'react'
+import { type CSSProperties, useMemo } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -19,18 +19,20 @@ import type { SavedWidget } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
 import { NO_BACKGROUND, showsBorder, tileBackgroundColor } from '../../presentation/tileAppearance'
 import { isPartShown } from '../../presentation/tileParts'
-import { type WidgetType, widgetSlots } from '../../widgets/widgetDefinition'
-import { WidgetErrorBoundary } from '../../widgets/WidgetErrorBoundary'
-import { type WidgetAppearanceOptions, findWidget } from '../../widgets/widgetSpec'
-import { WidgetView } from '../../widgets/WidgetView'
+import { type WidgetType, widgetSlots } from '../../widgets/core/widgetDefinition'
+import { WidgetErrorBoundary } from '../../widgets/core/WidgetErrorBoundary'
+import { type TileCustomization, findWidget } from '../../widgets/core/widgetSpec'
+import { WidgetView } from '../../widgets/core/WidgetView'
 import { TileActions } from '../menu/TileActions'
 import { TileContextMenu, hasTileMenu } from '../menu/TileContextMenu'
 
+const NO_ACTIONS: MenuAction[] = []
+
 function cardLook(
     widget: SavedWidget,
-    options: WidgetAppearanceOptions
+    customizations: TileCustomization[]
 ): { className: string; style: CSSProperties | undefined } {
-    const color = tileBackgroundColor(widget, options)
+    const color = tileBackgroundColor(widget, customizations)
     const tint = color === NO_BACKGROUND ? null : color
     return {
         className: clsx(
@@ -45,20 +47,23 @@ function cardLook(
 
 /**
  * One widget in its card: header, body and footer. It reads no dashboard, so a page can render a single widget on
- * its own, the way a panel stands alone. Inside a dashboard, `ContentTile` passes the tile's actions.
+ * its own, the way a panel stands alone. Inside a dashboard, `ContentTile` passes both kinds of actions.
  */
 export function WidgetCard({
     widget,
     widgets,
-    actions = [],
+    actions = NO_ACTIONS,
+    placementActions = NO_ACTIONS,
     editable = false,
     setConfig,
 }: {
     widget: SavedWidget
     /** The widget types the page can show. The card renders the one that `widget.type` names. */
     widgets: WidgetType[]
-    /** What a person can do to the tile, shown on right-click. Left out, the card has no menu. */
+    /** What a person can do to the tile itself, such as change its chart type. Shown on right-click. */
     actions?: MenuAction[]
+    /** What a person can do to where the tile sits, such as move or remove it. Left out on a tile outside a dashboard. */
+    placementActions?: MenuAction[]
     editable?: boolean
     /** Lets a widget that edits in place, such as text, save its config. Left out, the widget is read-only. */
     setConfig?: (config: unknown) => void
@@ -67,13 +72,15 @@ export function WidgetCard({
     const slots = widgetSlots(definition)
     const showHeader = isPartShown(widget, 'header', slots)
     const showFooter = isPartShown(widget, 'footer', slots)
-    const look = cardLook(widget, definition?.appearance ?? {})
+    const look = cardLook(widget, definition?.allowedCustomizations ?? [])
     const HeaderExtra = definition?.HeaderExtra
     const Footer = definition?.Footer
-    const hasMenu = hasTileMenu(actions)
+    // Placement goes first so the slideshow stays above the image download in the shared view group.
+    const menu = useMemo(() => [...placementActions, ...actions], [actions, placementActions])
+    const hasMenu = hasTileMenu(menu)
 
     return (
-        <TileContextMenu actions={actions}>
+        <TileContextMenu actions={menu}>
             <Card
                 size="sm"
                 // A tile without a header has no title bar, so the whole tile is what it is dragged by.

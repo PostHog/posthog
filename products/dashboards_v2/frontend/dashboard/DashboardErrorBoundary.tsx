@@ -1,11 +1,14 @@
 import posthog from 'posthog-js'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+
 import { DashboardUnavailable } from './DashboardUnavailable'
 import type { Dashboard } from './document/dashboardTypes'
 
 type DashboardErrorState = {
     failed: boolean
+    error?: unknown
     dashboard: Dashboard
 }
 
@@ -24,15 +27,22 @@ export class DashboardErrorBoundary extends Component<
         return props.dashboard === state.dashboard ? null : { failed: false, dashboard: props.dashboard }
     }
 
-    static getDerivedStateFromError(): Partial<DashboardErrorState> {
-        return { failed: true }
+    static getDerivedStateFromError(error: unknown): Partial<DashboardErrorState> {
+        return { failed: true, error }
     }
 
     override componentDidCatch(error: Error, info: ErrorInfo): void {
+        if (isChunkLoadError(error)) {
+            return
+        }
         posthog.captureException(error, { tag: 'dashboards-v2-dashboard', componentStack: info.componentStack })
     }
 
     override render(): ReactNode {
+        // A widget's failed code download goes on up to the app's chunk boundary, which reloads the page.
+        if (this.state.failed && isChunkLoadError(this.state.error)) {
+            throw this.state.error
+        }
         return this.state.failed ? <DashboardUnavailable problem="error" /> : this.props.children
     }
 }

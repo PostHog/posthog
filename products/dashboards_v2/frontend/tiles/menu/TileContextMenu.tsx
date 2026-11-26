@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import type { ReactNode } from 'react'
 
 import {
@@ -24,7 +25,7 @@ import type { DashboardEdit } from '../../dashboard/edits/dashboardEdits'
 import type { MenuAction } from '../../menu/menuAction'
 import { MenuActionList, type MenuParts } from '../../menu/MenuActionList'
 import { backgroundColorAction, showAction } from '../../presentation/tileAppearance'
-import { findWidget } from '../../widgets/widgetSpec'
+import { findWidget } from '../../widgets/core/widgetSpec'
 
 const CONTEXT_MENU_PARTS: MenuParts = {
     Group: ContextMenuGroup,
@@ -50,21 +51,48 @@ export function hasTileMenu(actions: MenuAction[]): boolean {
     return actions.some(isUsable)
 }
 
+/**
+ * What a content tile does to itself: its image, parts, background and the widget type's own entries, such as a chart's
+ * options. It is the whole menu of a tile shown outside a dashboard.
+ */
 export function useContentTileActions(id: string, widget: SavedWidget): MenuAction[] {
-    const {
-        dashboard,
-        activeTab,
-        widgets,
-        disabledReasonFor,
-        onEdit,
-        tileActions,
-        downloadImage,
-        downloadingImage,
-        showSlideshow,
-    } = useDashboard()
-    const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
+    const { widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboard()
     const definition = findWidget(widgets, widget.type)
+    const actions: MenuAction[] = [tileImageAction(id, downloadingImage, downloadImage)]
+    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
+    if (show) {
+        actions.push(show)
+    }
+    const backgroundColor = backgroundColorAction(
+        TILE_BACKGROUND_COLOR,
+        [{ id, widget }],
+        widgets,
+        disabledReasonFor('setTilesAppearance'),
+        onEdit
+    )
+    if (backgroundColor) {
+        actions.push(backgroundColor)
+    }
+    let withWidget = actions
+    // It runs while the tile renders, outside any error boundary, so a throw here would break the dashboard.
+    try {
+        withWidget =
+            definition?.menuActions?.(actions, {
+                widget,
+                setConfig: (config) => onEdit({ edit: 'setWidgetConfig', id, config }),
+                disabledReason: disabledReasonFor('setWidgetConfig'),
+            }) ?? actions
+    } catch (error) {
+        posthog.captureException(error, { tag: 'dashboards-v2-widget' })
+    }
+    // The host runs last, so it has the final say on its page, such as hiding an entry a widget type added.
+    return tileActions ? tileActions(withWidget, { id, widget }) : withWidget
+}
 
+/** What a person can do to where a content tile sits on the dashboard: its slideshow, its tab, and removing it. */
+export function useContentTilePlacementActions(id: string, widget: SavedWidget): MenuAction[] {
+    const { dashboard, activeTab, disabledReasonFor, onEdit, tilePlacementActions, showSlideshow } = useDashboard()
+    const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
     const actions: MenuAction[] = [
         {
             key: 'slideshow',
@@ -113,21 +141,6 @@ export function useContentTileActions(id: string, widget: SavedWidget): MenuActi
             }),
         })
     }
-    actions.push(tileImageAction(id, downloadingImage, downloadImage))
-    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesAppearance'), onEdit)
-    if (show) {
-        actions.push(show)
-    }
-    const backgroundColor = backgroundColorAction(
-        TILE_BACKGROUND_COLOR,
-        [{ id, widget }],
-        widgets,
-        disabledReasonFor('setTilesAppearance'),
-        onEdit
-    )
-    if (backgroundColor) {
-        actions.push(backgroundColor)
-    }
     actions.push({
         key: 'remove',
         label: 'Remove tile',
@@ -136,15 +149,7 @@ export function useContentTileActions(id: string, widget: SavedWidget): MenuActi
         destructive: true,
         onSelect: () => onEdit({ edit: 'removeTile', id }),
     })
-    const withWidget = definition?.menuActions
-        ? definition.menuActions(actions, {
-              widget,
-              setConfig: (config) => onEdit({ edit: 'setWidgetConfig', id, config }),
-              disabledReason: disabledReasonFor('setWidgetConfig'),
-          })
-        : actions
-    // The host runs last, so it has the final say on its page, such as hiding an entry a widget type added.
-    return tileActions ? tileActions(withWidget, { id, widget }) : withWidget
+    return tilePlacementActions ? tilePlacementActions(actions, { id, widget }) : actions
 }
 
 // pinned: `dashboard-v2-tile-parts` data-attrs shipped before border joined this menu.
@@ -203,6 +208,13 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
         tileImageAction(id, downloadingImage, downloadImage),
         autoLayoutAction(id, disabledReasonFor('autoLayout'), onEdit),
         ...(show ? [show] : []),
+    ]
+    return tileActions ? tileActions(actions, { id, widget }) : actions
+}
+
+export function useSectionPlacementActions(id: string, widget: SectionWidget): MenuAction[] {
+    const { disabledReasonFor, onEdit, tilePlacementActions } = useDashboard()
+    const actions: MenuAction[] = [
         {
             key: 'remove',
             label: 'Remove section and its tiles',
@@ -212,7 +224,7 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
             onSelect: () => onEdit({ edit: 'removeTile', id }),
         },
     ]
-    return tileActions ? tileActions(actions, { id, widget }) : actions
+    return tilePlacementActions ? tilePlacementActions(actions, { id, widget }) : actions
 }
 
 /**

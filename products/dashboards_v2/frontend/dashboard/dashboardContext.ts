@@ -3,7 +3,7 @@ import { createContext, useContext } from 'react'
 import type { TimeRangeController } from '../filters/time/useTimeRangeController'
 import type { FiltersController } from '../filters/useFiltersController'
 import type { MenuAction } from '../menu/menuAction'
-import type { WidgetType } from '../widgets/widgetDefinition'
+import type { WidgetType } from '../widgets/core/widgetDefinition'
 import type { AutoRefreshProps } from './actions/AutoRefreshButton'
 import type { ImageFormat } from './actions/dashboardImage'
 import type { Dashboard, GridTab, SizeOf, Widget } from './document/dashboardTypes'
@@ -31,10 +31,15 @@ export type DashboardController = {
     onEdit: (edit: DashboardEdit, view: View) => void
     onActiveTabChange: (tabId: string) => void
     /**
-     * Receives the full right-click action list of a content tile or a section, after the widget type's own changes, and
-     * returns the list to show. Lets a page hide, disable or add actions by `MenuAction.key`, such as `remove`.
+     * Receives what a content tile or a section does to itself, after the widget type's own changes, and returns the
+     * list to show. Lets a page hide, disable or add actions by `MenuAction.key`, such as `chart-type`.
      */
     tileActions?: (actions: MenuAction[], tile: { id: string; widget: Widget }) => MenuAction[]
+    /**
+     * Receives what a person can do to where a tile or a section sits on the dashboard, and returns the list to show.
+     * Lets a page hide, disable or add actions by `MenuAction.key`, such as `remove`.
+     */
+    tilePlacementActions?: (actions: MenuAction[], tile: { id: string; widget: Widget }) => MenuAction[]
     dashboardActions?: (actions: MenuAction[]) => MenuAction[]
     /**
      * Left out, the dashboard shows no refresh button. Each refresh, from the button or the interval picked there, runs

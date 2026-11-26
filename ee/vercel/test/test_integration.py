@@ -627,9 +627,13 @@ class TestVercelIntegration(TestCase):
 
     @parameterized.expand(
         [
-            (f"{policy}_{mapped}", policy, mapped)
-            for policy in ("totp", "passkey", "sso", "inactive", "domain")
-            for mapped in (False, True)
+            *(
+                (f"{policy}_{account}", policy, account)
+                for policy in ("totp", "passkey", "sso", "inactive", "domain")
+                for account in ("existing", "mapped")
+            ),
+            ("sso_new", "sso", "new"),
+            ("domain_new", "domain", "new"),
         ]
     )
     @override_settings(
@@ -637,9 +641,10 @@ class TestVercelIntegration(TestCase):
         SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="synthetic-client",
         SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="synthetic-secret",
     )
-    def test_sso_preserves_account_login_requirements(self, _name: str, policy: str, mapped: bool) -> None:
+    def test_sso_preserves_account_login_requirements(self, _name: str, policy: str, account: str) -> None:
+        mapped = account == "mapped"
         claims = self._create_user_claims("protected_user")
-        claims.user_email = self.user.email
+        claims.user_email = "new-sso-user@example.com" if account == "new" else self.user.email
         if mapped:
             self.installation.config["user_mappings"] = {claims.user_id: self.user.pk}
             self.installation.save()
@@ -682,6 +687,7 @@ class TestVercelIntegration(TestCase):
         assert self.installation.config.get("user_mappings", {}).get(claims.user_id) == (
             self.user.pk if mapped else None
         )
+        assert not User.objects.filter(email="new-sso-user@example.com").exists()
 
     def test_sso_does_not_replace_an_inactive_users_mapping(self) -> None:
         inactive_user = User.objects.create_user(

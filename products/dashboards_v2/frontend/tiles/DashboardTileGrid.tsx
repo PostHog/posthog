@@ -1,6 +1,5 @@
 import './DashboardTileGrid.css'
 
-import clsx from 'clsx'
 import { memo, useCallback, useContext, useRef } from 'react'
 
 import { useDashboard } from '../dashboard/dashboardContext'
@@ -9,8 +8,11 @@ import { findTile } from '../dashboard/document/tileTree'
 import type { DropTarget } from '../grid/drag/dropTargets'
 import { type OnSectionRows, TileGrid } from '../grid/TileGrid'
 import { CapturingTileContext, TileMountContext, useTileMounted } from '../grid/tileMounting'
+import type { WidgetType } from '../widgets/core/widgetDefinition'
+import { findWidget } from '../widgets/core/widgetSpec'
 import { WidgetCard } from './card/WidgetCard'
-import { useContentTileActions } from './menu/TileContextMenu'
+import { WidgetCardPlaceholder } from './card/WidgetCardPlaceholder'
+import { useContentTileActions, useContentTilePlacementActions } from './menu/TileContextMenu'
 import { type SectionGridProps, SectionTile } from './SectionTile'
 
 type ContentTileProps = {
@@ -19,10 +21,13 @@ type ContentTileProps = {
     editable: boolean
 }
 
+type WindowedContentTileProps = ContentTileProps & { widgets: WidgetType[] }
+
 // Kept apart from `WindowedContentTile`, so a tile reads the dashboard state only once its card mounts.
 function ContentTile({ id, widget, editable }: ContentTileProps): JSX.Element {
     const { widgets, disabledReasonFor, onEdit } = useDashboard()
     const actions = useContentTileActions(id, widget)
+    const placementActions = useContentTilePlacementActions(id, widget)
     const canSetConfig = !disabledReasonFor('setWidgetConfig')
     // `onEdit` changes with every dashboard edit; a stable `setConfig` keeps `WidgetView`'s memo, so moving tiles
     // doesn't re-render every widget.
@@ -34,6 +39,7 @@ function ContentTile({ id, widget, editable }: ContentTileProps): JSX.Element {
             widget={widget}
             widgets={widgets}
             actions={actions}
+            placementActions={placementActions}
             editable={editable}
             setConfig={canSetConfig ? setConfig : undefined}
         />
@@ -44,7 +50,7 @@ function ContentTile({ id, widget, editable }: ContentTileProps): JSX.Element {
  * A content tile whose card mounts only near the scrolled view. The sentinel fills the cell, so the cell is observed
  * whether the card or the placeholder is showing.
  */
-function WindowedContentTile({ id, widget, editable }: ContentTileProps): JSX.Element {
+function WindowedContentTile({ id, widget, editable, widgets }: WindowedContentTileProps): JSX.Element {
     const sentinel = useRef<HTMLSpanElement>(null)
     const mounted = useTileMounted(sentinel)
     return (
@@ -53,7 +59,11 @@ function WindowedContentTile({ id, widget, editable }: ContentTileProps): JSX.El
             {mounted ? (
                 <ContentTile id={id} widget={widget} editable={editable} />
             ) : (
-                <div className={clsx('DashboardTileGrid__placeholder', editable && 'TileGrid__handle')} />
+                <WidgetCardPlaceholder
+                    widget={widget}
+                    definition={findWidget(widgets, widget.type)}
+                    editable={editable}
+                />
             )}
         </>
     )
@@ -63,11 +73,18 @@ type TileFrameProps = {
     tile: Tile
     columnPx: number
     editable: boolean
+    widgets: WidgetType[]
     onSectionRows: OnSectionRows
 }
 
 /** What a grid cell holds. Memoised on the tile, so a drag in a grid re-renders none of its tiles. */
-const TileFrame = memo(function TileFrame({ tile, columnPx, editable, onSectionRows }: TileFrameProps): JSX.Element {
+const TileFrame = memo(function TileFrame({
+    tile,
+    columnPx,
+    editable,
+    widgets,
+    onSectionRows,
+}: TileFrameProps): JSX.Element {
     const { id, widget } = tile
     const capturing = useContext(CapturingTileContext) === id
     const content = isSectionWidget(widget) ? (
@@ -80,7 +97,7 @@ const TileFrame = memo(function TileFrame({ tile, columnPx, editable, onSectionR
             renderGrid={renderSectionGrid}
         />
     ) : (
-        <WindowedContentTile id={id} widget={widget} editable={editable} />
+        <WindowedContentTile id={id} widget={widget} editable={editable} widgets={widgets} />
     )
     return capturing ? <TileMountContext.Provider value={null}>{content}</TileMountContext.Provider> : content
 })
@@ -97,12 +114,18 @@ export function DashboardTileGrid({
     editable,
     onLiveRows,
 }: Omit<SectionGridProps, 'onLiveRows'> & Partial<Pick<SectionGridProps, 'onLiveRows'>>): JSX.Element {
-    const { dashboard, onEdit, sizeOf, can } = useDashboard()
+    const { dashboard, onEdit, sizeOf, can, widgets } = useDashboard()
     const renderTile = useCallback(
         (tile: Tile, columnPx: number, onSectionRows: OnSectionRows) => (
-            <TileFrame tile={tile} columnPx={columnPx} editable={editable} onSectionRows={onSectionRows} />
+            <TileFrame
+                tile={tile}
+                columnPx={columnPx}
+                editable={editable}
+                widgets={widgets}
+                onSectionRows={onSectionRows}
+            />
         ),
-        [editable]
+        [editable, widgets]
     )
     const findCarried = useCallback((id: string) => findTile(dashboard, id), [dashboard])
     const onPlaceTiles = useCallback(
