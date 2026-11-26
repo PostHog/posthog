@@ -9,7 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 import type { NotebookStaleReason } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
-import type { NotebookAppLayoutApi } from '../generated/api.schemas'
+import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
 import { NotebookAppBlock } from './NotebookAppBlock'
 import { draftChoices, type AppChoices } from './notebookAppChoices'
 
@@ -61,6 +61,10 @@ export function NotebookAppCanvas({
         }
         return index
     }, [cells])
+    const choicesFor = (block: NotebookAppBlockApi): AppChoices | undefined | null =>
+        block.kind === 'input' && block.input_kind === 'query_select'
+            ? getQueryChoices(cellsById.get(block.node_id ?? ''), block.option_column ?? '')
+            : undefined
     const blocks = layout.blocks.filter((block) => block.tab_id === activeTab)
     return (
         <div className="NotebookAppBuilder__grid" data-attr="notebook-app-canvas">
@@ -159,11 +163,7 @@ export function NotebookAppCanvas({
                         <NotebookAppBlock
                             block={block}
                             cell={cellsById.get(block.node_id ?? '')}
-                            choices={
-                                block.input_kind === 'query_select'
-                                    ? getQueryChoices(cellsById.get(block.node_id ?? ''), block.option_column ?? '')
-                                    : undefined
-                            }
+                            choices={choicesFor(block)}
                             stale={!!staleNodeIds[block.node_id || '']}
                             onSource={!editing ? onSource : undefined}
                             variables={variables}

@@ -1,21 +1,48 @@
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import { sqlChoiceSource } from './notebookAppChoices'
 import { appCellTitle } from './notebookAppLayout'
 
-export function NotebookAppChoiceSettings({
-    cells,
-    block,
-    onChange,
-}: {
+type ChoiceSettingsProps = {
     cells: NotebookBlockNode[]
     block: NotebookAppBlockApi
     onChange: (patch: Partial<NotebookAppBlockApi>) => void
-}): JSX.Element {
+}
+
+export function NotebookAppChoiceSettings({
+    variableType,
+    ...props
+}: ChoiceSettingsProps & { variableType?: NotebookVariable['type'] }): JSX.Element | null {
+    const { block, onChange } = props
+    if (block.input_kind === 'query_select') {
+        return <QueryChoiceSettings {...props} />
+    }
+    if (block.input_kind !== 'select') {
+        return null
+    }
+    return (
+        <>
+            <LemonLabel>Options (one per line)</LemonLabel>
+            <LemonTextArea
+                value={(block.options ?? []).join('\n')}
+                onChange={(text) => onChange({ options: text.split('\n') })}
+                aria-label="Dropdown options"
+            />
+            {variableType !== 'list' && (
+                <span className="text-xs text-secondary">
+                    To allow multiple selections, choose List of text in the notebook variables.
+                </span>
+            )}
+        </>
+    )
+}
+
+function QueryChoiceSettings({ cells, block, onChange }: ChoiceSettingsProps): JSX.Element {
     const sources = cells.filter((cell) => sqlChoiceSource(cell))
     const columnsFor = (id?: string): string[] => {
         const result = sqlChoiceSource(sources.find((cell) => cell.id === id))?.result

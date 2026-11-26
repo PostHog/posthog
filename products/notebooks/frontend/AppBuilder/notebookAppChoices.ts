@@ -2,7 +2,26 @@ import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { getSqlV2PropsFromQueryProp } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { MAX_NOTEBOOK_VARIABLE_VALUE_CHARS } from 'scenes/notebooks/Notebook/notebookVariables'
 
+import type { NotebookAppBlockApi } from '../generated/api.schemas'
+
 export type AppChoices = { values: string[]; partial: boolean }
+
+export function dropdownOptions(block: NotebookAppBlockApi, choices?: AppChoices | null): string[] | undefined {
+    return block.input_kind === 'query_select'
+        ? (choices?.values ?? [])
+        : block.input_kind === 'select'
+          ? (block.options ?? [])
+          : undefined
+}
+
+function rowChoice(row: unknown, index: number): string | null {
+    const raw: unknown = Array.isArray(row) ? row[index] : undefined
+    if (typeof raw !== 'string' && typeof raw !== 'number' && typeof raw !== 'boolean') {
+        return null
+    }
+    const value = String(raw)
+    return value && Array.from(value).length <= MAX_NOTEBOOK_VARIABLE_VALUE_CHARS ? value : null
+}
 
 export function queryChoices(columns: unknown, rows: unknown, column: string, partial: boolean): AppChoices | null {
     const index = Array.isArray(columns) ? columns.indexOf(column) : -1
@@ -11,12 +30,8 @@ export function queryChoices(columns: unknown, rows: unknown, column: string, pa
     }
     const choices = new Set<string>()
     for (const row of rows) {
-        const raw = Array.isArray(row) ? row[index] : undefined
-        if (typeof raw !== 'string' && typeof raw !== 'number' && typeof raw !== 'boolean') {
-            continue
-        }
-        const value = String(raw)
-        if (!value || Array.from(value).length > MAX_NOTEBOOK_VARIABLE_VALUE_CHARS) {
+        const value = rowChoice(row, index)
+        if (value === null) {
             continue
         }
         choices.add(value)

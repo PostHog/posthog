@@ -178,28 +178,12 @@ export function NotebookAppInspector({
                                 ]}
                                 onChange={(input_kind) => onBlock(block.id, { input_kind })}
                             />
-                            {block.input_kind === 'query_select' && (
-                                <NotebookAppChoiceSettings
-                                    cells={cells}
-                                    block={block}
-                                    onChange={(patch) => onBlock(block.id, patch)}
-                                />
-                            )}
-                            {block.input_kind === 'select' && (
-                                <>
-                                    <LemonLabel>Options (one per line)</LemonLabel>
-                                    <LemonTextArea
-                                        value={(block.options ?? []).join('\n')}
-                                        onChange={(text) => onBlock(block.id, { options: text.split('\n') })}
-                                        aria-label="Dropdown options"
-                                    />
-                                    {variableType !== 'list' && (
-                                        <span className="text-xs text-secondary">
-                                            To allow multiple selections, choose List of text in the notebook variables.
-                                        </span>
-                                    )}
-                                </>
-                            )}
+                            <NotebookAppChoiceSettings
+                                cells={cells}
+                                block={block}
+                                variableType={variableType}
+                                onChange={(patch) => onBlock(block.id, patch)}
+                            />
                             {block.input_kind === 'slider' &&
                                 SLIDER_FIELDS.map(({ key, label, defaultValue }) => (
                                     <Fragment key={key}>
