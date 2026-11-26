@@ -37,6 +37,7 @@ QUOTA_SHADOW_READ_DURATION = Histogram(
     buckets=(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
 )
 SECONDARY_RETRY_DELAY_SECONDS = 30
+SECONDARY_READ_RETRY_DELAY_SECONDS = 5
 # Covers the optional store's snapshot and reconcile in one quota run, not the time between them.
 QUOTA_SECONDARY_RUN_BUDGET_SECONDS = 300.0
 QUOTA_READ_PAGE_SIZE = 5_000
@@ -83,6 +84,7 @@ def _run_with_cooldown[T](
     resource: str,
     maintenance: bool,
     retry_after: dict[str, float],
+    retry_delay: float,
 ) -> T:
     url = settings.QUOTA_LIMITING_REDIS_URL
     if not url:
@@ -100,7 +102,7 @@ def _run_with_cooldown[T](
     except Exception as error:
         # Include configuration/discovery failures: even an invalid optional URL must
         # leave shared Redis authoritative. A dead store costs one timeout per cooldown.
-        retry_after[url] = monotonic() + SECONDARY_RETRY_DELAY_SECONDS
+        retry_after[url] = monotonic() + retry_delay
         QUOTA_SECONDARY_OPERATIONS.labels(operation=operation, result="failure").inc()
         logger.warning(
             "quota_secondary_operation_failed", operation=operation, resource=resource, error_type=type(error).__name__
@@ -116,7 +118,12 @@ def run_secondary_quota_operation[T](
     """Best-effort migration work must never fail a successful shared Redis write."""
     try:
         return _run_with_cooldown(
-            operation, callback, resource=resource, maintenance=maintenance, retry_after=_retry_after
+            operation,
+            callback,
+            resource=resource,
+            maintenance=maintenance,
+            retry_after=_retry_after,
+            retry_delay=SECONDARY_RETRY_DELAY_SECONDS,
         )
     except SecondaryQuotaStoreUnavailable:
         return None
@@ -136,7 +143,14 @@ def quota_shadow_read_sampled() -> bool:
 
 def read_secondary_quota_store[T](operation: str, callback: Callable[[QuotaRedisClient], T], *, resource: str) -> T:
     """Raises SecondaryQuotaStoreUnavailable and never reads shared Redis instead, so the caller decides the answer."""
-    return _run_with_cooldown(operation, callback, resource=resource, maintenance=False, retry_after=_read_retry_after)
+    return _run_with_cooldown(
+        operation,
+        callback,
+        resource=resource,
+        maintenance=False,
+        retry_after=_read_retry_after,
+        retry_delay=SECONDARY_READ_RETRY_DELAY_SECONDS,
+    )
 
 
 def shadow_read_secondary_quota_store[T](

@@ -703,12 +703,15 @@ class TestQuotaMigration(SimpleTestCase):
                 "log_level": "warning",
             }
         ]
-        assert _read_retry_after == {COPY_URL: 130}
+        assert _read_retry_after == {COPY_URL: 105}
         with patch("posthog.quota_migration.monotonic", return_value=100):
             add_limited_team_tokens(self.resource, {"new": 1900000100}, self.cache)
         assert self.secondary.zscore(self.key, "new") == 1900000100
-        with self.settings(**mode_settings), patch("posthog.quota_migration.monotonic", return_value=131):
-            assert _is_limited(reader, "limited")
+        for now, limited, copy_read in [(104.9, answer, "copy_cooldown"), (105, True, "copy_success")]:
+            before = _read_counts(reader)
+            with self.settings(**mode_settings), patch("posthog.quota_migration.monotonic", return_value=now):
+                assert _is_limited(reader, "limited") == limited
+            assert _changes(before, _read_counts(reader)).get(copy_read) == 1
 
     @parameterized.expand(
         [
