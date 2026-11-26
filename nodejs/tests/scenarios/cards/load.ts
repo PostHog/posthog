@@ -436,4 +436,4 @@ function check(
 }
 
 export const cardHashOf = (card: Card, profileHash: string): string =>
-    sha256({ card: { ...card, gates: undefined, pair: undefined }, profileHash })
+    sha256({ card: { ...card, gates: undefined, pair: undefined, unpaired: undefined }, profileHash })
