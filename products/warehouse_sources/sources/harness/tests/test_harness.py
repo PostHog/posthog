@@ -483,3 +483,36 @@ def test_execution_child_row_without_identifier_fails(driver: SourceDriver, name
     result = driver.run(name, respond)
     assert isinstance(result.raised, ValueError)
     assert "without an identifier" in str(result.raised)
+
+
+def paged_executions_responder(request: RecordedRequest) -> ScriptedResponse:
+    if request.path == "/pipeline/api/pipelines/execution/summary":
+        page = int(request.param("page") or 0)
+        rows = [{"planExecutionId": f"run-{page}-{n}", "pipelineIdentifier": "build"} for n in range(2)]
+        return ScriptedResponse(json={"data": {"content": rows, "totalPages": 4}})
+    return ScriptedResponse(json={"data": {"notes": f"Notes for {request.path.split('/')[-2]}."}})
+
+
+def test_execution_child_state_keeps_only_recent_parent_pages(driver: SourceDriver) -> None:
+    result = driver.run("execution_notes", paged_executions_responder)
+    assert result.raised is None
+    assert len(result.rows) == 8
+    assert max(len(state.completed or []) for state in result.saved_states) <= 4
+    assert result.saved_states[-1].parent == {"page": 2}
+    assert result.saved_states[-1].completed == [
+        f"/pipeline/api/pipelines/execution/run-{page}-{n}/notes" for page in (2, 3) for n in range(2)
+    ]
+
+
+def test_execution_child_resume_starts_at_the_saved_parent_page(driver: SourceDriver) -> None:
+    result = driver.run(
+        "execution_notes",
+        paged_executions_responder,
+        resume_state=HarnessResumeConfig(
+            completed=["/pipeline/api/pipelines/execution/run-2-0/notes"], parent={"page": 2}
+        ),
+    )
+    assert result.raised is None
+    parent_pages = [r.param("page") for r in result.requests if r.path.endswith("/summary")]
+    assert parent_pages == ["2", "3"]
+    assert [row["planExecutionId"] for row in result.rows] == ["run-2-1", "run-3-0", "run-3-1"]

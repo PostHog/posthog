@@ -37,6 +37,8 @@ class HarnessResumeConfig:
     completed: list[str] | None = None
     current: str | None = None
     child_state: dict[str, Any] | None = None
+    # The parent page that a resumed fan-out starts its parent listing from.
+    parent: dict[str, Any] | None = None
 
 
 def base_url(config: "HarnessSourceConfig") -> str:
@@ -167,6 +169,7 @@ def harness_source(
     resources: list[str | EndpointResource] = [resource_config]
     if endpoint.parent is not None:
         resource_config["include_from_parent"] = [endpoint.parent.field]
+        resource_config["resume_parent_pagination"] = True
         resources.insert(
             0,
             {
@@ -212,12 +215,18 @@ def harness_source(
                         completed=fanout_state.get("completed"),
                         current=fanout_state.get("current"),
                         child_state=fanout_state.get("child_state"),
+                        parent=fanout_state.get("parent"),
                     )
                 )
 
         initial_state = (
-            {"completed": state.completed or [], "current": state.current, "child_state": state.child_state}
-            if state is not None and (state.completed or state.current)
+            {
+                "completed": state.completed or [],
+                "current": state.current,
+                "child_state": state.child_state,
+                "parent": state.parent,
+            }
+            if state is not None and (state.completed or state.current or state.parent)
             else None
         )
         resource = next(
