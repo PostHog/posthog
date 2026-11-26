@@ -400,14 +400,14 @@ class TestEvalSuggestionsApi(APIBaseTest):
         assert response.json()["backfill_id"] is None
         assert Evaluation.objects.filter(team=self.team, deleted=False).count() == 1
 
-    @parameterized.expand([("with_a_working_key", True, "gpt-5-mini", 0.2), ("without_a_key", False, None, None)])
+    @parameterized.expand([("with_a_working_key", True, "gpt-6-luna", 0.08), ("without_a_key", False, None, None)])
     @patch(f"{ACCEPT_MODULE}.count_backfill_candidates", return_value=BackfillScope(to_evaluate=20, already_judged=0))
     def test_judge_estimate_prices_whole_units_on_the_key_accept_uses(
         self, _name: str, with_key: bool, model: str | None, cost: float | None, _count: MagicMock
     ) -> None:
         if with_key:
             self._judge_key()
-        # One trace judge run reads a 40k-token transcript, at $0.25 per million input tokens.
+        # One trace judge run reads a 40k-token transcript, at $0.10 per million input tokens.
         suggestion = self._suggestion(EvalSuggestionKind.NEW_LLM_JUDGE, draft=JUDGE_DRAFT, mean_input_tokens=40_000)
 
         estimate = self.client.get(f"{self.url}/{suggestion.id}/accept_estimate/").json()
@@ -483,6 +483,27 @@ class TestEvalSuggestionsApi(APIBaseTest):
 
         assert (first["pending"], second["pending"]) == (first_pending, later_pending)
         assert start.await_count == starts
+
+    def test_a_project_that_turns_suggestions_off_sees_none_until_it_turns_them_back_on(self) -> None:
+        self._suggestion()
+        with patch(
+            "products.ai_observability.backend.facade.eval_suggestions.start_first_visit_run", new=AsyncMock()
+        ) as start:
+            turned_off = self.client.patch(f"{self.url}/settings/", {"enabled": False}, format="json")
+            empty_patch = self.client.patch(f"{self.url}/settings/", {}, format="json").json()
+            listed_while_off = self.client.get(f"{self.url}/").json()
+            # A project with no run yet must not start one either.
+            self.suggestion_run.delete()
+            self.client.get(f"{self.url}/")
+            settings_while_off = self.client.get(f"{self.url}/settings/").json()
+            self.client.patch(f"{self.url}/settings/", {"enabled": True}, format="json")
+            listed_when_back_on = self.client.get(f"{self.url}/").json()
+
+        assert turned_off.status_code == status.HTTP_200_OK, turned_off.json()
+        assert (listed_while_off["results"], listed_while_off["pending"]) == ([], False)
+        assert settings_while_off == empty_patch == {"enabled": False}
+        assert listed_when_back_on["pending"] is True
+        assert start.await_count == 1
 
     @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_dismissing_a_card_also_dismisses_its_replacement(self, _flag: MagicMock) -> None:

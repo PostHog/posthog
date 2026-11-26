@@ -8,13 +8,14 @@ export function conversationalSideMessages(side: NodeSideContent): ThreadMessage
     return side.kind === 'messages' ? conversationalMessages(side.messages) : []
 }
 
-function sideHasContent(side: NodeSideContent): boolean {
+export function sideHasContent(side: NodeSideContent, conversationOnly: boolean = false): boolean {
     if (side.kind === 'json') {
         return side.value !== null && side.value !== ''
     }
-    return conversationalMessages(side.messages).length > 0
+    return conversationalMessages(side.messages).some((message) => !conversationOnly || !message.isInternal)
 }
 
-export function turnHasContent(turn: ConversationTurn): boolean {
-    return sideHasContent(turn.input) || sideHasContent(turn.output)
+/** Internal messages count as content only while their toggle shows, which "conversation only" hides. */
+export function turnHasContent(turn: ConversationTurn, conversationOnly: boolean = false): boolean {
+    return sideHasContent(turn.input, conversationOnly) || sideHasContent(turn.output, conversationOnly)
 }

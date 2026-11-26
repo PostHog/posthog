@@ -84,7 +84,10 @@ class CustomerIOClient:
         return result
 
     def get_globally_unsubscribed_customers(self, limit: int = 1000, start: Optional[str] = None) -> dict[str, Any]:
-        filter_conditions = {"attribute": {"field": "unsubscribed", "operator": "eq", "value": True}}
+        # Customer.io also treats 1 as unsubscribed, but a search for true doesn't find it.
+        filter_conditions = {
+            "or": [{"attribute": {"field": "unsubscribed", "operator": "eq", "value": value}} for value in (True, "1")]
+        }
         return self.search_customers(filter_conditions, limit, start)
 
     def get_suppressions(self, suppression_type: str, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:

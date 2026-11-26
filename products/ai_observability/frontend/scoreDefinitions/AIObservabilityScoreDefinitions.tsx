@@ -15,13 +15,12 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
-import { AccessControlLevel, AccessControlResourceType, UserBasicType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { ResourceTags } from '../components/ResourceTags'
@@ -35,6 +34,7 @@ import {
 } from './aiObservabilityScoreDefinitionsLogic'
 import { ScoreDefinitionActions } from './ScoreDefinitionActions'
 import { formatKindLabel } from './scoreDefinitionModalUtils'
+import { ScorerActor } from './ScorerActor'
 import { ScorersEmptyState } from './ScorersEmptyState'
 
 const KIND_OPTIONS: { label: string; value: ScoreDefinitionKind | '' }[] = [
@@ -152,24 +152,18 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             key: 'created_by',
             className:
                 '[&_.profile-package]:max-w-32 @max-[40rem]/scorers:[&_.profile-package]:max-w-24 [&_.profile-name]:truncate',
-            render: (_, scorer) =>
-                scorer.created_by ? (
-                    <ProfilePicture user={scorer.created_by as UserBasicType} size="md" showName />
-                ) : (
-                    <span className="text-muted">Unknown</span>
-                ),
+            render: (_, scorer) => (
+                <ScorerActor user={scorer.created_by} projectKeyId={scorer.created_by_project_key_id} />
+            ),
         },
         {
             title: <span className="whitespace-normal">Last updated by</span>,
             key: 'updated_by',
             className:
                 '[&_.profile-package]:max-w-32 @max-[40rem]/scorers:[&_.profile-package]:max-w-24 [&_.profile-name]:truncate',
-            render: (_, scorer) =>
-                scorer.updated_by ? (
-                    <ProfilePicture user={scorer.updated_by as UserBasicType} size="md" showName />
-                ) : (
-                    <span className="text-muted">Unknown</span>
-                ),
+            render: (_, scorer) => (
+                <ScorerActor user={scorer.updated_by} projectKeyId={scorer.updated_by_project_key_id} />
+            ),
         },
         {
             ...(updatedAtColumn<ScoreDefinition>() as LemonTableColumn<

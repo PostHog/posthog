@@ -11,9 +11,8 @@ from __future__ import annotations
 import uuid
 
 from django.db import transaction
-from django.utils import timezone
 
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, lock_oauth_connection
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
@@ -42,6 +41,27 @@ def lock_application(application_id: uuid.UUID) -> OAuthApplication | None:
     `sessions_revoked_at` and rejects. Must be called inside `transaction.atomic()`.
     """
     return OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
+
+
+def lock_partner_connections_for_team(application_id: uuid.UUID, team_id: int) -> None:
+    """Take the connection lock of every user whose tokens from ``application_id`` cover ``team_id``.
+
+    Token refresh holds the connection lock while it copies a refresh token's teams into new tokens.
+    A removal that takes these locks first, before the application row lock as
+    ``lock_oauth_connection`` requires, waits for a refresh in flight and makes a later refresh read
+    the narrowed teams. Must be called inside ``transaction.atomic()``.
+    """
+    user_ids = set(
+        OAuthAccessToken.objects.filter(application_id=application_id, scoped_teams__contains=[team_id]).values_list(
+            "user_id", flat=True
+        )
+    ) | set(
+        OAuthRefreshToken.objects.filter(application_id=application_id, scoped_teams__contains=[team_id]).values_list(
+            "user_id", flat=True
+        )
+    )
+    for user_id in sorted(user_id for user_id in user_ids if user_id is not None):
+        lock_oauth_connection(user_id=user_id, application_id=application_id)
 
 
 def compute_partner_scoped_teams(
@@ -153,6 +173,20 @@ def add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> No
                 rt.save(update_fields=["scoped_teams"])
 
 
+def _strip_team_or_delete(refresh_token: OAuthRefreshToken, team_id: int) -> None:
+    """Remove ``team_id`` from a refresh token, deleting the token when it was its last team.
+
+    An empty ``scoped_teams`` means unrestricted, so a token left with no teams would refresh into
+    access to every team of its user.
+    """
+    remaining = [t for t in (refresh_token.scoped_teams or []) if t != team_id]
+    if not remaining:
+        refresh_token.delete()
+        return
+    refresh_token.scoped_teams = remaining
+    refresh_token.save(update_fields=["scoped_teams"])
+
+
 def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
     """Strip ``team_id`` from every access/refresh token this partner holds, for every user.
 
@@ -188,27 +222,27 @@ def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) 
             remaining = [t for t in (at.scoped_teams or []) if t != team_id]
             refresh_tokens = OAuthRefreshToken.objects.select_for_update().filter(access_token=at)
             if not remaining:
-                refresh_tokens.update(access_token=None, revoked=timezone.now(), scoped_teams=[])
+                # Deleted, not emptied: an empty scoped_teams means unrestricted, and a revoked
+                # refresh token stays usable for REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
+                refresh_tokens.delete()
                 at.delete()
                 continue
             at.scoped_teams = remaining
             at.save(update_fields=["scoped_teams"])
             for rt in refresh_tokens:
-                rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
-                rt.save(update_fields=["scoped_teams"])
+                _strip_team_or_delete(rt, team_id)
 
         if orphan_filter:
             # Orphan refresh tokens (where the access token was already rotated
-            # or deleted) still carry scope. Strip the team from those too.
+            # or deleted) still carry scope. Strip the team from those too, revoked ones included,
+            # because a rotated token stays usable for REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
             orphan_refresh = OAuthRefreshToken.objects.select_for_update().filter(
                 scoped_teams__contains=[team_id],
                 access_token__isnull=True,
-                revoked__isnull=True,
                 **orphan_filter,
             )
             for rt in orphan_refresh:
-                rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
-                rt.save(update_fields=["scoped_teams"])
+                _strip_team_or_delete(rt, team_id)
 
 
 def get_available_teams_for_user(user: User) -> list[dict[str, object]]:

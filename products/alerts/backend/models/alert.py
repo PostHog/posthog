@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from posthog.models.organization import Organization
     from posthog.models.user import User
 
-    from products.alerts.backend.facade.contracts import AlertValidationState
+    from products.alerts.backend.facade.contracts import AlertValidationState, MovedAlertSettings
     from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView
 
 import pydantic
@@ -296,6 +297,33 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         """Whether `from_platform_view` built this alert, because only the platform keeps it."""
         return self._state.adding and self.platform_owned
 
+    def show_copy_settings(self, settings: MovedAlertSettings) -> None:
+        """Puts the settings a moved alert's platform copy holds on this row, in place. The row stops
+        changing once the platform owns the alert, so its own values may be stale. Saving it afterwards
+        would write the copy's settings to the row."""
+        for field, value in settings.fields.items():
+            setattr(self, field, value)
+        self.schedule_start_time = settings.schedule_start_time
+        self.created_by_id = settings.created_by_id
+        if settings.threshold is None:
+            self.threshold = None
+        elif self.threshold is None:
+            # Stable across reads, as for an alert with no insight row.
+            self.threshold = Threshold(
+                id=self.id,
+                team_id=self.team_id,
+                insight_id=self.insight_id,
+                name=settings.threshold_name or "",
+                configuration=settings.threshold,
+                created_at=self.created_at,
+            )
+        else:
+            # A copy, because a threshold that embeds this alert can share the object it holds.
+            self.threshold = copy.copy(self.threshold)
+            self.threshold.configuration = settings.threshold
+            if settings.threshold_name is not None:
+                self.threshold.name = settings.threshold_name
+
     @property
     def platform_owned_since(self) -> datetime | None:
         """When the platform took this alert over, or None while the insight stack owns it.
@@ -447,27 +475,41 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     @classmethod
     def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
-        """The team's insight alerts: each insight row, and each platform alert with no insight row."""
+        """The team's insight alerts, each counted once: from its platform copy when the platform holds
+        its settings, so a moved alert still counts once its insight row is deleted, else from its row."""
         # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
-        from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.api import (  # noqa: PLC0415
+            count_configurations,
+            rows_with_counted_copies,
+        )
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES  # noqa: PLC0415
 
-        rows = cls.objects.filter(team_id=team_id)
+        rows = cls.objects.filter(team_id=team_id).exclude(owner=PlatformAlertOwner.PLATFORM)
         if active_real_time:
             rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
         if exclude_id:
             rows = rows.exclude(pk=exclude_id)
-        native = count_configurations(
+        check_interval_minutes = REAL_TIME_CADENCE_MINUTES if active_real_time else None
+        on_platform = count_configurations(
             team_id=team_id,
             source_kind=SourceKind.INSIGHT,
-            native_only=True,
+            held_only=True,
             enabled_only=active_real_time,
-            check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
-            # An alert with no insight row carries its platform alert's id.
+            check_interval_minutes=check_interval_minutes,
             exclude_id=UUID(exclude_id) if exclude_id else None,
         )
-        return rows.count() + native
+        # A row that says insight owns it while its copy says the platform does is already counted from
+        # the copy.
+        row_ids = set(rows.values_list("id", flat=True))
+        row_ids -= rows_with_counted_copies(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            legacy_configuration_ids=row_ids,
+            enabled_only=active_real_time,
+            check_interval_minutes=check_interval_minutes,
+        )
+        return len(row_ids) + on_platform
 
     @classmethod
     def supports_high_frequency_intervals(cls, organization: Organization) -> bool:

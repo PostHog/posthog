@@ -1,7 +1,7 @@
 import { cleanup, render } from '@testing-library/react'
 
 import type { TracePreviewMissingReasonApi } from '../../../generated/api.schemas'
-import type { TraceCellStatus } from '../types'
+import type { TraceCellStatus } from '../../shared/cellLoads'
 import { TracePreviewCell } from './TracePreviewCell'
 
 const PREVIEW = 'Why was I charged twice this month?'

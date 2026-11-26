@@ -23,11 +23,11 @@ class AlertsConfig(AppConfig):
             live_hog_function_ids,
             retire_linked_hog_functions,
         )
-        from products.alerts.backend.legacy_config_drift import insight_copy_expectations  # noqa: PLC0415
         from products.alerts.backend.platform_alert_wording import describe_insight_transition  # noqa: PLC0415
         from products.alerts.backend.platform_hooks import (  # noqa: PLC0415
             emit_insight_legacy_events,
             insight_alert_creator,
+            insight_alert_destination_edit_refusal,
             insight_alert_viewer,
             insight_chart_image,
             render_insight_slack_message,
@@ -47,9 +47,6 @@ class AlertsConfig(AppConfig):
             register_source_slack_renderer,
             register_subscriber_access,
         )
-        from products.alerts_platform.backend.facade.legacy_config_drift import (  # noqa: PLC0415
-            register_legacy_drift_source,
-        )
         from products.alerts_platform.backend.facade.source_access import register_source_alert_viewer  # noqa: PLC0415
         from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415
 
@@ -65,4 +62,9 @@ class AlertsConfig(AppConfig):
         register_source_config(SourceKind.INSIGHT, load_insight_source_config)
         register_source_alert_creator(SourceKind.INSIGHT, insight_alert_creator)
         register_source_alert_viewer(SourceKind.INSIGHT, insight_alert_viewer)
-        register_legacy_drift_source(SourceKind.INSIGHT, insight_copy_expectations)
+
+        # cdp cannot import this product, so edits to an insight alert's destinations through the
+        # generic hog functions API reach the insight alert API's access checks here.
+        from products.cdp.backend.facade.api import register_alert_destination_edit_gate  # noqa: PLC0415
+
+        register_alert_destination_edit_gate("$insight_alert_", insight_alert_destination_edit_refusal)

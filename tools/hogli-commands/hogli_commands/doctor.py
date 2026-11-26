@@ -198,6 +198,12 @@ def doctor_disk(
     prompts.
     """
 
+    # Without a terminal, the first prompt would abort with a bare "Aborted!" that names no flag.
+    if not dry_run and not yes and not sys.stdin.isatty():
+        raise click.UsageError(
+            "No terminal to answer the prompts. Pass --dry-run to preview, or --yes to clean every selected area."
+        )
+
     click.echo("🔍 PostHog Disk Space Cleanup\n")
 
     if dry_run:
@@ -1823,6 +1829,8 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
 
     if yes:
         selected = targets
+    elif not sys.stdin.isatty():
+        raise click.UsageError("No terminal to answer the prompt. Pass --yes to kill these processes.")
     else:
         selected = _prompt_process_selection(targets)
 

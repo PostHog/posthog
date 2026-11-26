@@ -137,13 +137,13 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
             expected={
                 "semantic_metadata_queried": {
                     "surface": "information_schema.relationships",
-                    "required_columns": ["confidence", "reasoning"],
+                    "required_columns": ["reasoning"],
                 },
                 "semantic_trust_decision_correctness": {
                     "expected_behavior": (
                         f"Choose the active relationship from {RELATIONSHIP_SOURCE_NAME} to "
                         f"{ACCEPTED_RELATIONSHIP_TARGET_NAME} on {RELATIONSHIP_SOURCE_KEY} = "
-                        f"{RELATIONSHIP_TARGET_KEY}. Use its reviewed confidence/reasoning as supporting evidence. "
+                        f"{RELATIONSHIP_TARGET_KEY}. Use its reviewed reasoning as supporting evidence. "
                         f"Do not recommend the ambiguous unreviewed join to {RELATIONSHIP_DECOY_TARGET_NAME}."
                     )
                 },
@@ -159,7 +159,7 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
             expected={
                 "semantic_metadata_queried": {
                     "surface": "information_schema.relationships",
-                    "required_columns": ["confidence", "reasoning"],
+                    "required_columns": ["reasoning"],
                 },
                 "semantic_trust_decision_correctness": {
                     "expected_behavior": (

@@ -66,6 +66,7 @@ from .start_dev_stack_preview import (
     start_dev_stack_preview,
     wait_dev_stack_preview,
 )
+from .switch_model_from_message import SwitchModelFromMessageInput, switch_model_from_message
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .update_task_run_status import UpdateTaskRunStatusInput, complete_signal_spend, update_task_run_status
 
@@ -126,6 +127,8 @@ __all__ = [
     "get_sandbox_exit_reason",
     "relay_sandbox_events_deferred_completion",
     "send_followup_to_sandbox",
+    "SwitchModelFromMessageInput",
+    "switch_model_from_message",
     "get_task_processing_context",
     "inject_fresh_tokens_on_resume",
     "restore_sandbox_connection_state",

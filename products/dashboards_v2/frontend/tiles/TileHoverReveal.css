@@ -1,0 +1,25 @@
+/* Edit controls show only for the tile under the pointer. Pure CSS, so hovering costs no render. */
+.TileHoverReveal {
+    opacity: 0;
+    transition: opacity 100ms;
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+}
+
+.TileGrid__tile:hover > .dash-WidgetCard .TileHoverReveal,
+.TileGrid__tile:hover > .TileContextMenu__trigger > .dash-WidgetCard .TileHoverReveal,
+.TileGrid__tile:focus-within > .dash-WidgetCard .TileHoverReveal,
+.TileGrid__tile:focus-within > .TileContextMenu__trigger > .dash-WidgetCard .TileHoverReveal,
+.SectionTile__header:hover .TileHoverReveal,
+.SectionTile__header:focus-within .TileHoverReveal {
+    opacity: 1;
+}
+
+/* A touch screen has no hover, so these controls always show. */
+@media (hover: none) {
+    .TileHoverReveal {
+        opacity: 1;
+    }
+}

@@ -7,6 +7,7 @@ export interface OnboardingProductConfigurationOptionProps {
     type: 'toggle' | 'select'
     selectOptions?: LemonSelectOptions<any>
     value: boolean | string | number | null
+    disabledReason?: string
     onChange: (newValue: boolean | string | number) => void
 }
 
@@ -17,6 +18,7 @@ export function OnboardingProductConfigurationOption({
     type,
     selectOptions,
     value,
+    disabledReason,
     onChange,
 }: OnboardingProductConfigurationOptionProps): JSX.Element {
     const controlId = `onboarding-config-${teamProperty}`
@@ -38,6 +40,7 @@ export function OnboardingProductConfigurationOption({
                         className="justify-end"
                         fullWidth={true}
                         checked={(value as boolean) || false}
+                        disabledReason={disabledReason}
                     />
                 ) : (
                     <div className="flex gap-x-4 justify-end items-center mb-1">
@@ -48,6 +51,7 @@ export function OnboardingProductConfigurationOption({
                             onChange={onChange}
                             options={selectOptions || []}
                             value={value as string | number}
+                            disabledReason={disabledReason}
                         />
                     </div>
                 )}

@@ -14,8 +14,6 @@ export const LIST_SEARCH_DEBOUNCE_MS = 300
 /** The filters a list loads with. It changes exactly when the list must reload. */
 export interface ListFilters {
     propertyFilters: AnyPropertyFilter[]
-    /** Null until the person picks one, so the server applies the project's default. */
-    filterTestAccounts: boolean | null
     /** The applied search. The text still being typed is `searchDraft`. */
     search: string
     quickFilter: string | null
@@ -32,34 +30,21 @@ interface FilterInput {
     searchDraft: string
 }
 
-const NO_FILTERS: ListFilters = { propertyFilters: [], filterTestAccounts: null, search: '', quickFilter: null }
+const NO_FILTERS: ListFilters = { propertyFilters: [], search: '', quickFilter: null }
 const NO_INPUT: FilterInput = { filters: NO_FILTERS, searchDraft: '' }
-// Clearing turns test account filtering off, because a null choice falls back to a default that may filter them out.
-const CLEARED_INPUT: FilterInput = { filters: { ...NO_FILTERS, filterTestAccounts: false }, searchDraft: '' }
-
-function testAccountsChoice(raw: string | null): boolean | null {
-    return raw === 'true' ? true : raw === 'false' ? false : null
-}
 
 function filtersFromUrl(searchParams: Record<string, unknown>, search: string): ListFilters {
     return {
         propertyFilters: isAnyPropertyFilters(searchParams.filters) ? searchParams.filters : [],
-        filterTestAccounts: testAccountsChoice(rawSearchParam(search, 'filter_test_accounts')),
         search: rawSearchParam(search, 'trace_search') ?? '',
         quickFilter: rawSearchParam(search, 'view'),
     }
 }
 
-// pinned: `filters`, `filter_test_accounts`, `trace_search` and `view`, which saved links and the other lists read
-function filtersToUrl({
-    propertyFilters,
-    filterTestAccounts,
-    search,
-    quickFilter,
-}: ListFilters): Record<string, unknown> {
+// pinned: `filters`, `trace_search` and `view`, which saved links and the other lists read
+function filtersToUrl({ propertyFilters, search, quickFilter }: ListFilters): Record<string, unknown> {
     return {
         filters: propertyFilters.length > 0 ? propertyFilters : undefined,
-        filter_test_accounts: filterTestAccounts === null ? undefined : String(filterTestAccounts),
         trace_search: search || undefined,
         view: quickFilter ?? undefined,
     }
@@ -84,9 +69,6 @@ export interface listFiltersLogicActions {
     }
     resetFilters: () => {
         value: true
-    }
-    setFilterTestAccounts: (value: boolean) => {
-        value: boolean
     }
     setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => {
         propertyFilters: AnyPropertyFilter[]
@@ -124,7 +106,6 @@ export const listFiltersLogic = kea<listFiltersLogicType>([
     path((key) => ['products', 'ai_observability', 'frontend', 'redesign', 'lists', 'listFiltersLogic', key]),
     actions({
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
-        setFilterTestAccounts: (value: boolean) => ({ value }),
         setSearchDraft: (search: string) => ({ search }),
         setSearch: (search: string) => ({ search }),
         toggleQuickFilter: (id: string) => ({ id }),
@@ -137,12 +118,11 @@ export const listFiltersLogic = kea<listFiltersLogicType>([
             NO_INPUT,
             {
                 setPropertyFilters: (input, { propertyFilters }) => changeWithDraft(input, { propertyFilters }),
-                setFilterTestAccounts: (input, { value }) => changeWithDraft(input, { filterTestAccounts: value }),
                 toggleQuickFilter: (input, { id }) =>
                     changeWithDraft(input, { quickFilter: input.filters.quickFilter === id ? null : id }),
                 setSearchDraft: (input, { search }) => ({ ...input, searchDraft: search }),
                 setSearch: (input, { search }) => ({ searchDraft: search, filters: { ...input.filters, search } }),
-                resetFilters: () => CLEARED_INPUT,
+                resetFilters: () => NO_INPUT,
                 applyUrlFilters: (_, { filters }) => ({ filters, searchDraft: filters.search }),
             },
         ],
@@ -161,7 +141,6 @@ export const listFiltersLogic = kea<listFiltersLogicType>([
         }
         return {
             setPropertyFilters: writeFilters,
-            setFilterTestAccounts: writeFilters,
             toggleQuickFilter: writeFilters,
             setSearch: writeFilters,
             resetFilters: writeFilters,

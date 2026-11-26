@@ -96,6 +96,11 @@ FULL_RUN_PATTERNS = (
     "products/ai_observability/shared/crosslang/",
     # The flag_evaluations TTL, which sql.py reads at import time, so a change to it is a behavior change
     "posthog/models/flag_evaluations/crosslang/",
+    # Django reads this file at settings time to route each product app to its database,
+    # so a change to it can break any test while no Python file changes.
+    "products/db_routing.yaml",
+    # Python runs this file before it loads any product module, so a change to it reaches every product test.
+    "products/__init__.py",
     "frontend/src/queries/schema.json",
     "frontend/src/products.json",
     "frontend/public/email/",

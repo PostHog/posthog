@@ -24,6 +24,7 @@ import type {
     GroupsListParams,
     GroupsRelatedListParams,
     GroupsUpdatePropertyCreateParams,
+    PatchedGroupTypeMetadataUpdateRequestApi,
     RelatedActorApi,
 } from './api.schemas'
 
@@ -304,5 +305,22 @@ export const groupsTypesUpdateMetadataPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(groupTypeMetadataUpdateApi),
+    })
+}
+
+export const getGroupsTypesUpdateMetadataForAgentsPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/groups_types/update_metadata_for_agents/`
+}
+
+export const groupsTypesUpdateMetadataForAgentsPartialUpdate = async (
+    projectId: string,
+    patchedGroupTypeMetadataUpdateRequestApi?: PatchedGroupTypeMetadataUpdateRequestApi,
+    options?: RequestInit
+): Promise<GroupTypeApi[]> => {
+    return apiMutator<GroupTypeApi[]>(getGroupsTypesUpdateMetadataForAgentsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedGroupTypeMetadataUpdateRequestApi),
     })
 }
