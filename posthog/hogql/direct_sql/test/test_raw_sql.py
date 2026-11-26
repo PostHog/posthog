@@ -136,7 +136,6 @@ class TestDirectSQLQuoting(SimpleTestCase):
                 lambda depth: "SELECT " + "CASE WHEN t.end THEN " * depth + "17" + " END" * depth,
             ),
             ("begin_blocks", "clickhouse", lambda depth: "SELECT 17 " + "BEGIN " * depth + "17" + " END" * depth),
-            # BigQuery lexes BEGIN as a command, not as the BEGIN keyword other dialects produce.
             (
                 "bigquery_begin_blocks",
                 "bigquery",
