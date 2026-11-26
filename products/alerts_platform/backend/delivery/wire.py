@@ -123,10 +123,12 @@ def post_json(
 
 
 def _unrefused_status_reason(status: int) -> FailureReason:
-    if status >= 500:
+    if status >= 500 or status == 408:
         return "provider_error"
-    if status in _RETRYABLE_CLIENT_ERRORS:
+    if status == 429:
         return "rate_limited"
+    if 300 <= status < 400:
+        return "destination_config"
     return "rejected_body"
 
 

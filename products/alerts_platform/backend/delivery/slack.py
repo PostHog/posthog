@@ -353,7 +353,9 @@ class SlackTransport:
             raise _slack_refusal(error.response.get("error"), "message") from error
         except (OSError, HTTPException) as error:
             if not _maybe_posted(error):
-                raise
+                raise DeliveryError(
+                    f"Slack could not be reached: {type(error).__name__}", reason="unreachable"
+                ) from error
             raise DeliveryAmbiguous(
                 f"Slack's answer was lost, so the message may have posted: {type(error).__name__}"
             ) from error

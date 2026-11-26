@@ -343,19 +343,32 @@ class TestDeliveryDispatch(SimpleTestCase):
         [
             (
                 "outage inline",
-                ConnectionError("slack unreachable"),
+                DeliveryError("Slack could not be reached: ConnectionError", reason="unreachable"),
                 None,
-                "ConnectionError",
+                0,
+                "Slack could not be reached: ConnectionError",
                 "failed",
                 "unreachable",
                 "transient",
                 "true",
             ),
             (
-                "outage with retries left",
+                "a bare error inline",
                 ConnectionError("slack unreachable"),
-                1,
+                None,
+                0,
                 "ConnectionError",
+                "failed",
+                "unexpected",
+                "posthog",
+                "true",
+            ),
+            (
+                "outage with retries left",
+                DeliveryError("Slack could not be reached: ConnectionError", reason="unreachable"),
+                1,
+                0,
+                "Slack could not be reached: ConnectionError",
                 "failed",
                 "unreachable",
                 "transient",
@@ -363,9 +376,21 @@ class TestDeliveryDispatch(SimpleTestCase):
             ),
             (
                 "outage on the last attempt",
-                ConnectionError("slack unreachable"),
+                DeliveryError("Slack could not be reached: ConnectionError", reason="unreachable"),
                 3,
-                "ConnectionError",
+                0,
+                "Slack could not be reached: ConnectionError",
+                "failed",
+                "unreachable",
+                "transient",
+                "true",
+            ),
+            (
+                "outage whose retry would start past the deadline",
+                DeliveryError("Slack could not be reached: ConnectionError", reason="unreachable"),
+                2,
+                29,
+                "Slack could not be reached: ConnectionError",
                 "failed",
                 "unreachable",
                 "transient",
@@ -375,6 +400,7 @@ class TestDeliveryDispatch(SimpleTestCase):
                 "rejected body",
                 DeliveryError("status 400", reason="rejected_body"),
                 1,
+                0,
                 "status 400",
                 "failed",
                 "rejected_body",
@@ -385,6 +411,7 @@ class TestDeliveryDispatch(SimpleTestCase):
                 "misconfigured",
                 DestinationMisconfigured("not_in_channel"),
                 1,
+                0,
                 "not_in_channel",
                 "misconfigured",
                 "destination_config",
@@ -398,6 +425,7 @@ class TestDeliveryDispatch(SimpleTestCase):
         _name: str,
         error: Exception,
         attempt: int | None,
+        elapsed_seconds: int,
         logged: str,
         outcome: str,
         reason: str,
@@ -427,7 +455,13 @@ class TestDeliveryDispatch(SimpleTestCase):
                 send()
             else:
                 activity = ActivityEnvironment()
-                activity.info = replace(activity.info, attempt=attempt, retry_policy=RetryPolicy(maximum_attempts=3))
+                activity.info = replace(
+                    activity.info,
+                    attempt=attempt,
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    schedule_to_close_timeout=timedelta(seconds=30),
+                    scheduled_time=timezone.now() - timedelta(seconds=elapsed_seconds),
+                )
                 activity.run(send)
 
         assert recorded.call_args.kwargs["succeeded"] is False

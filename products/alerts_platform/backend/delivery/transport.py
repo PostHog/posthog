@@ -76,10 +76,6 @@ class DeliveryError(Exception):
 def failure_reason(error: BaseException) -> FailureReason:
     if isinstance(error, DeliveryError):
         return error.reason
-    # A transport wraps its HTTP client's errors, so a bare socket error is a provider client's own,
-    # such as Slack's before the request went out.
-    if isinstance(error, OSError):
-        return "unreachable"
     return "unexpected"
 
 

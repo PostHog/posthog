@@ -342,19 +342,25 @@ class TestSlackTransport(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("read_timeout", TimeoutError("timed out"), True),
-            ("dropped_after_send", ConnectionResetError("Connection reset by peer"), True),
-            ("connect_timeout", URLError(TimeoutError("timed out")), False),
-            ("rate_limit_body_read_timeout", _raised_while_reading(HTTPError("u", 429, "", Message(), None)), False),
+            ("read_timeout", TimeoutError("timed out"), True, "answer_lost"),
+            ("dropped_after_send", ConnectionResetError("Connection reset by peer"), True, "answer_lost"),
+            ("connect_timeout", URLError(TimeoutError("timed out")), False, "unreachable"),
+            (
+                "rate_limit_body_read_timeout",
+                _raised_while_reading(HTTPError("u", 429, "", Message(), None)),
+                False,
+                "unreachable",
+            ),
         ]
     )
-    def test_post_timeout_is_ambiguous(self, _name: str, error: Exception, ambiguous: bool) -> None:
+    def test_post_timeout_is_ambiguous(self, _name: str, error: Exception, ambiguous: bool, reason: str) -> None:
         with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
             slack_integration.return_value.client.chat_postMessage.side_effect = error
-            with pytest.raises(Exception) as raised:
+            with pytest.raises(DeliveryError) as raised:
                 SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
 
         assert isinstance(raised.value, DeliveryAmbiguous) is ambiguous
+        assert raised.value.reason == reason
 
     def test_a_slack_refusal_is_not_ambiguous(self) -> None:
         with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:

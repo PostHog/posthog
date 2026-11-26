@@ -228,9 +228,10 @@ class TestWebhookTransport(SimpleTestCase):
         [
             ("bad request", 400, True, "refused"),
             ("gone", 410, True, "refused"),
-            ("request timeout", 408, False, "rate_limited"),
+            ("request timeout", 408, False, "provider_error"),
             ("rate limited", 429, False, "rate_limited"),
             ("server error", 503, False, "provider_error"),
+            ("moved", 301, False, "destination_config"),
         ]
     )
     def test_only_a_client_error_a_retry_cannot_fix_is_a_refusal(

@@ -13,6 +13,7 @@ from django.utils import timezone
 
 import structlog
 import temporalio.activity
+from temporalio.common import RetryPolicy
 
 from products.alerts_platform.backend.delivery import incident_io, pagerduty
 from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
@@ -258,8 +259,9 @@ def _send(
 
 
 def count_failed_send(source: str, provider: str, error: Exception, count: int = 1) -> None:
-    """`final` is false while the activity has attempts left for this error. A retry after a held
-    thread runs the delivery again with fresh attempts, so `final` is per activity run.
+    """`final` is true when this activity run will not retry this error. The send can still go again:
+    a retry after a held thread runs with fresh attempts, a run retried for another destination
+    sends a misconfigured one again, and a failed inline hand-over is handed to its workflow.
     """
     outcome: DeliveryOutcomeLabel
     if _recorded_as_delivered(error, provider):
@@ -269,7 +271,7 @@ def count_failed_send(source: str, provider: str, error: Exception, count: int =
     else:
         outcome = "failed"
     reason = failure_reason(error)
-    final = outcome != "failed" or _last_attempt()
+    final = outcome != "failed" or _no_activity_retry_follows()
     safe_record(
         increment_deliveries,
         source,
@@ -283,14 +285,22 @@ def count_failed_send(source: str, provider: str, error: Exception, count: int =
     )
 
 
-def _last_attempt() -> bool:
-    # A web process sends inline, outside any worker, and nothing retries it.
+def _no_activity_retry_follows() -> bool:
     if not temporalio.activity.in_activity():
         return True
     info = temporalio.activity.info()
-    # Zero attempts, or no policy, is Temporal's unlimited retry.
-    maximum = info.retry_policy.maximum_attempts if info.retry_policy else 0
-    return 0 < maximum <= info.attempt
+    policy = info.retry_policy or RetryPolicy()
+    # Zero attempts is Temporal's unlimited retry.
+    if 0 < policy.maximum_attempts <= info.attempt:
+        return True
+    if info.schedule_to_close_timeout is None:
+        return False
+    backoff = min(
+        policy.initial_interval * policy.backoff_coefficient ** (info.attempt - 1),
+        policy.maximum_interval or 100 * policy.initial_interval,
+    )
+    # Temporal schedules no attempt that would start past the activity's schedule-to-close deadline.
+    return timezone.now() + backoff > info.scheduled_time + info.schedule_to_close_timeout
 
 
 def _lag_ms(transition: AnnouncedTransition) -> int:
