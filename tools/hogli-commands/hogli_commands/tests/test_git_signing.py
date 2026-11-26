@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import sys
+import signal
+import contextlib
 import subprocess
 from pathlib import Path
 
@@ -155,8 +158,10 @@ class TestExportKeys:
     FAKE_SSH_KEYGEN = """\
 import os
 import sys
+import signal
 from pathlib import Path
 
+Path(os.environ["FAKE_SSH_KEYGEN_PID_FILE"]).write_text(str(os.getpid()))
 sys.stderr.write("Enter PIN for authenticator: ")
 sys.stderr.flush()
 sys.stdin.readline()
@@ -166,6 +171,8 @@ for blob in blobs:
     if path.exists():
         print(f"{path} already exists.")
         print("Overwrite (y/n)? ", end="", flush=True)
+        if os.environ.get("FAKE_PROVIDER_HANGS"):
+            signal.pause()
         if not sys.stdin.readline().startswith("y"):
             sys.exit(1)
     path.write_text(f"handle {blob}\\n")
@@ -175,16 +182,21 @@ for blob in blobs:
 sys.exit(0 if blobs else 1)
 """
 
-    @pytest.mark.parametrize("blobs", [[], ["AAAAONE"], ["AAAAONE", "AAAATWO", "AAAATHREE"]])
-    def test_exports_every_secure_enclave_key(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blobs: list[str]
-    ) -> None:
+    @pytest.fixture
+    def export_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         fake = tmp_path / "ssh-keygen"
         fake.write_text(f"#!{sys.executable}\n{self.FAKE_SSH_KEYGEN}")
         fake.chmod(0o755)
+        monkeypatch.setattr("hogli_commands.git_signing.SSH_KEYGEN", fake)
+        monkeypatch.setenv("FAKE_SSH_KEYGEN_PID_FILE", str(tmp_path / "ssh-keygen.pid"))
         export_dir = tmp_path / "export"
         export_dir.mkdir()
-        monkeypatch.setattr("hogli_commands.git_signing.SSH_KEYGEN", fake)
+        return export_dir
+
+    @pytest.mark.parametrize("blobs", [[], ["AAAAONE"], ["AAAAONE", "AAAATWO", "AAAATHREE"]])
+    def test_exports_every_secure_enclave_key(
+        self, export_dir: Path, monkeypatch: pytest.MonkeyPatch, blobs: list[str]
+    ) -> None:
         monkeypatch.setenv("FAKE_SECURE_ENCLAVE_KEYS", " ".join(blobs))
 
         handles = SecureEnclaveSigningSetup(use_global=True, repos=())._export_keys(export_dir)
@@ -192,3 +204,19 @@ sys.exit(0 if blobs else 1)
         assert {identity: handle.read_text() for identity, handle in handles.items()} == {
             f"sk-ecdsa-sha2-nistp256@openssh.com {blob}": f"handle {blob}\n" for blob in blobs
         }
+
+    def test_interrupt_stops_ssh_keygen(self, export_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("FAKE_SECURE_ENCLAVE_KEYS", "AAAAONE AAAATWO")
+        monkeypatch.setenv("FAKE_PROVIDER_HANGS", "1")
+        monkeypatch.setattr("hogli_commands.git_signing.move_exported_handle", mock.Mock(side_effect=KeyboardInterrupt))
+
+        with pytest.raises(KeyboardInterrupt):
+            SecureEnclaveSigningSetup(use_global=True, repos=())._export_keys(export_dir)
+
+        pid = int(Path(os.environ["FAKE_SSH_KEYGEN_PID_FILE"]).read_text())
+        try:
+            with pytest.raises(ProcessLookupError):
+                os.kill(pid, 0)
+        finally:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)

@@ -205,7 +205,7 @@ class SecureEnclaveSigningSetup:
 
         A key handle only references the key in the Secure Enclave. It is not the private key.
         """
-        process = subprocess.Popen(
+        with subprocess.Popen(
             [str(SSH_KEYGEN), "-K", "-N", "", "-w", str(PROVIDER)],
             cwd=directory,
             stdin=subprocess.PIPE,
@@ -214,25 +214,31 @@ class SecureEnclaveSigningSetup:
             # Without a terminal, ssh-keygen asks for the PIN on stdin, where this code can answer it.
             start_new_session=True,
             env={**os.environ, "SSH_ASKPASS_REQUIRE": "never"},
-        )
-        assert process.stdin is not None and process.stdout is not None
-        handles: dict[str, Path] = {}
-        output = b""
-        while byte := process.stdout.read(1):
-            output += byte
-            if output.endswith(PIN_PROMPT):
-                # Secure Enclave keys have no PIN.
-                answer = b"\n"
-            elif output.endswith(OVERWRITE_PROMPT):
-                # Every key exports to the same file, so move each one aside before the next replaces it.
-                move_exported_handle(directory, handles)
-                answer = b"y\n"
-            else:
-                continue
-            process.stdin.write(answer)
-            process.stdin.flush()
+        ) as process:
+            assert process.stdin is not None and process.stdout is not None
+            handles: dict[str, Path] = {}
+            output = b""
+            try:
+                while byte := process.stdout.read(1):
+                    output += byte
+                    if output.endswith(PIN_PROMPT):
+                        # Secure Enclave keys have no PIN.
+                        answer = b"\n"
+                    elif output.endswith(OVERWRITE_PROMPT):
+                        # Every key exports to the same file, so move each one aside before the next replaces it.
+                        move_exported_handle(directory, handles)
+                        answer = b"y\n"
+                    else:
+                        continue
+                    process.stdin.write(answer)
+                    process.stdin.flush()
+                returncode = process.wait()
+            except BaseException:
+                # ssh-keygen runs in its own session, so Ctrl-C reaches only this process.
+                process.kill()
+                raise
         # Before the first key exists, the provider has nothing to export and ssh-keygen fails.
-        if process.wait() != 0:
+        if returncode != 0:
             return {}
         move_exported_handle(directory, handles)
         return handles
