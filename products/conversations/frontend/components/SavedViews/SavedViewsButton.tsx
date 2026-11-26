@@ -8,6 +8,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
+import { savedViewsMenuSections } from './savedViewsMenuSections'
 import { SavedViewsModal } from './SavedViewsModal'
 import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
 
@@ -24,33 +25,14 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
             <LemonMenu
                 placement="bottom-start"
                 onVisibilityChange={(visible) => visible && loadViews()}
-                items={[
-                    {
-                        title: 'Favorites',
-                        items: favoriteViews.length
-                            ? favoriteViews.map((view) => ({
-                                  label: view.name,
-                                  onClick: () => loadView(view),
-                              }))
-                            : [
-                                  {
-                                      label: viewsLoading ? 'Loading…' : 'No favorite views yet',
-                                      disabledReason: 'Favorite a view to see it here',
-                                  },
-                              ],
-                    },
-                    {
-                        items: [
-                            {
-                                label: 'Save current view',
-                                onClick: openSaveModal,
-                                disabledReason: editDisabledReason,
-                                'data-attr': 'tickets-save-current-view',
-                            },
-                            { label: 'All saved views', onClick: openModal },
-                        ],
-                    },
-                ]}
+                items={savedViewsMenuSections({
+                    favoriteViews,
+                    viewsLoading,
+                    editDisabledReason,
+                    loadView,
+                    openSaveModal,
+                    openModal,
+                })}
             >
                 <LemonButton
                     size="small"

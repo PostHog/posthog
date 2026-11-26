@@ -68,6 +68,23 @@ const channelOpenLabel: Partial<Record<TicketChannel, string>> = {
     slack: 'Open in Slack',
 }
 
+/** The detail a channel tag shows after the channel: how the ticket came in, or the address an email came in on. */
+export function channelTagDetail(detail?: TicketChannelDetail | null, emailTo?: string | null): string | undefined {
+    return detail ? channelDetailLabel[detail] : (emailTo ?? undefined)
+}
+
+/** What a channel tag says on hover. A linked tag names where the link goes. */
+export function channelTagTooltip(
+    channel: TicketChannel,
+    detailText: string | undefined,
+    linked: boolean
+): string | undefined {
+    if (linked) {
+        return channelOpenLabel[channel] ?? `${channel}${detailText ? ` · ${detailText}` : ''}`
+    }
+    return detailText ? `${channel} · ${detailText}` : undefined
+}
+
 interface ChannelsTagProps {
     channel: TicketChannel
     detail?: TicketChannelDetail | null
@@ -78,7 +95,8 @@ interface ChannelsTagProps {
 }
 
 export function ChannelsTag({ channel, detail, to, emailTo }: ChannelsTagProps): JSX.Element {
-    const detailText = detail ? channelDetailLabel[detail] : (emailTo ?? undefined)
+    const detailText = channelTagDetail(detail, emailTo)
+    const tooltip = channelTagTooltip(channel, detailText, !!to)
     const tag = (
         <div className="flex items-center gap-1 text-muted-alt text-xs">
             <LemonTag type="muted">
@@ -91,7 +109,6 @@ export function ChannelsTag({ channel, detail, to, emailTo }: ChannelsTagProps):
     )
 
     if (to) {
-        const tooltip = channelOpenLabel[channel] ?? `${channel}${detailText ? ` · ${detailText}` : ''}`
         return (
             <Tooltip title={tooltip}>
                 {/* Stop propagation so clicking the tag opens Slack without triggering a row/parent click. */}
@@ -102,5 +119,5 @@ export function ChannelsTag({ channel, detail, to, emailTo }: ChannelsTagProps):
         )
     }
 
-    return detailText ? <Tooltip title={`${channel} · ${detailText}`}>{tag}</Tooltip> : tag
+    return tooltip ? <Tooltip title={tooltip}>{tag}</Tooltip> : tag
 }

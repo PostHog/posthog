@@ -2,14 +2,17 @@ import { useValues } from 'kea'
 
 import { LemonBanner, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import {
+    SELF_LEARNING_DISMISS_KEY,
+    feedbackBannerContent,
+    selfLearningBannerAvailable,
+    showSelfLearningBanner,
+} from './supportTicketsBannerContent'
 import { supportTicketsBannerLogic } from './supportTicketsBannerLogic'
-
-const SELF_LEARNING_DISMISS_KEY = 'support-self-learning-banner'
 
 interface SupportTicketsBannerProps {
     aiEnabled: boolean
@@ -17,9 +20,7 @@ interface SupportTicketsBannerProps {
 
 export function SupportTicketsBanner({ aiEnabled }: SupportTicketsBannerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const selfLearningAvailable =
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE] &&
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_AI_SUGGESTION_ORGS]
+    const selfLearningAvailable = selfLearningBannerAvailable(featureFlags)
 
     // The settings endpoint is flag-gated, so its logic mounts only when the flags are on.
     return selfLearningAvailable ? (
@@ -38,9 +39,7 @@ function SelfLearningOrFeedbackBanner({ aiEnabled }: SupportTicketsBannerProps):
         return null
     }
 
-    const showSelfLearning =
-        !isDismissed && !!settings && settings.support_enabled && !settings.learn_from_support_enabled
-    if (!showSelfLearning) {
+    if (!showSelfLearningBanner(settings, isDismissed)) {
         return <FeedbackBanner aiEnabled={aiEnabled} />
     }
 
@@ -71,22 +70,10 @@ function SelfLearningOrFeedbackBanner({ aiEnabled }: SupportTicketsBannerProps):
 }
 
 function FeedbackBanner({ aiEnabled }: SupportTicketsBannerProps): JSX.Element {
-    // pinned: survey 01a17c76-69b3-0000-bb24-4adfd734f406 targets #ai-support-feedback-button
-    return aiEnabled ? (
-        <LemonBanner
-            type="info"
-            dismissKey="ai-support-feedback-banner"
-            action={{ children: 'Send feedback', id: 'ai-support-feedback-button' }}
-        >
-            <p>Tell us how the AI agent is working, or report any issues.</p>
-        </LemonBanner>
-    ) : (
-        <LemonBanner
-            type="info"
-            dismissKey="support-feedback-banner"
-            action={{ children: 'Send feedback', id: 'support-feedback-button' }}
-        >
-            <p>Tell us how the support product is working, or report any issues.</p>
+    const { dismissKey, buttonId, text } = feedbackBannerContent(aiEnabled)
+    return (
+        <LemonBanner type="info" dismissKey={dismissKey} action={{ children: 'Send feedback', id: buttonId }}>
+            <p>{text}</p>
         </LemonBanner>
     )
 }

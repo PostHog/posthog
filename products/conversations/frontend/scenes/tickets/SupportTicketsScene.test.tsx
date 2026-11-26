@@ -5,15 +5,18 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { QuillTicketAppliedFilters } from '../../components/TicketAppliedFilters/QuillTicketAppliedFilters'
 import { TicketListFilters } from '../../components/TicketListFilters/TicketListFilters'
 import { Ticket } from '../../types'
 import { ticketListBackTo } from '../ticket/SupportTicketScene'
-import { SupportTicketsTable } from './SupportTicketsScene'
+import { SupportTicketsScene, SupportTicketsTable } from './SupportTicketsScene'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 const TICKET: Ticket = {
@@ -171,6 +174,33 @@ describe('SupportTicketsTable selection', () => {
         await waitFor(() => expect(router.values.location.pathname).toContain(urls.supportTickets()))
         expect(router.values.searchParams.status).not.toBeUndefined()
     })
+
+    // The quill scene shows the bulk actions only while a ticket is selected, instead of disabled buttons.
+    it('shows the quill bulk actions only after a row is selected', async () => {
+        // The Base UI checkbox dispatches a PointerEvent on click, which jsdom lacks
+        window.PointerEvent ??= window.MouseEvent as unknown as typeof PointerEvent
+        featureFlagLogic.mount()
+        act(() => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+        })
+
+        render(
+            <Provider>
+                <SupportTicketsScene />
+            </Provider>
+        )
+
+        const rowCheckbox = await screen.findByLabelText(`Select ticket ${TICKET.ticket_number}`)
+        expect(screen.queryByText('Mark as')).not.toBeInTheDocument()
+
+        await userEvent.click(rowCheckbox)
+
+        expect(await screen.findByText('Mark as')).toBeInTheDocument()
+        expect(screen.getByText('1 selected')).toBeInTheDocument()
+        expect(logic.values.selectedTicketIds).toEqual([TICKET.id])
+    })
 })
 
 describe('TicketListFilters count', () => {
@@ -239,14 +269,17 @@ describe('TicketListFilters count', () => {
         expect(screen.queryByText('Date')).not.toBeInTheDocument()
     })
 
-    it('shows a chip for an applied filter and the chip x clears it', async () => {
+    it.each([
+        ['the filters', TicketListFilters],
+        ['the quill chips', QuillTicketAppliedFilters],
+    ])('shows a chip for an applied filter and the chip x clears it in %s', async (_name, Filters) => {
         act(() => {
             logic.actions.setStatusFilter(['open'])
         })
 
         render(
             <Provider>
-                <TicketListFilters />
+                <Filters />
             </Provider>
         )
 

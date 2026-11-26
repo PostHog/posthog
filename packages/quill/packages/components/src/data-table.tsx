@@ -111,8 +111,14 @@ function shouldIgnoreRowClick(target: EventTarget | null, row: HTMLTableRowEleme
 export interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
     data: TData[]
-    /** Opens or selects a record when the user clicks a non-interactive part of its row. */
-    onRowClick?: (row: TData) => void
+    /**
+     * Opens or selects a record when the user clicks a non-interactive part of its row, or presses Enter or Space on
+     * the focused row. The event carries the modifier keys, for example to open the record in a new tab.
+     */
+    onRowClick?: (
+        row: TData,
+        event: React.MouseEvent<HTMLTableRowElement> | React.KeyboardEvent<HTMLTableRowElement>
+    ) => void
     /** Optional class name for a row, for example to highlight a selected record. */
     rowClassName?: (row: TData) => string | undefined
     /** Called when the user moves between pages. Page numbers are one-based. */
@@ -390,7 +396,7 @@ function DataTableBodyInner<TData, TValue>({
     rowSelectionDisabledReason: DataTableProps<TData, TValue>['rowSelectionDisabledReason']
     columns: ColumnDef<TData, TValue>[]
     filler: boolean
-    onRowClick?: (row: TData) => void
+    onRowClick?: DataTableProps<TData, TValue>['onRowClick']
     rowClassName?: (row: TData) => string | undefined
     empty: React.ReactNode
 }): React.ReactElement {
@@ -411,7 +417,7 @@ function DataTableBodyInner<TData, TValue>({
                             onRowClick
                                 ? (event) => {
                                       if (!shouldIgnoreRowClick(event.target, event.currentTarget)) {
-                                          onRowClick(row.original)
+                                          onRowClick(row.original, event)
                                       }
                                   }
                                 : undefined
@@ -424,7 +430,7 @@ function DataTableBodyInner<TData, TValue>({
                                           (event.key === 'Enter' || event.key === ' ')
                                       ) {
                                           event.preventDefault()
-                                          onRowClick(row.original)
+                                          onRowClick(row.original, event)
                                       }
                                   }
                                 : undefined

@@ -167,19 +167,24 @@ export function QuillSavedInsightsTable({
             )
         }
         return (
-            <Card size="sm" flush className="pt-0">
-                <div className={cn('transition-opacity', insightsLoading && 'opacity-60')} aria-busy={insightsLoading}>
-                    <DataTable
-                        columns={columns}
-                        data={rows}
-                        fullWidth
-                        size="sm"
-                        getRowId={(insight) => String(insight.id)}
-                        onRowClick={onToggle ? toggleRow : undefined}
-                        sorting={tableSorting}
-                        onSortingChange={onSortingChange}
-                    />
-                </div>
+            <div className="flex flex-col gap-2">
+                <Card size="sm" flush className="pt-0">
+                    <div
+                        className={cn('transition-opacity', insightsLoading && 'opacity-60')}
+                        aria-busy={insightsLoading}
+                    >
+                        <DataTable
+                            columns={columns}
+                            data={rows}
+                            fullWidth
+                            size="sm"
+                            getRowId={(insight) => String(insight.id)}
+                            onRowClick={onToggle ? toggleRow : undefined}
+                            sorting={tableSorting}
+                            onSortingChange={onSortingChange}
+                        />
+                    </div>
+                </Card>
                 {count > insightsPerPage && (
                     <QuillTablePagination
                         currentPage={modalPage}
@@ -189,7 +194,7 @@ export function QuillSavedInsightsTable({
                         onPageChange={setModalPage}
                     />
                 )}
-            </Card>
+            </div>
         )
     }
 
