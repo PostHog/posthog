@@ -1,0 +1,6 @@
+# CI-only overlay: adds the backup disk that the ClickHouse schema snapshot uses.
+# Paths resolve against the first compose file's directory, the repo root.
+services:
+    clickhouse:
+        volumes:
+            - ./.github/clickhouse-schema-cache/backup-disk.xml:/etc/clickhouse-server/config.d/ci-schema-cache.xml
