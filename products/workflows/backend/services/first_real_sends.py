@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid5
 
@@ -50,20 +51,28 @@ def _first_billable_emails(since: datetime) -> dict[tuple[int, UUID], datetime]:
 
 def capture_first_real_sends(now: datetime) -> int:
     first_sends = _first_billable_emails(now - FIRST_REAL_SEND_LOOKBACK)
-    hog_flow_ids = [hog_flow_id for _, hog_flow_id in first_sends]
+    keys = list(first_sends)
     captured = 0
-    for start in range(0, len(hog_flow_ids), CANDIDATE_BATCH_SIZE):
-        captured += _record_batch(hog_flow_ids[start : start + CANDIDATE_BATCH_SIZE], first_sends)
+    for start in range(0, len(keys), CANDIDATE_BATCH_SIZE):
+        captured += _record_batch(keys[start : start + CANDIDATE_BATCH_SIZE], first_sends)
     logger.info("workflows_first_real_sends_captured", captured=captured)
     return captured
 
 
-def _record_batch(hog_flow_ids: list[UUID], first_sends: dict[tuple[int, UUID], datetime]) -> int:
-    candidates = list(
-        HogFlow.objects.filter(
-            pk__in=hog_flow_ids, created_at__gte=FIRST_REAL_SEND_CUTOFF, first_real_send_at__isnull=True
+def _record_batch(keys: list[tuple[int, UUID]], first_sends: dict[tuple[int, UUID], datetime]) -> int:
+    hog_flow_ids_by_team: dict[int, list[UUID]] = defaultdict(list)
+    for team_id, hog_flow_id in keys:
+        hog_flow_ids_by_team[team_id].append(hog_flow_id)
+    candidates = [
+        flow
+        for team_id, hog_flow_ids in hog_flow_ids_by_team.items()
+        for flow in HogFlow.objects.filter(
+            team_id=team_id,
+            pk__in=hog_flow_ids,
+            created_at__gte=FIRST_REAL_SEND_CUTOFF,
+            first_real_send_at__isnull=True,
         ).only("id", "team_id", "entry_attempt_id", "origin_product")
-    )
+    ]
     teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({flow.team_id for flow in candidates})
     with transaction.atomic():
         recorded = []
