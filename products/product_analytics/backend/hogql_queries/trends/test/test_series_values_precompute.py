@@ -1,5 +1,7 @@
 import json
+from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -28,6 +30,10 @@ from posthog.schema import (
 
 from posthog.clickhouse.client import sync_execute
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    ServedWindow,
+)
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.product_analytics.backend.facade.contracts import SeriesValuesUnavailable
 from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import (
@@ -193,6 +199,25 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             precomputed = execute_precomputed_trends(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
 
         assert json.dumps(precomputed) == json.dumps(live)
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_a_range_that_the_returned_jobs_leave_uncovered_is_not_served(self) -> None:
+        result = LazyComputationResult(
+            ready=True,
+            job_ids=[uuid4()],
+            served_windows=(
+                ServedWindow(
+                    start=datetime(2024, 1, 8, tzinfo=UTC), end=datetime(2024, 1, 10, tzinfo=UTC), computed_at=None
+                ),
+            ),
+        )
+        with patch(
+            "products.product_analytics.backend.hogql_queries.trends.series_values_precompute.ensure_precomputed",
+            return_value=result,
+        ):
+            closed = closed_series_values(TrendsQueryRunner(team=self.team, query=_query()), run_inserts=True)
+
+        assert closed == SeriesValuesUnavailable(reason="not_ready")
 
     @time_machine.travel(_NOW, tick=False)
     def test_cold_cache_without_inserts_returns_none(self) -> None:

@@ -28,6 +28,7 @@ from products.access_control.backend.facade.api import team_has_property_access_
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
+    ServedWindow,
     ensure_precomputed,
     parse_ttl_schedule,
 )
@@ -188,6 +189,15 @@ def _live_boundary(buckets: list[datetime], today_start_utc: datetime) -> dateti
     return boundary
 
 
+def _covers(windows: tuple[ServedWindow, ...], start: datetime, end: datetime) -> bool:
+    covered_until = start
+    for window in sorted(windows, key=lambda window: window.start):
+        if window.start > covered_until:
+            return False
+        covered_until = max(covered_until, window.end)
+    return covered_until >= end
+
+
 def _ensure(
     runner: TrendsQueryRunner,
     *,
@@ -333,7 +343,9 @@ def closed_series_values(
     result = _ensure(
         runner, start=range_start, end=range_end, run_inserts=run_inserts, wait_timeout_seconds=wait_timeout_seconds
     )
-    if not result.ready or not result.job_ids:
+    # A job can expire while the executor collects its result. A day that no returned job covers would
+    # read as zero.
+    if not result.ready or not result.job_ids or not _covers(result.served_windows, range_start, range_end):
         return SeriesValuesUnavailable(reason="not_ready")
 
     stored = _read_values(
