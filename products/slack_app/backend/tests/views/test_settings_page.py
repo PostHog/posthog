@@ -174,6 +174,37 @@ class TestSlackAppSettings(APIBaseTest):
         # One read for both settings rows, one for the external channels switch.
         assert sum('"slack_app_slacksettings"' in query["sql"] for query in queries.captured_queries) == 2
 
+    @parameterized.expand(
+        [
+            ("no_plan", False, True, True, None),
+            ("setting_flag_off", True, False, True, None),
+            ("plan_runs_off", True, True, False, None),
+            ("plan_slack_runs_use", True, True, True, False),
+        ]
+    )
+    def test_chatgpt_apps_setting_shows_only_for_a_plan_slack_tasks_use(
+        self, _name: str, has_plan: bool, setting_flag: bool, byos: bool, expected: bool | None
+    ) -> None:
+        self._link_slack_user()
+
+        with (
+            patch("products.tasks.backend.facade.api.can_bill_plan_unattended", return_value=has_plan),
+            patch(
+                "products.slack_app.backend.logic.settings_page.is_slack_app_chatgpt_apps_setting_enabled",
+                return_value=setting_flag,
+            ),
+            patch("products.slack_app.backend.logic.settings_page.is_slack_app_byos_enabled", return_value=byos),
+        ):
+            response = self.client.get(self._url())
+            assert response.json()["personal"]["chatgpt_apps_enabled"] is expected
+            if expected is None:
+                return
+
+            changed = self.client.patch(self._url("personal/"), {"chatgpt_apps_enabled": True}, format="json")
+
+        assert changed.json()["personal"]["chatgpt_apps_enabled"] is True
+        assert SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id="U123").chatgpt_apps_enabled
+
     def test_personal_project_must_be_one_the_person_can_open(self) -> None:
         self._link_slack_user()
         other_org_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))

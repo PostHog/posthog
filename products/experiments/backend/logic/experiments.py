@@ -17,7 +17,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.logic.saved_metrics import visible_to
+from products.experiments.backend.logic.list_access import visible_to
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,

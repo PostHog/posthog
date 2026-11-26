@@ -215,6 +215,11 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a ses:no-track href="https://example.com/">x</a>',
         },
         {
+            case: 'tags a link that names ses:no-track only in a title',
+            html: '<a title="ses:no-track" href="https://example.com/">x</a>',
+            expected: '<a title="ses:no-track" href="https://example.com/?ph_workflow_run=run-1">x</a>',
+        },
+        {
             case: 'replaces the run id of an earlier send',
             html: '<a href="https://example.com/p?ph_workflow_run=old-run&amp;a=1">x</a>',
             expected: '<a href="https://example.com/p?a=1&amp;ph_workflow_run=run-1">x</a>',

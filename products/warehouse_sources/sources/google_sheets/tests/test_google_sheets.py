@@ -1,3 +1,4 @@
+import datetime
 from collections.abc import Iterable
 from typing import Any, cast
 from urllib.parse import urlencode
@@ -13,6 +14,7 @@ from products.warehouse_sources.sources.google_sheets._config import GoogleSheet
 from products.warehouse_sources.sources.google_sheets.google_sheets import (
     _REQUEST_TIMEOUT_SECONDS,
     GOOGLE_SHEETS_API_VERSION_V4,
+    GoogleSheetsRowsMovedError,
     GoogleSheetsServiceAccountKeyInvalidError,
     _assert_unique_normalized_column_names,
     _get_worksheet,
@@ -363,11 +365,39 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
     assert mock_worksheet.get.call_count == 2
 
 
-def _read_sheet(header_row: list[str], data_rows: list[list[str]], locale: str = "en_US") -> list[Any]:
+def _read_sheet(
+    header_row: list[str],
+    data_rows: list[list[str]],
+    locale: str = "en_US",
+    first_column_formats: list[tuple[str, float | None]] | None = None,
+    time_zone: str = "Etc/UTC",
+    date_read_error: gspread.exceptions.APIError | None = None,
+    moved_date_reads: int = 0,
+) -> list[Any]:
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    # Shaped like a `spreadsheets.get` response: the first row is the header, which has no format.
+    def date_read(texts: list[str]) -> dict[str, Any]:
+        row_data: list[dict[str, Any]] = [{"values": [{"formattedValue": header_row[0]}]}]
+        for (number_format_type, serial), text in zip(first_column_formats or [], texts):
+            cell: dict[str, Any] = {"effectiveFormat": {"numberFormat": {"type": number_format_type}}}
+            if text:
+                cell["formattedValue"] = text
+            if serial is not None:
+                cell["effectiveValue"] = {"numberValue": serial}
+            row_data.append({"values": [cell]})
+        return {"sheets": [{"data": [{"rowData": row_data}]}]}
+
+    texts = [row[0] for row in data_rows]
+    # The first `moved_date_reads` date reads see a row inserted above the data.
+    date_reads = [date_read(["inserted", *texts[:-1]])] * moved_date_reads
 
     mock_worksheet = mock.MagicMock()
     mock_worksheet.spreadsheet.locale = locale
+    mock_worksheet.spreadsheet.timezone = time_zone
+    mock_worksheet.spreadsheet.fetch_sheet_metadata.side_effect = date_read_error or (
+        lambda params: date_reads.pop(0) if date_reads else date_read(texts)
+    )
     mock_worksheet.get_all_values.return_value = [header_row]
     mock_worksheet.get.return_value = [header_row, *data_rows]
 
@@ -431,7 +461,7 @@ _ONE_LOCALE_PER_PATH = ["de_DE", "fr_FR", "en_US"]
         ),
         pytest.param("de_DE", ["1.5", "2,5"], ["1.5", "2,5"], id="ambiguous_text_keeps_the_column_as_text"),
         pytest.param("fr_FR", ["12 34", "0,5"], ["12 34", "0,5"], id="misplaced_group_space_keeps_the_column_as_text"),
-        pytest.param("de_DE", ["15.01.2024"], ["15.01.2024"], id="date_stays_text"),
+        pytest.param("de_DE", ["15.01.2024"], ["15.01.2024"], id="date_like_text_stays_text"),
         pytest.param("de_DE", ["50 %", "1.234,50 €"], ["50 %", "1.234,50 €"], id="percent_and_currency_stay_text"),
         pytest.param(
             "fr_FR", ["50 %", "1 234,50 €"], ["50 %", "1 234,50 €"], id="space_grouped_percent_and_currency_stay_text"
@@ -474,6 +504,135 @@ def test_google_sheets_source_parses_cell_text_in_the_spreadsheet_locale(locale,
     tables = _read_sheet(["value"], [[cell] for cell in cells], locale=locale)
 
     assert tables[0].column("value").to_pylist() == expected
+
+
+_SERIAL_2026_10_13 = 46308
+_SERIAL_2026_03_01 = 46082
+
+
+@pytest.mark.parametrize(
+    "cells,formats,time_zone,expected",
+    [
+        pytest.param(
+            ["13-10", ""],
+            [("DATE", _SERIAL_2026_10_13), ("DATE", None)],
+            "Europe/Berlin",
+            [datetime.date(2026, 10, 13), None],
+            id="date_keeps_the_year_its_format_hides",
+        ),
+        pytest.param(
+            ["01.03. 13:30"],
+            [("DATE_TIME", _SERIAL_2026_03_01 + 13.5 / 24)],
+            "Etc/UTC",
+            [datetime.datetime(2026, 3, 1, 13, 30, tzinfo=datetime.UTC)],
+            id="date_time",
+        ),
+        pytest.param(
+            ["01.03. 13:30"],
+            [("DATE_TIME", _SERIAL_2026_03_01 + 13.5 / 24)],
+            "Europe/Berlin",
+            [datetime.datetime(2026, 3, 1, 12, 30, tzinfo=datetime.UTC)],
+            id="date_time_in_the_spreadsheet_time_zone",
+        ),
+        pytest.param(
+            ["01.03. 13:30"],
+            [("DATE_TIME", _SERIAL_2026_03_01 + 13.5 / 24)],
+            "GMT-07:00",
+            [datetime.datetime(2026, 3, 1, 20, 30, tzinfo=datetime.UTC)],
+            id="date_time_in_a_gmt_offset_time_zone",
+        ),
+        pytest.param(
+            ["01.03. 13:30"],
+            [("DATE_TIME", _SERIAL_2026_03_01 + 13.5 / 24)],
+            "GMT+25:00",
+            [datetime.datetime(2026, 3, 1, 13, 30, tzinfo=datetime.UTC)],
+            id="date_time_in_an_out_of_range_gmt_offset_reads_as_utc",
+        ),
+        pytest.param(
+            ["13-10", "TBD"],
+            [("DATE", _SERIAL_2026_10_13), ("DATE", None)],
+            "Etc/UTC",
+            ["13-10", "TBD"],
+            id="date_column_with_text_keeps_display_text",
+        ),
+        pytest.param(
+            ["13-10", "13-10 08:00"],
+            [("DATE", _SERIAL_2026_10_13), ("DATE_TIME", _SERIAL_2026_10_13 + 1 / 3)],
+            "Europe/Berlin",
+            [
+                datetime.datetime(2026, 10, 12, 22, 0, tzinfo=datetime.UTC),
+                datetime.datetime(2026, 10, 13, 6, 0, tzinfo=datetime.UTC),
+            ],
+            id="date_in_a_date_time_column_reads_as_midnight",
+        ),
+        pytest.param(
+            ["50%", "12:30"],
+            [("PERCENT", 0.5), ("TIME", 0.5208)],
+            "Etc/UTC",
+            ["50%", "12:30"],
+            id="other_formats_stay_text",
+        ),
+    ],
+)
+def test_google_sheets_source_reads_date_cells_as_the_date_they_hold(cells, formats, time_zone, expected):
+    tables = _read_sheet(
+        ["value"], [[cell] for cell in cells], locale="de_DE", first_column_formats=formats, time_zone=time_zone
+    )
+
+    assert tables[0].column("value").to_pylist() == expected
+
+
+@pytest.mark.parametrize(
+    "read_sheet_kwargs,max_grid_cells",
+    [
+        pytest.param(
+            {"date_read_error": _api_error(400, "Request payload size exceeds the limit", "INVALID_ARGUMENT")},
+            200_000,
+            id="date_read_fails",
+        ),
+        pytest.param({}, 2, id="grid_too_large_for_the_date_read"),
+    ],
+)
+def test_google_sheets_source_keeps_display_text_when_the_date_read_is_unusable(read_sheet_kwargs, max_grid_cells):
+    with mock.patch(
+        "products.warehouse_sources.sources.google_sheets.google_sheets._DATE_CELLS_MAX_GRID_CELLS", max_grid_cells
+    ):
+        tables = _read_sheet(
+            ["value"],
+            [["13-10"], ["14-10"]],
+            first_column_formats=[("DATE", _SERIAL_2026_10_13), ("DATE", _SERIAL_2026_10_13 + 1)],
+            **read_sheet_kwargs,
+        )
+
+    assert tables[0].column("value").to_pylist() == ["13-10", "14-10"]
+
+
+def test_google_sheets_source_reads_the_worksheet_again_when_rows_move_during_the_read():
+    tables = _read_sheet(
+        ["value"],
+        [["13-10"], ["14-10"]],
+        first_column_formats=[("DATE", _SERIAL_2026_10_13), ("DATE", _SERIAL_2026_10_13 + 1)],
+        moved_date_reads=1,
+    )
+
+    assert tables[0].column("value").to_pylist() == [datetime.date(2026, 10, 13), datetime.date(2026, 10, 14)]
+
+
+@pytest.mark.parametrize(
+    "read_sheet_kwargs,expected_error",
+    [
+        pytest.param({"date_read_error": _api_error(503)}, gspread.exceptions.APIError, id="transient_api_errors"),
+        pytest.param({"moved_date_reads": 3}, GoogleSheetsRowsMovedError, id="rows_keep_moving"),
+    ],
+)
+def test_google_sheets_source_fails_the_sync_when_the_date_read_stays_unreliable(read_sheet_kwargs, expected_error):
+    with pytest.raises(expected_error):
+        _read_sheet(
+            ["value"],
+            [["13-10"], ["14-10"]],
+            first_column_formats=[("DATE", _SERIAL_2026_10_13), ("DATE", _SERIAL_2026_10_13 + 1)],
+            **read_sheet_kwargs,
+        )
 
 
 @pytest.mark.parametrize(
