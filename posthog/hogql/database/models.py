@@ -329,7 +329,7 @@ class EventsRetentionTable(Table):
 
 _CI_INDEX_CACHE_KEY = "_case_insensitive_index_cache"
 _COPY_ON_WRITE_KEY = "_children_copy_on_write"
-_copy_on_write_lock = threading.Lock()
+_copy_on_write_lock = threading.RLock()
 
 
 class TableNode(BaseModel):
@@ -413,10 +413,16 @@ class TableNode(BaseModel):
         return child.get_child(rest_of_path)
 
     def copy_children_on_write(self) -> None:
-        """Make add_child swap in a new `children` dict instead of changing it, for a catalog that concurrent queries
-        share. A query that registers a table at resolution time then cannot break another query that is iterating
-        this node. Set after the build, which adds a child per table and would otherwise copy the dict each time."""
-        object.__setattr__(self, _COPY_ON_WRITE_KEY, True)
+        """Make add_child on this node and every node below it swap in a new `children` dict instead of changing it,
+        for a catalog that concurrent queries share. A query that registers a table at resolution time, or a deferred
+        graft that merges into a nested node, then cannot break another query that is iterating the tree. Set after
+        the build, which adds a child per table and would otherwise copy a dict each time. Children added later
+        inherit it."""
+        nodes = [self]
+        while nodes:
+            node = nodes.pop()
+            object.__setattr__(node, _COPY_ON_WRITE_KEY, True)
+            nodes.extend(node.children.values())
 
     def add_child(
         self,
@@ -430,6 +436,9 @@ class TableNode(BaseModel):
                 child, table_conflict_mode=table_conflict_mode, children_conflict_mode=children_conflict_mode
             )
             return
+        # Marked before it becomes reachable, so later writes into the new subtree are copy-on-write too.
+        child.copy_children_on_write()
+        # Reentrant: a merge into an existing child calls add_child on that child.
         with _copy_on_write_lock:
             shared = self.children
             object.__setattr__(self, "children", dict(shared))

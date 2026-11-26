@@ -5239,16 +5239,24 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 assert Database.create_for(team=self.team, user=self.user) is first
                 assert Database.create_for(team=self.team, user=self.user) is not first
 
-    def test_a_shared_database_survives_a_query_registering_a_table_while_another_walks_its_root(self) -> None:
+    @parameterized.expand([("root", False), ("nested_merge", True)])
+    def test_a_shared_database_survives_a_table_added_while_another_query_walks_it(
+        self, _name: str, nested: bool
+    ) -> None:
         with sharing_databases(SharedDatabases()):
             database = Database.create_for(team=self.team, user=self.user)
-        walk = iter(database.tables.children.items())
+        walked = (
+            next(node for node in database.tables.children.values() if node.children) if nested else database.tables
+        )
+        walk = iter(walked.children.items())
         next(walk)
 
-        database.tables.add_child(TableNode(name="registered_mid_walk", hidden=True))
+        added = TableNode(name="added_mid_walk", hidden=True)
+        # A nested add goes through the merge path that deferred revenue views use to graft into an existing node.
+        database.tables.add_child(TableNode(name=walked.name, children={added.name: added}) if nested else added)
 
         list(walk)
-        assert "registered_mid_walk" in database.tables.children
+        assert added.name in walked.children
 
     def test_a_sharing_scope_stops_keeping_databases_past_its_limit(self) -> None:
         modifiers = [
