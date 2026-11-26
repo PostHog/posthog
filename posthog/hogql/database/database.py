@@ -819,7 +819,7 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
     or when it or a view it reads changed after the copy was built, since the copy may hold what the old one read.
     `lookups` comes from `warehouse_lookups` and shares name lookups between the views one query reads.
     """
-    if table.saved_query_id is None or table.saved_query_sql is None:
+    if table.saved_query_id is None:
         return frozenset()
     # Deferred: posthog.schema is heavy, and the walk imports hogql back.
     from posthog.schema import HogQLQuery  # noqa: PLC0415
@@ -831,11 +831,15 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
 
     gated_tables = access_controlled_posthog_tables()
     gated = frozenset(gated_tables.values())
+    # A backing table read under its own name carries the view's id but not its definition.
+    definition = table.saved_query_sql or _saved_query_definition(table.saved_query_id, team.pk)
+    if definition is None:
+        return gated
     catalog = (lookups or warehouse_lookups(team.pk)).for_next_fingerprint()
-    scopes = queried_access_controlled_resources(HogQLQuery(query=table.saved_query_sql), team, _catalog=catalog)
+    scopes = queried_access_controlled_resources(HogQLQuery(query=definition), team, _catalog=catalog)
     if scopes is None:
         return gated
-    definitions = [table.saved_query_sql]
+    definitions = [definition]
     for name in catalog.walked_views:
         view_query = catalog.view_queries.get(name)
         if isinstance(view_query, dict) and isinstance(view_query.get("query"), str):
@@ -845,6 +849,18 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
     if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team.pk):
         return gated
     return frozenset(scopes & gated)
+
+
+def _saved_query_definition(saved_query_id: str, team_id: int) -> str | None:
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+
+    saved_query = DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id).first()
+    if saved_query is None:
+        return None
+    try:
+        return saved_query.sql
+    except Exception:
+        return None
 
 
 def _reads_tables_the_walk_cannot_name(
@@ -943,8 +959,9 @@ def _definition_changed_since_materialized(saved_query_id: str, view_names: Coll
     if not names:
         return False
     # Deleted rows count too: a view removed after the build no longer shows what the copy read through it.
+    # Soft deletion moves the name to `deleted_name`.
     latest_upstream_change = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, name__in=names)
+        DataWarehouseSavedQuery.objects.filter(Q(name__in=names) | Q(deleted_name__in=names), team_id=team_id)
         .exclude(id=saved_query_id)
         .aggregate(latest=Max(Greatest("created_at", "query_updated_at", "deleted_at")))["latest"]
     )
