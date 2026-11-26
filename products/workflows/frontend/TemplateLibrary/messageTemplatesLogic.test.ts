@@ -246,6 +246,37 @@ describe('messageTemplatesLogic', () => {
         await waitFor(() => expect(names()).toEqual(['Welcome (copy)', 'Welcome', 'Invoice', 'Plain']))
     })
 
+    it('keeps a template deleted while a reload is in flight out of the reloaded list', async () => {
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        const copy = template('d', 'Welcome (copy)', [])
+        const deleteTemplate = (): [number, object] => {
+            stored = stored.filter((t) => t.id !== 'b')
+            return [200, { id: 'b', deleted: true }]
+        }
+        useMocks({
+            post: {
+                '/api/projects/:team_id/messaging_templates/': () => {
+                    stored = [copy, ...stored]
+                    return [201, copy]
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id': deleteTemplate,
+                '/api/environments/:team_id/messaging_templates/:id/': deleteTemplate,
+            },
+        })
+        holdFirstPages = true
+
+        logic.actions.duplicateTemplate(stored[0])
+        await waitFor(() => expect(heldFirstPages).toHaveLength(1))
+        logic.actions.deleteTemplate(stored.find((t) => t.id === 'b')!)
+        await waitFor(() => expect(stored.map((t) => t.id)).not.toContain('b'))
+        await expectLogic(logic).toDispatchActions(['deleteTemplateSuccess'])
+        heldFirstPages[0](200)
+
+        await waitFor(() => expect(names()).toEqual(['Welcome (copy)', 'Welcome', 'Plain']))
+    })
+
     it('shows the template step as not done when the count fails, rather than hiding the setup guide', async () => {
         holdCounts = true
         await remount()

@@ -284,7 +284,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             },
         ],
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         templates: [
             [] as MessageTemplate[],
             {
@@ -293,7 +293,9 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                     const page = await api.messaging.getTemplates(listParams)
                     breakpoint()
                     actions.templatesPageLoaded(listParams, !!page.next)
-                    return page.results
+                    // A page read before a delete landed still holds the deleted template.
+                    const deleted: Set<string> = cache.deletedTemplateIds ?? new Set()
+                    return page.results.filter((t: MessageTemplate) => !deleted.has(t.id))
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
                     await deleteWithUndo({
@@ -303,7 +305,11 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                             name: template.name,
                         },
                         callback: (undo) => {
-                            if (undo) {
+                            cache.deletedTemplateIds ??= new Set<string>()
+                            if (!undo) {
+                                cache.deletedTemplateIds.add(template.id)
+                            } else {
+                                cache.deletedTemplateIds.delete(template.id)
                                 actions.loadTemplates()
                                 actions.loadTemplateCount()
                             }
