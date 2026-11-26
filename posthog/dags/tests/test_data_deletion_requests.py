@@ -74,7 +74,7 @@ from posthog.dags.data_deletion_requests import (
 )
 from posthog.dags.deletes import deletes_job
 from posthog.dags.tests.conftest import insert_flag_evaluations
-from posthog.data_deletion import preview_event_deletion
+from posthog.data_deletion import QUERY_BACKED_MAX_EXECUTION_TIME, preview_event_deletion
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
@@ -390,6 +390,7 @@ def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_
     assert params["_deletion_request_id"] == request_id
     assert execute.call_args.kwargs["team_id"] == team.pk
     assert execute.call_args.kwargs["ch_user"].value == "deletion_executor"
+    assert execute.call_args.kwargs["settings"]["max_execution_time"] == QUERY_BACKED_MAX_EXECUTION_TIME
 
 
 @pytest.mark.django_db

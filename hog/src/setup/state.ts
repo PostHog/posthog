@@ -12,7 +12,7 @@ import { LOGIN_COMMAND } from '@/posthog/login/flow'
 
 import { ProductIdSchema } from './products'
 
-export const SETUP_NEXT = 'hog setup next'
+export const SETUP_COMMAND = 'hog setup'
 
 export const STEP_IDS = [
     'purpose',

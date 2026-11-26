@@ -1290,6 +1290,7 @@ jobs:
               env:
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  WRANGLER_SEND_METRICS: 'false'
               run: |
                   BRANCH="${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}"
                   # Cloudflare Pages rejects any single file over 25 MiB, which fails the whole

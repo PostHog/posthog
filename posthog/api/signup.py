@@ -37,6 +37,7 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.ai_signup_attribution import classify_ai_signup
 from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailValidationHelper,
@@ -104,6 +105,17 @@ SIGNUP_BLOCKED_DETAIL = (
 )
 
 DELEGATED_ONBOARDING_NEXT = "/onboarding"
+
+# No max_length on these: they are only compared against known AI sources, so an oversized value
+# matches nothing, and a length error would refuse a signup over analytics data.
+INITIAL_REFERRING_DOMAIN_HELP_TEXT = (
+    "Domain that referred this browser on its first visit, as the PostHog JavaScript SDK recorded it. "
+    "Used only to attribute the signup to an AI assistant."
+)
+INITIAL_UTM_SOURCE_HELP_TEXT = (
+    "utm_source of this browser's first visit, as the PostHog JavaScript SDK recorded it. "
+    "Used only to attribute the signup to an AI assistant."
+)
 
 
 def _save_session_with_recovery(session: SessionBase) -> None:
@@ -208,6 +220,12 @@ class SignupSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="The social media account or person that referred the user, asked when the referral source mentions a social network or creator channel.",
+    )
+    initial_referring_domain: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_REFERRING_DOMAIN_HELP_TEXT
+    )
+    initial_utm_source: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_UTM_SOURCE_HELP_TEXT
     )
     turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
     challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
@@ -367,6 +385,8 @@ class SignupSerializer(serializers.Serializer):
         referral_source = validated_data.pop("referral_source", "")
         referral_source_ai_prompt = validated_data.pop("referral_source_ai_prompt", "")
         referral_source_influencer = validated_data.pop("referral_source_influencer", "")
+        initial_referring_domain = validated_data.pop("initial_referring_domain", "")
+        initial_utm_source = validated_data.pop("initial_utm_source", "")
 
         # For passkey signup, set password to None and use the pre-generated UUID
         if passkey_credential:
@@ -446,6 +466,12 @@ class SignupSerializer(serializers.Serializer):
             referral_source_ai_prompt=referral_source_ai_prompt,
             referral_source_influencer=referral_source_influencer,
             oauth_connection=oauth_connection,
+            ai_signup_attribution=classify_ai_signup(
+                oauth_connection=oauth_connection,
+                referral_source=referral_source,
+                initial_referring_domain=initial_referring_domain,
+                initial_utm_source=initial_utm_source,
+            ),
         )
 
         # Fire-and-forget real-time enrichment for onboarding routing. Fully guarded and
@@ -960,6 +986,12 @@ class SocialSignupSerializer(serializers.Serializer):
         default="",
         help_text="The social media account or person that referred the user, asked when the referral source mentions a social network or creator channel.",
     )
+    initial_referring_domain: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_REFERRING_DOMAIN_HELP_TEXT
+    )
+    initial_utm_source: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_UTM_SOURCE_HELP_TEXT
+    )
 
     def validate_first_name(self, value: str) -> str:
         return validate_display_name(value)
@@ -1009,6 +1041,8 @@ class SocialSignupSerializer(serializers.Serializer):
                 "referral_source": referral_source,
                 "referral_source_ai_prompt": referral_source_ai_prompt,
                 "referral_source_influencer": referral_source_influencer,
+                "initial_referring_domain": validated_data.get("initial_referring_domain", ""),
+                "initial_utm_source": validated_data.get("initial_utm_source", ""),
             },
             context={"request": request, "social_backend": partial.backend},
         )

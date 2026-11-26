@@ -10556,17 +10556,17 @@ Note: Parsed every operation in the official OpenAPI 3.1 document, including nes
 
 ## OctopusDeploy — gaps
 
-Today (14): `channels`, `deployments`, `environments`, `events`, `interruptions`, `lifecycles`, `machines`, `project_groups`, `projects`, `releases`, `spaces`, `tasks`, `tenants`, `users`
+Today (17): `channels`, `deployments`, `environments`, `events`, `interruptions`, `lifecycles`, `machines`, `project_groups`, `projects`, `releases`, `runbook_runs`, `runbooks`, `spaces`, `tasks`, `teams`, `tenants`, `users`
 
 Diffed against: <https://demo.octopus.app/api>
 
 - [x] `users (/api/users)` — Lookup that resolves the user ids already carried on events, deployments, tasks and interruptions (high)
-- [ ] `teams + teammembership (/api/teams, /api/teammembership)` — Team definitions and the user→team junction — the only way to aggregate deployment activity by team (high)
+- [x] `teams + teammembership (/api/teams, /api/teammembership)` — Team definitions and the user→team junction — the only way to aggregate deployment activity by team (high). Built teams; teammembership not built: it needs one userId per call, and MemberUserIds on teams already holds the user→team junction.
 - [x] `lifecycles (/api/{space}/lifecycles)` — Lookup resolving the LifecycleId on projects/releases into ordered phases and environments, needed to judge whether a deployment progressed normally (high)
 - [x] `interruptions (/api/{space}/interruptions)` — Manual intervention and approval records with responsible-team and resolution timestamps — the wait time inside deployment lead time (high)
-- [ ] `insights/reports (/api/{space}/insights/reports)` — Octopus's own DORA-style reporting objects (deployment frequency, lead time, failure rate) — the vendor's headline metric (high)
-- [ ] `runbookRuns (/api/{space}/runbookRuns)` — Operational run history that sits alongside deployments; without it half of what Octopus executes is invisible (medium)
-- [ ] `runbooks (/api/{space}/runbooks)` — Lookup resolving the RunbookId on runbook runs and project triggers (medium)
+- [ ] `insights/reports (/api/{space}/insights/reports)` — Octopus's own DORA-style reporting objects (deployment frequency, lead time, failure rate) — the vendor's headline metric (high). Skipped: lists only Enterprise report definitions; the metrics are pre-aggregated per-report /metrics series, not warehouse rows.
+- [x] `runbookRuns (/api/{space}/runbookRuns)` — Operational run history that sits alongside deployments; without it half of what Octopus executes is invisible (medium)
+- [x] `runbooks (/api/{space}/runbooks)` — Lookup resolving the RunbookId on runbook runs and project triggers (medium)
 - [ ] `build-information (/api/{space}/build-information)` — Commits, work items and build URLs attached to packages — the join from a deployment back to source control (medium)
 - [ ] `packages (/api/{space}/packages)` — Package versions consumed by releases, the other half of release-to-artifact traceability (medium)
 - [ ] `artifacts (/api/{space}/artifacts)` — Files produced by deployments/tasks, joinable to the task that generated them (medium)
@@ -11479,17 +11479,17 @@ Re-audited 2026-11-19 against <https://web.archive.org/web/20251120081157/https:
 
 ## Persona — gaps
 
-Today (11): `accounts`, `cases`, `events`, `inquiries`, `inquiry_sessions`, `inquiry_template_versions`, `inquiry_templates`, `reports`, `transactions`, `verifications`, `workflow_runs`
+Today (14): `accounts`, `cases`, `devices`, `events`, `inquiries`, `inquiry_sessions`, `inquiry_template_versions`, `inquiry_templates`, `lists`, `report_history`, `reports`, `transactions`, `verifications`, `workflow_runs`
 
 Diffed against: <https://docs.withpersona.com/2025-12-08/llms.txt>
 
 - [x] `GET /reports (List all Reports)` — watchlist, adverse-media and business reports - a headline Persona output missing entirely next to inquiries (high)
 - [x] `GET /inquiry-sessions` — per-attempt sessions under the inquiries already synced, needed for drop-off analysis (medium)
 - [x] `GET /workflow-runs (List all Workflow Runs)` — automation run history over inquiries and cases already synced (medium)
-- [ ] `GET /devices` — device records used for fraud and repeat-signup analysis (medium)
-- [ ] `GET /accounts/{account-id}/relations` — account-to-account relationship edges for the accounts already synced (medium)
-- [ ] `GET /reports/{report-id}/history (List Report history)` — continuous-monitoring state history per report (low)
-- [ ] `GET /lists (List all Lists)` — blocklist/allowlist definitions referenced by inquiry and verification outcomes (low)
+- [x] `GET /devices` — device records used for fraud and repeat-signup analysis (medium)
+- [ ] `GET /accounts/{account-id}/relations` — account-to-account relationship edges for the accounts already synced (medium) Skipped: requires a customer-defined `filter[key]` relation key, and no endpoint lists account types or their keys.
+- [x] `GET /reports/{report-id}/history (List Report history)` — continuous-monitoring state history per report (low)
+- [x] `GET /lists (List all Lists)` — blocklist/allowlist definitions referenced by inquiry and verification outcomes (low)
 - [ ] `GET /user-audit-logs` — reviewer action log for measuring manual review throughput (low)
 - [x] `GET /inquiry-template-versions` — published and draft versions of each inquiry template already synced (low)
 - [ ] `GET /workflow-versions` — workflow version history; needs `filter[workflow-id]` and Persona has no list-workflows endpoint to enumerate ids (low)
@@ -13792,7 +13792,7 @@ Diffed against: <https://api.smartlead.ai/llms-full.txt>
 - [ ] `Get Lead Message History (GET /api/v1/campaigns/{campaign_id}/leads/{lead_id}/message-history)` — analyze complete conversations, including replies absent from sent email statistics (high); skipped: it needs a request per lead in each campaign on every sync against a 1,000-requests-per-hour plan limit, its documented response shape contradicts the vendor's webhook docs, and `all_leads_activities` already syncs replies and thread replies
 - [x] `Get All Leads Activities (GET /api/v1/campaigns/all-leads-activities)` — analyze engagement events over time rather than the current state of each sent email (high)
 - [x] `Get Warmup Statistics (GET /api/v1/email-accounts/{email_account_id}/warmup-stats)` — measure mailbox reputation, spam placement, and warmup performance (medium)
-- [ ] `Get Campaign Email Accounts (GET /api/v1/campaigns/{campaign_id}/email-accounts)` — join campaigns to rotating sender accounts for mailbox performance analysis (medium)
+- [x] `Get Campaign Email Accounts (GET /api/v1/campaigns/{campaign_id}/email-accounts)` — join campaigns to rotating sender accounts for mailbox performance analysis (medium)
 - [x] `Get Day-wise Overall Stats (GET /api/v1/analytics/day-wise-overall-stats)` — track daily engagement totals and compare outreach performance over time (medium)
 - [ ] `Get Lead Notes (GET /api/v1/crm/leads/notes/{lead_id})` — analyze sales context and follow-up information attached to prospects (medium); skipped: there is no account-wide list, so it needs a request per lead on every sync against a 1,000-requests-per-hour plan limit
 - [ ] `Get Lead Tasks (GET /api/v1/crm/leads/tasks/{lead_id})` — measure follow-up workload and task completion across prospects (medium); skipped: there is no account-wide list, so it needs a request per lead on every sync against a 1,000-requests-per-hour plan limit

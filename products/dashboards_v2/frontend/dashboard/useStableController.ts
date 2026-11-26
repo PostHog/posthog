@@ -5,7 +5,7 @@ import type { DashboardController, RefreshController } from './dashboardContext'
 /**
  * Builds the controller from a host's props, so the host can pass inline event handlers and a new `history` or
  * `refresh` object on each render without re-rendering every tile. Functions that decide what renders
- * (`disabledReasonFor`, `tileActions`, `dashboardActions`) are used as given, because a new one has to re-render.
+ * (`disabledReasonFor`, `tileActions`, `tilePlacementActions`, `dashboardActions`) are used as given, because a new one has to re-render.
  */
 export function useStableController(props: DashboardController): DashboardController {
     const latest = useRef(props)
@@ -49,17 +49,27 @@ export function useStableController(props: DashboardController): DashboardContro
         [hasRefresh, intervalsKey, initialInterval, refreshing]
     )
 
-    const { dashboard, activeTabId, widgets, disabledReasonFor, tileActions, dashboardActions, filters, timeRange } =
-        props
+    const {
+        dashboard,
+        activeTabId,
+        panels,
+        disabledReasonFor,
+        tileActions,
+        tilePlacementActions,
+        dashboardActions,
+        filters,
+        timeRange,
+    } = props
     return useMemo(
         () => ({
             dashboard,
             activeTabId,
-            widgets,
+            panels,
             disabledReasonFor,
             onEdit,
             onActiveTabChange,
             tileActions,
+            tilePlacementActions,
             dashboardActions,
             refresh,
             filters,
@@ -69,11 +79,12 @@ export function useStableController(props: DashboardController): DashboardContro
         [
             dashboard,
             activeTabId,
-            widgets,
+            panels,
             disabledReasonFor,
             onEdit,
             onActiveTabChange,
             tileActions,
+            tilePlacementActions,
             dashboardActions,
             refresh,
             filters,

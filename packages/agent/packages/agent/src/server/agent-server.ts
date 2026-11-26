@@ -2119,7 +2119,7 @@ export class AgentServer {
             initMs: Date.now() - initStartedAt,
             requestedModel: this.config.model,
             gatewayConfigured: Boolean(
-              process.env.LLM_GATEWAY_URL || this.config.apiUrl,
+              process.env.AI_GATEWAY_URL && process.env.AI_GATEWAY_TOKEN,
             ),
             errorType:
               error instanceof Error && error.name === "TimeoutError"

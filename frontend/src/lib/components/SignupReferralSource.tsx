@@ -6,6 +6,8 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 // Used to trigger the AI prompt when the user enters an AI-related referral source. This is a simple heuristic and can be adjusted as needed.
+// posthog/helpers/ai_signup_attribution.py mirrors this list and SOCIAL_REFERRAL_PATTERNS to attribute signups to AI,
+// and a parity test fails until both sides change together.
 const AI_REFERRAL_PATTERNS = [
     // AI labs
     'open ?ai',

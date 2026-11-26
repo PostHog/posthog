@@ -231,7 +231,7 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
     def save_content(
         cls,
         team: Team,
-        created_by: User,
+        created_by: User | None,
         file_name: str,
         content_type: str,
         content: bytes,

@@ -4,9 +4,9 @@ import { SKILL_COMMANDS } from '@/core/skill-commands'
 import { INGESTION_HOSTS, regionOf } from '@/posthog/host'
 import { ProjectTokenSchema } from '@/posthog/tokens'
 
-import { INSTALL_SKILL } from '../products'
+import { INSTALL_SKILL, type Product } from '../products'
 import { runNext, type SetupRun, type Step } from '../setup-run'
-import { hasRead, SETUP_NEXT, type SkillFile } from '../state'
+import { hasRead, SETUP_COMMAND, type SkillFile } from '../state'
 
 export const SKILL_READ: SkillFile = { skill: INSTALL_SKILL, path: 'SKILL.md' }
 export const RULES_READ: SkillFile = { skill: INSTALL_SKILL, path: 'references/COMMANDMENTS.md' }
@@ -27,6 +27,22 @@ async function fillInstallContext(run: SetupRun): Promise<void> {
     run.context.apiHost = region ? INGESTION_HOSTS[region] : host
 }
 
+async function productReads(run: SetupRun): Promise<Product[]> {
+    const products = await run.productsContext()
+    return products.filter(
+        (product) =>
+            product.chosen && product.id !== 'product-analytics' && product.command.startsWith('hog skills read ')
+    )
+}
+
+function productNote(picked: readonly Product[]): string {
+    if (picked.length === 0) {
+        return ''
+    }
+    const skills = picked.map((product) => `${product.label} with \`${product.command}\``).join(', ')
+    return ` The user picked more products. Once PostHog is installed, read the skill for each one in full and set the product up in the app and in PostHog as it describes: ${skills}.`
+}
+
 // `hog skills read` records the reads. Both files count only when read whole.
 export const install: Step = {
     summary: () => 'Installed PostHog with the install skill',
@@ -41,10 +57,11 @@ export const install: Step = {
             return undefined
         }
 
+        const picked = await productReads(run)
         if (read) {
             return runNext(
                 'setup_install_pending',
-                `Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_NEXT}\`.`
+                `Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`.${productNote(picked)} Then run \`${SETUP_COMMAND}\`.`
             )
         }
 
@@ -52,9 +69,9 @@ export const install: Step = {
             code: 'setup_skill_not_read',
             next: {
                 kind: 'read',
-                read: [readCommand(SKILL_READ), readCommand(RULES_READ)],
-                command: SETUP_NEXT,
-                instructions: `Run both commands and read each file in full, without \`--lines\`. Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_NEXT}\`.`,
+                read: [readCommand(SKILL_READ), readCommand(RULES_READ), ...picked.map((product) => product.command)],
+                command: SETUP_COMMAND,
+                instructions: `Run ${picked.length > 0 ? 'the first two commands' : 'both commands'} and read each file in full, without \`--lines\`. Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`.${productNote(picked)} Then run \`${SETUP_COMMAND}\`.`,
             },
         }
     },
