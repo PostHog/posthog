@@ -562,7 +562,7 @@ async fn create_output(
 
     let fallback = Fallback::resolve(config, &outputs, producer_configs)?;
     let producer_configs = fallback.producer_configs(producer_configs);
-    for table in std::iter::once(&outputs).chain(fallback.secondary()) {
+    for table in std::iter::once(&outputs).chain(fallback.table()) {
         for name in table.producers() {
             anyhow::ensure!(
                 producer_configs.contains_key(&name),

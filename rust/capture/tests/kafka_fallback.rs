@@ -58,7 +58,7 @@ fn fallback_env(
 
 fn fallback_config() -> Config {
     let mut config = DEFAULT_CONFIG.clone();
-    config.secondary_outputs.analytics_main_topic = Some(FALLBACK_EVENTS_TOPIC.to_string());
+    config.fallback_outputs.analytics_main_topic = Some(FALLBACK_EVENTS_TOPIC.to_string());
     config
 }
 

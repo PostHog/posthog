@@ -9,7 +9,7 @@ use std::time::Duration;
 use metrics::gauge;
 use tracing::{error, info, warn};
 
-use crate::config::{CaptureMode, Config, SecondaryOutputsConfig};
+use crate::config::{CaptureMode, Config, FallbackOutputsConfig};
 use crate::outputs::Target;
 use crate::producers::{ProducerConfig, ProducerName, ProducerRegistry};
 use crate::sinks::producer::KafkaProducer;
@@ -59,9 +59,9 @@ pub fn parse_check(raw: Option<&str>) -> anyhow::Result<CheckMode> {
     }
 }
 
-pub fn secondary_table(
+pub fn fallback_table(
     primary: &OutputTable,
-    secondary_config: &SecondaryOutputsConfig,
+    fallback_config: &FallbackOutputsConfig,
 ) -> OutputTable {
     let target =
         |primary: &OutputTarget, topic: &Option<String>, producer: Option<ProducerName>| {
@@ -78,53 +78,53 @@ pub fn secondary_table(
     OutputTable {
         analytics_main: target(
             &primary.analytics_main,
-            &secondary_config.analytics_main_topic,
-            secondary_config.analytics_main_producer,
+            &fallback_config.analytics_main_topic,
+            fallback_config.analytics_main_producer,
         ),
         analytics_overflow: target(
             &primary.analytics_overflow,
-            &secondary_config.analytics_overflow_topic,
-            secondary_config.analytics_overflow_producer,
+            &fallback_config.analytics_overflow_topic,
+            fallback_config.analytics_overflow_producer,
         ),
         analytics_historical: target(
             &primary.analytics_historical,
-            &secondary_config.analytics_historical_topic,
-            secondary_config.analytics_historical_producer,
+            &fallback_config.analytics_historical_topic,
+            fallback_config.analytics_historical_producer,
         ),
         session_replay_main: target(&primary.session_replay_main, &None, None),
         session_replay_overflow: target(&primary.session_replay_overflow, &None, None),
         client_warnings: target(
             &primary.client_warnings,
-            &secondary_config.client_warnings_topic,
-            secondary_config.client_warnings_producer,
+            &fallback_config.client_warnings_topic,
+            fallback_config.client_warnings_producer,
         ),
         heatmaps: target(
             &primary.heatmaps,
-            &secondary_config.heatmaps_topic,
-            secondary_config.heatmaps_producer,
+            &fallback_config.heatmaps_topic,
+            fallback_config.heatmaps_producer,
         ),
         dlq: target(
             &primary.dlq,
-            &secondary_config.dlq_topic,
-            secondary_config.dlq_producer,
+            &fallback_config.dlq_topic,
+            fallback_config.dlq_producer,
         ),
         error_tracking: target(
             &primary.error_tracking,
-            &secondary_config.error_tracking_topic,
-            secondary_config.error_tracking_producer,
+            &fallback_config.error_tracking_topic,
+            fallback_config.error_tracking_producer,
         ),
         ai_main: target(
             &primary.ai_main,
-            &secondary_config.ai_main_topic,
-            secondary_config.ai_main_producer,
+            &fallback_config.ai_main_topic,
+            fallback_config.ai_main_producer,
         ),
         ai_overflow: target(
             &primary.ai_overflow,
-            &secondary_config.ai_overflow_topic,
-            secondary_config.ai_overflow_producer,
+            &fallback_config.ai_overflow_topic,
+            fallback_config.ai_overflow_producer,
         ),
         has_ai_overflow_lane: primary.has_ai_overflow_lane,
-        custom_producer: secondary_config
+        custom_producer: fallback_config
             .custom_producer
             .unwrap_or(ProducerName::Fallback),
     }
@@ -135,7 +135,7 @@ pub enum Fallback {
     NotConfigured,
     Configured {
         settings: FallbackSettings,
-        secondary: Box<OutputTable>,
+        table: Box<OutputTable>,
     },
 }
 
@@ -157,13 +157,13 @@ impl Fallback {
         }
         Ok(Self::Configured {
             settings,
-            secondary: Box::new(secondary_table(primary, &config.secondary_outputs)),
+            table: Box::new(fallback_table(primary, &config.fallback_outputs)),
         })
     }
 
-    pub fn secondary(&self) -> Option<&OutputTable> {
+    pub fn table(&self) -> Option<&OutputTable> {
         match self {
-            Self::Configured { secondary, .. } => Some(secondary),
+            Self::Configured { table, .. } => Some(table),
             Self::NotApplicable | Self::NotConfigured => None,
         }
     }
@@ -185,32 +185,28 @@ impl Fallback {
         producers: &ProducerRegistry,
         producer_configs: &HashMap<ProducerName, ProducerConfig>,
     ) -> anyhow::Result<()> {
-        let Self::Configured {
-            settings,
-            secondary,
-        } = self
-        else {
+        let Self::Configured { settings, table } = self else {
             return Ok(());
         };
-        ensure_checks_cannot_create_topics(secondary, producer_configs)?;
-        let secondary = secondary.map_producers(|name| producers.get(*name));
-        run_boot_checks(&secondary, *settings).await
+        ensure_checks_cannot_create_topics(table, producer_configs)?;
+        let table = table.map_producers(|name| producers.get(*name));
+        run_boot_checks(&table, *settings).await
     }
 }
 
 /// A topic check that names a missing topic makes the broker create it when
 /// the producer allows auto-creation, and then the check passes.
 pub fn ensure_checks_cannot_create_topics(
-    secondary: &OutputTable,
+    fallback: &OutputTable,
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
 ) -> anyhow::Result<()> {
-    for target in secondary.analytics_family_targets() {
+    for target in fallback.analytics_family_targets() {
         let producer = target.producer;
         anyhow::ensure!(
             producer_configs
                 .get(&producer)
                 .is_some_and(|config| !config.allow_auto_create_topics),
-            "CAPTURE_OUTPUT_{}_SECONDARY_PRODUCER={} allows topic auto-creation, so the \
+            "CAPTURE_OUTPUT_{}_FALLBACK_PRODUCER={} allows topic auto-creation, so the \
              fallback topic check could create the topic it checks; set \
              KAFKA_{}_PRODUCER_ALLOW_AUTO_CREATE_TOPICS=false",
             target.name,
@@ -239,10 +235,10 @@ pub const OUTPUT_TOPIC_READY: &str = "capture_kafka_output_topic_ready";
 const TOPIC_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn run_boot_checks<P: KafkaProducer + 'static>(
-    secondary: &OutputTable<Arc<P>>,
+    fallback: &OutputTable<Arc<P>>,
     settings: FallbackSettings,
 ) -> anyhow::Result<()> {
-    check_target(secondary, Target::Fallback, settings).await
+    check_target(fallback, Target::Fallback, settings).await
 }
 
 async fn check_target<P: KafkaProducer + 'static>(
@@ -289,7 +285,7 @@ mod tests {
     use crate::sinks::registry::test_outputs;
     use rstest::rstest;
 
-    fn secondary_config(pairs: &[(&str, &str)]) -> SecondaryOutputsConfig {
+    fn fallback_config(pairs: &[(&str, &str)]) -> FallbackOutputsConfig {
         envconfig::Envconfig::init_from_hashmap(&env(pairs)).unwrap()
     }
 
@@ -346,57 +342,57 @@ mod tests {
     }
 
     #[test]
-    fn secondary_targets_default_to_the_primary_topic_on_the_fallback_producer() {
+    fn fallback_targets_default_to_the_primary_topic_on_the_fallback_producer() {
         let primary = test_outputs();
-        let secondary = secondary_table(&primary, &SecondaryOutputsConfig::default());
+        let fallback = fallback_table(&primary, &FallbackOutputsConfig::default());
 
         for (p, s) in primary
             .analytics_family_targets()
             .into_iter()
-            .zip(secondary.analytics_family_targets())
+            .zip(fallback.analytics_family_targets())
         {
             assert_eq!((s.name, &s.topic), (p.name, &p.topic));
             assert_eq!(s.producer, ProducerName::Fallback, "{}", s.name);
         }
         assert_eq!(
-            secondary.session_replay_main.topic,
+            fallback.session_replay_main.topic,
             primary.session_replay_main.topic
         );
-        assert!(secondary
+        assert!(fallback
             .producers()
             .iter()
             .all(|p| *p == ProducerName::Fallback));
         assert_eq!(
-            secondary.has_ai_overflow_lane(),
+            fallback.has_ai_overflow_lane(),
             primary.has_ai_overflow_lane()
         );
     }
 
     #[test]
-    fn secondary_targets_read_their_own_variables() {
-        let secondary = secondary_table(
+    fn fallback_targets_read_their_own_variables() {
+        let fallback = fallback_table(
             &test_outputs(),
-            &secondary_config(&[
-                ("CAPTURE_OUTPUT_ANALYTICS_MAIN_SECONDARY_TOPIC", "ws_events"),
-                ("CAPTURE_OUTPUT_DLQ_SECONDARY_TOPIC", "ws_dlq"),
-                ("CAPTURE_OUTPUT_DLQ_SECONDARY_PRODUCER", "INGESTION"),
-                ("CAPTURE_OUTPUT_AI_MAIN_SECONDARY_TOPIC", ""),
-                ("CAPTURE_OUTPUT_CUSTOM_SECONDARY_PRODUCER", "INGESTION"),
+            &fallback_config(&[
+                ("CAPTURE_OUTPUT_ANALYTICS_MAIN_FALLBACK_TOPIC", "ws_events"),
+                ("CAPTURE_OUTPUT_DLQ_FALLBACK_TOPIC", "ws_dlq"),
+                ("CAPTURE_OUTPUT_DLQ_FALLBACK_PRODUCER", "INGESTION"),
+                ("CAPTURE_OUTPUT_AI_MAIN_FALLBACK_TOPIC", ""),
+                ("CAPTURE_OUTPUT_CUSTOM_FALLBACK_PRODUCER", "INGESTION"),
             ]),
         );
 
-        assert_eq!(&*secondary.analytics_main.topic, "ws_events");
-        assert_eq!(&*secondary.dlq.topic, "ws_dlq");
-        assert_eq!(secondary.dlq.producer, ProducerName::Ingestion);
-        assert_eq!(&*secondary.ai_main.topic, "ai_events", "empty means unset");
-        assert_eq!(secondary.heatmaps.producer, ProducerName::Fallback);
-        assert_eq!(secondary.custom_producer, ProducerName::Ingestion);
+        assert_eq!(&*fallback.analytics_main.topic, "ws_events");
+        assert_eq!(&*fallback.dlq.topic, "ws_dlq");
+        assert_eq!(fallback.dlq.producer, ProducerName::Ingestion);
+        assert_eq!(&*fallback.ai_main.topic, "ai_events", "empty means unset");
+        assert_eq!(fallback.heatmaps.producer, ProducerName::Fallback);
+        assert_eq!(fallback.custom_producer, ProducerName::Ingestion);
     }
 
     #[test]
-    fn an_unknown_secondary_producer_names_its_variable() {
-        let err = <SecondaryOutputsConfig as envconfig::Envconfig>::init_from_hashmap(&env(&[(
-            "CAPTURE_OUTPUT_AI_OVERFLOW_SECONDARY_PRODUCER",
+    fn an_unknown_fallback_producer_names_its_variable() {
+        let err = <FallbackOutputsConfig as envconfig::Envconfig>::init_from_hashmap(&env(&[(
+            "CAPTURE_OUTPUT_AI_OVERFLOW_FALLBACK_PRODUCER",
             "WARPSTREAM",
         )]))
         .err()
@@ -404,14 +400,14 @@ mod tests {
         .to_string();
 
         assert!(
-            err.contains("CAPTURE_OUTPUT_AI_OVERFLOW_SECONDARY_PRODUCER"),
+            err.contains("CAPTURE_OUTPUT_AI_OVERFLOW_FALLBACK_PRODUCER"),
             "{err}"
         );
     }
 
     #[rstest]
     #[case::fallback_default(&[], true)]
-    #[case::secondary_on_ingestion(&[("CAPTURE_OUTPUT_DLQ_SECONDARY_PRODUCER", "INGESTION")], false)]
+    #[case::fallback_output_on_ingestion(&[("CAPTURE_OUTPUT_DLQ_FALLBACK_PRODUCER", "INGESTION")], false)]
     #[case::fallback_allows_it(&[("KAFKA_FALLBACK_PRODUCER_ALLOW_AUTO_CREATE_TOPICS", "true")], false)]
     fn fallback_checks_refuse_a_producer_that_can_create_topics(
         #[case] pairs: &[(&str, &str)],
@@ -420,12 +416,12 @@ mod tests {
         let mut env = env(pairs);
         env.insert(FALLBACK_BROKERS_VAR.to_string(), "ws:9092".to_string());
         let configs = crate::producers::load_all(&env).unwrap();
-        let secondary = secondary_table(
+        let fallback = fallback_table(
             &test_outputs(),
             &envconfig::Envconfig::init_from_hashmap(&env).unwrap(),
         );
 
-        let result = ensure_checks_cannot_create_topics(&secondary, &configs);
+        let result = ensure_checks_cannot_create_topics(&fallback, &configs);
 
         assert_eq!(result.is_ok(), boots, "{result:?}");
         if let Err(err) = result {
@@ -453,9 +449,9 @@ mod tests {
     async fn check(missing_topics: &[&str], check: CheckMode) -> anyhow::Result<()> {
         let producer =
             Arc::new(MockKafkaProducer::new().with_missing_topics(missing_topics.iter().copied()));
-        let secondary = secondary_table(&test_outputs(), &SecondaryOutputsConfig::default())
+        let fallback = fallback_table(&test_outputs(), &FallbackOutputsConfig::default())
             .map_producers(|_| Arc::clone(&producer));
-        run_boot_checks(&secondary, FallbackSettings { check }).await
+        run_boot_checks(&fallback, FallbackSettings { check }).await
     }
 
     #[rstest]
