@@ -1,3 +1,5 @@
+import './SearchPerformanceTable.scss'
+
 import { useMemo } from 'react'
 
 import { DataTable, type DataTableProps, Skeleton, Text } from '@posthog/quill'
