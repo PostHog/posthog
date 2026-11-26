@@ -660,7 +660,28 @@ def repair_missing_flag_definitions_v2_cache_entries(self: PushGatewayTask) -> N
         return
 
     try:
+        # Created after the lock check, so a skipped run pushes no counts rather than zeros.
+        missing_gauge = Gauge(
+            "posthog_flag_definitions_v2_miss_repair_missing_count",
+            "Number of flag definitions v2 entries missing from the primary tier",
+            registry=self.metrics_registry,
+        )
+        repaired_gauge = Gauge(
+            "posthog_flag_definitions_v2_miss_repair_repaired_count",
+            "Number of missing flag definitions v2 entries rebuilt",
+            registry=self.metrics_registry,
+        )
+        failed_gauge = Gauge(
+            "posthog_flag_definitions_v2_miss_repair_failed_count",
+            "Number of missing flag definitions v2 entries that failed to rebuild; a failed rebuild does not fail the run",
+            registry=self.metrics_registry,
+        )
+
         result = repair_missing_flag_definitions_v2_entries(stop_time=time.monotonic() + self.soft_time_limit / 2)
+
+        missing_gauge.set(result.missing)
+        repaired_gauge.set(result.repaired)
+        failed_gauge.set(result.failed)
         logger.info(
             "Completed flag definitions v2 miss repair",
             holders=result.holders,

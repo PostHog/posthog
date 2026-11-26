@@ -34,6 +34,7 @@ from posthog.storage import cache_expiry_manager, object_storage
 from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_verifier import TeamBatchFetchError, VerificationResult, verify_and_fix_all_teams
 from posthog.tasks.scheduled import setup_periodic_tasks
+from posthog.tasks.test.utils import PushGatewayTaskTestMixin
 from posthog.tasks.utils import CeleryQueue
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -751,8 +752,24 @@ class TestDefinitionsV2Upkeep(DefinitionsV2TestCase):
         assert _stored(V2, self.team) == ABSENT
 
 
-class TestDefinitionsV2MissRepair(DefinitionsV2TestCase):
+class TestDefinitionsV2MissRepair(PushGatewayTaskTestMixin, DefinitionsV2TestCase):
     LOCK_KEY = "posthog:flag_definitions_v2_miss_repair:lock"
+
+    def _pushed_counts(self) -> dict[str, float | None]:
+        return {
+            name: self.registry.get_sample_value(f"posthog_flag_definitions_v2_miss_repair_{name}_count")
+            for name in ("missing", "repaired", "failed")
+        }
+
+    def _fail_writes_for(self, failing: Team) -> Any:
+        write = V2.set_cache_value
+
+        def fail_for_one_team(team: Team, *args: Any, **kwargs: Any) -> int | None:
+            if team.id == failing.id:
+                raise ConnectionError("redis down")
+            return write(team, *args, **kwargs)
+
+        return patch.object(V2, "set_cache_value", side_effect=fail_for_one_team)
 
     def test_a_missing_entry_is_rebuilt(self) -> None:
         self._create_v2_flags()
@@ -823,19 +840,24 @@ class TestDefinitionsV2MissRepair(DefinitionsV2TestCase):
         other = self._other_team()
         _create_flag(other, "v2-other", BOOLEAN_V2)
         assert self.team.id < other.id
-        write = V2.set_cache_value
 
-        def fail_for_the_first_team(team: Team, *args: Any, **kwargs: Any) -> int | None:
-            if team.id == self.team.id:
-                raise ConnectionError("redis down")
-            return write(team, *args, **kwargs)
-
-        with patch.object(V2, "set_cache_value", side_effect=fail_for_the_first_team):
+        with self._fail_writes_for(self.team):
             result = repair_missing_flag_definitions_v2_entries()
 
         assert (result.missing, result.repaired, result.failed) == (2, 1, 1)
         assert _stored(V2, self.team) == ABSENT
         assert _keys(_body(V2, other)) == ["v2-other"]
+
+    def test_the_task_pushes_the_counts_of_its_run(self) -> None:
+        teams = [self.team, self._other_team("Second"), self._other_team("Third"), self._other_team("Present")]
+        for team in teams:
+            _create_flag(team, "v2-boolean", BOOLEAN_V2)
+        self._rebuild(teams[-1])
+
+        with self._fail_writes_for(self.team):
+            repair_missing_flag_definitions_v2_cache_entries()
+
+        assert self._pushed_counts() == {"missing": 3, "repaired": 2, "failed": 1}
 
     def test_the_cap_leaves_the_other_teams_for_the_next_run(self) -> None:
         teams = [self.team, self._other_team("Second"), self._other_team("Third")]
@@ -868,6 +890,7 @@ class TestDefinitionsV2MissRepair(DefinitionsV2TestCase):
         repair_missing_flag_definitions_v2_cache_entries()
 
         assert _stored(V2, self.team) == ABSENT
+        assert self._pushed_counts() == {"missing": None, "repaired": None, "failed": None}
 
     def test_the_hourly_upkeep_lock_does_not_block_the_repair(self) -> None:
         self._create_v2_flags()
