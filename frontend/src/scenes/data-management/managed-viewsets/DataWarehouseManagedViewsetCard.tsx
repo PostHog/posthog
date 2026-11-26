@@ -1,18 +1,13 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 
 import { AccessControlLevel, AccessControlResourceType } from '../../../types'
-import {
-    DataWarehouseManagedViewsetsLogicProps,
-    dataWarehouseManagedViewsetsLogic,
-} from './dataWarehouseManagedViewsetsLogic'
+import { DataWarehouseManagedViewsetsLogicProps } from './dataWarehouseManagedViewsetsLogic'
 import { VIEWSET_DESCRIPTIONS, VIEWSET_TOGGLING_REASON, viewsetToggleLabel } from './managedViewsetCardContent'
+import { useManagedViewsetCard } from './useManagedViewsetCard'
 
 export interface DataWarehouseManagedViewsetCardProps {
     type: DataWarehouseManagedViewsetsLogicProps['type']
@@ -29,9 +24,7 @@ export function DataWarehouseManagedViewsetCard({
     displayDocsLink = true,
     displayConfigLink = true,
 }: DataWarehouseManagedViewsetCardProps): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    const { toggleViewset } = useActions(dataWarehouseManagedViewsetsLogic({ type }))
-    const { togglingViewset, toggleResultLoading } = useValues(dataWarehouseManagedViewsetsLogic({ type }))
+    const { isEnabled, isToggling, toggleViewset } = useManagedViewsetCard(type, kind)
 
     const viewsetInfo = VIEWSET_DESCRIPTIONS[kind]
 
@@ -40,8 +33,6 @@ export function DataWarehouseManagedViewsetCard({
     }
 
     const { title, description, docsUrl, configUrl, icon } = viewsetInfo
-    const isEnabled = !!currentTeam?.managed_viewsets?.[kind]
-    const isToggling = togglingViewset === kind && toggleResultLoading
 
     return (
         <div className="border rounded p-4">

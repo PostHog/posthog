@@ -1,4 +1,3 @@
-import { useActions, useValues } from 'kea'
 import { useId } from 'react'
 
 import {
@@ -15,13 +14,12 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel } from '~/types'
 
 import { DataWarehouseManagedViewsetCardProps } from './DataWarehouseManagedViewsetCard'
-import { dataWarehouseManagedViewsetsLogic } from './dataWarehouseManagedViewsetsLogic'
 import { VIEWSET_DESCRIPTIONS, VIEWSET_TOGGLING_REASON, viewsetToggleLabel } from './managedViewsetCardContent'
+import { useManagedViewsetCard } from './useManagedViewsetCard'
 
 /** Quill sibling of `DataWarehouseManagedViewsetCard`. Its callers pick it under `today-rail-nav`. */
 export function QuillDataWarehouseManagedViewsetCard({
@@ -32,9 +30,7 @@ export function QuillDataWarehouseManagedViewsetCard({
     displayConfigLink = true,
 }: DataWarehouseManagedViewsetCardProps): JSX.Element | null {
     const switchId = useId()
-    const { currentTeam } = useValues(teamLogic)
-    const { toggleViewset } = useActions(dataWarehouseManagedViewsetsLogic({ type }))
-    const { togglingViewset, toggleResultLoading } = useValues(dataWarehouseManagedViewsetsLogic({ type }))
+    const { isEnabled, isToggling, toggleViewset } = useManagedViewsetCard(type, kind)
 
     const viewsetInfo = VIEWSET_DESCRIPTIONS[kind]
 
@@ -43,8 +39,6 @@ export function QuillDataWarehouseManagedViewsetCard({
     }
 
     const { title, description, docsUrl, configUrl, icon } = viewsetInfo
-    const isEnabled = !!currentTeam?.managed_viewsets?.[kind]
-    const isToggling = togglingViewset === kind && toggleResultLoading
 
     return (
         <Card>
