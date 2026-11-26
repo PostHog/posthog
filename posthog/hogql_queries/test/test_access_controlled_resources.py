@@ -94,6 +94,12 @@ class TestQueriedAccessControlledResources(BaseTest):
                 {"account", "ticket"},
             ),
             ("account_non_communication_lazy_join", "select meetings.count from system.accounts", {"account"}),
+            (
+                "account_lazy_join_beside_a_shadowing_cte",
+                "select email_threads.count from system.accounts union all select * from "
+                "(with `system.accounts` as (select 1 as count) select count from `system.accounts`)",
+                {"account", "ticket"},
+            ),
             # Activity-log rows for canvases are limited to the canvases in `system.canvases`, so the
             # rows follow the caller's canvas grants as well as their activity-log access.
             ("activity_logs", "select * from system.activity_logs", {"activity_log", "canvas"}),

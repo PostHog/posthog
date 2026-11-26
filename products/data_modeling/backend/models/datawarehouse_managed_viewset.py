@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from django.db import connection, models, transaction
+from django.utils import timezone
 
 import structlog
 
@@ -218,6 +219,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.sync_frequency_interval = None
                 saved_query.incremental_config = incremental_config_by_view[view.name]
 
+                if saved_query.id in redefined_ids:
+                    # The materialized-view access gate reads this to tell a stored copy from a newer definition.
+                    saved_query.query_updated_at = timezone.now()
+
                 if created:
                     saved_query.save()
                 else:
@@ -232,6 +237,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                             "is_materialized",
                             "sync_frequency_interval",
                             "incremental_config",
+                            "query_updated_at",
                             "updated_at",
                         ]
                     )
