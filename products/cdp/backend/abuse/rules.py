@@ -1197,3 +1197,8 @@ def _is_security_callback(host: str) -> bool:
 
 def _in_domains(canonical_host: str, domains: frozenset[str]) -> bool:
     return any(canonical_host == domain or canonical_host.endswith(f".{domain}") for domain in domains)
+
+
+def named_hosts(content: HogFunctionContent) -> tuple[str, ...]:
+    """The hosts of the URLs in the code, the inputs and the masking hash, for a reviewer to read."""
+    return tuple(sorted(set(_hosts_in(_texts(content)))))
