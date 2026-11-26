@@ -8906,6 +8906,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pr_authorship_mode": "user",
                 "sandbox_id": "sb-real",
                 "agent_egress_probe": egress_probe,
+                "agent_egress_git_reads": True,
                 "sandbox_cpu_cores": 2,
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
@@ -8984,6 +8985,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pr_authorship_mode": "bot",
                     "sandbox_id": "sb-attacker",
                     "agent_egress_probe": {"sandbox_id": "sb-attacker"},
+                    "agent_egress_git_reads": False,
                     "sandbox_cpu_cores": 128,
                     "sandbox_memory_gb": 512,
                     "sandbox_ttl_seconds": 86400,
@@ -9064,6 +9066,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "dev_stack_preview" not in run.state
         assert run.state["sandbox_id"] == "sb-real"
         assert run.state["agent_egress_probe"] == egress_probe
+        assert run.state["agent_egress_git_reads"] is True
         assert run.state["sandbox_cpu_cores"] == 2
         assert run.state["sandbox_memory_gb"] == 8
         assert run.state["sandbox_ttl_seconds"] == 1800
@@ -9148,6 +9151,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "stream_thin_tail",
                     "sandbox_id",
                     "agent_egress_probe",
+                    "agent_egress_git_reads",
                     "use_modal_vm_sandbox",
                     "custom_image_id",
                     "snapshot_external_id",
@@ -9198,6 +9202,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["stream_thin_tail"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
         assert run.state["agent_egress_probe"] == egress_probe
+        assert run.state["agent_egress_git_reads"] is True
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
         assert run.state["custom_image_id"] == "img-server"
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
@@ -9245,6 +9250,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state_append": {
                     "agent_egress_probe": {"sandbox_id": "sb-attacker"},
+                    "agent_egress_git_reads": False,
                     "include_live_context": True,
                     "analytics_query_context": [{"kind": "private"}],
                     "sandbox_oauth_token_ids": ["forged-token-id"],
@@ -9269,6 +9275,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["include_live_context"] is False
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["agent_egress_probe"] == egress_probe
+        assert run.state["agent_egress_git_reads"] is True
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):

@@ -17,7 +17,7 @@ import {
     StoredFile,
     attachmentFile,
     deliveredTo,
-    sesClientFor,
+    sesTransportFor,
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
 import { FakePostHog, startFakePostHog } from '~/cdp/_tests/fake-posthog'
@@ -260,17 +260,12 @@ const emailSeriesCountedFor = async (result: CyclotronJobInvocationResult): Prom
             .filter(([, delta]) => delta !== 0)
     )
 }
-const oneRetryAfter = (delayMs: number): any => {
-    const token = (retries: number): { getRetryCount: () => number; getRetryDelay: () => number } => ({
-        getRetryCount: () => retries,
-        getRetryDelay: () => delayMs,
-    })
-    return {
-        acquireInitialRetryToken: () => Promise.resolve(token(0)),
-        refreshRetryTokenForRetry: (previous: ReturnType<typeof token>) =>
-            previous.getRetryCount() > 0 ? Promise.reject(new Error('no retries left')) : Promise.resolve(token(1)),
-        recordSuccess: () => {},
-    }
+const endpointNobodyListensOn = async (): Promise<string> => {
+    const server = createServer()
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+    return `http://127.0.0.1:${port}`
 }
 
 describe('EmailService', () => {
@@ -426,7 +421,7 @@ describe('EmailService', () => {
                 null,
                 workflowsActivationReporter
             )
-            expect(serviceWithoutSES.sesV2Client).toBeNull()
+            expect(serviceWithoutSES.sesTransport).toBeNull()
 
             await insertIntegration(hub.postgres, team.id, {
                 id: getIntegrationId(1),
@@ -836,50 +831,76 @@ describe('EmailService', () => {
                 expect(result.invocation.queuePriority).toBe(1)
             })
 
-            it('hard-fails (not retry) when SES returns SendingPausedException', async () => {
-                // Reputation/account-state pause won't recover in 500ms; retrying
-                // just burns reschedules. Hard-fail so the failure surfaces via
-                // email_failed and an operator can investigate.
-                ses.failWith({ status: 400, type: 'SendingPausedException', message: 'Sending paused' })
+            type SesAnswer = { status: number; type: string; message: string } | 'drop-connection'
+            it.each<[string, SesAnswer, string]>([
+                ['MessageRejected', { status: 400, type: 'MessageRejected', message: 'Rejected' }, 'MessageRejected'],
+                ...[
+                    'MailFromDomainNotVerifiedException',
+                    'AccountSuspendedException',
+                    'SendingPausedException',
+                    'LimitExceededException',
+                    'BadRequestException',
+                ].map((name): [string, SesAnswer, string] => [
+                    name,
+                    { status: 400, type: name, message: `${name} answer` },
+                    name,
+                ]),
+                [
+                    'NotFoundException',
+                    { status: 404, type: 'NotFoundException', message: 'No such set' },
+                    'NotFoundException',
+                ],
+                [
+                    'an error name SES does not document',
+                    { status: 500, type: 'InternalFailure', message: 'Internal failure' },
+                    'other',
+                ],
+                ['a dropped connection', 'drop-connection', 'other'],
+            ])('fails the job without a resend when SES answers %s, and counts it', async (_name, fault, counted) => {
+                const before = await metricValue('cdp_ses_send_results_total', { result: counted })
+                ses.failWith(fault)
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(result.finished).toBe(true)
-                expect(result.error).toMatch(/Failed to send email via SES: Sending paused/)
-                expect(result.metrics).toEqual(
-                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
-                )
+                expect({
+                    finished: result.finished,
+                    rescheduledAt: result.invocation.queueScheduledAt,
+                    error: result.error,
+                    failed: result.metrics.map((metric) => metric.metric_name),
+                    counted: (await metricValue('cdp_ses_send_results_total', { result: counted })) - before,
+                }).toEqual({
+                    finished: true,
+                    rescheduledAt: invocation.queueScheduledAt,
+                    error: expect.stringMatching(
+                        typeof fault === 'string'
+                            ? /^Failed to send email via SES: /
+                            : `Failed to send email via SES: ${fault.message}`
+                    ),
+                    failed: ['email_failed'],
+                    counted: 1,
+                })
             })
 
-            it.each<[string, string, FakeSesFault]>([
-                ...throttleCases.map(([name, fault]): [string, string, FakeSesFault] => [name, 'throttled', fault]),
-                [
-                    'SendingPausedException',
-                    'SendingPausedException',
-                    { status: 400, type: 'SendingPausedException', message: 'Sending paused' },
-                ],
-                ['a dropped connection', 'other', 'drop-connection'],
-            ])('counts an SES send that fails with %s as %s', async (_name, expectedResult, fault) => {
-                const labels = { result: expectedResult }
+            it('fails the job when SES records the email and answers 500, after the SDK sent it on each of its attempts', async () => {
+                ses.failWith({ acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' } })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect({ finished: result.finished, error: result.error, sent: ses.sent.length }).toEqual({
+                    finished: true,
+                    error: 'Failed to send email via SES: Internal failure',
+                    sent: 3,
+                })
+            })
+
+            it.each(throttleCases)('counts an SES send that fails with %s as throttled', async (_name, fault) => {
+                const labels = { result: 'throttled' }
                 const before = await metricValue('cdp_ses_send_results_total', labels)
                 ses.failWith(fault)
 
                 await service.executeSendEmail(invocation)
 
                 expect(await metricValue('cdp_ses_send_results_total', labels)).toBe(before + 1)
-            })
-
-            it('still fails the job for non-throttle SES errors', async () => {
-                ses.failWith({ status: 400, type: 'MessageRejected', message: 'something else broke' })
-
-                const result = await service.executeSendEmail(invocation)
-
-                expect(result.finished).toBe(true)
-                expect(result.error).toMatch(/Failed to send email via SES: something else broke/)
-                // Business metric should record the failure.
-                expect(result.metrics).toEqual(
-                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
-                )
             })
         })
 
@@ -2987,7 +3008,7 @@ describe('EmailService', () => {
                     request.pipe(upstream)
                 })
                 await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-                emailService.sesV2Client = sesClientFor(ses, {
+                emailService.sesTransport = sesTransportFor({
                     endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
                 })
                 return {
@@ -3157,7 +3178,7 @@ describe('EmailService', () => {
                         giveCredentials = () =>
                             resolve({ accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' })
                     })
-                    emailService.sesV2Client = sesClientFor(ses, { credentials: () => credentials })
+                    emailService.sesTransport = sesTransportFor(ses, { credentials: () => credentials })
 
                     const { first, second } = await inOneAdmission(async () => {
                         const first = await emailService.executeSendEmail(invocation)
@@ -3179,32 +3200,43 @@ describe('EmailService', () => {
 
             it.each([
                 [
-                    'the bucket does not answer',
+                    'the bucket does not answer past the deadline',
                     () => {
                         bucket.answer = 'hold'
                     },
                 ],
                 [
-                    'the SES client never gets its credentials',
+                    'the SES client never gets its credentials past the deadline',
                     (emailService: EmailService) => {
-                        emailService.sesV2Client = sesClientFor(ses, {
+                        emailService.sesTransport = sesTransportFor(ses, {
                             credentials: () => new Promise<never>(() => {}),
                         })
                     },
                 ],
                 [
-                    'SES refuses with a throttle and the SDK is still backing off',
-                    (emailService: EmailService) => {
+                    'SES refuses with a throttle',
+                    () => {
                         ses.failWith(sesThrottles)
-                        emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
+                    },
+                ],
+                [
+                    'SES refuses the connection',
+                    async (emailService: EmailService) => {
+                        emailService.sesTransport = sesTransportFor({ endpoint: await endpointNobodyListensOn() })
+                    },
+                ],
+                [
+                    'the SES host does not resolve',
+                    (emailService: EmailService) => {
+                        emailService.sesTransport = sesTransportFor({ endpoint: 'http://ses.invalid' })
                     },
                 ],
             ])(
-                'when %s past the deadline, retries the send later and delivers it with its files once',
-                async (_name, fault) => {
+                'when %s, retries the send later and delivers it with its files once',
+                async (_name, fault: (emailService: EmailService) => void | Promise<void>) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
-                    const ownClient = emailService.sesV2Client
-                    fault(emailService)
+                    const ownTransport = emailService.sesTransport
+                    await fault(emailService)
 
                     const retry = await emailService.executeSendEmail(invocation)
                     expect({
@@ -3216,7 +3248,7 @@ describe('EmailService', () => {
 
                     bucket.answer = 'pass'
                     ses.failWith(null)
-                    emailService.sesV2Client = ownClient
+                    emailService.sesTransport = ownTransport
                     const result = await emailService.executeSendEmail(retry.invocation)
 
                     expect(result.error).toBeUndefined()
@@ -3227,31 +3259,21 @@ describe('EmailService', () => {
                 }
             )
 
-            it.each([
+            it.each<[string, FakeSesFault, number]>([
+                ['SES receives the request and does not answer past the deadline', 'no-answer', 0],
+                ['SES answers 200 and its body stalls past the deadline', 'stalled-body', 0],
+                ['the connection drops after the request went out', 'drop-connection', 0],
                 [
-                    'SES receives the request and does not answer',
-                    () => {
-                        ses.failWith('no-answer')
-                    },
+                    'SES records the email and answers 500',
+                    { acceptedThen: { status: 500, type: 'InternalFailure', message: 'Internal failure' } },
+                    1,
                 ],
-                [
-                    'SES answers 200 and its body stalls',
-                    () => {
-                        ses.failWith('stalled-body')
-                    },
-                ],
-                [
-                    'the connection drops after the request went out and the SDK is still backing off',
-                    (emailService: EmailService) => {
-                        ses.failWith('drop-connection')
-                        emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
-                    },
-                ],
+                ['SES records the email and drops the connection', 'accept-then-drop-connection', 1],
             ])(
-                'when %s past the deadline, fails the send without a retry, because SES may have sent it',
-                async (_name, fault) => {
+                'when %s, fails the send without a retry, because SES may have sent it',
+                async (_name, fault, timesSesRecordedIt) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
-                    fault(emailService)
+                    ses.failWith(fault)
 
                     const result = await emailService.executeSendEmail(invocation)
 
@@ -3259,12 +3281,12 @@ describe('EmailService', () => {
                         finished: result.finished,
                         error: result.error,
                         failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
-                        delivered: deliveredTo(ses, recipient),
+                        timesSesRecordedIt: deliveredTo(ses, recipient).length,
                     }).toEqual({
                         finished: true,
                         error: expect.stringMatching(/^Failed to send email via SES: /),
                         failed: true,
-                        delivered: [],
+                        timesSesRecordedIt,
                     })
                 }
             )
@@ -4946,8 +4968,7 @@ describe('EmailService', () => {
         })
 
         it('should report a missing message id', async () => {
-            // SES always answers a send with a message id, so only a stub can produce this fault.
-            jest.spyOn(service.sesV2Client!, 'send').mockResolvedValue({} as never)
+            ses.failWith('answer-without-message-id')
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
             expect(result.emailSendResult).toEqual({ status: 'failed', reason: result.error })

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-25 10:05:18 UTC
+// Generated at: 2026-11-25 20:02:03 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -20,6 +20,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-west-2'
     | 'ambient-fp4'
     | 'ambient-fp8'
+    | 'ambient-nvfp4'
     | 'antdigital-fp8'
     | 'anthropic'
     | 'anthropic-fast'
@@ -77,6 +78,7 @@ export type CanonicalProvider =
     | 'deepinfra-us'
     | 'deepseek'
     | 'digitalocean'
+    | 'doubleword-mxfp4'
     | 'doubleword-nvfp4'
     | 'featherless'
     | 'featherless-fp4'
@@ -118,6 +120,7 @@ export type CanonicalProvider =
     | 'io-net-nvfp4'
     | 'ionstream'
     | 'ionstream-fp8'
+    | 'krea-fp8'
     | 'kt'
     | 'liquid'
     | 'makora'
@@ -179,7 +182,6 @@ export type CanonicalProvider =
     | 'pareto-inference-mxfp4'
     | 'pareto-inference-nvfp4'
     | 'particle-ai-nvfp4'
-    | 'particle-ai-nvfp4-flex'
     | 'particle-ai-us'
     | 'particle-ai-us-flex'
     | 'pearl-research-fp8'
@@ -226,7 +228,6 @@ export type CanonicalProvider =
     | 'together-us'
     | 'typesafe'
     | 'typesafe-zdr'
-    | 'unbiased'
     | 'upstage'
     | 'upstage-zdr'
     | 'venice'

@@ -1,4 +1,4 @@
-import { IconFlag, IconGear, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import { IconGear, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
 import { isMac } from 'lib/utils/dom'
 
@@ -10,6 +10,7 @@ import { IconTodayHome } from './rail-icons/IconTodayHome'
 import { IconTodayMonitor } from './rail-icons/IconTodayMonitor'
 import { IconTodayPeople } from './rail-icons/IconTodayPeople'
 import { IconTodayProducts } from './rail-icons/IconTodayProducts'
+import { IconTodayRelease } from './rail-icons/IconTodayRelease'
 import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
 import { TodayNewChatButton } from './TodayNewChatButton'
 import { TodayNewPeopleButton } from './TodayNewPeopleButton'
@@ -39,7 +40,7 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     },
     monitor: { label: 'Monitor', title: 'Monitor', icon: <IconTodayMonitor /> },
     people: { label: 'People', title: 'People', icon: <IconTodayPeople />, action: TodayNewPeopleButton },
-    release: { label: 'Release', title: 'Release', icon: <IconFlag /> },
+    release: { label: 'Release', title: 'Release', icon: <IconTodayRelease /> },
     automate: { label: 'Automate', title: 'Automate', icon: <IconTodayAutomate /> },
     data: { label: 'Data', title: 'Data', icon: <IconTodayData /> },
     products: { label: 'Products', title: 'Products', icon: <IconTodayProducts /> },

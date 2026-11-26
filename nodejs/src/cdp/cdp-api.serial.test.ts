@@ -57,7 +57,7 @@ import {
     attachmentFile,
     attachmentStoreConfig,
     deliveredTo,
-    sesClientFor,
+    sesTransportFor,
     uploadAttachment,
 } from './_tests/email-delivery-fakes'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
@@ -4111,7 +4111,7 @@ describe('CDP API', () => {
                     new EmailQueueOfOneTest(queueName, workerConfig),
                     new InFlightRegistry({ budgetBytes: 2 ** 40, heapLimitBytes: 2 ** 40, maxInFlight: 1 }, () => 0)
                 )
-                worker.emailService.sesV2Client = sesClientFor(ses)
+                worker.emailService.sesTransport = sesTransportFor(ses)
                 await worker.start()
                 try {
                     const delivered = await waitForExpect(() => {

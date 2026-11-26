@@ -234,6 +234,9 @@ async function seedHeld(
 
 function printResult(result: RunResult): void {
     process.stdout.write(`${result.cardId}: ${result.status}, ${result.statusReason}\n`)
+    if (result.stopped) {
+        process.stdout.write(`stopped in the ${result.stopped.phase} phase: ${result.stopped.stack}\n`)
+    }
     process.stdout.write(`evidence: ${result.evidenceDir}\n`)
     const readBackSkipped = result.captured ? ['captured; the run was interrupted before it was read back'] : []
     const recording = result.recorded ? ['recorded'] : readBackSkipped

@@ -1,5 +1,4 @@
 // sort-imports-ignore
-import { SESv2Client, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { DateTime, Duration } from 'luxon'
@@ -54,6 +53,7 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { SandboxEmailService } from '../messaging/sandbox/sandbox-email.service'
 import { SandboxEmailSendStep } from '../messaging/sandbox/sandbox-email-step'
 import { SandboxMessage } from '../messaging/sandbox/sandbox-message'
+import { SesTransport } from '../messaging/ses-transport'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
@@ -94,8 +94,8 @@ class SesV2Fake {
         return fake
     }
 
-    client(): SESv2Client {
-        return new SESv2Client({
+    client(): SesTransport {
+        return new SesTransport({
             region: 'us-east-1',
             endpoint: this.endpoint,
             credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
@@ -247,7 +247,7 @@ describe('Hogflow Executor', () => {
             store
         )
         if (ses) {
-            emailService.sesV2Client = ses.client()
+            emailService.sesTransport = ses.client()
         }
         return emailService
     }
@@ -3892,11 +3892,16 @@ describe('Hogflow Executor', () => {
                 .mockResolvedValueOnce(fcmResponse(200))
                 .mockResolvedValueOnce(fcmResponse(503))
                 .mockResolvedValueOnce(fcmResponse(200))
-            const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
+            const sesSend = jest.spyOn(SesTransport.prototype, 'send')
             sesSend
-                .mockResolvedValueOnce({ MessageId: 'first-email' })
-                .mockRejectedValueOnce(new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }))
-                .mockResolvedValue({ MessageId: 'follow-up-email' })
+                .mockResolvedValueOnce({ kind: 'accepted', messageId: 'first-email' })
+                .mockResolvedValueOnce({
+                    kind: 'not_sent',
+                    reason: 'throttled',
+                    errorName: 'TooManyRequestsException',
+                    message: 'Too many requests',
+                })
+                .mockResolvedValue({ kind: 'accepted', messageId: 'follow-up-email' })
 
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-push-queue-routing-test',
@@ -4337,8 +4342,8 @@ if (not res.success) { throw Error(res.error) }`,
             { name: 'delivers a code-key step with an accepted send', send: codeSend, sent: 1 },
         ])('$name', async ({ send, sent }) => {
             await insertEmailSetup('ses')
-            const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
-            sesSend.mockResolvedValue({ MessageId: 'code-key-email' })
+            const sesSend = jest.spyOn(SesTransport.prototype, 'send')
+            sesSend.mockResolvedValue({ kind: 'accepted', messageId: 'code-key-email' })
             const invocation = flowInvocation(emailFlow(codeKeyStep()))
             invocation.state.send = send()
 
@@ -4367,8 +4372,8 @@ if (not res.success) { throw Error(res.error) }`,
             "captures the email's events by the code send's choice $captureEngagement and the team switch $teamCaptures, step state saved without the send: $savedWithoutSend",
             async ({ captureEngagement, teamCaptures, savedWithoutSend, captured }) => {
                 await insertEmailSetup('ses')
-                const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
-                sesSend.mockResolvedValue({ MessageId: 'captured-email' })
+                const sesSend = jest.spyOn(SesTransport.prototype, 'send')
+                sesSend.mockResolvedValue({ kind: 'accepted', messageId: 'captured-email' })
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO workflows_teamworkflowsconfig
