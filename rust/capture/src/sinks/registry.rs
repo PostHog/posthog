@@ -6,8 +6,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::join_all;
-
 use crate::config::OutputsConfig;
 use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, PipelineLane, SessionReplayLane};
 use crate::producers::ProducerName;
@@ -267,33 +265,33 @@ pub struct TopicCheckFailure {
 
 impl<P: KafkaProducer + 'static> OutputTable<Arc<P>> {
     pub async fn check_analytics_family_topics(&self, timeout: Duration) -> Vec<TopicCheckFailure> {
-        let checks = self
+        let checks: Vec<_> = self
             .analytics_family_targets()
             .into_iter()
             .filter(|target| !target.topic.is_empty())
             .map(|target| {
-                let output = target.name;
-                let producer = Arc::clone(&target.producer);
-                let topic = Arc::clone(&target.topic);
-                async move {
-                    let check_topic = Arc::clone(&topic);
-                    let result = tokio::task::spawn_blocking(move || {
-                        producer.check_topic_exists(&check_topic, timeout)
-                    })
-                    .await;
-                    let error = match result {
-                        Ok(Ok(())) => return None,
-                        Ok(Err(e)) => format!("{e:#}"),
-                        Err(e) => format!("topic check task failed: {e}"),
-                    };
-                    Some(TopicCheckFailure {
-                        output,
-                        topic,
-                        error,
-                    })
-                }
+                let (producer, topic) = (Arc::clone(&target.producer), Arc::clone(&target.topic));
+                let check = tokio::task::spawn_blocking(move || {
+                    producer.check_topic_exists(&topic, timeout)
+                });
+                (target, check)
+            })
+            .collect();
+
+        let mut failures = Vec::new();
+        for (target, check) in checks {
+            let error = match check.await {
+                Ok(Ok(())) => continue,
+                Ok(Err(e)) => format!("{e:#}"),
+                Err(e) => format!("topic check task failed: {e}"),
+            };
+            failures.push(TopicCheckFailure {
+                output: target.name,
+                topic: Arc::clone(&target.topic),
+                error,
             });
-        join_all(checks).await.into_iter().flatten().collect()
+        }
+        failures
     }
 }
 
