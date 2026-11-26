@@ -5169,6 +5169,25 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with pytest.raises(TableAccessDeniedError):
                 database.get_table("system.data_deletion_requests")
 
+    def _access(self) -> UserAccessControl:
+        return UserAccessControl(user=self.user, team=self.team)
+
+    def test_a_sharing_scope_does_not_share_a_users_build_made_without_an_access_snapshot(self) -> None:
+        with sharing_databases(SharedDatabases()):
+            first = Database.create_for(team=self.team, user=self.user)
+            second = Database.create_for(team=self.team, user=self.user)
+
+        assert first is not second
+
+    def test_a_sharing_scope_stops_sharing_when_the_kill_switch_turns_off_mid_batch(self) -> None:
+        enabled = [True]
+        with sharing_databases(SharedDatabases(enabled=lambda: enabled[0])):
+            first = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+            enabled[0] = False
+            after_off = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+
+        assert after_off is not first
+
     @parameterized.expand(
         [
             ("same_inputs", {}, True),
@@ -5189,8 +5208,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         with sharing_databases(SharedDatabases()):
-            first = Database.create_for(team=self.team, user=self.user, modifiers=base)
-            second = Database.create_for(team=self.team, user=self.user, modifiers=base.model_copy(update=changed))
+            first = Database.create_for(
+                team=self.team, user=self.user, user_access_control=self._access(), modifiers=base
+            )
+            second = Database.create_for(
+                team=self.team,
+                user=self.user,
+                user_access_control=self._access(),
+                modifiers=base.model_copy(update=changed),
+            )
 
         assert (first is second) is shared
 
@@ -5198,9 +5224,11 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         other_team = Team.objects.create(organization=self.organization)
 
         with sharing_databases(SharedDatabases()):
-            Database.create_for(team=self.team, user=self.user)
+            Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
             with pytest.raises(ValueError):
-                Database.create_for(team_id=other_team.pk, team=self.team, user=self.user)
+                Database.create_for(
+                    team_id=other_team.pk, team=self.team, user=self.user, user_access_control=self._access()
+                )
 
     @parameterized.expand(
         [
@@ -5211,6 +5239,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 "object_allowlisted",
                 [{"resource": "insight", "access_level": "none"}],
                 {"resource": "insight", "resource_id": "1", "access_level": "viewer"},
+            ),
+            (
+                # A table grant that overrides its source's denial changes neither the blocked nor allowlisted ids.
+                "child_grant_under_a_blocked_source",
+                [{"resource": "external_data_source", "resource_id": "1", "access_level": "none"}],
+                {"resource": "warehouse_table", "resource_id": "2", "access_level": "viewer"},
             ),
         ]
     )
@@ -5227,13 +5261,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             AccessControl.objects.create(team=self.team, organization_member=self.organization_membership, **row)
 
         with sharing_databases(SharedDatabases()):
-            before = Database.create_for(
-                team=self.team, user=self.user, user_access_control=UserAccessControl(user=self.user, team=self.team)
-            )
+            before = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
             AccessControl.objects.create(team=self.team, organization_member=self.organization_membership, **change)
-            after = Database.create_for(
-                team=self.team, user=self.user, user_access_control=UserAccessControl(user=self.user, team=self.team)
-            )
+            after = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
 
         assert after is not before
 
@@ -5242,25 +5272,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         with sharing_databases(SharedDatabases()):
             with patch(flag, return_value=False):
-                unenforced = Database.create_for(team=self.team, user=self.user)
+                unenforced = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
             with patch(flag, return_value=True):
-                enforced = Database.create_for(team=self.team, user=self.user)
+                enforced = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
 
         assert enforced is not unenforced
 
     def test_a_sharing_scope_rebuilds_a_database_past_its_age_so_revoked_access_applies(self) -> None:
         with sharing_databases(SharedDatabases(max_age_seconds=30)):
             with patch("posthog.hogql.database.request_scope.monotonic", side_effect=[0, 10, 40, 40, 40]):
-                first = Database.create_for(team=self.team, user=self.user)
-                assert Database.create_for(team=self.team, user=self.user) is first
-                assert Database.create_for(team=self.team, user=self.user) is not first
+                first = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+                assert Database.create_for(team=self.team, user=self.user, user_access_control=self._access()) is first
+                assert (
+                    Database.create_for(team=self.team, user=self.user, user_access_control=self._access()) is not first
+                )
 
     @parameterized.expand([("root", False), ("nested_merge", True)])
     def test_a_shared_database_survives_a_table_added_while_another_query_walks_it(
         self, _name: str, nested: bool
     ) -> None:
         with sharing_databases(SharedDatabases()):
-            database = Database.create_for(team=self.team, user=self.user)
+            database = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
         walked = (
             next(node for node in database.tables.children.values() if node.children) if nested else database.tables
         )
@@ -5281,9 +5313,22 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ]
 
         with sharing_databases(SharedDatabases(max_databases=1)):
-            kept, over_limit = (Database.create_for(team=self.team, user=self.user, modifiers=m) for m in modifiers)
-            assert Database.create_for(team=self.team, user=self.user, modifiers=modifiers[0]) is kept
-            assert Database.create_for(team=self.team, user=self.user, modifiers=modifiers[1]) is not over_limit
+            kept, over_limit = (
+                Database.create_for(team=self.team, user=self.user, user_access_control=self._access(), modifiers=m)
+                for m in modifiers
+            )
+            assert (
+                Database.create_for(
+                    team=self.team, user=self.user, user_access_control=self._access(), modifiers=modifiers[0]
+                )
+                is kept
+            )
+            assert (
+                Database.create_for(
+                    team=self.team, user=self.user, user_access_control=self._access(), modifiers=modifiers[1]
+                )
+                is not over_limit
+            )
 
     @parameterized.expand([("member", False), ("member_with_preloaded_access_control", True)])
     def test_a_sharing_scope_keeps_an_admins_tables_from_a_member(self, _name: str, preload: bool) -> None:

@@ -1634,14 +1634,31 @@ class UserAccessControl:
 
     @cached_property
     def read_access_fingerprint(self) -> str:
-        """Equal for two snapshots of the same user and team exactly when they allow the same reads: resource-level
-        access to every scope, and the object IDs each scope blocks or allowlists. It does not encode the user or
-        the team, so a caller comparing snapshots must check those separately. Lets a caller tell whether something
-        built for one snapshot is safe to hand to a holder of another."""
-        blocked = sorted(scope for scope in API_SCOPE_OBJECTS if not self.has_resource_access(scope))
-        blocked_ids = sorted((scope, sorted(ids)) for scope, ids in self.blocked_resource_ids_by_scope.items())
-        allowlisted_ids = sorted((scope, sorted(ids)) for scope, ids in self.allowlisted_resource_ids_by_scope.items())
-        return repr((blocked, blocked_ids, allowlisted_ids))
+        """Equal for two snapshots of the same user and team when every input to their access decisions matches:
+        the access control rows that apply to the user here, their membership level and role ids, and whether the
+        organization can use access control. Any rule change, including an object grant that overrides a parent's
+        denial, changes it. It does not encode the user or the team, so a caller comparing snapshots must check
+        those separately. Lets a caller tell whether something built for one snapshot is safe to hand to a holder
+        of another."""
+        membership = self._organization_membership
+        rows = sorted(
+            (
+                row.resource,
+                row.resource_id or "",
+                row.access_level,
+                str(row.organization_member_id or ""),
+                str(row.role_id or ""),
+            )
+            for row in self._cached_access_controls
+        )
+        return repr(
+            (
+                membership.level if membership is not None else None,
+                sorted(str(role_id) for role_id in self._user_role_ids),
+                self.access_controls_supported,
+                rows,
+            )
+        )
 
     @cached_property
     def blocked_resources(self) -> list[str]:

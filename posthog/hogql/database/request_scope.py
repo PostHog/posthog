@@ -48,7 +48,7 @@ class SharedDatabases:
     that register a table at resolution time write to its root, so a stored catalog's root is copy-on-write.
     Beyond that, one thread builds each key while the others wait.
 
-    `enabled` is asked once, at the first build, so a caller on an event loop can pass a check that reads the database.
+    `enabled` is asked on every call, which only runs where a build could, so it may read the database.
     Each stored catalog can be large, so past max_databases distinct keys a build is handed out but not kept.
     A catalog holds the access decision it was built with, so it is rebuilt after max_age_seconds: a revoked
     grant reaches the rest of a long batch within that window instead of at the stream's end."""
@@ -57,7 +57,6 @@ class SharedDatabases:
         self, max_databases: int = 4, max_age_seconds: float = 30.0, enabled: Callable[[], bool] = lambda: True
     ) -> None:
         self._is_enabled = enabled
-        self._enabled: Optional[bool] = None
         self._max_databases = max_databases
         self._max_age_seconds = max_age_seconds
         self._lock = threading.Lock()
@@ -71,9 +70,7 @@ class SharedDatabases:
         return entry[0]
 
     def get_or_build(self, key: SharedDatabaseKey, build: Callable[[], "Database"]) -> "Database":
-        if self._enabled is None:
-            self._enabled = self._is_enabled()
-        if not self._enabled:
+        if not self._is_enabled():
             return build()
         with self._lock:
             database = self._fresh(key)
@@ -149,6 +146,10 @@ def shared_database_key(
     if team is None:
         return None
     if user is not None and not isinstance(user, User):
+        return None
+    if user is not None and user_access_control is None:
+        # The build would resolve this user's access itself, and nothing here could tell whether a later caller's
+        # access still matches it.
         return None
     if user_access_control is not None:
         # Runners each preload their own instance. Instances for the same user and team resolve the same
