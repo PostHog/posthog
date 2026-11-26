@@ -1,6 +1,18 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "after": {
+            "anyOf": [
+                {
+                    "maxLength": 512,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Deprecated name for `cursor`: the cursor from the previous page's `next` link."
+        },
         "breakdowns": {
             "anyOf": [
                 {
@@ -62,6 +74,19 @@
                 }
             ],
             "description": "Return at most this many series, ranked by total, with a `next` link in the response for the page after. Prefer this over asking for everything at once on a large organization: a paged request stays well inside the size this endpoint refuses oversized breakdowns at, and combining it with a single-product `usage_types` filter is the cheapest way to walk a lot of data. Requires a project breakdown."
+        },
+        "page_size": {
+            "anyOf": [
+                {
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "type": "integer"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Deprecated name for `limit`: series per page, ranked by total. Requires a project breakdown."
         },
         "start_date": {
             "anyOf": [
