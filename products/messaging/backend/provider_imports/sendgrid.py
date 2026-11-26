@@ -111,6 +111,7 @@ EXPORT_TIMEOUT_SECONDS = 60 * 60
 # The export of every contact, next to the exports named by their list's ID.
 ALL_CONTACTS = "all"
 NO_CONTACTS_NOTE = "SendGrid has no contacts to import, so every cohort stays as it was."
+EMPTY_LIST_REASON = "The list is empty in SendGrid."
 # SendGrid doesn't say how far its counts lag, so only a difference that no lag explains stops an import.
 COUNT_SLACK = 10
 UNREADABLE_EXPORT_MESSAGE = "SendGrid's contact export isn't a file PostHog can read. Import again later."
@@ -460,7 +461,7 @@ def _has_marketing_campaigns(scopes: set[str]) -> bool:
 
 
 def _save_no_marketing_campaigns() -> SavedPage:
-    return SavedPage(imported=0, warnings=(NO_MARKETING_CAMPAIGNS_NOTE,))
+    return SavedPage(imported=0, warnings=(NO_MARKETING_CAMPAIGNS_NOTE,), skipped=True)
 
 
 @contextmanager
@@ -1205,7 +1206,8 @@ def _fetch_contacts(
             if audience is not None and (may_be_empty or is_segment or isinstance(failure, _NoEmails)):
                 del audiences[target]
                 exports.pop(target, None)
-                skipped[target] = _skipped_note(audience, str(failure))
+                reason = EMPTY_LIST_REASON if may_be_empty and not is_segment else str(failure)
+                skipped[target] = _skipped_note(audience, reason)
                 yield progress_page()
                 continue
             yield progress_page()
@@ -1576,7 +1578,9 @@ def _fetch_senders(
             body = client.get("/v3/verified_senders", params)
         except SendGridScopeMissing:
             # No restricted scope reads verified senders, so a key made for this import usually can't.
-            yield ImportPage(processed=0, save=lambda: SavedPage(imported=0, warnings=(SENDERS_NEED_FULL_ACCESS,)))
+            yield ImportPage(
+                processed=0, save=lambda: SavedPage(imported=0, warnings=(SENDERS_NEED_FULL_ACCESS,), skipped=True)
+            )
             return
         results = body.get("results") if isinstance(body, dict) else None
         if not isinstance(results, list):
