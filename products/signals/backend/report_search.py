@@ -18,11 +18,11 @@ import uuid
 import datetime
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from contextvars import copy_context
+from contextvars import Context, copy_context
 from threading import BoundedSemaphore
 from typing import Any, cast
 
-from django.db import models
+from django.db import connections, models
 from django.db.models import Prefetch, Q, QuerySet
 from django.utils import timezone
 
@@ -278,7 +278,7 @@ def _start_semantic_ranking(
     trace.get_current_span().set_attribute("signals.reports.search.semantic_in_background", True)
     try:
         # The copied context carries the query tags and the current span to the worker.
-        future = _SEMANTIC_POOL.submit(copy_context().run, _nearest_reports, team, query, eligible)
+        future = _SEMANTIC_POOL.submit(_nearest_reports_in_worker, copy_context(), team, query, eligible)
     except Exception:
         _SEMANTIC_SLOTS.release()
         raise
@@ -287,12 +287,23 @@ def _start_semantic_ranking(
     return future.result
 
 
+def _nearest_reports_in_worker(
+    context: Context, team: Team, query: str, eligible: Sequence[tuple[uuid.UUID, datetime.datetime]]
+) -> list[uuid.UUID]:
+    try:
+        return context.run(_nearest_reports, team, query, eligible)
+    finally:
+        # `sync_execute` can read instance settings from Postgres. Django closes the connections of request
+        # threads only, so a pool thread that keeps its connection holds it open for the life of the process.
+        connections.close_all()
+
+
 def _nearest_reports(
     team: Team, query: str, eligible: Sequence[tuple[uuid.UUID, datetime.datetime]]
 ) -> list[uuid.UUID]:
     """The eligible reports nearest to `query`, nearest first.
 
-    Must not use the Django ORM, because it can run on a worker thread.
+    Must not query reports, because it can run on a worker thread outside the request's database connection.
     """
     # Deferred: `posthog.api` loads the product routes, which import this module through the signals views.
     from posthog.api.embedding_worker import generate_embedding  # noqa: PLC0415
