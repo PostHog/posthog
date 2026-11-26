@@ -687,9 +687,14 @@ impl Desktop {
 
     /// A goal as its own page: where it stands and how it is measured.
     pub(super) fn goal_page(&self, state: &TopicState, goal: GoalId, cx: &Context<Self>) -> Div {
-        let page = ui::column().w_full().max_w(px(720.)).mx_auto().gap(px(14.));
+        use super::topic_pages::empty_group;
+        use meep_shell::settings::{self as set, Tone};
+        let page = ui::column().w_full().max_w(px(720.)).mx_auto().pb(px(48.));
         let Some(g) = state.topic.goals.iter().find(|g| g.id == goal) else {
-            return page.child(ui::caption("This goal was removed."));
+            return page.child(empty_group(
+                "This goal was removed",
+                "Open Goals to see the others.",
+            ));
         };
         let (label, ratio, band) = goal_measure(g);
         let kind = match g.progress {
@@ -698,36 +703,38 @@ impl Desktop {
             None => "Goal",
         };
         let text = g.text.clone();
-        let mut page = page.child(super::details::item_title(kind, g.text.clone()));
-        if ratio.is_some() {
-            page = page.child(
-                ui::column()
-                    .gap(px(12.))
-                    .p(px(16.))
-                    .rounded(px(10.))
-                    .bg(ui::ink(0x05))
-                    .child(
-                        ui::row()
-                            .gap(px(10.))
-                            .items_end()
-                            .child(
-                                div()
-                                    .text_size(px(24.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(label),
-                            )
-                            .child(ui::caption(if goal_on_track(g) {
-                                "On track"
-                            } else {
-                                "Behind"
-                            })),
-                    )
-                    .child(goal_track(ratio, band, 560.).w_full()),
-            );
+        let progress = if ratio.is_some() {
+            let (status, tone) = if goal_on_track(g) {
+                ("On track", Tone::Positive)
+            } else {
+                ("Behind", Tone::Warning)
+            };
+            set::group([ui::column()
+                .w_full()
+                .px(px(set::ROW_X))
+                .py(px(16.))
+                .gap(px(14.))
+                .child(
+                    ui::row()
+                        .items_end()
+                        .gap(px(12.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(px(24.))
+                                .line_height(px(28.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(label),
+                        )
+                        .child(set::status(status, tone)),
+                )
+                .child(goal_track(ratio, band, 560.).w_full())
+                .into_any_element()])
         } else {
-            page = page
-                .child(ui::caption("Not measured yet."))
-                .child(ui::row().child(control(
+            set::group([set::item(
+                "Not measured yet",
+                "Ask the agent how to measure this goal.",
+                control(
                     "suggest-measure",
                     "Suggest a measure",
                     true,
@@ -739,17 +746,26 @@ impl Desktop {
                             cx,
                         )
                     },
-                )));
-        }
-        page
+                ),
+            )
+            .into_any_element()])
+        };
+        page.child(set::header(g.text.clone(), kind, None))
+            .child(set::section("Progress", "", None, true))
+            .child(progress)
     }
 
     /// A linked context source as its own page.
     pub(super) fn linked_page(&self, state: &TopicState, key: &str, cx: &Context<Self>) -> Div {
+        use super::topic_pages::{chevron, empty_group, nav_row};
+        use meep_shell::settings as set;
         let id = state.topic.id;
-        let page = ui::column().w_full().max_w(px(720.)).mx_auto().gap(px(16.));
+        let page = ui::column().w_full().max_w(px(720.)).mx_auto().pb(px(48.));
         let Some(watch) = state.topic.context_sources.iter().find(|w| w.key == key) else {
-            return page.child(ui::caption("This link was removed."));
+            return page.child(empty_group(
+                "This source was unlinked",
+                "Open Linked to see the other sources.",
+            ));
         };
         let source = watch.id;
         let service = self.connection_label(&watch.connection);
@@ -759,51 +775,44 @@ impl Desktop {
             .iter()
             .filter(|f| f.is_current() && f.provenance.via.contains(&watch.label))
             .collect();
-        // The same head as every item page: what it is, its name, then where it lives.
-        let mut page = page.child(
-            ui::row()
-                .items_start()
-                .gap(px(12.))
-                .child(
-                    ui::column()
-                        .flex_1()
-                        .min_w_0()
-                        .gap(px(6.))
-                        .child(super::details::item_title(
-                            source_kind(&watch.kind).to_owned(),
-                            watch.label.clone(),
-                        ))
-                        .child(ui::caption(service.to_owned())),
-                )
-                .child(control(
-                    "unlink-source",
-                    "Unlink",
-                    false,
-                    cx,
-                    move |s, w, cx| {
-                        if s.issue(id, Command::RemoveContextSource { source }) {
-                            s.go(Page::Topic(id, Tab::Linked, None), w, cx)
-                        }
-                    },
-                )),
-        );
-        if !facts.is_empty() {
-            let mut list = ui::column().gap(px(2.));
-            for f in facts {
-                let fid = f.id;
-                list = list.child(
-                    line(format!("linked-fact-{fid}"), false)
-                        .h(px(34.))
-                        .child(ui::nav::glyph(Glyph::Pencil, false))
-                        .child(div().flex_1().min_w_0().truncate().child(f.text.clone()))
-                        .on_click(cx.listener(move |s, _, w, cx| {
-                            s.go(Page::Topic(id, Tab::Facts, Some(Detail::Fact(fid))), w, cx)
-                        })),
-                );
+        let unlink = control("unlink-source", "Unlink", false, cx, move |s, w, cx| {
+            if s.issue(id, Command::RemoveContextSource { source }) {
+                s.go(Page::Topic(id, Tab::Linked, None), w, cx)
             }
-            page = page.child(ui::caption("Facts from it")).child(list);
-        }
-        page
+        })
+        .into_any_element();
+        let body = if facts.is_empty() {
+            empty_group(
+                "No facts from it yet",
+                "The agent adds facts here when it reads this source.",
+            )
+        } else {
+            set::group(facts.into_iter().map(|f| {
+                let fid = f.id;
+                nav_row(format!("linked-fact-{fid}"))
+                    .min_h(px(48.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(13.))
+                            .line_height(px(18.))
+                            .child(f.text.clone()),
+                    )
+                    .child(chevron())
+                    .on_click(cx.listener(move |s, _, w, cx| {
+                        s.go(Page::Topic(id, Tab::Facts, Some(Detail::Fact(fid))), w, cx)
+                    }))
+                    .into_any_element()
+            }))
+        };
+        page.child(set::header(
+            watch.label.clone(),
+            format!("{} from {service}", source_kind(&watch.kind)),
+            Some(unlink),
+        ))
+        .child(set::section("Facts from it", "", None, true))
+        .child(body)
     }
 
     /// Open the Files tree at a top-level folder.

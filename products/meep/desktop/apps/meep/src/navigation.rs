@@ -2318,6 +2318,7 @@ impl Desktop {
                             s.job(async move { b.sign_out().await }, w, cx, |s, r, w, cx| {
                                 // The Mac is signed out either way; a server error follows.
                                 s.identity = None;
+                                s.github = Default::default();
                                 s.mcp = super::mcp_settings::McpSettings::new(w, cx);
                                 s.error = None;
                                 s.back.clear();
@@ -2358,6 +2359,9 @@ impl Desktop {
                     ))
                     .child(section("Account", "", None, true))
                     .child(group([account.into_any_element()]))
+                    .when(self.identity.is_some(), |column| {
+                        column.child(self.github_settings(cx))
+                    })
             }
             SettingsPage::Connections => self.mcp_page(cx),
             SettingsPage::Shortcuts => self.shortcuts_page(),

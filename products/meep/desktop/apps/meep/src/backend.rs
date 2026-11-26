@@ -1,4 +1,5 @@
 mod direct;
+pub(crate) use direct::GithubAccount;
 
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
@@ -74,6 +75,13 @@ pub(super) struct Identity {
 }
 
 impl Identity {
+    pub(super) fn github_settings_url(&self) -> String {
+        format!(
+            "{}/project/{}/settings/user-personal-integrations#personal-integrations-github",
+            self.region.origin(),
+            self.project
+        )
+    }
     pub(super) fn inbox_url(&self, section: &str, item: &str) -> Url {
         let mut url = Url::parse(self.region.origin()).expect("region is an HTTP origin");
         url.path_segments_mut()

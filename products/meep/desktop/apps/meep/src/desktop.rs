@@ -165,6 +165,7 @@ impl SettingsPage {
 }
 pub(super) struct Desktop {
     pub views: super::views::ViewWorkspace,
+    pub github: super::github::Github,
     pub mcp: super::mcp_settings::McpSettings,
     pub alerts: super::preferences::Alerts,
     pub clear_confirm: bool,
@@ -335,6 +336,9 @@ impl Desktop {
         })
         .detach();
         cx.observe_window_activation(w, |s: &mut Self, w, cx| {
+            if w.is_window_active() {
+                s.github_return(w, cx);
+            }
             if w.is_window_active()
                 && s.page == Page::Settings
                 && s.settings_page == SettingsPage::Connections
@@ -550,6 +554,7 @@ impl Desktop {
             focus,
             sheet: None,
             menu: false,
+            github: Default::default(),
             mcp: super::mcp_settings::McpSettings::new(w, cx),
             alerts: Default::default(),
             clear_confirm: false,
@@ -1062,6 +1067,11 @@ impl Desktop {
             self.chat_reference = None;
             // Uploaded files stay in the topic they were saved to; only the draft lets go.
             self.chat_files.clear();
+        }
+        if self.identity.is_some()
+            && (page == Page::Settings || matches!(page, Page::Topic(_, Tab::Linked, _)))
+        {
+            self.refresh_github(w, cx);
         }
         if page == Page::Settings && self.settings_page == SettingsPage::Connections {
             self.mcp_request(meep_wire::mcp_store::Operation::Browse, w, cx);

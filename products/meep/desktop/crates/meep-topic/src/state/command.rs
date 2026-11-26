@@ -276,6 +276,15 @@ pub enum Command {
         /// Reference available to topic tasks and routines.
         source: Watch,
     },
+    /// Compare the previous source identity so an offline choice cannot replace a newer attachment.
+    SelectGithubRepository {
+        /// The repository source visible to the person when the picker opened.
+        previous: Option<WatchId>,
+        /// Stable across retries of this selection.
+        id: WatchId,
+        /// GitHub's owner/repository name.
+        repository: String,
+    },
     /// Remove one passive reference without affecting monitoring.
     RemoveContextSource {
         /// Identity of the reference to remove.
@@ -854,6 +863,30 @@ impl TopicState {
             Command::SetTopicWatches { watches } => self.set_topic_watches(watches, now),
             Command::SetContextSources { sources } => self.set_context_sources(sources, now),
             Command::AddContextSource { source } => self.add_context_source(source, now),
+            Command::SelectGithubRepository {
+                previous,
+                id,
+                repository,
+            } => {
+                let mut sources = self.topic.context_sources.clone();
+                let current = sources
+                    .iter()
+                    .position(|s| s.connection == "github" && s.kind == "repository");
+                if current.map(|i| sources[i].id) != previous {
+                    return Ok(vec![]);
+                }
+                if let Some(i) = current {
+                    sources.remove(i);
+                }
+                sources.push(Watch {
+                    id,
+                    connection: "github".into(),
+                    kind: "repository".into(),
+                    label: repository.clone(),
+                    key: repository,
+                });
+                self.set_context_sources(sources, now)
+            }
             Command::RemoveContextSource { source } => self.remove_context_source(source, now),
             Command::SetRoutineWatches { routine, watches } => {
                 self.set_routine_watches(&routine, watches, now)

@@ -6,6 +6,8 @@ mod desktop;
 mod details;
 mod files;
 mod folds;
+mod github;
+mod linked;
 mod mcp_settings;
 mod navigation;
 mod overview;
@@ -19,6 +21,7 @@ mod tables;
 mod tasks_view;
 mod topic_card;
 mod topic_icon;
+mod topic_pages;
 mod views;
 
 use anyhow::Result;

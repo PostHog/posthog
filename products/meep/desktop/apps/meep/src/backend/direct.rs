@@ -231,3 +231,105 @@ impl Account {
         Ok(sources)
     }
 }
+
+#[derive(Default)]
+pub(crate) struct GithubAccount {
+    pub accounts: Vec<String>,
+    pub repositories: Vec<String>,
+    pub pending: bool,
+    pub needs_reconnect: bool,
+}
+
+impl Backend {
+    pub(crate) async fn github_account(&self, include_repositories: bool) -> Result<GithubAccount> {
+        #[derive(Deserialize)]
+        struct Rows<T> {
+            results: Vec<T>,
+        }
+        #[derive(Deserialize)]
+        struct Installation {
+            installation_id: Option<String>,
+            github_login: Option<String>,
+            installation_status: String,
+            needs_reauthorization: bool,
+        }
+        #[derive(Deserialize)]
+        struct Request {
+            status: String,
+        }
+        #[derive(Deserialize)]
+        struct Repo {
+            full_name: String,
+        }
+        #[derive(Deserialize)]
+        struct Page {
+            repositories: Vec<Repo>,
+            next_offset: Option<usize>,
+        }
+        let token = self.account.access_token().await?;
+        let base = format!(
+            "{}/api/users/@me/integrations",
+            self.account.region.origin()
+        );
+        let http = account_http()?;
+        let get = |url: String| http.get(url).bearer_auth(&token);
+        let installs: Rows<Installation> = get(format!("{base}/?kind=github"))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let requests: Rows<Request> = get(format!("{base}/github/install_requests/"))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let mut data = GithubAccount {
+            pending: requests.results.iter().any(|r| r.status == "pending"),
+            ..Default::default()
+        };
+        for install in installs.results {
+            if install.installation_status != "connected" || install.needs_reauthorization {
+                data.needs_reconnect = true;
+                continue;
+            }
+            let Some(id) = install.installation_id else {
+                continue;
+            };
+            ensure!(
+                !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()),
+                "Invalid GitHub installation"
+            );
+            data.accounts
+                .push(install.github_login.unwrap_or_else(|| "Connected".into()));
+            if !include_repositories {
+                continue;
+            }
+            let mut offset = 0;
+            loop {
+                let page: Page = get(format!(
+                    "{base}/github/{id}/repos/?compact=true&limit=500&offset={offset}"
+                ))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+                data.repositories
+                    .extend(page.repositories.into_iter().map(|r| r.full_name));
+                let Some(next) = page.next_offset else { break };
+                ensure!(
+                    next > offset,
+                    "Could not read the next page of GitHub repositories"
+                );
+                offset = next;
+            }
+        }
+        data.accounts.sort();
+        data.accounts.dedup();
+        data.repositories.sort_by_key(|s| s.to_lowercase());
+        data.repositories.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        Ok(data)
+    }
+}
