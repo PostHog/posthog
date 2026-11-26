@@ -186,7 +186,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
         // Heartbeat the lock while the page (or terminal write) runs: the audience fetch alone
         // can hold this job for the full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget,
-        // which is on the order of the janitor's stall threshold — without heartbeats the
+        // which is longer than the janitor's stall threshold, so without heartbeats the
         // janitor would reclaim the lock mid-page and the commit would be refused.
         const heartbeat = setInterval(() => {
             job.heartbeat().catch((err) => {
