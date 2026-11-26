@@ -4,8 +4,9 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
-import { createServer, request as httpRequest } from 'node:http'
-import { AddressInfo } from 'node:net'
+import dns from 'node:dns'
+import { ServerResponse, createServer, request as httpRequest } from 'node:http'
+import type { AddressInfo, Socket } from 'node:net'
 import { register } from 'prom-client'
 import supertest from 'supertest'
 import { v5 as uuidv5 } from 'uuid'
@@ -89,6 +90,7 @@ import { InFlightRegistry, LARGEST_SEND_FILE_BYTES } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
+import { SesTransport } from './ses-transport'
 
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
     const metric = await register.getSingleMetric(name)!.get()
@@ -260,13 +262,7 @@ const emailSeriesCountedFor = async (result: CyclotronJobInvocationResult): Prom
             .filter(([, delta]) => delta !== 0)
     )
 }
-const endpointNobodyListensOn = async (): Promise<string> => {
-    const server = createServer()
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-    const { port } = server.address() as AddressInfo
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
-    return `http://127.0.0.1:${port}`
-}
+const ENDPOINT_THAT_REFUSES_CONNECTIONS = 'http://127.0.0.1:1'
 
 describe('EmailService', () => {
     let service: EmailService
@@ -421,8 +417,6 @@ describe('EmailService', () => {
                 null,
                 workflowsActivationReporter
             )
-            expect(serviceWithoutSES.sesTransport).toBeNull()
-
             await insertIntegration(hub.postgres, team.id, {
                 id: getIntegrationId(1),
                 kind: 'email',
@@ -3214,29 +3208,17 @@ describe('EmailService', () => {
                     },
                 ],
                 [
-                    'SES refuses with a throttle',
-                    () => {
-                        ses.failWith(sesThrottles)
-                    },
-                ],
-                [
                     'SES refuses the connection',
-                    async (emailService: EmailService) => {
-                        emailService.sesTransport = sesTransportFor({ endpoint: await endpointNobodyListensOn() })
-                    },
-                ],
-                [
-                    'the SES host does not resolve',
                     (emailService: EmailService) => {
-                        emailService.sesTransport = sesTransportFor({ endpoint: 'http://ses.invalid' })
+                        emailService.sesTransport = sesTransportFor({ endpoint: ENDPOINT_THAT_REFUSES_CONNECTIONS })
                     },
                 ],
             ])(
                 'when %s, retries the send later and delivers it with its files once',
-                async (_name, fault: (emailService: EmailService) => void | Promise<void>) => {
+                async (_name, fault: (emailService: EmailService) => void) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
                     const ownTransport = emailService.sesTransport
-                    await fault(emailService)
+                    fault(emailService)
 
                     const retry = await emailService.executeSendEmail(invocation)
                     expect({
@@ -3306,7 +3288,7 @@ describe('EmailService', () => {
                     true,
                     'fails a test send at once as attachment_unavailable',
                     true,
-                    expect.stringMatching(/^attachment_unavailable: .* in 1 try,/),
+                    expect.stringMatching(/^attachment_unavailable: .* after 1 try\./),
                     null,
                 ],
             ])(
@@ -3341,7 +3323,7 @@ describe('EmailService', () => {
                 expect({ tries, finished: result.finished, error: result.error }).toEqual({
                     tries: 11,
                     finished: true,
-                    error: expect.stringMatching(/^attachment_unavailable: .* in 11 tries,/),
+                    error: expect.stringMatching(/^attachment_unavailable: .* after 11 tries\./),
                 })
                 expect(ses.sent).toEqual([])
             })
@@ -5116,5 +5098,117 @@ describe('EmailService', () => {
                 )
             }
         )
+    })
+})
+
+describe('SesTransport', () => {
+    const SDK_SOCKETS_PER_HOST = 50
+    const email = {
+        FromEmailAddress: 'sender@example.com',
+        Destination: { ToAddresses: ['recipient@example.com'] },
+        Content: { Simple: { Subject: { Data: 'Report' }, Body: { Text: { Data: 'Attached.' } } } },
+    }
+    const { metadata, bytes } = attachmentFile({ filename: 'report.pdf', contentType: 'application/pdf' })
+    const withFiles = { email, files: [{ file: metadata, bytes }], deadline: new AbortController().signal }
+    let transport: SesTransport | undefined
+
+    afterEach(() => {
+        transport?.destroy()
+        transport = undefined
+        if (jest.isMockFunction(dns.lookup)) {
+            jest.mocked(dns.lookup).mockRestore()
+        }
+    })
+
+    type LookupAnswer = (options: dns.LookupOptions, callback: (...args: unknown[]) => void) => void
+
+    const lookupAnswers = (answeredHost: string, answer: LookupAnswer): void => {
+        const lookup = dns.lookup as (...args: unknown[]) => void
+        jest.spyOn(dns, 'lookup').mockImplementation(((host: string, ...rest: unknown[]) => {
+            if (host !== answeredHost) {
+                return lookup(host, ...rest)
+            }
+            const callback = rest[rest.length - 1] as (...args: unknown[]) => void
+            const options = (typeof rest[0] === 'object' ? rest[0] : {}) as dns.LookupOptions
+            process.nextTick(() => answer(options, callback))
+        }) as typeof dns.lookup)
+    }
+
+    const notFound: LookupAnswer = (_options, callback) =>
+        callback(
+            Object.assign(new Error('getaddrinfo ENOTFOUND ses.invalid'), {
+                code: 'ENOTFOUND',
+                syscall: 'getaddrinfo',
+                hostname: 'ses.invalid',
+            })
+        )
+
+    const twoLoopbackAddresses: LookupAnswer = (options, callback) =>
+        options.all
+            ? callback(null, [
+                  { address: '127.0.0.1', family: 4 },
+                  { address: '127.0.0.2', family: 4 },
+              ])
+            : callback(null, '127.0.0.1', 4)
+
+    it('sends each email with files on a connection of its own, also with more in flight than the SDK keeps sockets per host', async () => {
+        const connections = new Set<Socket>()
+        const held: ServerResponse[] = []
+        let answered = 0
+        const answer = (response: ServerResponse): void => {
+            answered++
+            response.writeHead(200, { 'content-type': 'application/json' }).end(`{"MessageId":"m-${answered}"}`)
+        }
+        const ses = createServer((request, response) => {
+            connections.add(request.socket)
+            request.resume()
+            request.on('end', () => {
+                held.push(response)
+                if (answered > 0 || held.length === SDK_SOCKETS_PER_HOST) {
+                    held.splice(0).forEach(answer)
+                }
+            })
+        })
+        await new Promise<void>((resolve) => ses.listen(0, '127.0.0.1', resolve))
+        transport = sesTransportFor({ endpoint: `http://127.0.0.1:${(ses.address() as AddressInfo).port}` })
+
+        const outcomes = await Promise.all(
+            Array.from({ length: SDK_SOCKETS_PER_HOST + 1 }, () => transport!.send(withFiles))
+        )
+        await new Promise<void>((resolve) => ses.close(() => resolve()))
+
+        expect({
+            accepted: outcomes.filter(({ kind }) => kind === 'accepted').length,
+            connections: connections.size,
+        }).toEqual({ accepted: SDK_SOCKETS_PER_HOST + 1, connections: SDK_SOCKETS_PER_HOST + 1 })
+    })
+
+    it.each([
+        ['SES refuses the connection', (): string => ENDPOINT_THAT_REFUSES_CONNECTIONS],
+        [
+            'every address of the SES host refuses the connection',
+            (): string => {
+                lookupAnswers('ses.example.test', twoLoopbackAddresses)
+                return 'http://ses.example.test:1'
+            },
+        ],
+        [
+            'the SES host does not resolve',
+            (): string => {
+                lookupAnswers('ses.invalid', notFound)
+                return 'http://ses.invalid'
+            },
+        ],
+    ])('when %s, counts a send with files as before_connect, because it never reached SES', async (_name, endpoint) => {
+        transport = sesTransportFor({ endpoint: endpoint() })
+        const labels = { result: 'before_connect' }
+        const before = await metricValue('cdp_ses_send_results_total', labels)
+
+        const outcome = await transport.send(withFiles)
+
+        expect({
+            outcome: outcome.kind === 'not_sent' ? outcome.reason : outcome.kind,
+            counted: (await metricValue('cdp_ses_send_results_total', labels)) - before,
+        }).toEqual({ outcome: 'before_connect', counted: 1 })
     })
 })

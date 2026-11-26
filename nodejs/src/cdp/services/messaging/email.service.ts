@@ -223,7 +223,7 @@ class MessageTooLargeError extends Error {
 
 class SesNotReachedError extends Error {
     constructor(message: string) {
-        super(`Failed to send email via SES: SES could not be reached (${message}), so the email was not sent`)
+        super(`SES could not be reached (${message}), so the email was not sent`)
         this.name = 'SesNotReachedError'
     }
 }
@@ -231,7 +231,6 @@ class SesNotReachedError extends Error {
 const isAttachmentLoadFailure = (error: unknown): boolean =>
     error instanceof AttachmentStoreUnavailableError || error instanceof EmailSendDeadlineError
 
-// The send never reached SES, so a later try cannot send the email twice. These retries share one budget.
 const isRetryableBeforeSes = (error: unknown): boolean =>
     isAttachmentLoadFailure(error) || error instanceof SesNotReachedError
 
@@ -261,7 +260,7 @@ function describeAttachmentFailure(
     if (isAttachmentLoadFailure(error)) {
         return {
             reason: EMAIL_ATTACHMENT_UNAVAILABLE,
-            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the attachment files of this email could not be loaded in ${tries} ${tries === 1 ? 'try' : 'tries'}, so it was not sent.`,
+            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the attachment files of this email could not be loaded, so it was not sent after ${tries} ${tries === 1 ? 'try' : 'tries'}.`,
         }
     }
     return null
