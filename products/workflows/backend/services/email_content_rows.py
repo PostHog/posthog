@@ -38,7 +38,7 @@ MODEL_TARGETS: Final[dict[str, tuple[type[models.Model], dict[str, str]]]] = {
     "hog_flow_templates": (HogFlowTemplate, {"actions": "updated_at"}),
     "hog_functions": (HogFunction, {"inputs": "updated_at", "draft": "draft_updated_at"}),
 }
-# Message templates belong to messaging, which finds and rewrites its own rows (content, draft, updated_at).
+# Message templates belong to messaging, which finds and rewrites its own rows (content, updated_at).
 MESSAGE_TEMPLATES: Final = "message_templates"
 TARGETS: Final[tuple[str, ...]] = ("hog_flows", "hog_flow_templates", MESSAGE_TEMPLATES, "hog_functions")
 
@@ -70,7 +70,8 @@ def _matching(target: str, text: str, *, team_ids: list[int] | None, row_id: str
 
 
 def rewrite_row(target: str, row_id: Any, rewrite: BlobRewrite, *, team_ids: list[int] | None, dry_run: bool) -> int:
-    """Apply `rewrite` to every email content column of one row under a row lock. Returns the occurrences replaced."""
+    """Apply `rewrite` to every email content column of one row under a row lock. Returns the occurrences replaced,
+    or for a dry run the occurrences it would replace."""
     if target == MESSAGE_TEMPLATES:
         return rewrite_template_content(row_id, rewrite, team_ids=team_ids, dry_run=dry_run)
 
@@ -133,7 +134,7 @@ def rewrite_row(target: str, row_id: Any, rewrite: BlobRewrite, *, team_ids: lis
 
 def _base_queryset(target: str, *, team_ids: list[int] | None, row_id: str | None = None) -> models.QuerySet:
     model = MODEL_TARGETS[target][0]
-    # _default_manager, not .objects: the loop is generic over the model targets, and Model itself
+    # _default_manager, not .objects: this is generic over the model targets, and Model itself
     # doesn't declare a manager. unscoped() where it exists - a fix like this is deliberately
     # cross-team, so a fail-closed manager would otherwise raise TeamScopeError.
     manager = model._default_manager
