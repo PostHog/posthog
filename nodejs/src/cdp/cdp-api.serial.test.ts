@@ -5810,6 +5810,15 @@ describe('CDP API', () => {
                 expect(intakeRecords()).toEqual([])
             })
 
+            it('refuses a code send batch in an archived category and publishes nothing', async () => {
+                const archived = { ...codeSend, category: { id: 'news', type: 'transactional', archived: true } }
+
+                const res = await sendBatch(CODE, { send: archived, recipients: [recipient('ada@example.com')] })
+
+                expect([res.status, res.body]).toEqual([400, { error: 'category_not_found' }])
+                expect(intakeRecords()).toEqual([])
+            })
+
             describe('on a pod of its own', () => {
                 const served: { cdpApi: CdpApi; server: Server }[] = []
                 const servedWith = async (

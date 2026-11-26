@@ -1668,6 +1668,9 @@ export class CdpApi {
                 if (exceedsCopyLimits(batch)) {
                     return refuse('too_large', 413, { error: 'too_large' })
                 }
+                if (batch.send?.category?.archived) {
+                    return refuse('category_not_found', 400, { error: 'category_not_found' })
+                }
                 const teamId = parseInt(req.params.team_id)
 
                 stages.start('load')
