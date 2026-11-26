@@ -451,12 +451,9 @@ jobs:
         # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
         # treats skipped as success, and the merge queue's trunk-merge/** run is the gate.
         # Not on master push either — see the hourly `schedule` trigger.
-        # TEMPORARY (remove before review): the `head_ref` clause runs this job on the
-        # draft superfan PR so its cache miss and hit can be measured.
         if: >-
             needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
-            && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/')
-            || github.head_ref == 'claude/ci-superfan-mcp-integration-setup')
+            && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
