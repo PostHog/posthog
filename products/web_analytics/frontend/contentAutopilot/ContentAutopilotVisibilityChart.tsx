@@ -107,27 +107,32 @@ export const ContentAutopilotVisibilityChart = ({
             {hasData && display === 'averages' ? (
                 <ContentAutopilotChartAverages chart={chart} metric={metric} days={days} data-attr={dataAttr} />
             ) : (
-            <div className="flex h-72 min-w-0 flex-col" data-attr={dataAttr}>
-                {hasData && display === 'waiting' ? (
-                    <Text size="xs" variant="muted" render={<p className="m-0 pb-1" />} data-attr={`${dataAttr}-waiting`}>
-                        Waiting for more days of data. {pluralize(days, 'day')} of {MIN_TREND_DAYS} so far.
-                    </Text>
-                ) : null}
-                {hasData ? (
-                    <TimeSeriesLineChart
-                        series={series}
-                        labels={chart.labels}
-                        theme={theme}
-                        config={metric === 'position' ? POSITION_CONFIG : RATE_CONFIG}
-                    />
-                ) : (
-                    <Empty className="flex-1">
-                        <EmptyHeader>
-                            <EmptyDescription>{EMPTY[metric]}</EmptyDescription>
-                        </EmptyHeader>
-                    </Empty>
-                )}
-            </div>
+                <div className="flex h-72 min-w-0 flex-col" data-attr={dataAttr}>
+                    {hasData && display === 'waiting' ? (
+                        <Text
+                            size="xs"
+                            variant="muted"
+                            render={<p className="m-0 pb-1" />}
+                            data-attr={`${dataAttr}-waiting`}
+                        >
+                            Waiting for more days of data. {pluralize(days, 'day')} of {MIN_TREND_DAYS} so far.
+                        </Text>
+                    ) : null}
+                    {hasData ? (
+                        <TimeSeriesLineChart
+                            series={series}
+                            labels={chart.labels}
+                            theme={theme}
+                            config={metric === 'position' ? POSITION_CONFIG : RATE_CONFIG}
+                        />
+                    ) : (
+                        <Empty className="flex-1">
+                            <EmptyHeader>
+                                <EmptyDescription>{EMPTY[metric]}</EmptyDescription>
+                            </EmptyHeader>
+                        </Empty>
+                    )}
+                </div>
             )}
         </AiVisibilityCard>
     )

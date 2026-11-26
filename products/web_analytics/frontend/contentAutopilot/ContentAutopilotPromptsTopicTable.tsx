@@ -1,5 +1,5 @@
 import type { LemonTableColumn } from '@posthog/lemon-ui'
-import { Button, Text } from '@posthog/quill'
+import { Button } from '@posthog/quill'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 

@@ -1,6 +1,6 @@
 import type { AEOPromptSetOverviewApi } from '../generated/api.schemas'
 import { EXAMPLE_PROMPT_SET_OVERVIEW } from './contentAutopilotStoryFixtures'
-import { engineTopicGrid, overviewMetricItems, promptsOverviewHasChecks } from './promptsOverview'
+import { engineTopicGrid, overviewTiles, promptsOverviewHasChecks } from './promptsOverview'
 
 const overview = (
     current: Partial<AEOPromptSetOverviewApi['current']>,
@@ -12,31 +12,15 @@ const overview = (
 })
 
 describe('promptsOverview', () => {
-    it('gives the headline numbers in Web analytics tile shape, each against the window before', () => {
-        const [prompts, visibility, cited, position] = overviewMetricItems(EXAMPLE_PROMPT_SET_OVERVIEW)
-        expect(prompts).toMatchObject({ key: 'prompts', kind: 'unit', value: 42 })
-        expect(visibility).toMatchObject({ key: 'visibility', kind: 'percentage', value: 60 })
-        expect(visibility.previous).toBeCloseTo(60)
-        expect(cited).toMatchObject({ key: 'cited', kind: 'percentage', value: 40 })
-        const before = cited.previous as number
-        expect(cited.changeFromPreviousPct).toBeCloseTo(((40 - before) / before) * 100)
-        expect(position).toMatchObject({ key: 'position', value: '#2.3', isIncreaseBad: true })
-    })
-
-    it('has no earlier value or change when the window before had no answers', () => {
-        const [, visibility, , position] = overviewMetricItems(
-            overview({}, { checks: 0, failed: 0, cited: 0, mentioned: 0, avg_position: null })
-        )
-        expect(visibility).toMatchObject({ previous: undefined, changeFromPreviousPct: undefined })
-        expect(position).toMatchObject({ previous: undefined, changeFromPreviousPct: undefined })
-    })
-
     it.each([
-        ['none of them', { prompts: 3, prompts_cited: 0 }, '3 ran in this date range, none of them cited'],
-        ['all of them', { prompts: 3, prompts_cited: 3 }, '3 ran in this date range, all of them cited'],
-        ['no run', { prompts: 0, prompts_cited: 0 }, 'None ran in this date range'],
-    ])('describes the cited prompts when %s', (_name, counts, note) => {
-        expect(overviewMetricItems(overview(counts))[0].caption).toBe(note)
+        ['shares of the answered checks', {}, { prompts: '42', visibility: '60%', cited: '40%', position: '#2.3' }],
+        [
+            'no answered checks',
+            { checks: 5, failed: 5, avg_position: null },
+            { prompts: '42', visibility: '-', cited: '-', position: 'Not cited' },
+        ],
+    ])('gives each headline tile only its value, from %s', (_name, current, tiles) => {
+        expect(overviewTiles(overview(current))).toEqual(tiles)
     })
 
     it('has checks only when a window has one', () => {

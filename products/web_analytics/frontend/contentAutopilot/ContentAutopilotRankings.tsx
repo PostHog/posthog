@@ -2,16 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import {
-    Button,
-    cn,
-    Empty,
-    EmptyContent,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyTitle,
-    Text,
-} from '@posthog/quill'
+import { Button, cn, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Text } from '@posthog/quill'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
@@ -35,9 +26,9 @@ import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
-import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
 import { ContentAutopilotRankingsSkeleton } from './ContentAutopilotRankingsSkeleton'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 import { visibilityChange } from './rankingsReport'
 import { segmentPrompts, windowRange } from './utils'

@@ -47,9 +47,12 @@ const Blank = (): JSX.Element => <span className="text-muted-foreground">-</span
 const UNIT_PLURALS = { answer: 'answers', search: 'searches' } as const
 
 const TooFewAnswers = ({ sample, unit }: { sample: number; unit: keyof typeof UNIT_PLURALS }): JSX.Element => (
-    <Hint title={`Fewer than ${pluralize(MIN_RATED_ANSWERS, unit, UNIT_PLURALS[unit])}, so a share would not mean much yet.`}
+    <Hint
+        title={`Fewer than ${pluralize(MIN_RATED_ANSWERS, unit, UNIT_PLURALS[unit])}, so a share would not mean much yet.`}
     >
-        <span className="text-muted-foreground tabular-nums whitespace-nowrap">{pluralize(sample, unit, UNIT_PLURALS[unit])}</span>
+        <span className="text-muted-foreground tabular-nums whitespace-nowrap">
+            {pluralize(sample, unit, UNIT_PLURALS[unit])}
+        </span>
     </Hint>
 )
 
