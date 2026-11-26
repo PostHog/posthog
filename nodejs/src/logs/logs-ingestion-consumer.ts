@@ -75,8 +75,8 @@ import {
     AUTH_TYPE_HEADER,
     AUTH_TYPE_SECRET_KEY,
     SecretKeyTeams,
-    isSecretKey,
     isSecretKeyDigest,
+    isUnhashedSecretKey,
     isUnknownToken,
     loggableToken,
 } from './secret-key-teams'
@@ -1532,7 +1532,7 @@ export class LogsIngestionConsumer {
             messages.map(async (message) => {
                 try {
                     const headers = parseKafkaHeaders(message.headers)
-                    let token = headers.token
+                    const token = headers.token
 
                     if (!token) {
                         logger.warn('missing_token')
@@ -1541,7 +1541,7 @@ export class LogsIngestionConsumer {
                         return
                     }
                     const sentSecretKey = isSecretKeyDigest(token)
-                    const sentUnhashedKey = isSecretKey(token)
+                    const sentUnhashedKey = isUnhashedSecretKey(token)
 
                     let team
                     try {
@@ -1578,10 +1578,7 @@ export class LogsIngestionConsumer {
                         recordLogMessageDropped('team_not_found', 'unknown')
                         return
                     }
-                    // Quota, output headers and the DLQ are keyed by the public token.
-                    if (sentSecretKey) {
-                        token = team.api_token
-                    }
+                    const publicToken = sentSecretKey ? team.api_token : token
 
                     const bytesUncompressed = parseSizeHeader(headers.bytes_uncompressed)
                     const bytesUncompressedRecords = parseSizeHeader(headers.bytes_uncompressed_records)
@@ -1600,7 +1597,7 @@ export class LogsIngestionConsumer {
                             offset: message.offset,
                         })
                         await this.produceRawToDlq(message, new Error('invalid_size_headers'), {
-                            token,
+                            token: publicToken,
                             teamId: team.id,
                         })
                         return
@@ -1613,7 +1610,7 @@ export class LogsIngestionConsumer {
                     }
 
                     events.push({
-                        token,
+                        token: publicToken,
                         authType: sentSecretKey ? AUTH_TYPE_SECRET_KEY : undefined,
                         message,
                         teamId: team.id,

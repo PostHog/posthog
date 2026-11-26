@@ -10,6 +10,7 @@ const SECRET_KEY_SCOPE = 'logs:write'
 
 // capture-logs replaces a secret key with this digest, which has the form of `secure_value`.
 const SECRET_KEY_DIGEST_PREFIX = 'sha256$'
+const LOGGED_DIGEST_LENGTH = SECRET_KEY_DIGEST_PREFIX.length + 8
 
 export function isSecretKeyDigest(token: string): boolean {
     return token.startsWith(SECRET_KEY_DIGEST_PREFIX)
@@ -17,11 +18,16 @@ export function isSecretKeyDigest(token: string): boolean {
 
 /** The part of a token that is safe to log. A digest is as good as the key to a reader of the logs. */
 export function loggableToken(token: string): string {
-    return isSecretKey(token) ? SECRET_KEY_PREFIX : isSecretKeyDigest(token) ? token.slice(0, 15) : token
+    if (isUnhashedSecretKey(token)) {
+        return SECRET_KEY_PREFIX
+    }
+    if (isSecretKeyDigest(token)) {
+        return token.length >= LOGGED_DIGEST_LENGTH ? token.slice(0, LOGGED_DIGEST_LENGTH) : SECRET_KEY_DIGEST_PREFIX
+    }
+    return token
 }
 
-/** A key that no capture service hashed. It is never looked up, logged or recorded. */
-export function isSecretKey(token: string): boolean {
+export function isUnhashedSecretKey(token: string): boolean {
     return token.trimStart().startsWith(SECRET_KEY_PREFIX)
 }
 
@@ -71,7 +77,7 @@ export async function isUnknownToken(
     token: string,
     secretKeyTeams: Pick<SecretKeyTeams, 'exists'> | undefined
 ): Promise<boolean> {
-    if (isSecretKey(token)) {
+    if (isUnhashedSecretKey(token)) {
         return false
     }
     if (!isSecretKeyDigest(token)) {

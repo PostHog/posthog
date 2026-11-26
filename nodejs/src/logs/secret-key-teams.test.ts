@@ -47,6 +47,7 @@ describe('SecretKeyTeams', () => {
 
     it.each([
         [exampleKeyHash, 'sha256$e39f0789'],
+        ['sha256$e39f', 'sha256$'],
         [' phs_unhashed_key', 'phs_'],
         ['phc_example', 'phc_example'],
     ])('logs only the safe part of %s', (token, logged) => {
