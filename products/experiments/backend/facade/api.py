@@ -225,13 +225,19 @@ def _nodes_read_without_exposure_copy(experiment: ExperimentModel) -> list[dict[
 
 
 def get_experiment_health(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
+    *,
+    team_id: int,
+    experiment_id: int,
+    reader_access: ExperimentHealthReaderAccess,
+    user: User | None,
+    at_launch: bool = False,
 ) -> ExperimentHealth:
     """The findings and the result of each health check that reads the experiment, its flag, its linked metrics,
     and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows, and the
-    flag's settings that decide the variant. The metric queries compile with `user`'s warehouse access."""
+    flag's settings that decide the variant. The metric queries compile with `user`'s warehouse access. With
+    `at_launch`, a draft's checks that run only after launch run as if it launched now."""
     return evaluate_experiment_health(
-        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
+        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user, at_launch=at_launch
     )
 
 
@@ -580,6 +586,18 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
     )
 
     dispatch.start_metrics_recalculation_workflow(recalculation_id, team_id=team_id, organization_id=organization_id)
+
+
+def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: int) -> None:
+    """Start the timeseries backfill workflow for a row that ``request_timeseries_recalculation`` created.
+
+    When the start fails, the row is marked failed, and the exception propagates.
+    """
+    from products.experiments.backend import (  # noqa: PLC0415, recalculation imports dispatch, which imports temporalio
+        recalculation,
+    )
+
+    recalculation.start_timeseries_recalculation_workflow(recalculation_id, team_id=team_id)
 
 
 def request_metrics_recalculation(

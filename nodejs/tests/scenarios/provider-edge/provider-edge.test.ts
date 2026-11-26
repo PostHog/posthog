@@ -250,6 +250,39 @@ describe('provider edge', () => {
         )
     })
 
+    it('holds the next send for an armed accept boundary before a seeded share sees it', async () => {
+        const hold = edge.hold(heldAnswerRule())
+        edge.addFault({
+            ...ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 1 } }),
+            pick: '1:0',
+        })
+
+        let answered = false
+        const answer = send(ALICE).finally(() => (answered = true))
+        const accepted = await hold.accepted!(AbortSignal.timeout(2000))
+        const pending = !answered
+        await hold.release()
+
+        expect({ accepted, pending, answer: await answer }).toEqual({ accepted: true, pending: true, answer: 'sent' })
+    })
+
+    it('gives a unit its own first draw when an earlier run sent the same ordinal first', async () => {
+        const seeded = {
+            ...ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 0.5 } }),
+            pick: '6:0',
+        }
+        const alone = edge.addFault(seeded)
+        const firstDraw = await send('run-2-7@www.example.com')
+        edge.removeFault(alone)
+        edge.addFault(seeded)
+        await send('run-1-7@www.example.com')
+
+        expect({ firstDraw, afterEarlierRun: await send('run-2-7@www.example.com') }).toEqual({
+            firstDraw: 'MessageRejected',
+            afterEarlierRun: 'MessageRejected',
+        })
+    })
+
     it('stops applying a fault once its time window passes', async () => {
         const start = Date.now()
         const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
