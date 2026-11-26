@@ -88,7 +88,10 @@ SHARD_BLOCK_FETCHES = 16
 RECYCLE_CONNECTION_EVERY = 200
 # Matches the export pool's scaling target, so a run waits for the pods its shards will get.
 EXPORT_POOL_PODS_PER_SHARD = 2
-EXPORT_POOL_WAIT_SECONDS = 3 * 60
+# Matches the export pool's maxPods, since a run cannot wait for more pods than the pool can have.
+EXPORT_POOL_MAX_PODS = 64
+# Longer than a cold pool takes to start, new nodes included.
+EXPORT_POOL_WAIT_SECONDS = 5 * 60
 EXPORT_POOL_POLL_SECONDS = 5
 # S3 needs at least 5 MiB for every multipart part except the last.
 UPLOAD_PART_BYTES = 8 * 1024 * 1024
@@ -921,7 +924,7 @@ async def wait_for_export_pool(input: ExportPoolInput) -> None:
     host = settings.RECORDING_API_EXPORT_PODS_HOST
     if not host:
         return
-    wanted = input.shards * EXPORT_POOL_PODS_PER_SHARD
+    wanted = min(input.shards * EXPORT_POOL_PODS_PER_SHARD, EXPORT_POOL_MAX_PODS)
     loop = asyncio.get_running_loop()
     deadline = loop.time() + EXPORT_POOL_WAIT_SECONDS
     EXPORT_SHARDS.inc(input.shards)

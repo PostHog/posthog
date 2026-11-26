@@ -23,7 +23,7 @@ const meta: Meta<typeof OfflineScoreTrendChart> = {
 export default meta
 type Story = StoryObj<typeof OfflineScoreTrendChart>
 export const Numeric: Story = {}
-export const NumericPassingRule: Story = {
+export const NumericPassingRule = {
     args: {
         periods: [
             {
@@ -44,7 +44,7 @@ export const NumericPassingRule: Story = {
             },
         ],
     },
-}
+} satisfies Story
 export const LowerIsBetter: Story = {
     args: {
         periods: [

@@ -251,6 +251,8 @@ class HogFlow(Taggable, UUIDTModel):
     # The record another product's "message these people" entry point started this flow from, as
     # "<kind>:<id>". A later broadcast from the same record warns that this one already went out.
     source_record = models.CharField(max_length=255, null=True, blank=True)
+    entry_attempt_id = models.UUIDField(null=True, blank=True)
+    first_real_send_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")

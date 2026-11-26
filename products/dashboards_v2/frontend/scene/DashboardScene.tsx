@@ -1,0 +1,105 @@
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useMemo, useRef } from 'react'
+
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { DashboardActions } from '../dashboard/actions/DashboardActions'
+import { DashboardView } from '../dashboard/DashboardView'
+import { ANALYTICS_FILTER_TYPES } from '../filters/analytics/analyticsFilterTypes'
+import { useDashboardFilters } from '../filters/useDashboardFilters'
+import { runSampleQuery } from '../fixtures/runSampleQuery'
+import { createQueryBatchRunner } from '../query/queryBatchRunner'
+import { createChartWidget } from '../widgets/chart/createChartWidget'
+import { markdownWidget } from '../widgets/markdown/markdownSpec'
+import { dashboardSceneLogic } from './dashboardSceneLogic'
+
+const SAMPLE_WIDGETS = [createChartWidget({ runQuery: runSampleQuery }), markdownWidget]
+
+export const scene: SceneExport = {
+    component: DashboardScene,
+    logic: dashboardSceneLogic,
+}
+
+export function DashboardScene(): JSX.Element {
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.DASHBOARDS_V2} fallback={<NotFound object="page" />}>
+            <DashboardV2 />
+        </FlaggedFeature>
+    )
+}
+
+function DashboardV2(): JSX.Element {
+    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardSceneLogic)
+    const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeamId, timezone } = useValues(teamLogic)
+    const tabRef = useRef(activeTabId)
+    tabRef.current = activeTabId
+    // The same check as v1 insights: a project that has sent no events yet sees sample charts instead of empty ones.
+    const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+    // TODO(2026-11-25): Remove with the kitchen sink fixture, once the scene loads dashboards from the API.
+    // Lets the "Tile states" tab show the sample data state in a project that already has events.
+    const { searchParams } = useValues(router)
+    const forceSampleData = searchParams.sample_data === true || searchParams.sample_data === 'true'
+    // The same pair of flags as the v1 dashboard query layer: the project turns it on, the person sees it.
+    const runsRealQueries =
+        !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
+        !!featureFlags[FEATURE_FLAGS.DASHBOARD_V2_USERS] &&
+        !!currentTeamId
+    // The chart cache is keyed by runner, so a runner per visit drops results checked against this person's access
+    // when they leave, instead of showing them again after their access changes.
+    const widgets = useMemo(
+        () =>
+            runsRealQueries && currentTeamId
+                ? [
+                      createChartWidget({
+                          runQuery: createQueryBatchRunner(currentTeamId, {
+                              context: () => ({ dashboard_tab_id: tabRef.current }),
+                          }),
+                      }),
+                      markdownWidget,
+                  ]
+                : SAMPLE_WIDGETS,
+        [runsRealQueries, currentTeamId]
+    )
+    // TODO(2026-11-25): Offer filters with real queries once the query batch request carries them; until then only the
+    // sample runner applies them, so a filter bar there would narrow nothing.
+    const { filters, timeRange } = useDashboardFilters({
+        types: runsRealQueries ? undefined : ANALYTICS_FILTER_TYPES,
+        time: { timezone },
+    })
+    return (
+        <DashboardView
+            surface="dashboard-v2-scene"
+            sampleData={shouldShowSampleData || forceSampleData}
+            dashboard={dashboard}
+            activeTabId={activeTabId}
+            widgets={widgets}
+            disabledReasonFor={disabledReasonFor}
+            onEdit={applyDashboardEdit}
+            onActiveTabChange={setActiveTab}
+            history={{ canUndo, canRedo, onUndo: undo, onRedo: redo }}
+            refresh={{}}
+            filters={filters}
+            timeRange={timeRange}
+            header={
+                <header className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
+                        {dashboard.description && (
+                            <p className="text-sm text-muted-foreground m-0">{dashboard.description}</p>
+                        )}
+                    </div>
+                    <DashboardActions />
+                </header>
+            }
+        />
+    )
+}

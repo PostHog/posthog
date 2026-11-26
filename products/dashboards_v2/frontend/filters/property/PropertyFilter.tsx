@@ -7,21 +7,27 @@ import { Button, ButtonGroup, Popover, PopoverContent, PopoverTrigger } from '@p
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyDefinitionType } from '~/types'
 
+import { FilterPillContent } from '../bar/FilterPillContent'
 import { type FilterControlProps, INCOMPLETE_LABEL } from '../filterDefinition'
-import { FilterPillContent } from '../FilterPillContent'
 import { ConditionEditor } from './ConditionEditor'
 import type { PropertyFilterConfig, PropertyFilterValue, PropertyValues } from './propertyFilterSpec'
-import { type PropertyCondition, describeCondition, isCompleteCondition, operatorsFor } from './propertyOperators'
+import {
+    type OperatorOption,
+    type PropertyCondition,
+    describeCondition,
+    isCompleteCondition,
+    operatorsFor,
+} from './propertyOperators'
 import { useConditionDrafts } from './useConditionDrafts'
 
-function summary(conditions: PropertyCondition[]): JSX.Element | undefined {
+function summary(conditions: PropertyCondition[], options: OperatorOption[]): JSX.Element | undefined {
     if (conditions.length === 0) {
         return undefined
     }
     if (conditions.length > 1) {
         return <span>{conditions.length} conditions</span>
     }
-    const shown = describeCondition(conditions[0])
+    const shown = describeCondition(conditions[0], options)
     return (
         <>
             <span className="text-secondary">{shown.operator}</span>
@@ -63,12 +69,11 @@ export function PropertyFilter({
     return (
         <Popover open={open} onOpenChange={changeOpen}>
             <PopoverTrigger render={<Button size="sm" variant="outline" data-attr="dashboard-v2-filter-property" />}>
-                <FilterPillContent label={filter.label ?? key} summary={summary(value)} />
+                <FilterPillContent label={filter.label ?? key} summary={summary(value, options)} />
             </PopoverTrigger>
             <PopoverContent align="start" className="flex w-96 flex-col gap-2 p-2">
                 <span className="truncate text-xs font-medium">{filter.label ?? key}</span>
                 {drafts.map((draft, index) => (
-                    // The joining word sits beside its condition, so the list reads top to bottom as one sentence.
                     <div key={draft.id} className="flex items-start gap-2">
                         <span className="w-9 shrink-0 pt-1 text-right text-xs text-muted-foreground">
                             {index === 0 ? 'where' : 'and'}
@@ -90,7 +95,7 @@ export function PropertyFilter({
                                         data-attr="dashboard-v2-filter-condition"
                                         onClick={() => edit(draft.id)}
                                     >
-                                        {summary(isCompleteCondition(draft) ? [draft] : []) ?? (
+                                        {summary(isCompleteCondition(draft) ? [draft] : [], options) ?? (
                                             <span className="text-tertiary">{INCOMPLETE_LABEL}</span>
                                         )}
                                     </Button>

@@ -103,6 +103,10 @@ class TestForkThreadPayload(TestCase):
             patch("posthog.models.integration.SlackIntegration", return_value=slack),
             patch("products.slack_app.backend.feature_flags.is_slack_app_forking_enabled", return_value=flag),
             patch("products.mcp_store.backend.facade.api.has_slack_mcp_connected", return_value=mcp),
+            patch(
+                "products.slack_app.backend.logic.shared_channels.is_slack_app_web_settings_enforced",
+                return_value=False,
+            ),
             # Real capture spins up (and synchronously shuts down) a PostHog client,
             # which is slow and tears down connections other tests are still using.
             patch("products.slack_app.backend.analytics.capture_slack_event") as capture,

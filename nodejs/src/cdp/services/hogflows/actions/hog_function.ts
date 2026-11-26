@@ -31,7 +31,7 @@ import { loadMissingPersonProperties, personPropertiesInTemplates } from '../hog
 import { isClickTrackingEnabled, isSensitiveMessage } from '../hogflow-sensitivity'
 import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
-import { QueuedSend } from '../transactional-email'
+import { QueuedSend, withSendCategory } from '../transactional-email'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 const restoreSavedEmailGuards = (
@@ -221,10 +221,11 @@ export class HogFunctionHandler implements ActionHandler {
 
     async execute({
         invocation,
-        action,
+        action: step,
         result,
         hogExecutorOptions,
     }: ActionHandlerOptions<Action>): Promise<ActionHandlerResult> {
+        const action = withSendCategory(step, invocation.state.send)
         const awaitedStepsEnabled = this.options.awaitedStepsEnabled ?? false
         const awaiting = invocation.state.currentAction?.awaitingResume
         // Resume before anything else: the dispatch already ran and was billed.

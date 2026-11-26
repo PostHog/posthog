@@ -261,6 +261,8 @@ Before acting on a significance notification, check **all of**:
 - **Days running.** For high-stakes ships, wait at least a full week before acting on a
   significance flag — shorter windows can swing as the sample grows. This is a working norm,
   not a product-enforced threshold.
+  How long the variant has been significant is in the `result_ready` finding of `experiment-health-get` (subcode `stayed_significant`): `significant_since` and `days_significant` in its evidence, from 3 days on.
+  Read it there, not from the timeseries.
 - **Pre-planned duration.** If the experiment hasn't reached the length the team planned, the significance
   is "current best estimate", not "settled".
   The experiment stores no planned end date: compare the exposed total with the target sample (C1), or ask the user what the team planned.
@@ -362,7 +364,13 @@ Read `status` first when the user says "complete".
 products/experiments/frontend/components/ExperimentMetaBar; runningTimeLogic.ts in
 frontend/src/scenes/experiments/RunningTimeCalculator; running_time_target.py in products/experiments/backend. -->
 
-**Evidence to gather.** `running_time_calculation` in `experiment-get`:
+**Evidence to gather.** On a running experiment, read `experiment-health-get` first.
+Its `result_ready` finding with subcode `target_reached_not_significant` says that the current result counts at least the target sample and shows no variant as significant, with `samples`, `planned_samples` and `minimum_detectable_effect` in its evidence.
+`samples` comes from the current result, so it holds even when the stored fields below are old.
+`planned_samples` does too, except in manual mode, where it is the saved `recommended_sample_size`.
+`minimum_detectable_effect` is the effect the experiment plans to detect.
+
+`running_time_calculation` in `experiment-get`:
 
 - `recommended_sample_size` — the target, a total across all variants.
 - `recommended_running_time` — the days still missing at the current exposure rate, and 0 once the target is reached.

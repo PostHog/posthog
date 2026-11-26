@@ -1,21 +1,20 @@
 import './SectionTile.css'
-import './TileHoverReveal.css'
 
 import clsx from 'clsx'
-import { type ReactNode, useCallback, useState } from 'react'
+import { type ReactNode, useCallback, useMemo, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
-import { Button, Card, CardAction, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
+import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
 
-import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/dashboardTypes'
-import { useDashboardV2 } from '../dashboard/dashboardV2Context'
+import { useDashboard } from '../dashboard/dashboardContext'
+import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/document/dashboardTypes'
 import type { OnSectionRows } from '../grid/TileGrid'
 import { showsBorder } from '../presentation/tileAppearance'
-import { AddTileMenu } from './AddTileMenu'
-import { TileContextMenu, hasTileMenu, useSectionActions } from './TileContextMenu'
-import { TileMenuButton } from './TileMenuButton'
+import { AddTileMenu } from './menu/AddTileMenu'
+import { TileActions } from './menu/TileActions'
+import { TileContextMenu, hasTileMenu, useSectionActions, useSectionPlacementActions } from './menu/TileContextMenu'
 
-export interface SectionGridProps {
+export type SectionGridProps = {
     gridId: string
     tiles: Tile[]
     cols: number
@@ -27,25 +26,26 @@ export interface SectionGridProps {
 export function SectionTile({
     id,
     widget,
-    columns,
-    columnPx,
+    layout,
     editable,
     onSectionRows,
     renderGrid,
 }: {
     id: string
     widget: SectionWidget
-    columns: number
-    columnPx: number
+    /** The section's width in grid columns, and the width of one column in pixels. */
+    layout: { columns: number; columnPx: number }
     editable: boolean
     onSectionRows: OnSectionRows
     /** Draws the section's own grid. Passed in because that grid draws sections too. */
     renderGrid: (grid: SectionGridProps) => ReactNode
 }): JSX.Element {
-    const { onEdit, onSectionFoldedChange, can } = useDashboardV2()
+    const { onEdit, onSectionFoldedChange, can } = useDashboard()
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
-    const actions = useSectionActions(id, widget, () => setDraft(widget.title))
+    const ownActions = useSectionActions(id, widget, () => setDraft(widget.title))
+    const placementActions = useSectionPlacementActions(id, widget)
+    const actions = useMemo(() => [...ownActions, ...placementActions], [ownActions, placementActions])
     const hasMenu = hasTileMenu(actions)
     const showAdd = can('addTile')
 
@@ -68,10 +68,7 @@ export function SectionTile({
                 <SectionHeader
                     actions={
                         (showAdd || hasMenu) && (
-                            <SectionActions>
-                                {showAdd && <AddTileMenu gridId={id} />}
-                                {hasMenu && <TileMenuButton />}
-                            </SectionActions>
+                            <TileActions menu={hasMenu}>{showAdd && <AddTileMenu gridId={id} />}</TileActions>
                         )
                     }
                 >
@@ -91,8 +88,8 @@ export function SectionTile({
                         {renderGrid({
                             gridId: id,
                             tiles: widget.tiles,
-                            cols: columns,
-                            width: spanPx(columns, columnPx) - 2 * GRID.sectionInsetPx,
+                            cols: layout.columns,
+                            width: spanPx(layout.columns, layout.columnPx) - 2 * GRID.sectionInsetPx,
                             editable,
                             onLiveRows,
                         })}
@@ -208,11 +205,6 @@ export function SectionTitle({
 
 export function SectionCount({ count }: { count: number }): JSX.Element {
     return <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{count}</span>
-}
-
-/** Pushed to the end of the header, and shown only while the header is hovered or focused. */
-export function SectionActions({ children }: { children: ReactNode }): JSX.Element {
-    return <CardAction className="TileHoverReveal flex items-center gap-1">{children}</CardAction>
 }
 
 export function SectionBody({ emptyLabel, children }: { emptyLabel: string | null; children: ReactNode }): JSX.Element {

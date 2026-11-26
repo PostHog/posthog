@@ -747,9 +747,23 @@ async def test_block_fetches_wait_for_the_shard_byte_budget_and_fetch_limit() ->
 
 
 @pytest.mark.asyncio
-async def test_the_pool_wait_holds_the_shards_in_the_scaling_metric_until_their_pods_are_ready() -> None:
+@pytest.mark.parametrize(
+    "shards,ready_sequence,expected_ready",
+    [
+        (2, [0, 3, 4, 4], [0, 3, 4]),
+        # More shards than the pool has pods for: the wait ends at the pool's maximum instead of its deadline.
+        (
+            40,
+            [0, activities.EXPORT_POOL_MAX_PODS, activities.EXPORT_POOL_MAX_PODS],
+            [0, activities.EXPORT_POOL_MAX_PODS],
+        ),
+    ],
+)
+async def test_the_pool_wait_holds_the_shards_in_the_scaling_metric_until_their_pods_are_ready(
+    shards: int, ready_sequence: list[int], expected_ready: list[int]
+) -> None:
     seen: list[tuple[int, float]] = []
-    ready = iter([0, 3, 4, 4])
+    ready = iter(ready_sequence)
 
     async def ready_pods(host: str) -> int:
         pods = next(ready)
@@ -761,7 +775,7 @@ async def test_the_pool_wait_holds_the_shards_in_the_scaling_metric_until_their_
         patch.object(activities, "ready_export_pods", ready_pods),
         patch.object(activities, "EXPORT_POOL_POLL_SECONDS", 0),
     ):
-        await ActivityEnvironment().run(activities.wait_for_export_pool, ExportPoolInput(run_id="r", shards=2))
+        await ActivityEnvironment().run(activities.wait_for_export_pool, ExportPoolInput(run_id="r", shards=shards))
 
-    assert seen == [(0, 2), (3, 2), (4, 2)]
+    assert seen == [(ready, shards) for ready in expected_ready]
     assert activities.EXPORT_SHARDS._value.get() == 0

@@ -21,7 +21,7 @@ export function dailyReasonSentence(realtime: CohortRealtimeReadinessApi): strin
         case 'action_criteria':
             return "One of its criteria is an action, which realtime cohorts can't match on. Use events instead."
         case 'includes_non_realtime_cohort':
-            return "It includes a cohort that isn't realtime. If that cohort becomes realtime, save this cohort again."
+            return "It includes a cohort that isn't realtime. If that cohort is static, remove it from this cohort's criteria and target it alongside this cohort. Otherwise, save this cohort again once that cohort is realtime."
         case 'members_over_limit':
             // The API does not send this limit, so keep the number in sync with REALTIME_COHORT_MAX_PERSON_COUNT.
             return 'It has more than 20 million members, the most a realtime cohort can have.'

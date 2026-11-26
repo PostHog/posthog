@@ -6,7 +6,7 @@ import { FaultHold, ProviderEdge, ProviderEdgeOptions, holdOf, startProviderEdge
 
 export type EdgeProcessOptions = Pick<ProviderEdgeOptions, 'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl'>
 
-export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath'> & {
+export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath' | 'pgProxyOf'> & {
     hold(rule: FaultRule): Promise<FaultHold>
     clearFaults(): Promise<void>
     close(): Promise<void>
@@ -19,6 +19,7 @@ type Call =
     | { op: 'hits'; faultId: string }
     | { op: 'remove'; faultId: string }
     | { op: 'clear' }
+    | { op: 'pg-proxy'; upstream: string }
 
 type Request = Call & { id: number }
 
@@ -53,14 +54,18 @@ async function serveEdge(options: EdgeProcessOptions): Promise<void> {
                 return edge.removeFault(call.faultId)
             case 'clear':
                 return edge.clearFaults()
+            case 'pg-proxy':
+                return edge.pgProxyOf(call.upstream)
         }
     }
     process.on('message', (request: Request) => {
-        try {
-            process.send!({ kind: 'reply', id: request.id, value: answer(request) } satisfies Message)
-        } catch (error) {
-            process.send!({ kind: 'reply', id: request.id, reason: String(error) } satisfies Message)
-        }
+        Promise.resolve()
+            .then(() => answer(request))
+            .then(
+                (value) => process.send!({ kind: 'reply', id: request.id, value } satisfies Message),
+                (error: unknown) =>
+                    process.send!({ kind: 'reply', id: request.id, reason: String(error) } satisfies Message)
+            )
     })
     process.send!({ kind: 'started', url: edge.url, caCertPath: edge.caCertPath } satisfies Message)
 }
@@ -211,6 +216,7 @@ export async function startEdgeProcess(
     return {
         url,
         caCertPath,
+        pgProxyOf: (upstream) => call<string>({ op: 'pg-proxy', upstream }),
         hold: async (rule) => {
             const faultId = await call<string>({ op: 'add', rule })
             return holdOf({

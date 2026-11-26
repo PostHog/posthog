@@ -12,18 +12,47 @@ export interface ImpactStep {
     value: number | null
     missing?: string
     missingDetail?: string
+    missingFixedByLinkTagging?: boolean
     share: number | null
     shareOf?: string
     shareDetail?: string
 }
+
+export type LinkTagging = 'on' | 'off' | 'sensitive-email'
 
 export interface ImpactLift {
     clicked: number | null
     notClicked: number | null
 }
 
-export const LINK_TAGGING_DETAIL =
-    "PostHog follows a click into your product through a tag on the email's links. Link tagging isn't on for this project yet. Conversions still count, because they go through the person on each send."
+const LINK_TAGGING_OFF_DETAIL =
+    "PostHog follows a click into your product through a tag on the email's links. Connecting email clicks to sessions is off in this project's settings, so clicks aren't connected to the sessions they start. Conversions still count, because they go through the person on each send."
+
+const SESSIONS_NOT_MEASURED_DETAIL =
+    "Link tagging connects clicks to the sessions they start, but this funnel doesn't count those sessions yet. Conversions still count, because they go through the person on each send."
+
+const SENSITIVE_EMAIL_DETAIL =
+    "This email protects sensitive data, so PostHog doesn't tag its links and can't connect its clicks to sessions. Conversions still count, because they go through the person on each send."
+
+function sessionStep(impact: TransactionalEmailImpactApi, linkTagging: LinkTagging): ImpactStep {
+    const step = { key: 'session', label: 'Started a session', value: null, share: null } as const
+    if (everySendClicksOff(impact)) {
+        return { ...step, missing: 'Tracking off', missingDetail: clicksOffDetail(impact) }
+    }
+    switch (linkTagging) {
+        case 'on':
+            return { ...step, missing: 'Not measured yet', missingDetail: SESSIONS_NOT_MEASURED_DETAIL }
+        case 'off':
+            return {
+                ...step,
+                missing: 'Needs link tagging',
+                missingDetail: LINK_TAGGING_OFF_DETAIL,
+                missingFixedByLinkTagging: true,
+            }
+        case 'sensitive-email':
+            return { ...step, missing: 'Not measured', missingDetail: SENSITIVE_EMAIL_DETAIL }
+    }
+}
 
 const TRACKING_OFF_DETAIL =
     "Every send in this period went out with tracking off, so PostHog couldn't record opens or clicks."
@@ -81,20 +110,17 @@ export function stepBarPercents(steps: ImpactStep[]): (number | null)[] {
     })
 }
 
-export function impactSteps(impact: TransactionalEmailImpactApi, event: string | null): ImpactStep[] {
+export function impactSteps(
+    impact: TransactionalEmailImpactApi,
+    event: string | null,
+    linkTagging: LinkTagging
+): ImpactStep[] {
     return [
         { key: 'sent', label: 'Sent', value: impact.sent, share: null },
         { key: 'delivered', label: 'Delivered', value: impact.delivered, share: null },
         trackedStep('opened', 'Opened', impact.opened, everySendUntracked(impact), TRACKING_OFF_DETAIL),
         trackedStep('clicked', 'Clicked', impact.clicked, everySendClicksOff(impact), clicksOffDetail(impact)),
-        {
-            key: 'session',
-            label: 'Started a session',
-            value: null,
-            share: null,
-            missing: 'Needs link tagging',
-            missingDetail: LINK_TAGGING_DETAIL,
-        },
+        sessionStep(impact, linkTagging),
         conversionStep(impact, event),
     ]
 }

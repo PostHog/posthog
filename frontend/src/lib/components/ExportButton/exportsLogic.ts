@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import {
     ExportNudge,
@@ -26,13 +26,14 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
 import {
     APIErrorType,
-    CohortType,
     ExportContext,
     ExportedAssetType,
     ExporterFormat,
     LocalExportContext,
     SidePanelTab,
 } from '~/types'
+
+import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 
 const POLL_DELAY_MS = 10000
 // Long-running formats (e.g. MP4 session-replay renders) can take 30+ minutes,
@@ -414,8 +415,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         return null
                     }
                 )
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
-                const cohort: CohortType = await api.create('api/cohort', {
+                const cohort = await cohortsCreate(String(ApiConfig.getCurrentProjectId()), {
                     is_static: true,
                     name: name || 'Query cohort',
                     query: query,
