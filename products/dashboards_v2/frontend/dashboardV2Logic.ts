@@ -587,17 +587,28 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
             try {
                 const board = await dashboardV2BoardsRetrieve(projectId(), uid)
                 breakpoint()
+                // Going back to the fixture does not call `loadBoard`, so the breakpoint alone would let this land on it.
+                if (values.boardUid !== uid) {
+                    return
+                }
                 actions.boardLoaded(uid, loadDashboard(upgradeBoard(board.spec)))
             } catch (error) {
                 breakpoint()
+                if (values.boardUid !== uid) {
+                    return
+                }
                 actions.loadBoardFailure(boardLoadError(error))
             }
         },
         saveAsBoard: async () => {
+            const savedFrom = router.values.location.pathname
             try {
                 const board = await dashboardV2BoardsCreate(projectId(), { spec: boardDocument(values.dashboard) })
                 lemonToast.success('Saved as a board')
-                router.actions.push(urls.dashboardV2Board(board.uid))
+                // A slow save must not pull someone out of the page they moved on to.
+                if (router.values.location.pathname === savedFrom) {
+                    router.actions.push(urls.dashboardV2Board(board.uid))
+                }
             } catch {
                 lemonToast.error('The board could not be saved. Try again.')
             } finally {
@@ -633,9 +644,10 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
         },
     })),
     actionToUrl(({ values }) => ({
-        setActiveTab: () => [
+        setActiveTab: ({ tabId }) => [
             router.values.location.pathname,
-            { ...router.values.searchParams, tab: values.activeTab.id },
+            // While a board loads, its tabs are not known yet, so the requested tab is kept as asked.
+            { ...router.values.searchParams, tab: values.boardLoading ? tabId : values.activeTab.id },
             router.values.hashParams,
             { replace: true },
         ],

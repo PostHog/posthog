@@ -16,6 +16,8 @@ const STORED_BOARD = {
     version: 2,
     title: 'Stored board',
     boardFromTheFuture: { kept: true },
+    // Written by whoever saved the board, so it must never become the viewer's level.
+    user_access_level: AccessControlLevel.Manager,
     tabs: [
         {
             id: 'overview',
@@ -28,6 +30,7 @@ const STORED_BOARD = {
                     tileFromTheFuture: 'a',
                     panel: { type: 'markdown', config: { text: 'Hello' }, panelFromTheFuture: ['b'] },
                 },
+                { id: 'broken', place: { x: 0, y: 6, w: 12, h: 6 }, panel: null },
             ],
         },
     ],
@@ -60,6 +63,10 @@ describe('saved boards', () => {
         router.actions.push(urls.dashboardV2Board('stored'))
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.dashboard.title).toEqual('Stored board')
+        expect(logic.values.dashboard.user_access_level).toBeUndefined()
+        expect((logic.values.dashboard.tabs[0] as { tiles: unknown[] }).tiles.map((tile: any) => tile.id)).toEqual([
+            'note',
+        ])
         // The viewer's level comes from access control, never from the stored board.
         logic.actions.commitDashboard({ ...logic.values.dashboard, user_access_level: AccessControlLevel.Editor })
 
@@ -140,6 +147,29 @@ describe('saved boards', () => {
         })
     })
 
+    it('keeps a bookmarked tab of a saved board while the board loads', async () => {
+        const logic = dashboardV2Logic()
+        logic.mount()
+
+        router.actions.push(urls.dashboardV2Board('stored'), { tab: 'overview' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.activeTab.id).toEqual('overview')
+        expect(router.values.searchParams.tab).toEqual('overview')
+    })
+
+    it('stays on the fixture when going back to it before a board finishes loading', async () => {
+        const logic = dashboardV2Logic()
+        logic.mount()
+
+        router.actions.push(urls.dashboardV2Board('stored'))
+        router.actions.push(urls.dashboardV2())
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.boardUid).toBeNull()
+        expect(logic.values.dashboard.title).not.toEqual('Stored board')
+    })
+
     it('shows the problem instead of the fixture when the board in the URL is missing', async () => {
         const logic = dashboardV2Logic()
         logic.mount()
@@ -155,6 +185,8 @@ describe('saved boards', () => {
         ['a classic dashboard', { ...STORED_BOARD, version: 1 }],
         ['no tab with tiles', { ...STORED_BOARD, tabs: [{ id: 'docs', title: 'Docs', href: '/docs' }] }],
         ['not an object', [STORED_BOARD]],
+        ['a title that is not text', { ...STORED_BOARD, title: { text: 'Stored board' } }],
+        ['a tab whose title is not text', { ...STORED_BOARD, tabs: [{ ...STORED_BOARD.tabs[0], title: 1 }] }],
     ])('refuses to load %s', (_name, stored) => {
         expect(() => upgradeBoard(stored)).toThrow(UnreadableBoardError)
     })

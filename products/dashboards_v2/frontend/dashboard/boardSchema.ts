@@ -93,7 +93,23 @@ export function upgradeBoard(stored: unknown): DashboardDocument {
     if (!Array.isArray(tabs) || !tabs.some((tab) => typeof tab === 'object' && tab !== null && 'tiles' in tab)) {
         throw new UnreadableBoardError('This board has no tab with tiles')
     }
-    return document as DashboardDocument
+    // The scene renders these fields as text, so a stored object or array here would throw while rendering.
+    const tabIsRenderable = (tab: unknown): boolean =>
+        typeof tab === 'object' &&
+        tab !== null &&
+        typeof (tab as StoredDocument).id === 'string' &&
+        typeof (tab as StoredDocument).title === 'string' &&
+        (!('tiles' in tab) || Array.isArray((tab as StoredDocument).tiles))
+    if (
+        typeof document.title !== 'string' ||
+        (document.description !== undefined && typeof document.description !== 'string') ||
+        !tabs.every(tabIsRenderable)
+    ) {
+        throw new UnreadableBoardError('This board is not a dashboard document')
+    }
+    // The viewer's access level comes from access control. A stored one was written by whoever saved the board.
+    const { user_access_level: _, ...readable } = document
+    return readable as DashboardDocument
 }
 
 /** The document to store for a dashboard. The viewer's access level is not part of the board. */
