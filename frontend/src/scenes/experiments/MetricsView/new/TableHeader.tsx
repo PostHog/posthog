@@ -16,14 +16,14 @@ import { useAxisScale } from './useAxisScale'
 interface TableHeaderProps {
     axisRange?: number
     statsMethod?: ExperimentStatsMethod
-    sequentialTestingEnabled?: boolean
+    significanceLevel?: number
     loading?: boolean
 }
 
 export function TableHeader({
     axisRange,
     statsMethod,
-    sequentialTestingEnabled,
+    significanceLevel = 0.05,
     loading = false,
 }: TableHeaderProps): JSX.Element {
     const [svgWidth, setSvgWidth] = useState<number | undefined>(undefined)
@@ -66,21 +66,14 @@ export function TableHeader({
                 </th>
                 <th className="w-1/15 border-b-2 bg-bg-table p-3 text-center text-xs sticky top-0 z-10 metric-cell-header whitespace-nowrap">
                     {statsMethod === ExperimentStatsMethod.Frequentist ? (
-                        sequentialTestingEnabled ? (
-                            <span className="inline-flex items-center gap-1">
-                                p-value
-                                <Tooltip title="Sequential testing is enabled. These are always-valid p-values, robust to peeking. They have a slightly different interpretation than ordinary p-values and can often be exactly 1.000 early in the experiment. The result is still statistically significant if the p-value drops below your threshold.">
-                                    <IconInfo className="text-secondary text-base" />
-                                </Tooltip>
-                            </span>
-                        ) : (
-                            <span className="inline-flex items-center gap-1">
-                                p-value
-                                <Tooltip title="The probability of seeing a difference at least this large if the variant had no real effect. The result is significant when the p-value drops below your threshold.">
-                                    <IconInfo className="text-secondary text-base" />
-                                </Tooltip>
-                            </span>
-                        )
+                        <span className="inline-flex items-center gap-1">
+                            p-value
+                            <Tooltip
+                                title={`A p-value ranges from 0 to 1. Lower values mean stronger evidence that your variant affected this metric. Below ${significanceLevel.toFixed(2)}, we call the result statistically significant.`}
+                            >
+                                <IconInfo className="text-secondary text-base" />
+                            </Tooltip>
+                        </span>
                     ) : (
                         <span className="inline-flex items-center gap-1">
                             Win %

@@ -49,5 +49,4 @@ products/product_analytics/frontend/insights/insightScene/InsightSkeleton.tsx ->
 products/product_analytics/frontend/insights/insightScene/SqlInsightFilters.tsx -> .InsightVizDisplay
 products/product_analytics/frontend/insights/retention/RetentionContainer.tsx -> .RetentionContainer
 products/product_analytics/frontend/insights/trends/Trends.tsx -> .TrendsInsight
-products/workflows/frontend/TemplateLibrary/MessageTemplateCard.tsx -> .MessageTemplateItem
 products/workflows/frontend/Workflows/hogflows/editor/tile-canvas/TileCanvasContent.tsx -> .TileCanvas

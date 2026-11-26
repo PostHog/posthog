@@ -34,7 +34,11 @@ Environment (all default empty — the runner is a no-op until configured):
 The scheduled tasks cover the teams with active prompts whose organization is active, not pending deletion, and approved AI data processing.
 The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls, so only those users can add or turn on prompts.
 The `aeo-citation-tracking` feature flag picks which organizations get scheduled runs, evaluated per organization group.
-PostHog pays for every engine call and nothing caps a team's active prompts yet, so add organizations to it by hand and do not roll it out widely.
+PostHog pays for every engine call, so each project can keep at most `AEOTeamConfig.max_active_prompts` prompts turned on (100 by default).
+A change that would turn on more is refused with a 400, and setup saves the prompts past the limit paused.
+Prompts already on when the limit was added, or when it was lowered, stay on.
+Staff raise the limit for one project with `python manage.py set_aeo_prompt_limit --team-id <id> --max-active-prompts <n>`.
+Add organizations to the flag by hand and do not roll it out widely.
 Removing an organization from it stops that organization's runs.
 
 Each project decides which domains count as "us" through its own brands: the rows of its brand catalog with kind `own` that nobody ignored.
@@ -84,6 +88,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 ```
 
 - A request takes up to 2,000 prompts. Send larger sets in batches of a few hundred.
+- New prompts are saved turned on. An import that would take the project past its limit on active prompts is refused whole, and nothing is saved.
 - A re-import matches prompts by the normalized text of their current version. It updates the topic, merges the new evidence into the stored evidence (an omitted `external_visibility` keeps its value), and keeps each prompt's on/off state. A new text creates a prompt with version 1.
 - A re-import of an archived prompt's text leaves it archived and counts it as `skipped`.
 - The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-archive`, `aeo-prompts-versions-list`, `aeo-prompts-import`, `aeo-prompts-topics-list`, `aeo-prompts-checks-list`, `aeo-prompts-stats-get`, `aeo-prompts-overview-get` and `aeo-prompts-citations-list`.

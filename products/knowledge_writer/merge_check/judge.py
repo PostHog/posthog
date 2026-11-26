@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Literal, TypeVar
 
@@ -6,7 +7,7 @@ from anthropic import Anthropic, APIConnectionError
 from anthropic.types import TextBlockParam
 from pydantic import BaseModel, Field, ValidationError
 
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, trace_id_from_seed
+from posthog.llm.gateway_client import build_anthropic_client, trace_id_from_seed
 
 from ..backend.facade.contracts import CriterionResult
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
@@ -17,7 +18,9 @@ from .gather import MergeEvidence
 logger = structlog.get_logger(__name__)
 
 DeclineCause = Literal["validation_error", "refusal", "no_parsed_output"]
+LlmStage = Literal["facts", "judge", "grounding"]
 ParsedOutput = TypeVar("ParsedOutput", bound=BaseModel)
+GATEWAY_LABELS_HEADER = "X-PostHog-Properties"
 
 JudgedChangeKind = Literal[DocsChangeKind.UPDATE, DocsChangeKind.CREATE, DocsChangeKind.REMOVE]
 JUDGE_MODEL = "claude-sonnet-5-5"
@@ -61,7 +64,7 @@ class Decision:
 
 
 def judge_client(commit_sha: str) -> Anthropic:
-    return build_ai_gateway_anthropic_client(
+    return build_anthropic_client(
         ai_product=JUDGE_AI_PRODUCT,
         trace_id=trace_id_from_seed(f"knowledge_writer:merge:{commit_sha}"),
         properties={"commit_sha": commit_sha},
@@ -151,6 +154,7 @@ def judge_merge(
         max_retries=JUDGE_MAX_RETRIES,
         system=system_with_cached_page_list(JUDGE_INSTRUCTIONS, docs_page_paths),
         content=f"Commit title: {title}\n\n{page_texts}<diff>\n{judged_diff[:MAX_DIFF_CHARACTERS]}\n</diff>",
+        stage="judge",
         deadline=deadline,
     )
     if isinstance(parsed, Declined):
@@ -168,6 +172,7 @@ def parse_structured_output(
     max_retries: int,
     system: str | list[TextBlockParam],
     content: str,
+    stage: LlmStage,
     deadline: CheckDeadline | None = None,
 ) -> ParsedOutput | Declined:
     timeout_or_time_left_seconds = timeout_seconds if deadline is None else deadline.seconds_left(timeout_seconds)
@@ -175,7 +180,9 @@ def parse_structured_output(
     sdk_retries = max_retries if deadline is None else 0
     try:
         response = anthropic_client.with_options(
-            timeout=timeout_or_time_left_seconds, max_retries=sdk_retries
+            timeout=timeout_or_time_left_seconds,
+            max_retries=sdk_retries,
+            default_headers=labels_with_stage(anthropic_client, stage),
         ).messages.parse(
             model=model,
             max_tokens=4096,
@@ -194,6 +201,12 @@ def parse_structured_output(
     if response.parsed_output is None:
         return Declined("no_parsed_output")
     return response.parsed_output
+
+
+def labels_with_stage(anthropic_client: Anthropic, stage: LlmStage) -> dict[str, str]:
+    client_labels = anthropic_client.default_headers.get(GATEWAY_LABELS_HEADER)
+    labels = json.loads(client_labels) if isinstance(client_labels, str) else {}
+    return {GATEWAY_LABELS_HEADER: json.dumps({**labels, "ai_stage": stage})}
 
 
 def page_tags(page_text_by_key: dict[str, str], *, separator: str) -> str:

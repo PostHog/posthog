@@ -30,7 +30,10 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 
-import type { CustomPropertyOptionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import {
+    type CustomPropertyOptionApi,
+    WarehousePersonPropertyMissingRowBehaviorEnumApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
     ColumnPropertyMapping,
@@ -166,7 +169,7 @@ function ReadOnlyColumnMappings({
 // Warehouse-profile editor (person or group target): pick a synced warehouse table, the key column
 // (a person's distinct_id or a group's key), and the column → property mappings. For group targets it
 // also picks which group type. The binding + mappings are create-only on the backend, so they're
-// read-only once a source exists (only the key column + enabled switch stay editable).
+// read-only once a source exists (the key column, missing-row behavior and enabled switch stay editable).
 function PersonSourceEditor(): JSX.Element {
     const {
         customPropertyForm,
@@ -316,7 +319,7 @@ function PersonSourceEditor(): JSX.Element {
     }
 
     // Only block on missing sources while creating a property — an existing source still needs its key
-    // column and enabled switch editable even if what it reads was later deleted or filtered out.
+    // column, missing-row behavior and enabled switch editable even if what it reads was later deleted or filtered out.
     if (noSources && !hasExistingSource) {
         return (
             <LemonBanner type="info">
@@ -476,6 +479,27 @@ function PersonSourceEditor(): JSX.Element {
                         you create the property, so you can edit or remove any row first.
                     </span>
                 </div>
+            )}
+            {!isGroup && (
+                <LemonField
+                    name="missingRowBehavior"
+                    label="When a person leaves the table"
+                    help="Keep the last synced values, or remove this mapping's properties, once a person's row is gone from the table. Only a full refresh of the table removes properties."
+                >
+                    <LemonSelect
+                        options={[
+                            {
+                                value: WarehousePersonPropertyMissingRowBehaviorEnumApi.Keep,
+                                label: 'Keep the last synced values',
+                            },
+                            {
+                                value: WarehousePersonPropertyMissingRowBehaviorEnumApi.Remove,
+                                label: 'Remove mapped properties',
+                            },
+                        ]}
+                        fullWidth
+                    />
+                </LemonField>
             )}
             <LemonField
                 name="isEnabled"

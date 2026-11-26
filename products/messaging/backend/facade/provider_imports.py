@@ -150,12 +150,13 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
                     counts_as_events=spec.counts_as_events,
                 )
                 for spec in provider.steps
+                if _flag_enabled(spec.feature_flag, team_uuid, organization_id)
             ),
             retains_credentials=provider.retains_credentials,
             api_key_label=provider.api_key_label,
             api_key_help=provider.api_key_help,
             api_key_url=provider.api_key_url,
-            not_imported=provider.not_imported,
+            not_imported=_not_imported(provider, team_uuid, organization_id),
             next_steps=provider.next_steps,
             settings=tuple(
                 ImportSettingOption(
@@ -169,15 +170,24 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
             ),
         )
         for provider in PROVIDERS.values()
-        if _provider_enabled(provider, team_uuid, organization_id)
+        if _flag_enabled(provider.feature_flag, team_uuid, organization_id)
     ]
 
 
-def _provider_enabled(provider: ImportProvider, team_uuid: str, organization_id: str) -> bool:
-    if provider.feature_flag is None:
+def _not_imported(provider: ImportProvider, team_uuid: str, organization_id: str) -> str:
+    hidden_notes = (
+        spec.hidden_note
+        for spec in provider.steps
+        if spec.hidden_note and not _flag_enabled(spec.feature_flag, team_uuid, organization_id)
+    )
+    return " ".join(filter(None, (provider.not_imported, *hidden_notes)))
+
+
+def _flag_enabled(feature_flag: str | None, team_uuid: str, organization_id: str) -> bool:
+    if feature_flag is None:
         return True
     return feature_enabled_or_false(
-        provider.feature_flag,
+        feature_flag,
         team_uuid,
         groups={"organization": organization_id},
         group_properties={"organization": {"id": organization_id}},

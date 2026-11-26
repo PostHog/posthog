@@ -18,7 +18,7 @@ use crate::{
         FLAG_BOT_DETECTED_COUNTER, FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS,
     },
     router,
-    team::request_blocklist,
+    team::request_lists,
     utils::{bot_detection, forwarded_for, user_agent::UserAgentInfo},
 };
 // TODO: stream this instead
@@ -345,7 +345,7 @@ where
         .map(|v| v == "decide")
         .unwrap_or(false);
 
-    let origin_host = request_blocklist::origin_host(&headers);
+    let origin_host = request_lists::origin_host(&headers);
 
     // Mutable: the IP rate-limit and bot branches below mark fields on
     // it directly because they run outside the canonical-log scope.

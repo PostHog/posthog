@@ -65,7 +65,7 @@ export const ContentAutopilotMovers = (): JSX.Element | null => {
             <PagePerformanceCard className="min-w-0">
                 <PagePerformanceCardHeader
                     title={PROMPTS_TITLE}
-                    description={`The prompts whose answers mention you more or less often than in ${before}. A prompt needs at least ${minAnswers} answers in each period.`}
+                    description={`A prompt needs at least ${minAnswers} answers in both periods to be compared.`}
                 />
                 {promptsMoved ? (
                     <div className="overflow-x-auto" data-attr="content-autopilot-movers-prompts">
@@ -85,10 +85,7 @@ export const ContentAutopilotMovers = (): JSX.Element | null => {
                 )}
             </PagePerformanceCard>
             <PagePerformanceCard className="min-w-0">
-                <PagePerformanceCardHeader
-                    title={PAGES_TITLE}
-                    description={`The pages on your site that answers cite more or less often than in ${before}.`}
-                />
+                <PagePerformanceCardHeader title={PAGES_TITLE} />
                 {pagesMoved ? (
                     <div className="overflow-x-auto" data-attr="content-autopilot-movers-pages">
                         <ContentAutopilotPageMoversTable

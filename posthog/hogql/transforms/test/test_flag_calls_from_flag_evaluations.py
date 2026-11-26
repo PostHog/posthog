@@ -698,6 +698,93 @@ class TestSwapFlagCallsBesideJoinedTable(BaseTest):
         assert ("flag_evaluations" in swap.source.to_hogql()) is expected
 
 
+class TestFlagCallMemoryCap(BaseTest):
+    def test_a_later_swap_does_not_clear_the_cap_an_earlier_swap_set(self):
+        database = Database.create_for(team=self.team, include_flag_evaluations_table=True)
+        database._read_flag_calls_from_flag_evaluations = True
+        database._flag_calls_only_in_flag_evaluations = True
+        context = HogQLContext(
+            team_id=self.team.pk, database=database, enable_select_queries=True, use_new_events_schema=True
+        )
+
+        def swap(query: str) -> None:
+            swap_flag_calls(
+                parse_select(query),
+                context,
+                lambda node, **kwargs: resolve_types(node, context, "clickhouse", **kwargs),
+            )
+
+        flag_calls = "SELECT count() FROM events WHERE event = '$feature_flag_called'"
+        swap(f"{flag_calls} AND properties.`$feature/new-checkout` = 'true'")
+        assert context.cap_flag_call_memory
+        swap(flag_calls)
+
+        assert context.cap_flag_call_memory
+
+    @parameterized.expand(
+        [
+            ("column_read", "properties.`$feature/new-checkout` = 'true'", True),
+            (
+                "lambda_parameter_named_properties",
+                "arrayExists(properties -> properties['$feature/new-checkout'] = 1, [map()])",
+                False,
+            ),
+            ("lambda_parameter_with_another_name", "arrayExists(p -> p['$feature/new-checkout'] = 1, [map()])", False),
+            (
+                "qualified_read_inside_a_lambda_that_names_properties",
+                "arrayExists(properties -> e.properties.`$feature/new-checkout` = 'true', [1])",
+                True,
+            ),
+            ("read_through_a_select_alias", "p.`$feature/new-checkout` = 'true'", True, "properties AS p"),
+            ("subscript_through_a_select_alias", "p['$feature/new-checkout'] = 'true'", True, "properties AS p"),
+            (
+                "json_extract_through_a_select_alias",
+                "JSONExtractString(p, '$feature/new-checkout') = 'true'",
+                True,
+                "properties AS p",
+            ),
+            (
+                "read_through_an_alias_of_an_alias",
+                "q.`$feature/new-checkout` = 'true'",
+                True,
+                "properties AS p, p AS q",
+            ),
+            (
+                "qualified_read_when_an_alias_reuses_the_column_name",
+                "e.properties['$feature/new-checkout'] = 'true'",
+                True,
+                "e.timestamp AS properties",
+            ),
+            (
+                "alias_of_another_expression",
+                "JSONExtractString(p, '$feature/new-checkout') = 'true'",
+                False,
+                "toString(properties) AS p",
+            ),
+        ]
+    )
+    def test_caps_memory_only_when_the_scan_reads_a_feature_property(
+        self, _name: str, predicate: str, expected: bool, select: str = ""
+    ):
+        database = Database.create_for(team=self.team, include_flag_evaluations_table=True)
+        database._read_flag_calls_from_flag_evaluations = True
+        database._flag_calls_only_in_flag_evaluations = True
+        context = HogQLContext(
+            team_id=self.team.pk, database=database, enable_select_queries=True, use_new_events_schema=True
+        )
+
+        swap_flag_calls(
+            parse_select(
+                f"SELECT count(){', ' + select if select else ''} FROM events AS e "
+                f"WHERE e.event = '$feature_flag_called' AND {predicate}"
+            ),
+            context,
+            lambda node, **kwargs: resolve_types(node, context, "clickhouse", **kwargs),
+        )
+
+        assert context.cap_flag_call_memory is expected
+
+
 _PROMOTED_SOURCE = f"SELECT person_id FROM events WHERE {UNQUALIFIED}"
 _PROMOTED_OUTER = (
     "SELECT count() FROM events AS e JOIN persons{alias} ON e.person_id = {name}.id AND {name}.id IN ({source}) "
@@ -836,12 +923,25 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
 
 @time_machine.travel(NOW, tick=False)
 class TestSwapFlagCallsPropertyParityInPromotedPersonsFilter(ClickhouseTestMixin, BaseTest):
-    @parameterized.expand([("materialized_on_events", True, False), ("not_materialized", False, True)])
+    @parameterized.expand(
+        [
+            ("materialized_on_events", True, False, " AS p", False),
+            ("not_materialized", False, False, " AS p", True),
+            ("moved_into_the_lazy_table_filter_materialized", True, True, " AS p", False),
+            ("moved_into_the_lazy_table_filter_not_materialized", False, True, " AS p", False),
+            ("moved_with_a_column_aliased_persons_table", False, True, " AS p(id)", False),
+        ]
+    )
     def test_swaps_only_when_the_persons_join_filter_reads_properties_from_the_same_column_kind(
-        self, _name: str, materialize_it: bool, expected: bool
+        self, _name: str, materialize_it: bool, moved: bool, alias: str, expected: bool
     ):
         source = f"{_PROMOTED_SOURCE} AND isNull(properties.$current_url)"
-        query = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=source)
+        if moved:
+            # `properties.admin` is an unqualified persons field, so promotion moves the conjunct out of the join.
+            # The non-ASCII key keeps the swap's flag key counter balanced, so only the property check could refuse.
+            subquery = source.replace("'my-flag'", "'é-flag'")
+            source = f"if(properties.admin, ({subquery}), ({subquery}))"
+        query = _PROMOTED_OUTER.format(alias=alias, name="p", source=source)
 
         def swapped() -> bool:
             swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=False)

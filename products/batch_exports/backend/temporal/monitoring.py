@@ -7,14 +7,22 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.clickhouse.events_json import EVENTS_JSON_RECENT_TABLE
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
+from products.batch_exports.backend.events_table import (
+    batch_exports_read_new_events_table,
+    exports_feature_flag_called_events,
+)
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import afetch_batch_export_runs_in_range, aupdate_records_total_count
-from products.batch_exports.backend.temporal.sql.events import EVENT_COUNT_BY_INTERVAL
+from products.batch_exports.backend.temporal.clickhouse import get_batch_exports_client
+from products.batch_exports.backend.temporal.sql.events import (
+    EVENT_COUNT_BY_INTERVAL,
+    build_event_count_by_interval_query,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -114,7 +122,17 @@ class EventCount:
 async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[EventCount]:
     """Get the total number of events for a given team over a set of time intervals from ClickHouse."""
 
-    query = EVENT_COUNT_BY_INTERVAL
+    # Count from the table the exports read, with the same `$feature_flag_called` rule, so that the counts match what
+    # the exports send.
+    reads_new_events_table = batch_exports_read_new_events_table(inputs.team_id)
+    query = (
+        build_event_count_by_interval_query(
+            EVENTS_JSON_RECENT_TABLE,
+            includes_feature_flag_called=exports_feature_flag_called_events(inputs.team_id),
+        )
+        if reads_new_events_table
+        else EVENT_COUNT_BY_INTERVAL
+    )
 
     interval = inputs.interval
     # we check interval is "every 5 minutes" above but double check here
@@ -133,7 +151,13 @@ async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[Even
         "include_events": inputs.include_events,
         "exclude_events": inputs.exclude_events,
     }
-    async with Heartbeater(), get_client() as client:
+    # Both count queries read a recent events table, as the export does.
+    async with (
+        Heartbeater(),
+        get_batch_exports_client(
+            team_id=inputs.team_id, reads_new_events_table=reads_new_events_table, reads_recent_events=True
+        ) as client,
+    ):
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 

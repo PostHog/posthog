@@ -2,7 +2,9 @@ import { z } from 'zod'
 
 const UNIT_MS = { ms: 1, s: 1000, m: 60_000 } as const
 
-export const Duration = z.string().regex(/^\d+(ms|s|m)$/, 'a duration such as 500ms, 30s or 5m')
+export const Duration = z
+    .string()
+    .regex(/^\d+(ms|s|m)$/, { message: 'a duration such as 500ms, 30s or 5m', abort: true })
 
 export const pause = (ms: number, signal: AbortSignal): Promise<void> =>
     new Promise((resolve) => {

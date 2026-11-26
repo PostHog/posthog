@@ -43,6 +43,7 @@ with workflow.unsafe.imports_passed_through():
         MAX_THREAT_TYPE_CHARS,
         SCORE_THRESHOLD,
         TIERED_CLARIFY_PATCH,
+        TRIGGER_MANUAL,
     )
     from products.conversations.backend.temporal.ai_reply.gate import (
         FINDINGS_WITHHELD_REASON,
@@ -137,6 +138,7 @@ class SupportReplyWorkflow:
             "schema_version": 1,
             "workflow_id": wf_info.workflow_id,
             "run_id": wf_info.run_id,
+            "trigger": input.trigger,
         }
 
         async def _record_triage(patch: dict[str, Any], *, required: bool = False) -> None:
@@ -232,6 +234,7 @@ class SupportReplyWorkflow:
                 persist_input,
                 require_awaiting_clarification=input.clarification_round >= 1,
                 run_id=wf_info.run_id,
+                allow_bot_reply=persist_input.allow_bot_reply and input.trigger != TRIGGER_MANUAL,
             )
             raw = await workflow.execute_activity(
                 support_persist_reply_activity,

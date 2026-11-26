@@ -120,6 +120,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     V2_LIST_PAGE_LIMIT,
     StripeAuthenticationError,
     StripeNestedResource,
+    StripePermissionError,
     StripeResource,
     StripeTransientError,
     StripeUnsupportedVersionError,
@@ -733,6 +734,49 @@ class TestStripeSource:
         assert "try again" in message.lower()
         assert "one of our backends" not in message
         assert "validation failed" not in message.lower()
+
+    @pytest.mark.parametrize(
+        "missing_permissions,expected_message",
+        [
+            (
+                {
+                    "Event": "The provided key 'rk_live_***abc' does not have the required permissions for this "
+                    "endpoint on account 'acct_123'. Having the 'rak_event_read' permission would allow this "
+                    "request to continue."
+                },
+                "Stripe credentials lack permissions for Event. In Stripe, add these permissions to your "
+                "restricted API key: rak_event_read.",
+            ),
+            (
+                {
+                    "Quote": "Having the 'rak_quote_read' permission would allow this request to continue.",
+                    "Event": "Having the 'rak_event_read' permission would allow this request to continue.",
+                    "SubscriptionItem (Subscription)": "Having the 'rak_subscription_read' permission would allow "
+                    "this request to continue.",
+                },
+                "Stripe credentials lack permissions for Quote, Event, SubscriptionItem (Subscription). In Stripe, "
+                "add these permissions to your restricted API key: rak_event_read, rak_quote_read, "
+                "rak_subscription_read.",
+            ),
+            (
+                {"Event": "This application does not have the required permissions for this endpoint."},
+                "Stripe credentials lack permissions for Event.",
+            ),
+        ],
+    )
+    def test_validate_credentials_permission_error_names_stripe_scopes(self, missing_permissions, expected_message):
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_live_x")
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+            side_effect=StripePermissionError(missing_permissions),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message == expected_message
 
     @pytest.mark.parametrize(
         "stripe_error,expected_start",
@@ -2665,6 +2709,24 @@ class TestStripeAppManifestCoversSourcePermissions:
 
         assert required, "PERMISSIONS is empty, so this assertion would pass vacuously"
         assert required - granted == set()
+
+    def test_every_app_read_permission_is_asked_of_a_restricted_key(self):
+        # The reverse drift: a table's scope reached the OAuth grant but not the key form (Event and
+        # twelve other read scopes), so key users got a 403 the moment they enabled the table.
+        manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"
+        granted = {entry["permission"] for entry in orjson.loads(manifest_path.read_bytes())["permissions"]}
+        key_scopes = {permission.removeprefix("rak_") for permission in PERMISSIONS}
+
+        # A write scope on a restricted key includes the matching read scope.
+        missing = {
+            permission
+            for permission in granted
+            if permission.endswith("_read")
+            and permission not in key_scopes
+            and permission.replace("_read", "_write") not in key_scopes
+        }
+
+        assert missing == set()
 
     def test_manifest_omits_every_disallowed_permission(self):
         manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"

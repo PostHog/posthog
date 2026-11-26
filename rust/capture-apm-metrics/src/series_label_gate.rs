@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use common_metrics::Matcher;
 use common_redis::{Client, CustomRedisError, PipelineCommand};
 use dashmap::DashMap;
 use metrics::{counter, gauge, histogram};
@@ -51,6 +52,32 @@ const WRITER_BATCH_SIZE: usize = 500;
 const WRITER_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const PRUNE_INTERVAL: Duration = Duration::from_secs(300);
 const HEAL_AFTER_CONSECUTIVE_TIMEOUTS: u32 = 3;
+
+const PUSH_DURATION_METRIC: &str = "capture_metrics_series_redis_push_duration_seconds";
+const PULL_DURATION_METRIC: &str = "capture_metrics_series_redis_pull_duration_seconds";
+
+/// Buckets for the Redis push and pull latency histograms, which record
+/// seconds. The shared default ladder is for milliseconds and starts at 1, so
+/// without this override every sub-second round trip lands in its first
+/// bucket and the percentiles are interpolation.
+pub const REDIS_LATENCY_BUCKETS_SECONDS: &[f64] = &[
+    0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+];
+
+/// Histogram bucket overrides for the gate's metrics, to pass to
+/// `common_metrics::setup_metrics_routes_with_overrides`.
+pub fn metrics_bucket_overrides() -> [(Matcher, &'static [f64]); 2] {
+    [
+        (
+            Matcher::Full(PUSH_DURATION_METRIC.into()),
+            REDIS_LATENCY_BUCKETS_SECONDS,
+        ),
+        (
+            Matcher::Full(PULL_DURATION_METRIC.into()),
+            REDIS_LATENCY_BUCKETS_SECONDS,
+        ),
+    ]
+}
 
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
@@ -682,7 +709,7 @@ pub fn spawn_redis_writer(
                 Ok(Err(CustomRedisError::Timeout)) | Err(_) => "timeout",
                 Ok(Err(_)) => "error",
             };
-            histogram!("capture_metrics_series_redis_push_duration_seconds", "outcome" => outcome)
+            histogram!(PUSH_DURATION_METRIC, "outcome" => outcome)
                 .record(started.elapsed().as_secs_f64());
             match result {
                 Ok(Ok(_)) => {
@@ -718,7 +745,7 @@ fn record_pull(kind: PullKind, outcome: &'static str, stats: &PullStats, elapsed
     let kind = kind.as_str();
     counter!("capture_metrics_series_redis_pulls", "kind" => kind, "outcome" => outcome)
         .increment(1);
-    histogram!("capture_metrics_series_redis_pull_duration_seconds", "kind" => kind, "outcome" => outcome)
+    histogram!(PULL_DURATION_METRIC, "kind" => kind, "outcome" => outcome)
         .record(elapsed.as_secs_f64());
     counter!("capture_metrics_series_redis_pull_pages", "kind" => kind).increment(stats.pages);
     counter!("capture_metrics_series_redis_pull_members_read", "kind" => kind)
@@ -1634,5 +1661,25 @@ mod tests {
                 format!("{REDIS_KEY_PREFIX}:11"),
             ]
         );
+    }
+
+    #[test]
+    fn redis_latency_histograms_resolve_sub_second_latency() {
+        let overrides = metrics_bucket_overrides();
+        for metric in [PUSH_DURATION_METRIC, PULL_DURATION_METRIC] {
+            let buckets = overrides
+                .iter()
+                .find_map(|(matcher, buckets)| match matcher {
+                    Matcher::Full(name) if name == metric => Some(*buckets),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("no bucket override for {metric}"));
+            // A typical 50 ms round trip must land in its own bucket, not the first one.
+            assert!(
+                buckets.iter().filter(|&&b| b <= 0.05).count() >= 3,
+                "{buckets:?}"
+            );
+            assert!(buckets.windows(2).all(|w| w[0] < w[1]), "{buckets:?}");
+        }
     }
 }

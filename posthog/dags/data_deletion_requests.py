@@ -583,6 +583,11 @@ def _hogql_excludes(target: DeletionTarget, deletion_request: DeletionRequestCon
     return bool(deletion_request.hogql_predicate) and not target.accepts_hogql_predicate
 
 
+# The targets event removal and property removal read or sweep. A target of derived rows is left out
+# before placements are resolved, so a request that never touches it does not probe its cluster.
+_EVENT_ROW_TARGETS: tuple[DeletionTarget, ...] = tuple(t for t in PERSONAL_DATA_TARGETS if not t.derived_from_events)
+
+
 def _refuse_property_removal_unsweepable(
     cluster: ClickhouseCluster,
     targets: list[DeletionTarget],
@@ -598,9 +603,13 @@ def _refuse_property_removal_unsweepable(
     """
 
     def predicate_for(target: DeletionTarget) -> tuple[str, dict]:
-        return _property_removal_where(
-            deletion_request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema
-        )
+        if target.property_presence_checkable:
+            return _property_removal_where(
+                deletion_request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema
+            )
+        predicate, params = portable_event_removal_where(deletion_request)
+        ingested_before_marker = f"{target.inserted_at_column} < toDateTime64(%(inserted_at_max)s, 6, 'UTC')"
+        return f"{predicate} AND {ingested_before_marker}", {**params, "inserted_at_max": marker_str}
 
     _refuse_unsweepable(
         cluster,
@@ -649,7 +658,7 @@ def _event_removal_placements(
     """
     events = [] if deletion_request.delete_all_events else deletion_request.events
     swept: list[TargetPlacement] = []
-    for placement in resolve_placements(cluster):
+    for placement in resolve_placements(cluster, _EVENT_ROW_TARGETS):
         target = placement.target
         if not target.may_hold_any_of(events):
             continue
@@ -860,9 +869,7 @@ def complete_event_deletion(
 
 
 _PROPERTY_REWRITE_UNSWEEPABLE_REASON = (
-    "the property rewrite does not clean every copy of a property this table keeps. The native-JSON "
-    "events table also retains temporary properties and quarantine diagnostics, which the rewrite "
-    f"leaves in place. See {COVERAGE_DOC}."
+    f"the property rewrite does not clean every copy of a property this table keeps. See {COVERAGE_DOC}."
 )
 
 
@@ -1486,7 +1493,7 @@ def get_property_removal_shards(
             description=f"Request {deletion_request.request_id} no longer holds this run's marker. Nothing was "
             "staged. Retry the request to start a new run."
         )
-    placements = resolve_placements(cluster)
+    placements = resolve_placements(cluster, _EVENT_ROW_TARGETS)
     # Bound by the same marker as the sweep and the verify gate, so a row ingested after the
     # marker, which the sweep would never touch, cannot refuse the request forever.
     _refuse_property_removal_unsweepable(
@@ -1959,7 +1966,7 @@ def verify_property_removal(
     # Repeat the fan-out gate here. That one is point-in-time: rows can land between it and now, and
     # a re-execution from a failed shard reuses the fan-out op's cached output without re-running it.
     # Bounded by the same marker as the checks below so post-marker ingestion can't wedge the run.
-    placements = resolve_placements(cluster)
+    placements = resolve_placements(cluster, _EVENT_ROW_TARGETS)
     _refuse_property_removal_unsweepable(
         cluster, [p.target for p in placements], deletion_request, marker_str, log=context.log
     )

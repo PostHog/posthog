@@ -25,14 +25,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import dashboard_v2_enabled, posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
-from products.metrics.backend.hogql_queries.metrics_query_runner import DASHBOARD_V2_FEATURE_FLAG
 from products.metrics.backend.hogql_queries.tail_refresh import TailRefreshMixin, compare_grid, merge_grid
 from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
@@ -257,14 +256,7 @@ class MetricsHistogramQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[Metrics
         return (
             dashboard_id is not None
             and (date_range is None or date_range.date_to is None)
-            # `dashboard-v2` is aggregated by project, so the distinct id doesn't decide it.
-            and posthog_feature_flag_enabled(
-                DASHBOARD_V2_FEATURE_FLAG,
-                str(getattr(self.user, "distinct_id", None) or self.team.uuid),
-                organization_id=self.team.organization_id,
-                team_id=self.team.pk,
-                only_evaluate_locally=True,
-            )
+            and dashboard_v2_enabled(self.team, self.user)
         )
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:

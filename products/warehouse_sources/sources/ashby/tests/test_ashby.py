@@ -149,6 +149,12 @@ class TestFanOut:
         [
             ("application_history", "application.list", "application.listHistory", "applicationId"),
             ("candidate_notes", "candidate.list", "candidate.listNotes", "candidateId"),
+            (
+                "application_criteria_evaluations",
+                "application.list",
+                "application.listCriteriaEvaluations",
+                "applicationId",
+            ),
         ],
     )
     def test_calls_the_child_once_per_parent_and_injects_the_parent_id(
@@ -219,21 +225,34 @@ class TestFanOut:
         ]
 
 
-class TestUnpaginatedListing:
+class TestListingBody:
     @pytest.mark.parametrize(
-        "endpoint, path",
+        "endpoint, path, expected_body",
         [
-            ("interview_stage_groups", "interviewStageGroup.list"),
-            ("application_hiring_team_roles", "applicationHiringTeamRole.list"),
+            # These methods reject unknown request-body keys, so they must not get a `limit`.
+            ("interview_stage_groups", "interviewStageGroup.list", {}),
+            ("application_hiring_team_roles", "applicationHiringTeamRole.list", {}),
+            ("close_reasons", "closeReason.list", {"includeArchived": True}),
+            # Archived and disabled rows are left out unless asked for, yet older records still point at them.
+            ("source_tracking_links", "sourceTrackingLink.list", {"limit": 100, "includeDisabled": True}),
+            ("take_home_assignments", "takeHomeAssignment.list", {"limit": 100}),
         ],
     )
-    def test_sends_an_empty_body(self, endpoint: str, path: str) -> None:
-        # These methods accept no request-body keys, and Ashby rejects a `limit`.
+    def test_sends_the_documented_body(self, endpoint: str, path: str, expected_body: dict[str, Any]) -> None:
         result = _driver().run(endpoint, [_page([{"id": "1", "title": "Screen"}])])
         assert result.raised is None
         assert result.rows == [{"id": "1", "title": "Screen"}]
         assert result.urls == [f"{ASHBY_BASE_URL}/{path}"]
-        assert result.requests[0].json() == {}
+        assert result.requests[0].json() == expected_body
+
+    def test_keeps_the_fixed_keys_on_later_pages(self) -> None:
+        result = _driver().run(
+            "source_tracking_links",
+            [_page([{"id": "1"}], more=True, next_cursor="c1"), _page([{"id": "2"}])],
+        )
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["1", "2"]
+        assert result.requests[1].json() == {"limit": 100, "includeDisabled": True, "cursor": "c1"}
 
 
 class TestVariantListing:

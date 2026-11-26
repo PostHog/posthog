@@ -2,7 +2,7 @@ import typing
 
 from django.conf import settings
 
-from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.constants import HogQLQuerySettings, cap_flag_call_max_memory_usage
 
 from posthog.credentials import AWSKeyPair
 
@@ -57,9 +57,13 @@ class UserHogQLBatchExportQuerySettings(BatchExportQuerySettings):
     max_bytes_ratio_before_external_group_by: float | None = 0.0
 
 
-def get_user_hogql_batch_export_query_settings() -> UserHogQLBatchExportQuerySettings:
+def get_user_hogql_batch_export_query_settings(
+    cap_flag_call_memory: bool = False,
+) -> UserHogQLBatchExportQuerySettings:
     """Build the user-query settings, reading Django settings at call time so `@override_settings` works."""
     max_memory_usage = settings.BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE
+    if cap_flag_call_memory:
+        max_memory_usage = cap_flag_call_max_memory_usage(max_memory_usage)
     # Spill sorts and aggregations to disk at this share of the query's memory cap. Halfway leaves room
     # to finish the spilled work within the cap.
     spill_after_bytes = int(max_memory_usage * 0.5)

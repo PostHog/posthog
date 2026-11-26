@@ -183,7 +183,6 @@ export const FEATURE_FLAGS = {
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: #team-growth, used to enable custom CSS for teams who want to have fun
     EXPERIMENT_ACTIVATION_EVENT: 'experiment-activation-event', // owner: #team-experiments, offers an activation event on top of the default exposure instead of legacy custom exposure events
-    EXPERIMENT_EXPOSURE_EVENT: 'experiment-exposure-event', // owner: #team-experiments, switches new experiments to the dedicated exposure event
     FUNNEL_BAR_LIST: 'funnel-bar-list', // owner: @sampennington #team-dashboards-and-charts, top-to-bottom funnel as a bar list
     GAME_CENTER: 'game-center', // owner: everybody, this is just internal for now
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: #team-analytics, used to reward beta users for web analytics
@@ -236,6 +235,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-analytics
     SIGNALS_ANALYTICS_ALL_ALERTS: 'signals-analytics-all-alerts', // owner: #team-self-driving, lets the product analytics source send every firing insight alert to the inbox (also checked server-side)
     SIGNALS_INBOX_VALUE_SUMMARY: 'signals-inbox-value-summary', // owner: #team-self-driving
+    SIGNALS_MONITOR_PR: 'signals-monitor-pr', // owner: #team-self-driving
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
     SIGNALS_REPORT_METRICS: 'signals-report-metrics', // owner: #team-self-driving, gates the live impact metrics on inbox report rows and the report detail, and the snapshot refresh calls they make
     SIGNALS_REPORT_MONITORING: 'signals-report-monitoring', // owner: #team-self-driving
@@ -362,6 +362,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_CREATION_INTENTS: 'feature-flag-creation-intents', // owner: #team-feature-flags
     FEATURE_FLAG_DRAG_DROP_CONDITIONS: 'feature-flag-drag-drop-conditions', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
+    FEATURE_FLAG_REQUEST_ALLOWLIST: 'feature-flag-request-allowlist', // owner: @gustavo #team-feature-flags, shows the allowed domains and IP addresses setting. Turn on only where the flags service trusts the edge client IP header, because allowed IPs refuse every request without it
     FEATURE_FLAG_REQUEST_USAGE: 'feature-flag-request-usage', // owner: #team-feature-flags
     FEATURE_FLAG_ROLLBACK_REASON: 'feature-flag-rollback-reason', // owner: @gustavo #team-feature-flags, asks why when a save on the flag page lowers the flag's exposure
     FEATURE_FLAG_RULES_V2_EDITOR: 'feature-flag-rules-v2-editor', // owner: @andehen #team-feature-flags, entry points of the rules v2 flag editor
@@ -551,6 +552,7 @@ export const FEATURE_FLAGS = {
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
     SIGNUP_PASSWORD_CRACK_ESTIMATED: 'signup-password-crack-estimated',
+    SLACK_APP_WEB_SETTINGS: 'slack-app-web-settings', // owner: #team-surfaces, gates the Slack app section in project settings
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
     SMALL_SOFTWARE_APPS: 'small-software-apps', // owner: @DanielVisca, shows the canvas app tile in the dashboard add-widget picker; the backend gates tile creation on the same key
     SQL_EDITOR_SAVE_AS_CHOOSER: 'sql-editor-save-as-chooser', // owner: #team-data-tools
@@ -575,6 +577,7 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_FILTER_VALUE_SEARCH_GATING: 'taxonomic-filter-value-search-gating', // owner: @pauldambra
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
     TODAY_HOME_COMPOSER: 'today-home-composer', // owner: @puemos, adds a task composer at the top of the Today home
+    TODAY_HOME_PANE: 'today-home-pane', // owner: #team-platform-ux, the Home pane under today-rail-nav, which links the Today page, Inbox reports, monitoring and Pulse
     TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today page the homepage
     TODAY_RAIL_NAV_SWITCH: 'today-rail-nav-switch', // owner: #team-surfaces, shows the controls that switch between old and new navigation. Off for experiment cohorts so neither arm sees the other experience advertised.
     TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes

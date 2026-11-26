@@ -1,21 +1,22 @@
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use serde_json::{json, Value as JsonValue};
 
 use crate::{
-    context::{ExecutionContext, Symbol},
+    context::{ExecutionContext, OrderedJson, Symbol},
     error::VmError,
     memory::{HeapReference, VmHeap},
     ops::Operation,
+    print::{assert_all_fit, assert_repeats_fit, Cycles},
     program::Token,
     state::{
         chunk_str, chunk_to_symbol, close_over_cells, closure_from_json, closure_to_json,
         collect_cells, rebuild_cells, root_closure_json, value_from_json, value_to_json,
         CallFrameJson, CellRegistry, Resumable, ThrowFrameJson, UpvalueJson, VmSnapshot,
     },
-    util::{get_json_nested, like, regex_match},
+    util::{get_json_nested, get_ordered_nested, RegexCache},
     values::{
         boolean_text_equals, compare_values, temporal_seconds_pair, Callable, Closure,
         FromHogLiteral, HogLiteral, HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue,
@@ -29,6 +30,9 @@ use crate::{
 // on legitimately deep event properties. 256 clears any realistic event nesting by a wide margin
 // while still bounding native recursion well within a worker thread's stack.
 pub const MAX_JSON_SERDE_DEPTH: usize = 256;
+
+/// The work of one equality or membership test, where a pair of elements counts as the bytes of one value slot.
+const MAX_COMPARE_WORK_BYTES: usize = 1 << 26;
 
 /// The outcome of a virtual machine step.
 #[derive(Debug, Clone)]
@@ -67,6 +71,8 @@ pub struct HogVM<'a> {
     // cells; when a slot leaves scope (stack truncation) the matching upvalue is closed (snapshotted)
     // and removed from here. See `capture_upvalue` / `close_upvalues`.
     open_upvalues: Vec<UpvalueCell>,
+    // A closed upvalue owns its value outside the stack and the heap, so the VM counts that value and frees it.
+    closed_upvalues: Vec<Weak<RefCell<Upvalue>>>,
     ip: usize,
     // How many times this run has suspended on an async function call. Carried into snapshots and
     // restored on resume, so the per-run async budget survives the suspend/resume round-trip.
@@ -86,6 +92,23 @@ pub struct HogVM<'a> {
     // `set_chunk`) so the per-step fetch is a bounds-checked index instead of a symbol match plus
     // table lookup. Borrows from the context, like every other program view.
     current_tokens: &'a [Token],
+    result: Option<HogValue>,
+}
+
+// Reference counts never free a closure that captures the upvalue that holds it, so the VM empties each closed upvalue.
+impl Drop for HogVM<'_> {
+    fn drop(&mut self) {
+        let cells: Vec<UpvalueCell> = self
+            .closed_upvalues
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect();
+        let values: Vec<HogValue> = cells
+            .iter()
+            .filter_map(|cell| cell.try_borrow_mut().ok()?.value.take())
+            .collect();
+        drop(values);
+    }
 }
 
 struct CallFrame {
@@ -112,6 +135,7 @@ impl<'a> HogVM<'a> {
             stack_frames: Vec::new(),
             throw_frames: Vec::new(),
             open_upvalues: Vec::new(),
+            closed_upvalues: Vec::new(),
             ip: 0,
             async_steps: 0,
             ops: 0,
@@ -120,7 +144,62 @@ impl<'a> HogVM<'a> {
             current_tokens: context.chunk_tokens(&None)?,
             context,
             heap: VmHeap::new(context.max_heap_size),
+            result: None,
         })
+    }
+
+    pub(crate) fn regexes(&self) -> &'a RegexCache {
+        match self.context.regex_cache.as_deref() {
+            Some(cache) => cache,
+            None => RegexCache::global(),
+        }
+    }
+
+    /// The finished program's value under `with_raw_result`. Its references point into this VM's heap.
+    pub fn take_result(&mut self) -> Option<HogValue> {
+        self.result.take()
+    }
+
+    /// Strings on the stack are not on the heap, so a host that bounds memory reads this.
+    pub fn memory_bytes(&self) -> usize {
+        let closed = self
+            .closed_upvalues
+            .iter()
+            .filter_map(Weak::upgrade)
+            .map(|cell| cell.borrow().value.as_ref().map_or(0, HogValue::size));
+        self.stack
+            .iter()
+            .map(HogValue::size)
+            .chain(closed)
+            .fold(self.heap.current_bytes, usize::saturating_add)
+    }
+
+    /// The reference VM's object for a closure or callable. Upvalue ids count from 1 within this call.
+    pub fn closure_json(&self, literal: &HogLiteral) -> Option<JsonValue> {
+        let mut registry = CellRegistry::default();
+        let header_len = self.context.program_header_len();
+        match literal {
+            HogLiteral::Closure(closure) => {
+                Some(closure_to_json(closure, &mut registry, header_len))
+            }
+            HogLiteral::Callable(callable) => Some(closure_to_json(
+                &Closure {
+                    captures: Vec::new(),
+                    callable: (**callable).clone(),
+                },
+                &mut registry,
+                header_len,
+            )),
+            _ => None,
+        }
+    }
+
+    fn finish(&mut self, result: HogValue) -> Result<StepOutcome, VmError> {
+        if self.context.raw_result {
+            self.result = Some(result);
+            return Ok(StepOutcome::Finished(JsonValue::Null));
+        }
+        Ok(StepOutcome::Finished(self.hog_to_json(&result)?))
     }
 
     /// Step the virtual machine, writing some debug information to the provided output function.
@@ -159,7 +238,7 @@ impl<'a> HogVM<'a> {
                 } else {
                     self.pop_stack()?
                 };
-                return Ok(StepOutcome::Finished(self.hog_to_json(&result)?));
+                return self.finish(result);
             }
             Err(e) => return Err(e),
         };
@@ -194,7 +273,18 @@ impl<'a> HogVM<'a> {
                 // Copy out the `Copy` `&ExecutionContext` so the `found` borrow is tied to it, not to
                 // `self` — leaving `self` free for the `&mut self` `json_to_hog` call below.
                 let context = self.context;
-                if let Some(found) = get_json_nested(&context.globals, &chain, self)? {
+                if let Some(ordered) = &context.ordered_globals {
+                    if let Some(found) = get_ordered_nested(ordered, &chain, self)? {
+                        let val = self.ordered_to_hog(found, 0)?;
+                        self.push_stack(val)?;
+                    } else if let Some(closure) = self.get_fn_reference(&chain) {
+                        self.push_stack(closure)?;
+                    } else if get_ordered_nested(ordered, &chain[..1], self)?.is_some() {
+                        self.push_stack(HogLiteral::Null)?;
+                    } else {
+                        return Err(VmError::UnknownGlobal(format!("{chain:?}")));
+                    }
+                } else if let Some(found) = get_json_nested(&context.globals, &chain, self)? {
                     let val = self.json_to_hog(found)?;
                     self.push_stack(val)?;
                 } else if let Some(closure) = self.get_fn_reference(&chain) {
@@ -314,19 +404,19 @@ impl<'a> HogVM<'a> {
             Operation::LtEq => self.compare_op(NumOp::Lte)?,
             Operation::Like => {
                 let (val, pat) = self.pop_like_operands()?;
-                self.push_stack(like(val, pat, true)?)?;
+                self.push_stack(self.regexes().like(val, pat, true)?)?;
             }
             Operation::Ilike => {
                 let (val, pat) = self.pop_like_operands()?;
-                self.push_stack(like(val, pat, false)?)?;
+                self.push_stack(self.regexes().like(val, pat, false)?)?;
             }
             Operation::NotLike => {
                 let (val, pat) = self.pop_like_operands()?;
-                self.push_stack(!like(val, pat, true)?)?;
+                self.push_stack(!self.regexes().like(val, pat, true)?)?;
             }
             Operation::NotIlike => {
                 let (val, pat) = self.pop_like_operands()?;
-                self.push_stack(!like(val, pat, false)?)?;
+                self.push_stack(!self.regexes().like(val, pat, false)?)?;
             }
             Operation::In => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
@@ -407,7 +497,7 @@ impl<'a> HogVM<'a> {
                 let result = self.pop_stack()?;
                 let last_frame = self.stack_frames.pop();
                 let Some(frame) = last_frame else {
-                    return Ok(StepOutcome::Finished(self.hog_to_json(&result)?));
+                    return self.finish(result);
                 };
 
                 // NOTE - this diverges from the TS impl
@@ -555,7 +645,11 @@ impl<'a> HogVM<'a> {
                 };
 
                 let mut allocated_bytes = val.size();
-                let key_bytes = key.size();
+                // An object owns a copy of its key, so a shared string costs its text here.
+                let key_bytes = match &key {
+                    HogLiteral::String(text) => text.len(),
+                    other => other.size(),
+                };
                 let freed_bytes = target.set_property(key, val)?;
                 if freed_bytes == 0 {
                     allocated_bytes += key_bytes; // We inserted a new key as well as a new prop
@@ -817,6 +911,16 @@ impl<'a> HogVM<'a> {
         cell
     }
 
+    fn track_closed_upvalue(&mut self, cell: &UpvalueCell) {
+        // The list is pruned only when it is full, so the cost of the prune is spread over the pushes.
+        if self.closed_upvalues.len() == self.closed_upvalues.capacity() {
+            self.closed_upvalues.retain(|c| c.strong_count() > 0);
+            self.closed_upvalues
+                .reserve(self.closed_upvalues.len().max(8));
+        }
+        self.closed_upvalues.push(Rc::downgrade(cell));
+    }
+
     // Close every open upvalue whose slot is at or above `from` (i.e. about to leave scope):
     // snapshot the current stack value into the cell and drop it from the open list. The closures
     // holding the cell keep the snapshot. Matches the reference's `stackKeepFirstElements` close loop.
@@ -838,7 +942,8 @@ impl<'a> HogVM<'a> {
                     uv.closed = true;
                     uv.value = Some(snapshot);
                 }
-                self.open_upvalues.swap_remove(i);
+                let cell = self.open_upvalues.swap_remove(i);
+                self.track_closed_upvalue(&cell);
             } else {
                 i += 1;
             }
@@ -986,7 +1091,7 @@ impl<'a> HogVM<'a> {
             if !val_lit.truthy() || !pat_lit.truthy() {
                 false
             } else {
-                regex_match(
+                self.regexes().regex_match(
                     &self.js_string_coerce(&val)?,
                     &self.js_string_coerce(&pat)?,
                     case_sensitive,
@@ -1043,6 +1148,7 @@ impl<'a> HogVM<'a> {
                 return Ok((x == y).into());
             }
         }
+        self.assert_equality_fits(a, b)?;
         Ok(self.values_equal(a, b)?.into())
     }
 
@@ -1056,7 +1162,40 @@ impl<'a> HogVM<'a> {
         Ok(*a.equals(b, &self.heap)?.try_as::<bool>()?)
     }
 
+    /// For every equality test. The heap charges a shared string as a pointer, and the test reads it in full.
+    pub(crate) fn assert_equality_fits(&self, a: &HogValue, b: &HogValue) -> Result<(), VmError> {
+        let work = a.deref(&self.heap)?.compare_work(b.deref(&self.heap)?);
+        Self::assert_compare_work_fits(work)
+    }
+
+    /// For every membership test. The heap charges a repeated item as a pointer, and the test reads each item in full.
+    pub(crate) fn assert_membership_fits(
+        &self,
+        haystack: &HogValue,
+        needle: &HogValue,
+    ) -> Result<(), VmError> {
+        let (HogLiteral::Array(items) | HogLiteral::Tuple(items)) = haystack.deref(&self.heap)?
+        else {
+            return Ok(());
+        };
+        let needle = needle.deref(&self.heap)?;
+        let mut work = 0usize;
+        for item in items {
+            work = work.saturating_add(item.deref(&self.heap)?.compare_work(needle));
+            Self::assert_compare_work_fits(work)?;
+        }
+        Ok(())
+    }
+
+    fn assert_compare_work_fits(work: usize) -> Result<(), VmError> {
+        if work > MAX_COMPARE_WORK_BYTES {
+            return Err(VmError::OutOfResource("compare".to_string()));
+        }
+        Ok(())
+    }
+
     fn in_op(&self, haystack: &HogValue, needle: &HogValue) -> Result<HogLiteral, VmError> {
+        self.assert_membership_fits(haystack, needle)?;
         if !self.context.boolean_text_equality {
             return haystack.contains(needle, &self.heap);
         }
@@ -1105,7 +1244,8 @@ impl<'a> HogVM<'a> {
         Ok(())
     }
 
-    pub(crate) fn push_stack(&mut self, value: impl Into<HogValue>) -> Result<(), VmError> {
+    /// For a host that answers a [`StepOutcome::NativeCall`] itself. A container must already be on this VM's heap.
+    pub fn push_stack(&mut self, value: impl Into<HogValue>) -> Result<(), VmError> {
         if self.stack.len() >= self.context.max_stack_depth {
             return Err(VmError::StackOverflow);
         }
@@ -1240,9 +1380,39 @@ impl<'a> HogVM<'a> {
         }
     }
 
+    fn ordered_to_hog(&mut self, current: &OrderedJson, depth: usize) -> Result<HogValue, VmError> {
+        if depth > MAX_JSON_SERDE_DEPTH {
+            return Err(VmError::OutOfResource(
+                "json->hog deserialization depth".to_string(),
+            ));
+        };
+        match current {
+            OrderedJson::Null => Ok(HogLiteral::Null.into()),
+            OrderedJson::Bool(b) => Ok(HogLiteral::Boolean(*b).into()),
+            OrderedJson::Number(n) => Ok(HogLiteral::Number(n.clone()).into()),
+            OrderedJson::String(s) => Ok(HogLiteral::String(HogStr::Shared(s.clone())).into()),
+            OrderedJson::Array(arr) => {
+                let mut values = Vec::with_capacity(arr.len());
+                for value in arr {
+                    values.push(self.ordered_to_hog(value, depth + 1)?);
+                }
+                Ok(self.heap.emplace(HogLiteral::Array(values))?.into())
+            }
+            OrderedJson::Object(entries) => {
+                let mut map = HogMap::default();
+                for (key, value) in entries {
+                    map.insert(key.clone(), self.ordered_to_hog(value, depth + 1)?);
+                }
+                Ok(self.heap.emplace(HogLiteral::Object(Box::new(map)))?.into())
+            }
+        }
+    }
+
     // Convert back from an arbitrary HogValue to a json Value. Again, this function exists on
     // the VM, because HogValues don't really exist in any other context.
     pub fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
+        // The conversion below has no cycle check, so it would copy a cycle once per level before it fails.
+        assert_repeats_fit(&self.heap, value, MAX_JSON_SERDE_DEPTH, Cycles::Never)?;
         self.hog_to_json_impl(value, 0)
     }
 
@@ -1292,6 +1462,8 @@ impl<'a> HogVM<'a> {
         for cell in &self.open_upvalues {
             registry.intern(cell);
         }
+        // The walks below follow a value with no cycle or depth check, and the snapshot writes it again for each reference to it.
+        assert_all_fit(&self.heap, &self.stack, MAX_JSON_SERDE_DEPTH, Cycles::Never)?;
         for value in &self.stack {
             collect_cells(value, &self.heap, &mut registry)?;
         }
@@ -1312,6 +1484,9 @@ impl<'a> HogVM<'a> {
                 (b.location, b.closed, b.value.clone())
             })
             .collect();
+
+        let closed: Vec<HogValue> = cell_data.iter().filter_map(|c| c.2.clone()).collect();
+        assert_all_fit(&self.heap, &closed, MAX_JSON_SERDE_DEPTH, Cycles::Never)?;
 
         let header_len = self.context.program_header_len();
         let mut stack = Vec::with_capacity(self.stack.len());
@@ -1490,6 +1665,9 @@ impl<'a> HogVM<'a> {
             });
         }
 
+        for cell in cells.values().filter(|c| c.borrow().closed) {
+            vm.track_closed_upvalue(cell);
+        }
         let open_upvalues = cells
             .values()
             .filter(|c| !c.borrow().closed)

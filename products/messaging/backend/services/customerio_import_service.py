@@ -24,7 +24,7 @@ from products.messaging.backend.models.message_preferences import (
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 from products.messaging.backend.services.suppression import block_transactional_for_hard_bounces
 
-from .customerio_client import CustomerIOAPIError, CustomerIOClient
+from .customerio_client import REDIRECT_STATUSES, CustomerIOAPIError, CustomerIOClient
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,14 @@ class GlobalUnsubscribePage:
     next_start: str | None
 
 
+def topic_name_in_preferences(topic: dict[str, Any]) -> str:
+    return str(topic.get("identifier") or f"topic_{topic.get('id')}")
+
+
+def topic_category_key(topic: dict[str, Any]) -> str:
+    return f"customerio_{topic_name_in_preferences(topic)}"
+
+
 class CustomerIOImportService:
     def __init__(self, team_id: int, api_key: Optional[str], created_by_id: Optional[int]):
         self.team_id = team_id
@@ -107,7 +115,8 @@ class CustomerIOImportService:
             try:
                 client.get_subscription_topics()
             except CustomerIOAPIError as e:
-                if e.status_code not in (401, 403):
+                # A key from the other region gets a redirect there.
+                if e.status_code not in (*REDIRECT_STATUSES, 401, 403):
                     unavailable = e
                 continue
             self.client = client
@@ -384,9 +393,9 @@ class CustomerIOImportService:
         for topic in topics:
             try:
                 topic_id = topic.get("id")
-                topic_identifier = topic.get("identifier", f"topic_{topic_id}")
+                topic_identifier = topic_name_in_preferences(topic)
                 topic_name = topic.get("name", f"Topic {topic_id}")
-                topic_key = f"customerio_{topic_identifier}"
+                topic_key = topic_category_key(topic)
                 description = topic.get("description", "")
                 public_description = topic.get("public_description", description)
 

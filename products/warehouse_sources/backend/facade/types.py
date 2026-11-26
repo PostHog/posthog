@@ -1623,6 +1623,14 @@ class ExternalDataSchemaStatus(LabeledStrEnum):
     BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
 
+class WebhookIssue(LabeledStrEnum):
+    """Why a webhook-sync table gets no webhook rows."""
+
+    NOT_REGISTERED = "not_registered", "The source has no enabled webhook"
+    MISSING_INPUTS = "missing_inputs", "The webhook is missing a required setting, so it drops every delivery"
+    NOT_ROUTED = "not_routed", "The webhook does not route this table's events, so it drops them"
+
+
 class ExternalDataSchemaSyncType(LabeledStrEnum):
     FULL_REFRESH = "full_refresh", "full_refresh"
     INCREMENTAL = "incremental", "incremental"

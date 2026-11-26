@@ -29,7 +29,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.recalculation import get_active_recalculation
+from products.experiments.backend.recalculation.runs import get_active_recalculation
 
 logger = structlog.get_logger(__name__)
 

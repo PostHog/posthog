@@ -1,6 +1,6 @@
-import type { ContentWidget } from '../../dashboard/dashboardTypes'
-import type { TileAction } from '../../tiles/tileAction'
-import { type WidgetDefinition, type WidgetMenuContext, defineWidget } from '../widgetDefinition'
+import type { ContentWidget } from '../../dashboard/document/dashboardTypes'
+import type { MenuAction } from '../../menu/menuAction'
+import { type WidgetType, type WidgetMenuContext, defineWidget } from '../widgetDefinition'
 import { chartMenuActions } from './chartMenuActions'
 import { type ChartConfig, chartSpec } from './chartSpec'
 import { ChartWidget } from './ChartWidget'
@@ -35,7 +35,8 @@ function withExtraVizTypes(extra: VizDefinition[], states: ChartStates | undefin
  * - `extraVizTypes` adds a host's own kinds of chart, or replaces a built-in kind of the same type.
  * - `runQuery` runs each chart's query. The host supplies it, so the dashboard never fetches data itself.
  * - `states` sets the loading, empty and error states for every chart, unless one of the host's own kinds sets its own.
- * - `menuActions` adds the host's own entries to every chart's menu, such as "Open in traces".
+ * - `menuActions` gets every chart's menu, with the chart's own entries added, so the host can add entries such as
+ *   "Open in traces" or remove ones it does not want.
  */
 export function createChartWidget({
     extraVizTypes = [],
@@ -46,15 +47,34 @@ export function createChartWidget({
     extraVizTypes?: VizDefinition[]
     runQuery?: RunQuery
     states?: ChartStates
-    menuActions?: (context: WidgetMenuContext<ChartConfig>) => TileAction[]
-} = {}): WidgetDefinition {
+    menuActions?: (actions: MenuAction[], context: WidgetMenuContext<ChartConfig>) => MenuAction[]
+} = {}): WidgetType {
     const vizTypes = withExtraVizTypes(extraVizTypes, states)
     function Chart({ widget }: { widget: ContentWidget<ChartConfig> }): JSX.Element {
         return <ChartWidget widget={widget} vizTypes={vizTypes} runQuery={runQuery} states={states} />
     }
-    return defineWidget({
+    const firstType = vizTypes.find((viz) => viz.type === 'line')?.type ?? vizTypes[0]?.type ?? 'line'
+    return defineWidget<ChartConfig, 'chart'>({
         ...chartSpec(vizTypes),
+        addTileOptions: [
+            {
+                label: 'Chart',
+                // TODO(2026-11-23): Replace this hardcoded query with one the person picks when they add the tile.
+                // The query is temporary. It gives the add menu a widget to insert before a query picker exists.
+                create: () => ({
+                    type: 'chart',
+                    title: 'New chart',
+                    config: {
+                        query: { language: 'hogql', query: 'select count() from events' },
+                        viz: { type: firstType },
+                    },
+                }),
+            },
+        ],
         Component: Chart,
-        menuActions: (context) => [...chartMenuActions(vizTypes, context), ...(menuActions?.(context) ?? [])],
+        menuActions: (actions, context) => {
+            const withChart = [...actions, ...chartMenuActions(vizTypes, context)]
+            return menuActions ? menuActions(withChart, context) : withChart
+        },
     })
 }

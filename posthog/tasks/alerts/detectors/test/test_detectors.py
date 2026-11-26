@@ -1,16 +1,28 @@
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 import numpy as np
 from parameterized import parameterized
+from pyod.models.mad import MAD
+from scipy.special import erf
 
 from posthog.schema import DetectorConfig
 
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
-from posthog.tasks.alerts.detectors.base import DetectionResult
+from posthog.tasks.alerts.detectors import normalizers
+from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.detectors.ensemble import EnsembleDetector
+from posthog.tasks.alerts.detectors.normalizers import (
+    FitError,
+    Normalizer,
+    QuantileNormalizer,
+    min_quantile_training_scores,
+    register_normalizer,
+)
 from posthog.tasks.alerts.detectors.preprocessing import moving_average
+from posthog.tasks.alerts.detectors.pyod_detectors.base_pyod import BasePyODDetector
 from posthog.tasks.alerts.detectors.pyod_detectors.copod import COPODDetector
 from posthog.tasks.alerts.detectors.pyod_detectors.ecod import ECODDetector
 from posthog.tasks.alerts.detectors.pyod_detectors.hbos import HBOSDetector
@@ -864,8 +876,12 @@ _PARITY_PREPROCESSING = [
 ]
 
 
-def _parity_config(detector_type: str, preprocessing: dict[str, Any], training_offset: int) -> dict[str, Any]:
-    shared = {"preprocessing": preprocessing, "training_offset_n": training_offset}
+def _parity_config(
+    detector_type: str, preprocessing: dict[str, Any], training_offset: int, normalizer: str | None = None
+) -> dict[str, Any]:
+    shared: dict[str, Any] = {"preprocessing": preprocessing, "training_offset_n": training_offset}
+    if normalizer:
+        shared["normalizer"] = normalizer
     if detector_type == "ensemble":
         return {
             "type": "ensemble",
@@ -880,18 +896,25 @@ def _parity_config(detector_type: str, preprocessing: dict[str, Any], training_o
 class TestFitAndScore:
     @parameterized.expand(
         [
-            (f"{detector_type}_{name}_offset_{offset}", detector_type, preprocessing, offset)
+            (
+                f"{detector_type}_{name}_offset_{offset}_{normalizer or 'default'}",
+                detector_type,
+                preprocessing,
+                offset,
+                normalizer,
+            )
             for detector_type in get_available_detectors()
             for name, preprocessing in _PARITY_PREPROCESSING
             for offset in (1, 3)
+            for normalizer in (None, "quantile")
         ]
     )
     def test_scoring_a_fitted_artifact_matches_detect(
-        self, _name: str, detector_type: str, preprocessing: dict[str, Any], offset: int
+        self, _name: str, detector_type: str, preprocessing: dict[str, Any], offset: int, normalizer: str | None
     ) -> None:
         data = np.random.default_rng(0).normal(100, 10, size=80)
         data[-1] = 200.0
-        detector = get_detector(_parity_config(detector_type, preprocessing, offset))
+        detector = get_detector(_parity_config(detector_type, preprocessing, offset, normalizer))
 
         expected = detector.detect(data)
         scored = detector.score(detector.fit(data[:-1]), data[-1 - detector.context_buckets() :])
@@ -914,3 +937,138 @@ class TestFitAndScore:
         assert len(scored.all_scores) == len(scored.all_metadata) == 20
         assert 18 in scored.triggered_indices
         assert [sub["type"] for sub in scored.all_metadata[18]["sub_results"]] == ["zscore", "knn"]
+
+
+_SCORE_BASED_DETECTORS = [
+    detector_type for detector_type in get_available_detectors() if detector_type not in ("ensemble", "threshold")
+]
+
+
+def _legacy_score(detector: BaseDetector, train: np.ndarray, point: float) -> float:
+    """The score of each detector before the shared normalizer, rebuilt from its original formula."""
+    if isinstance(detector, ZScoreDetector):
+        mean, std = train.mean(), train.std()
+        train_z = np.abs((train - mean) / std)
+        return float(np.clip((abs(point - mean) / std - train_z.min()) / (train_z.max() - train_z.min()), 0, 1))
+    if isinstance(detector, IQRDetector):
+        q1, q3 = np.percentile(train, 25), np.percentile(train, 75)
+        iqr = q3 - q1
+        lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+        distances = np.where(train < lower, (lower - train) / iqr, np.where(train > upper, (train - upper) / iqr, 0.0))
+        distance = (lower - point) / iqr if point < lower else (point - upper) / iqr if point > upper else 0.0
+        return float(np.clip(erf((distance - distances.mean()) / distances.std() / np.sqrt(2)), 0, 1))
+    assert isinstance(detector, MADDetector | BasePyODDetector)
+    model = MAD() if isinstance(detector, MADDetector) else detector._build_model(n_samples=len(train))
+    model.fit(train.reshape(-1, 1))
+    return float(model.predict_proba(np.array([[point]]))[0, 1])
+
+
+class TestNormalizers:
+    @parameterized.expand(
+        [
+            ("ties_the_largest_training_score", [1.0, 2.0, 3.0, 3.0], 3.0, 0.5),
+            ("above_every_training_score", [1.0, 2.0, 3.0, 3.0], 3.5, 1.0),
+            ("below_every_training_score", [1.0, 2.0, 3.0, 3.0], 0.5, 0.0),
+            ("constant_training_same_value", [2.0, 2.0, 2.0], 2.0, 0.0),
+            ("constant_training_other_value", [2.0, 2.0, 2.0], 2.1, 1.0),
+        ]
+    )
+    def test_quantile_counts_training_scores_strictly_below(
+        self, _name: str, training: list[float], raw_score: float, expected: float
+    ) -> None:
+        normalizer = QuantileNormalizer()
+        assert normalizer.score(normalizer.fit(np.array(training), threshold=0.0), raw_score) == expected
+
+    @parameterized.expand(
+        [
+            ("minmax_shifts_like_pyod", "minmax", [1.0, 1.0, 1.0], 1.5, 0.5),
+            ("minmax_treats_float_error_as_a_zero_range", "minmax", [1.0, 1.0 + 2e-16], 1.5, 0.5),
+            ("minmax_step_steps_like_zscore", "minmax_step", [1.0, 1.0, 1.0], 1.5, 1.0),
+            ("minmax_step_at_the_constant", "minmax_step", [1.0, 1.0, 1.0], 1.0, 0.0),
+        ]
+    )
+    def test_minmax_with_a_zero_range(
+        self, _name: str, method: str, training: list[float], raw_score: float, expected: float
+    ) -> None:
+        normalizer = normalizers.get_normalizer(method)
+        assert normalizer.score(normalizer.fit(np.array(training), threshold=0.9), raw_score) == pytest.approx(expected)
+
+    @parameterized.expand([(0.99, 1, 100), (0.98, 1, 50), (0.95, 1, 20), (0.95, 3, 60), (0.99, 3, 300)])
+    def test_quantile_minimum_training_size(self, threshold: float, k: int, expected: int) -> None:
+        assert min_quantile_training_scores(threshold, k) == expected
+
+    @parameterized.expand([(detector_type,) for detector_type in _SCORE_BASED_DETECTORS])
+    def test_default_normalizer_keeps_the_legacy_score(self, detector_type: str) -> None:
+        data = np.random.default_rng(3).normal(100, 10, size=31)
+        data[-1] = 125.0
+        detector = get_detector({"type": detector_type, "window": 30, "threshold": 0.9})
+
+        assert detector.detect(data).score == pytest.approx(_legacy_score(detector, data[:-1], data[-1]))
+
+    @parameterized.expand([(detector_type,) for detector_type in _SCORE_BASED_DETECTORS])
+    def test_too_few_training_scores_for_the_quantile_threshold_is_a_warm_up(self, detector_type: str) -> None:
+        data = np.random.default_rng(4).normal(100, 10, size=80)
+        data[-1] = 1000.0
+        # 0.99 needs 100 training scores, and 80 buckets give fewer.
+        detector = get_detector({"type": detector_type, "window": 60, "threshold": 0.99, "normalizer": "quantile"})
+
+        with pytest.raises(FitError):
+            detector.fit(data[:-1])
+        result = detector.detect(data)
+        assert (result.is_anomaly, result.score) == (False, None)
+        assert detector.detect_batch(data).triggered_indices == []
+
+    @parameterized.expand([(detector_type,) for detector_type in _SCORE_BASED_DETECTORS])
+    def test_quantile_flag_rate_on_held_out_data_follows_the_threshold(self, detector_type: str) -> None:
+        rng = np.random.default_rng(0)
+        train, held_out = rng.normal(100, 10, size=400), rng.normal(100, 10, size=1000)
+        threshold = 0.95
+        detector = get_detector(
+            {"type": detector_type, "window": 400, "threshold": threshold, "normalizer": "quantile"}
+        )
+
+        flag_rate = len(detector.score(detector.fit(train), held_out).triggered_indices) / len(held_out)
+
+        if detector_type == "iqr":
+            # Points inside the fences all have a distance of 0, so the tie caps the rate below 1 - threshold.
+            assert flag_rate <= 1 - threshold
+        elif detector_type == "ocsvm":
+            # The SVM scores its own training points lower than new points, so new points flag more often.
+            assert flag_rate <= 3 * (1 - threshold)
+        else:
+            assert flag_rate == pytest.approx(1 - threshold, abs=0.02)
+
+    @parameterized.expand([(detector_type,) for detector_type in _SCORE_BASED_DETECTORS])
+    def test_a_registered_normalizer_scores_every_detector(self, detector_type: str) -> None:
+        class QuarterNormalizer(Normalizer):
+            name = "quarter"
+
+            def _fit(self, raw_scores: np.ndarray) -> dict[str, Any]:
+                return {"value": 0.25}
+
+            def score(self, params: dict[str, Any], raw_score: float) -> float:
+                return params["value"]
+
+        data = np.random.default_rng(5).normal(100, 10, size=80)
+        with patch.dict(normalizers._NORMALIZERS):
+            register_normalizer(QuarterNormalizer)
+            detector = get_detector({"type": detector_type, "window": 30, "normalizer": "quarter"})
+            result = detector.detect(data)
+            scored = detector.score(detector.fit(data[:-1]), data[-1 - detector.context_buckets() :])
+
+        assert (result.score, result.metadata["normalizer"]) == (0.25, "quarter")
+        assert (scored.all_scores, scored.all_metadata[0]["normalizer"]) == ([0.25], "quarter")
+
+    def test_an_ensemble_gives_its_normalizer_to_every_sub_detector(self) -> None:
+        detector = get_detector(
+            {
+                "type": "ensemble",
+                "operator": "or",
+                "normalizer": "quantile",
+                "detectors": [{"type": "zscore", "window": 30}, {"type": "iqr", "window": 30}, {"type": "knn"}],
+            }
+        )
+
+        artifact = detector.fit(np.random.default_rng(6).normal(100, 10, size=80))
+
+        assert [child.params["normalizer"]["method"] for child in artifact.children] == ["quantile"] * 3

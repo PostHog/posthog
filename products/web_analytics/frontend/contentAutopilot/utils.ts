@@ -23,6 +23,10 @@ export const ENGINE_LABELS: Record<string, string> = {
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
 
+/** Topics that differ only in letter case are one topic, as the API counts them. */
+export const sameTopic = (a: string | null | undefined, b: string | null | undefined): boolean =>
+    a !== null && a !== undefined && b !== null && b !== undefined && a.toLowerCase() === b.toLowerCase()
+
 export const unavailableEngineReason = (setting: { available: boolean }): string | undefined =>
     setting.available ? undefined : "This engine isn't set up for this project yet."
 

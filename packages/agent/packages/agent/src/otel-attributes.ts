@@ -2,6 +2,7 @@ import {
   readAgentToolName,
   readMcpToolDescriptor,
 } from "@posthog/agent-contracts";
+import { contextWikiPageKind } from "@posthog/harness/extensions/context-wiki";
 
 const MAX_BODY_CHARS = 2000;
 // PostHog Logs only facets attribute key/value pairs shorter than 256 chars,
@@ -54,6 +55,34 @@ export function toolNameAttribute(
 ): string | undefined {
   if (readMcpToolDescriptor(update._meta)) return "mcp";
   return readAgentToolName(update._meta) || undefined;
+}
+
+/**
+ * Adds the context wiki pages a tool update names to `pages`, keyed by path
+ * with the page's kind as the value. The paths stay in the sandbox: page names
+ * are written by customers, so only the count and the kinds are exported.
+ */
+export function collectContextWikiPages(
+  update: Record<string, unknown>,
+  wikiPath: string | undefined,
+  pages: Map<string, string>,
+): void {
+  if (!wikiPath || !Array.isArray(update.locations)) return;
+  for (const location of update.locations) {
+    const path = asString(asRecord(location)?.path);
+    const kind = path && contextWikiPageKind(path, wikiPath);
+    if (path && kind) pages.set(path, kind);
+  }
+}
+
+export function contextWikiReadAttributes(
+  pages: Map<string, string>,
+): Attributes {
+  if (!pages.size) return {};
+  return {
+    context_wiki_page_reads: pages.size,
+    context_wiki_page_kinds: [...new Set(pages.values())].sort().join(","),
+  };
 }
 
 export function toolFailureReason(
