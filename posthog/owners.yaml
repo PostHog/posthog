@@ -43,6 +43,8 @@ rules:
       owners: team-growth
     - match: '/hogql/'
       owners: team-data-tools
+    - match: ['/hogql_client/', '/hogql_service/']
+      owners: team-query-performance
     - match:
           - '/inbox_providers.py'
           - '/test/test_inbox_providers.py'

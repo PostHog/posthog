@@ -29,6 +29,7 @@ from posthog.schema import (
     EventPropertyFilter,
     HogQLFilters,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     HogQLVariable,
     PersonsOnEventsMode,
     QueryTiming,
@@ -2807,6 +2808,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 1)
         mock_sleep.assert_not_called()
+
+
+class TestExecuteForwarder(SimpleTestCase):
+    def test_execute_hogql_query_reaches_the_client(self) -> None:
+        response = HogQLQueryResponse(results=[])
+        with patch("posthog.hogql_client.execute.execute_in_process", return_value=response) as in_process:
+            assert execute_hogql_query("select 1", team=None) is response
+        in_process.assert_called_once_with("select 1", team=None)
 
 
 class TestQueryStatsRecording(BaseTest):
