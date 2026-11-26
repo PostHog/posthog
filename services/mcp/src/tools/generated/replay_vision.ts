@@ -566,7 +566,7 @@ const visionObservationsList = (): ToolBase<
                         },
                         '/replay'
                     ),
-                    "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
+                    'An empty `results` means nothing has scanned this session yet, so it has no AI summary. To create one, call `vision-scanners-inline-scan` with the session id in `session_ids` and `built_in: "summarize_recording"`, then poll this tool until the new observation reaches `succeeded`. Each observation\'s `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip\'s `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n'
                 ),
                 ['id', 'session_id', 'status', 'summary_line', 'created_at', 'scanner_id', '_posthogUrl']
             )
