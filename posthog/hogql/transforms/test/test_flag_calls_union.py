@@ -2,7 +2,7 @@ import re
 import sys
 import json
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -30,6 +30,7 @@ from posthog.schema import (
     InlineCohortCalculation,
     MaterializationMode,
     PersonsOnEventsMode,
+    PropertyGroupsMode,
 )
 
 from posthog.hogql import ast
@@ -56,6 +57,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.property_groups import PropertyGroupDefinition
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models.instance_setting import override_instance_config
@@ -79,6 +81,8 @@ UNION = "posthog.events_with_flag_calls"
 EVENTS = FlagEvaluationsMode.EVENTS
 READ = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
 ONLY = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+OPTIMIZED = PropertyGroupsMode.OPTIMIZED
+DISABLED = PropertyGroupsMode.DISABLED
 
 
 UNION_EXPANSION = "FROM flag_evaluations"
@@ -1301,6 +1305,60 @@ class TestReadFlagCallsWithUnion(BaseTest):
     @parameterized.expand(
         [
             ("mode_2", UNKEYED_FEATURE_PROPERTY, ONLY, True, True),
+            param(
+                "map_served_property",
+                UNKEYED_FEATURE_PROPERTY,
+                ONLY,
+                True,
+                False,
+                property_groups=OPTIMIZED,
+                map_read=True,
+            ),
+            param(
+                "map_served_subscript",
+                f"{FLAG_CALLS} AND properties['$feature/new-checkout'] = 'true'",
+                ONLY,
+                True,
+                False,
+                property_groups=OPTIMIZED,
+                map_read=True,
+            ),
+            param("property_groups_disabled", UNKEYED_FEATURE_PROPERTY, ONLY, True, True, property_groups=DISABLED),
+            param(
+                "restricted_key_reads_json",
+                UNKEYED_FEATURE_PROPERTY,
+                ONLY,
+                True,
+                True,
+                property_groups=OPTIMIZED,
+                restricted=True,
+            ),
+            param(
+                "hidden_group_reads_json",
+                UNKEYED_FEATURE_PROPERTY,
+                ONLY,
+                True,
+                True,
+                property_groups=OPTIMIZED,
+                hide_feature_flags_group=True,
+            ),
+            param(
+                "json_extract_reads_json",
+                f"{FLAG_CALLS} AND JSONExtractString(properties, '$feature/new-checkout') = 'true'",
+                ONLY,
+                True,
+                True,
+                property_groups=OPTIMIZED,
+            ),
+            param(
+                "map_read_beside_json_extract",
+                f"{UNKEYED_FEATURE_PROPERTY} AND JSONExtractString(properties, '$feature/other') = 'true'",
+                ONLY,
+                True,
+                True,
+                property_groups=OPTIMIZED,
+                map_read=True,
+            ),
             ("mode_0_native", UNKEYED_FEATURE_PROPERTY, EVENTS, True, True),
             ("subscript", f"{FLAG_CALLS} AND properties['$feature/new-checkout'] = 'true'", ONLY, True, True),
             (
@@ -1330,11 +1388,39 @@ class TestReadFlagCallsWithUnion(BaseTest):
         ]
     )
     def test_unkeyed_feature_property_read_runs_under_a_memory_cap(
-        self, _name: str, query: str, mode: FlagEvaluationsMode, new_events_schema: bool, capped: bool
+        self,
+        _name: str,
+        query: str,
+        mode: FlagEvaluationsMode,
+        new_events_schema: bool,
+        capped: bool,
+        property_groups: PropertyGroupsMode | None = None,
+        map_read: bool = False,
+        restricted: bool = False,
+        hide_feature_flags_group: bool = False,
     ):
-        sql = self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+        if restricted:
+            _restrict(self.organization, self.team, "$feature/new-checkout")
+        contains = PropertyGroupDefinition.contains
+        with (
+            patch.object(
+                PropertyGroupDefinition,
+                "contains",
+                lambda group, key: contains(group, key) and not key.startswith("$feature/"),
+            )
+            if hide_feature_flags_group
+            else nullcontext()
+        ):
+            sql = self._sql(
+                query,
+                mode=mode,
+                union=False,
+                new_events_schema=new_events_schema,
+                modifiers=HogQLQueryModifiers(propertyGroupsMode=property_groups),
+            )
 
         assert (UNKEYED_READ_MEMORY_CAP in sql) is capped
+        assert ("properties_group_feature_flags[" in sql) is map_read
         assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is (mode is not READ or new_events_schema)
 
     @parameterized.expand(

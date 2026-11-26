@@ -302,6 +302,7 @@ def _resolve_with_swaps(
             flag_key_compares_as_string=compares_as_string,
             union_reads_ratio_samples=only_in_flag_evaluations and union_applies(context),
             database=database,
+            context=context,
         )
         swapper.visit(rewritten)
         union = read_flag_calls_with_union(rewritten, context, compares_as_string)
@@ -553,17 +554,20 @@ class EventsScan:
                 return "it selects * or COLUMNS(...)"
         return None
 
-    def unkeyed_feature_property(self, node: ast.SelectQuery, conjuncts: list[ast.Expr]) -> str | None:
-        """The first `$feature/<key>` property that `node` reads from this scan while the swap would add no
+    def unkeyed_feature_property(
+        self, node: ast.SelectQuery, conjuncts: list[ast.Expr], context: HogQLContext
+    ) -> str | None:
+        """The first `$feature/<key>` property that `node` reads from this scan as JSON while the swap would add no
         `flag_key` predicate, or None. A key that the predicate cannot carry, such as a non-ASCII key, counts as
         no key.
 
         `flag_evaluations` sorts by `flag_key`, and holds `properties` as one JSON string per row. Without a key
-        filter, ClickHouse reads and parses that string for every flag call the team has.
+        filter, a JSON read makes ClickHouse parse that string for every flag call the team has. A read that the
+        printer sends to the `feature_flags` map column parses no JSON, so it does not count.
         """
         if flag_key_predicate(self.alias, self.flag_keys(conjuncts)) is not None:
             return None
-        finder = _FeaturePropertyFinder(self, node)
+        finder = _FeaturePropertyFinder(self, node, context)
         finder.visit(node)
         return finder.found
 
@@ -1212,12 +1216,13 @@ class _MatchesActionExpander(CloningVisitor):
 
 
 class _FeaturePropertyFinder(SyntaxVisitor):
-    """Finds a read of `properties.$feature/<key>` from `scan` in its own SELECT, not in a subquery."""
+    """Finds a JSON read of `properties.$feature/<key>` from `scan` in its own SELECT, not in a subquery."""
 
-    def __init__(self, scan: EventsScan, root: ast.SelectQuery) -> None:
+    def __init__(self, scan: EventsScan, root: ast.SelectQuery, context: HogQLContext) -> None:
         super().__init__()
         self.scan = scan
         self.root = root
+        self.context = context
         self.found: str | None = None
         self.aliases = dict(select_aliases(root, in_scope_only=True))
         # The parameter names of the lambdas around the node being visited.
@@ -1254,11 +1259,11 @@ class _FeaturePropertyFinder(SyntaxVisitor):
     def visit_field(self, node: ast.Field) -> None:
         column = self._column(node)
         if column is not None and len(column) > 1 and column[0] == "properties":
-            self._note(column[1])
+            self._note_property(column[1])
 
     def visit_array_access(self, node: ast.ArrayAccess) -> None:
         if self._column(node.array) == ["properties"] and isinstance(node.property, ast.Constant):
-            self._note(node.property.value)
+            self._note_property(node.property.value)
         super().visit_array_access(node)
 
     def visit_call(self, node: ast.Call) -> None:
@@ -1267,9 +1272,24 @@ class _FeaturePropertyFinder(SyntaxVisitor):
                 self._note(node.args[1].value)
         super().visit_call(node)
 
+    def _note_property(self, name: object) -> None:
+        if isinstance(name, str) and _reads_flag_evaluations_property_json(name, self.context):
+            self._note(name)
+
     def _note(self, name: object) -> None:
         if self.found is None and isinstance(name, str) and name.startswith(_FEATURE_PROPERTY_PREFIX):
             self.found = name
+
+
+def _reads_flag_evaluations_property_json(name: str, context: HogQLContext) -> bool:
+    """Whether the printer reads `properties.<name>` on flag_evaluations from the JSON string, not from a column."""
+    # Deferred: clickhouse_property_resolution imports the printer, which imports this module.
+    from posthog.hogql.transforms.clickhouse_property_resolution import (  # noqa: PLC0415
+        resolve_materialized_property_source,
+    )
+
+    properties = ast.FieldType(name="properties", table_type=ast.TableType(table=FlagEvaluationsTable()))
+    return resolve_materialized_property_source(properties, name, context) is None
 
 
 class _EventsScanSwapper(ScanVisitor):
@@ -1280,11 +1300,13 @@ class _EventsScanSwapper(ScanVisitor):
         only_in_flag_evaluations: bool,
         flag_key_compares_as_string: Callable[[], bool],
         database: "Database",
+        context: HogQLContext,
         union_reads_ratio_samples: bool = False,
     ) -> None:
         super().__init__()
         self.union_reads_ratio_samples = union_reads_ratio_samples
         self.database = database
+        self.context = context
         self.now = now
         self.timezone = timezone
         self.only_in_flag_evaluations = only_in_flag_evaluations
@@ -1317,7 +1339,7 @@ class _EventsScanSwapper(ScanVisitor):
             self.flag_key_predicates += 1
         point_scan_at(node, scan, ["posthog", "flag_evaluations"], flag_key)
         self.swapped = True
-        if self.only_in_flag_evaluations and scan.unkeyed_feature_property(node, conjuncts):
+        if self.only_in_flag_evaluations and scan.unkeyed_feature_property(node, conjuncts, self.context):
             self.reads_unkeyed_feature_property = True
 
     def swap_scans_found_by_type(self, resolved: ast.AST, sources: JoinSources, clones: "_JoinClones") -> str | None:
