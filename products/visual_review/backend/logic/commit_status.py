@@ -435,7 +435,9 @@ def pull_requests_applying(repo: Repo, approvals: list[BaselineApproval]) -> set
 
 def _publish_after_close(repo: Repo, closed: list[BaselineApproval], finished_pull_requests: frozenset[int]) -> None:
     made_over = baseline_approvals.open_approvals_made_over(closed)
-    pull_requests = pull_requests_applying(repo, [*closed, *made_over])
+    # A run that applied an earlier approval of the same picture stayed fresh through the one that closed.
+    predecessors = baseline_approvals.same_picture_predecessors(closed) if closed else []
+    pull_requests = pull_requests_applying(repo, [*closed, *predecessors, *made_over])
     pull_requests |= {(approval.pr_number, approval.run_type) for approval in made_over}
     publish_for_pull_requests(
         repo,

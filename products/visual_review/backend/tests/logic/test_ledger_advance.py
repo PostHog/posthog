@@ -904,6 +904,29 @@ class TestReconcileOpenApprovals:
 
         assert publish.call_args_list == [mocker.call(repo.team_id, str(repo.id), "head-3", RunType.STORYBOOK)]
 
+    def test_a_closed_approval_publishes_again_for_runs_that_applied_its_earlier_same_picture_approval(
+        self, repo, github, mocker, django_capture_on_commit_callbacks
+    ) -> None:
+        set_baseline_mode(repo, BaselineMode.LEDGER)
+        github.push("s1", "chore: no pull request named")
+        ledger_advance.advance(repo)
+        # The parent approved the same picture again; the child's current run applied the replaced row.
+        earlier = approve(repo, 1, "Button", "b1", commit_sha="old-0", state=BaselineApprovalState.SUPERSEDED)
+        approve(repo, 1, "Button", "b1", commit_sha="old-1")
+        _pull_request_run(
+            repo, 2, "head-2", metadata={METADATA_KEY: make_record(candidate_approval_ids=(earlier.id,)).to_json()}
+        )
+        github.pull_requests[1] = github_api.PullRequestState(
+            state="closed", merged=False, merge_commit_sha=None, base_ref="master", head_sha="head-1"
+        )
+        github.open_pull_request(2)
+        publish = mocker.patch.object(tasks.publish_visual_review_commit_status, "delay")
+
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            ledger_advance.reconcile_open_approvals(repo)
+
+        assert publish.call_args_list == [mocker.call(repo.team_id, str(repo.id), "head-2", RunType.STORYBOOK)]
+
     def test_late_landings_apply_in_ledger_position_order(self, repo, github) -> None:
         github.push("s1", "chore: no pull request named")
         github.push("s2", "chore: no pull request named")

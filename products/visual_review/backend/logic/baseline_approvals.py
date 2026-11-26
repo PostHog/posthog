@@ -467,11 +467,11 @@ def without_closed_lower_layers(
     return [approval for approval in approvals if approval.id not in closed]
 
 
-def _same_picture_predecessors(closed: list[BaselineApproval]) -> set[UUID]:
+def same_picture_predecessors(closed: list[BaselineApproval]) -> list[BaselineApproval]:
     """The superseded approvals of the same pull request and picture as the closed ones.
 
-    An upper layer made over such a row stays fresh through its successor, so it depends on the
-    successor without naming it.
+    An upper layer made over such a row, or a run that applied it, stays fresh through its
+    successor, so it depends on the successor without naming it.
     """
     keys = {SuccessorKey.of(approval) for approval in closed}
     rows = (
@@ -486,7 +486,7 @@ def _same_picture_predecessors(closed: list[BaselineApproval]) -> set[UUID]:
         )
         .only("id", "pr_number", "run_type", "identifier", "content_hash")
     )
-    return {row.id for row in rows if SuccessorKey.of(row) in keys}
+    return [row for row in rows if SuccessorKey.of(row) in keys]
 
 
 def _made_over_by_hash(lower: list[BaselineApproval]) -> list[BaselineApproval]:
@@ -516,7 +516,7 @@ def open_approvals_made_over(closed: list[BaselineApproval]) -> list[BaselineApp
     """
     if not closed:
         return []
-    seen = {approval.id for approval in closed} | _same_picture_predecessors(closed)
+    seen = {approval.id for approval in [*closed, *same_picture_predecessors(closed)]}
     lower, lower_ids = closed, set(seen)
     made_over: list[BaselineApproval] = []
     while lower_ids:
