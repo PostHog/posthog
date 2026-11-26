@@ -640,7 +640,7 @@ export function createRunner(
                               samples: () => sampling.sampler.taken(),
                               host: () => sampling.sampler.host(),
                               queue: () => sampling.probes.queue(),
-                              profile,
+                              admission: loaded.admission,
                               writerCpu: (window) => readWriterCpu(window, liveSignal),
                               targetLimit: opened.limit,
                           },
@@ -700,7 +700,7 @@ export function createRunner(
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
-                    profile,
+                    loaded.admission,
                     baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) }),
                     units.steps[0]?.scale
                 )
@@ -817,6 +817,9 @@ export function createRunner(
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
+                if (loaded.admission.load) {
+                    writeJson(evidenceDir, 'load-targets.json', loaded.admission.load)
+                }
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed, dependencies })
                 if (writerCpuReads.length > 0) {
                     writeJson(evidenceDir, 'writer-cpu.json', writerCpuReads)
