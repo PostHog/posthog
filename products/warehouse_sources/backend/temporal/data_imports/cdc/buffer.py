@@ -38,7 +38,12 @@ from __future__ import annotations
 
 import re
 import time
+import typing
+import asyncio
+import hashlib
 import datetime as dt
+import functools
+from collections.abc import Collection
 from contextlib import suppress
 from dataclasses import dataclass
 
@@ -47,6 +52,7 @@ from django.conf import settings
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from fsspec.asyn import sync
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -73,8 +79,12 @@ _FILE_NAME_RE = re.compile(rf"([0-9]{{{_SEQ_WIDTH}}})-([0-9]{{{_SEQ_WIDTH}}})-([
 _STAGING_SUFFIX = ".staging"
 
 
+def get_team_buffer_prefix(team_id: int) -> str:
+    return f"s3://{settings.DATAWAREHOUSE_BUCKET}/{BUFFER_ROOT_FOLDER}/{team_id}"
+
+
 def get_buffer_prefix(team_id: int, schema_id: str) -> str:
-    return f"s3://{settings.DATAWAREHOUSE_BUCKET}/{BUFFER_ROOT_FOLDER}/{team_id}/{schema_id}"
+    return f"{get_team_buffer_prefix(team_id)}/{schema_id}"
 
 
 def build_buffer_file_name(start_seq: int, end_seq: int, file_index: int) -> str:
@@ -311,3 +321,81 @@ def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogg
         if strict:
             raise
         logger.warning("cdc_buffer_prefix_purge_failed", schema_id=schema_id, exc_info=True)
+
+
+@frozen
+class BufferBacklog:
+    files: int
+    bytes: int
+    oldest_written_at: dt.datetime | None
+    oldest_schema_id: str | None
+
+    @classmethod
+    def empty(cls) -> BufferBacklog:
+        return cls(files=0, bytes=0, oldest_written_at=None, oldest_schema_id=None)
+
+    def merge(self, other: BufferBacklog) -> BufferBacklog:
+        oldest = min(
+            (b for b in (self, other) if b.oldest_written_at is not None),
+            key=lambda b: typing.cast(dt.datetime, b.oldest_written_at),
+            default=None,
+        )
+        return BufferBacklog(
+            files=self.files + other.files,
+            bytes=self.bytes + other.bytes,
+            oldest_written_at=oldest.oldest_written_at if oldest else None,
+            oldest_schema_id=oldest.oldest_schema_id if oldest else None,
+        )
+
+
+# A source's backlog is measured on one run per window, so its S3 listings stay few.
+BACKLOG_MEASUREMENT_WINDOW = dt.timedelta(minutes=30)
+BACKLOG_LISTING_CONCURRENCY = 8
+
+
+def measures_backlog_this_run(source_id: str, scheduled_start: dt.datetime, interval: dt.timedelta) -> bool:
+    """Whether the run the schedule started at `scheduled_start` measures the source's backlog.
+
+    Picks one run per window without stored state. Each source owns a slot one run interval wide,
+    at an offset in the window taken from a hash of its id. The schedule starts runs exactly one
+    interval apart, so one start lands in each slot, or two when the interval does not divide the
+    window. A source that runs less often than the window measures on every run.
+    """
+    window = max(BACKLOG_MEASUREMENT_WINDOW, interval).total_seconds()
+    phase = int(hashlib.sha256(source_id.encode()).hexdigest(), 16) % int(window)
+    return (scheduled_start.timestamp() - phase) % window < interval.total_seconds()
+
+
+def measure_buffer_backlog(team_id: int, schema_ids: Collection[str]) -> BufferBacklog:
+    """Buffer files still waiting under the given schemas' prefixes.
+
+    Lists each schema's prefix, a few at a time. Pages are folded in as they arrive and never enter
+    the client's directory cache. A consumer deletes the files it settled on its next run, so a
+    healthy table still shows up to about two of its ticks of files here.
+    """
+    s3 = get_s3_client()
+    bucket, root, _ = s3.split_path(strip_s3_protocol(get_team_buffer_prefix(team_id)))
+
+    async def scan_schema(schema_id: str, slots: asyncio.Semaphore) -> BufferBacklog:
+        files = 0
+        total_bytes = 0
+        oldest: dt.datetime | None = None
+        async with slots:
+            async for entry in s3._iterdir(bucket, delimiter="", prefix=f"{root}/{schema_id}/"):
+                if parse_buffer_file_name(entry["name"].rsplit("/", 1)[-1]) is None:
+                    continue
+                files += 1
+                total_bytes += int(entry.get("size") or 0)
+                written_at = entry.get("LastModified")
+                if isinstance(written_at, dt.datetime) and (oldest is None or written_at < oldest):
+                    oldest = written_at
+        return BufferBacklog(
+            files=files, bytes=total_bytes, oldest_written_at=oldest, oldest_schema_id=schema_id if oldest else None
+        )
+
+    async def scan() -> BufferBacklog:
+        slots = asyncio.Semaphore(BACKLOG_LISTING_CONCURRENCY)
+        parts = await asyncio.gather(*(scan_schema(schema_id, slots) for schema_id in schema_ids))
+        return functools.reduce(BufferBacklog.merge, parts, BufferBacklog.empty())
+
+    return sync(s3.loop, scan)

@@ -24,11 +24,11 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationSend,
     DestinationType,
     EnabledNativeConfiguration,
-    HandbackRefusal,
     HeldAlertSearchMatch,
     HeldDeliveryAddress,
     LegacyAlertHistory,
     LegacyHistoryCopyRun,
+    LegacyRowSwitchOffRun,
     NativeConfigurationMatch,
     NewAlertDestination,
     OwnedCopyKey,
@@ -48,7 +48,6 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckPage,
     PlatformControlChangePage,
     PlatformControlHistory,
-    PlatformHandback,
     PlatformLastCheck,
     PlatformOwnershipHandover,
     SourceDestination,
@@ -73,6 +72,7 @@ from products.alerts_platform.backend.logic import (
     destination_handoff,
     destination_sends,
     legacy_history_copy,
+    legacy_row_switch_off,
     platform_lifecycle,
     platform_reads,
     platform_writes,
@@ -171,14 +171,12 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     return platform_lifecycle.upsert_configuration(upsert, revive=revive)
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copy one configuration in only when its team already runs that source here.
 
     `revive` says the source alert was just created or turned back on, so the copy starts clean.
-    `admit_new_teams` also admits a team with no enabled copy while the source runs elsewhere and
-    no operator switched that team off.
     """
-    platform_lifecycle.upsert_if_running(upsert, revive=revive, admit_new_teams=admit_new_teams)
+    platform_lifecycle.upsert_if_running(upsert, revive=revive)
 
 
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
@@ -189,18 +187,6 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
 def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     """Makes the platform the owner of a copied alert, carrying on from the source's state."""
     return platform_lifecycle.take_ownership(handover)
-
-
-def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
-) -> PlatformHandback | HandbackRefusal:
-    """Hands a copied alert back to its source, or says why the platform keeps it."""
-    return platform_lifecycle.give_back_ownership(
-        team_id=team_id,
-        legacy_configuration_id=legacy_configuration_id,
-        at=at,
-        source_runs_calendar_schedules=source_runs_calendar_schedules,
-    )
 
 
 def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
@@ -280,6 +266,27 @@ def owned_copies(
     shows such an alert's settings from its copy. Each view carries no instances."""
     return platform_reads.owned_copies(
         team_id=team_id, source_kind=source_kind.value, legacy_configuration_ids=legacy_configuration_ids
+    )
+
+
+def rows_with_counted_copies(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    legacy_configuration_ids: Collection[UUID],
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
+) -> frozenset[UUID]:
+    """Which of these source rows have a copy the platform owns that `count_configurations(held_only=True)`
+    with the same filters counts. A source that adds its own rows to that count drops these rows, so an
+    alert whose row says the source owns it and whose copy says the platform does counts once. Such a
+    row still counts when its copy does not match the filters."""
+    return platform_reads.rows_with_counted_copies(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        legacy_configuration_ids=legacy_configuration_ids,
+        enabled_only=enabled_only,
+        check_interval_minutes=check_interval_minutes,
     )
 
 
@@ -406,7 +413,6 @@ def count_configurations(
     *,
     team_id: int,
     source_kind: SourceKind,
-    native_only: bool = False,
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
     exclude_id: UUID | None = None,
@@ -417,13 +423,13 @@ def count_configurations(
     `exclude_id`, the alert an edit is checked for is left out. With `held_only`, only the ones whose
     settings the platform holds: those with no source row, and the copies it owns.
 
-    A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
-    already counts, and a copy left by a delete from before copies went with their row counts nothing.
+    A source that keeps rows counts the rows it owns and adds `held_only`. That counts a moved alert
+    once, from its copy, also after its row is deleted. A copy its row owns stands for that row, and a
+    copy left by a delete from before copies went with their row counts nothing.
     """
     return platform_reads.count_configurations(
         team_id=team_id,
         source_kind=source_kind.value,
-        native_only=native_only,
         enabled_only=enabled_only,
         check_interval_minutes=check_interval_minutes,
         exclude_id=exclude_id,
@@ -578,6 +584,26 @@ def copy_legacy_histories(
         team_ids=team_ids if team_ids is not None else team_ids_with_copies(source_kind),
         alert_ids=alert_ids,
         legacy_history=legacy_history,
+        apply=apply,
+    )
+
+
+def switch_off_legacy_rows(
+    *,
+    source_kind: SourceKind,
+    team_ids: Collection[int] | None,
+    switch_off: Callable[[int, Sequence[UUID], bool], int],
+    batch_size: int,
+    apply: bool,
+) -> LegacyRowSwitchOffRun:
+    """Hands `switch_off` each team's platform-owned alerts of the source, `batch_size` source row ids at
+    a time, for it to switch off the rows that are on. Writes nothing unless `apply`. Every team with a
+    copy of the source's alerts when `team_ids` is None."""
+    return legacy_row_switch_off.switch_off_team_rows(
+        source_kind=source_kind.value,
+        team_ids=team_ids if team_ids is not None else team_ids_with_copies(source_kind),
+        switch_off=switch_off,
+        batch_size=batch_size,
         apply=apply,
     )
 

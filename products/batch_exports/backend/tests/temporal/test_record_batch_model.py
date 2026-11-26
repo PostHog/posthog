@@ -10,6 +10,7 @@ from django.test import override_settings
 
 import pyarrow as pa
 
+from posthog.hogql.constants import FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -49,6 +50,8 @@ from products.batch_exports.backend.temporal.sql.sessions import SESSIONS_LOOKBA
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events, truncate_sessions
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models import PropertyDefinition
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 if TYPE_CHECKING:
     from posthog.models import Organization, Team
@@ -584,7 +587,7 @@ class TestHogQLQueryRecordBatchModel:
             "timeout_overflow_mode": "throw",
         }
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
     async def test_request_settings_unescape_dotted_keys_on_the_native_table(self, ateam: "Team", auser: User) -> None:
         # The printed query carries no SETTINGS clause, so the native read setting travels with the request.
         model = HogQLQueryRecordBatchModel(
@@ -593,6 +596,27 @@ class TestHogQLQueryRecordBatchModel:
         await model.as_query_with_context(None, None)
 
         assert model.get_clickhouse_request_settings()["json_type_escape_dots_in_keys"] == "1"
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True, BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE=30_000_000_000)
+    async def test_request_settings_cap_memory_for_an_unkeyed_flag_call_feature_read(
+        self, ateam: "Team", auser: User
+    ) -> None:
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.pk,
+            hogql_query="SELECT event AS event FROM events "
+            "WHERE event = '$feature_flag_called' AND properties.`$feature/new-checkout` = 'true'",
+            user_id=auser.pk,
+        )
+        await database_sync_to_async(OrganizationFeatureFlagsConfig.objects.update_or_create)(
+            organization_id=ateam.organization_id,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            await model.as_query_with_context(None, None)
+
+        settings = model.get_clickhouse_request_settings()
+        assert settings["max_memory_usage"] == str(FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES)
+        assert settings["max_bytes_before_external_sort"] == str(FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES // 2)
 
     @pytest.mark.parametrize(
         "hogql_query,expected_message",
@@ -736,7 +760,7 @@ class TestHogQLQueryRecordBatchModel:
             "WITH source AS (SELECT properties.secret_field AS secret, properties AS all_properties FROM events) "
             "SELECT secret, all_properties FROM source"
         )
-        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
+        with override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_new_events_schema else 0):
             await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
             _, model, _, _, _, _ = resolve_batch_exports_model(
                 ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
@@ -791,7 +815,7 @@ class TestHogQLQueryRecordBatchModel:
 
 
 @pytest.mark.django_db
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 async def test_custom_export_recompilation_preserves_column_names(ateam):
     """A team on the new schema keeps its stored custom-schema fields, and only a native run recompiles them.
 
@@ -823,7 +847,7 @@ async def test_custom_export_recompilation_preserves_column_names(ateam):
 
 
 @pytest.mark.parametrize("interval_start_is_none", [False, True])
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 @pytest.mark.django_db
 async def test_custom_export_backfill_runs_without_legacy_events_tables(
     ateam, clickhouse_client, interval_start_is_none
@@ -834,8 +858,9 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
     It checks that:
     - the exported `properties` and `person_properties` are the stored documents: flags in the `$feature_flags` map
       with their sentinels, objects and arrays that the cleaner stored as text put back, and no declared-path
-      defaults, `$feature/` keys, `$active_feature_flags`, temporary properties or top-level null fields.
-    - `set`, `set_once`, `unset` and `group_set` are empty.
+      defaults, `$feature/` keys, `$active_feature_flags` or top-level null fields. Temporary properties, such as
+      `$set`, follow the other members, as `events_json_recent` stores them.
+    - `set` and `set_once` come from the temporary properties, and `unset` and `group_set` are empty.
     - filters compiled for the new schema match on the typed columns: a flag through the map, and "is not set" on a
       declared key whose stored value is its `""` default.
     - recompiled custom-schema fields read the typed columns, so a flag field returns its value and the sentinels map
@@ -967,7 +992,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             }
             assert not any(key.startswith("$feature/") for key in exported_properties)
             assert "$active_feature_flags" not in exported_properties
-            assert "$set" not in exported_properties
+            assert exported_properties["$set"] == {"email": "buyer@example.com", "phone": None}
             assert exported_properties["cart"] == {"items": 2, "note": None}
             assert exported_properties["tags"] == ["a", "b"]
             assert "coupon" not in exported_properties
@@ -975,7 +1000,8 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert exported_person_properties["email"] == "buyer@example.com"
             assert "$initial_os" not in exported_person_properties
             assert "nickname" not in exported_person_properties
-            assert [rows[0][key] for key in ("set", "set_once", "unset", "group_set")] == [None, None, None, None]
+            assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com", "phone": None}
+            assert [rows[0][key] for key in ("set_once", "unset", "group_set")] == [None, None, None]
             assert rows[0]["_inserted_at"] == dt.datetime(2024, 1, 1, 12, tzinfo=dt.UTC)
     finally:
         await clickhouse_client.execute_query(f"DROP DATABASE {database}")

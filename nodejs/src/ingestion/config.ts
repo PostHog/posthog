@@ -171,6 +171,8 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: string
     /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
     PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
+    /** How long a personhog store flush retries a retriable transport error. Zero turns the retry off. */
+    PERSONHOG_STORE_FLUSH_TRANSIENT_RETRY_BUDGET_MS: number
     PERSONS_PREFETCH_ENABLED: boolean
 
     // Person properties config
@@ -189,6 +191,10 @@ export type IngestionConsumerConfig = {
     // comes back skipped_move_limit for the merge-mode policy.
     PERSONHOG_SYNC_MERGE_MOVE_LIMIT: number
     PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: boolean
+    // Teams for which the personhog store answers a merge whose target and sources already resolve
+    // to one person, without the identity MergePersons call. The event's person update still runs.
+    // Comma-separated team IDs, or '*'; empty means none.
+    PERSONHOG_SETTLE_SAME_PERSON_MERGES_TEAM_ALLOWLIST: string
     // Re-send budget per batch for merges refused at admission, measured from the batch's
     // first refusal and shared by every merge and step retry in it. Keep it well under
     // CONSUMER_LOOP_STALL_THRESHOLD_MS, which the whole batch has to fit in.
@@ -304,6 +310,7 @@ export type IngestionConsumerConfig = {
     AI_BLOB_S3_SECRET_ACCESS_KEY: string
     AI_BLOB_S3_TIMEOUT_MS: number
     AI_BLOB_OFFLOAD_TEAMS: string
+    AI_EVENTS_RETENTION_DAYS_BY_TEAM: string
     AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: number
     AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: number
     AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: number
@@ -375,6 +382,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: '',
         PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
+        PERSONHOG_STORE_FLUSH_TRANSIENT_RETRY_BUDGET_MS: 10_000,
         PERSONS_PREFETCH_ENABLED: false,
 
         // Person properties config
@@ -391,6 +399,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
         PERSONHOG_SYNC_MERGE_MOVE_LIMIT: 10_000,
         PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: false,
+        PERSONHOG_SETTLE_SAME_PERSON_MERGES_TEAM_ALLOWLIST: '',
         PERSON_MERGE_NOT_APPLIED_WAIT_MS: 20_000,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
@@ -478,6 +487,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         AI_BLOB_S3_SECRET_ACCESS_KEY: '',
         AI_BLOB_S3_TIMEOUT_MS: 30000,
         AI_BLOB_OFFLOAD_TEAMS: '',
+        AI_EVENTS_RETENTION_DAYS_BY_TEAM: '',
         // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
         // The shortest base64 that decodes to AI_MEDIA_OFFLOAD_MIN_BYTES, so no media of that size stays inline.
         AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: Math.ceil(AI_MEDIA_OFFLOAD_MIN_BYTES / 3) * 4,

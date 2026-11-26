@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSession'
 import { FIXTURE_TREE, stepFeedbackWithCounts, withWidth } from '../storyFixtures'
+import { steppedNodeId } from '../traceTreeLookups'
 import { EvalRollupOutcome } from '../types'
 import { TraceTree } from './TraceTree'
 
@@ -26,6 +27,7 @@ function Stateful({
             nodes={nodes}
             selectedNodeId={selected}
             onSelectNode={setSelected}
+            onStepNode={(step) => setSelected(steppedNodeId(nodes, selected ?? '', step) ?? selected)}
             onPrefetchNode={() => {}}
             evalOutcomes={new Map(Object.entries(evalOutcomes))}
             stepFeedback={feedbackCounts ? stepFeedbackWithCounts(feedbackCounts) : undefined}

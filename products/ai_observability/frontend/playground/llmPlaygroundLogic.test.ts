@@ -17,10 +17,11 @@ const MOCK_MODEL_OPTIONS: ModelOption[] = [
     { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', provider: 'OpenAI', description: '', isRecommended: false },
     { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI', description: '', isRecommended: false },
     { id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '', isRecommended: false },
+    { id: 'gpt-6-luna', name: 'GPT-6 Luna', provider: 'OpenAI', description: '', isRecommended: false },
     { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'Anthropic', description: '', isRecommended: false },
 ]
 
-const DEFAULT_MODEL = 'gpt-5-mini'
+const DEFAULT_MODEL = 'gpt-6-luna'
 
 describe('llmPlaygroundLogic', () => {
     let runLogic: ReturnType<typeof llmPlaygroundRunLogic.build>

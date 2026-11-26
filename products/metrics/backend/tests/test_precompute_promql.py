@@ -23,7 +23,6 @@ from products.metrics.backend.facade.contracts import MetricSeries
 from products.metrics.backend.facade.enums import MetricQueryProvenanceMode, PrecomputedMetricKind
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.models import MetricDailyQueryCount, MetricPrecomputedMetric
-from products.metrics.backend.precompute.definitions import NOT_STARTED_BY_VIEWER
 from products.metrics.backend.precompute.fill import fill_precomputed_metrics
 from products.metrics.backend.precompute.promql_plan import (
     DELTA_HISTOGRAM_BUCKET,
@@ -471,6 +470,7 @@ class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
                 return_value=True,
             ),
             patch("products.metrics.backend.precompute.gate.posthog_feature_flag_enabled", return_value=True),
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
             patch("products.metrics.backend.facade.api.PRECOMPUTE_SHADOW_CHECK_RATE", 1.0),
             patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
         ):
@@ -508,12 +508,12 @@ class TestMetricsQueryRunnerPromQLPrecompute(APIBaseTest):
         assert properties["precompute_shadow_max_rel_diff"] == pytest.approx(0.0, abs=EXACT)
         assert properties["precompute_shadow_mismatched_points"] == 0
 
-    def test_a_shared_link_viewer_neither_creates_nor_keeps_a_metric_in_use(self):
+    def test_a_shared_link_viewer_runs_raw_and_neither_creates_nor_keeps_a_metric_in_use(self):
         viewer = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
         snuffle = _snuffle()
         with time_machine.travel(NOW, tick=False):
             first, _ = self._run(snuffle, viewer)
-            assert first.provenance is not None and first.provenance.reasons == [NOT_STARTED_BY_VIEWER]
+            assert first.provenance is None
             assert not MetricPrecomputedMetric.objects.for_team(self.team.pk).exists()
 
             self._run(snuffle)

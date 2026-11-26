@@ -686,7 +686,6 @@ async def _draft_all(
     merges: dict[str, str] = {}
 
     async with build_async_anthropic_client(
-        product="django",
         ai_product="data_catalog_usage_drafts",
         team_id=team_id,
         trace_id=f"data-catalog-usage-{snapshot_id}",

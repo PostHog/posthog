@@ -66,6 +66,7 @@ function CategoryPillContent({
         hasRemoteDataSource,
         hasMore,
         needsMoreSearchCharacters,
+        showNonCapturedOption,
     } = useValues(infiniteListLogic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
@@ -73,6 +74,7 @@ function CategoryPillContent({
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
     const canInteract =
         totalListCount > 0 ||
+        showNonCapturedOption ||
         taxonomicFilterGroupTypesWithEmptyStates.includes(groupType) ||
         groupType === TaxonomicFilterGroupType.SuggestedFilters
     const showLoading = (isLoading && hasRemoteDataSource) || isLocalDataLoading

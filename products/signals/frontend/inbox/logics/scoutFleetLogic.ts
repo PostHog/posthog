@@ -30,6 +30,7 @@ import {
     signalsScoutConfigDestroy,
     signalsScoutConfigList,
     signalsScoutConfigRun,
+    signalsScoutConfigStop,
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutMetadataGet,
@@ -54,6 +55,7 @@ import {
     captureScoutConfigChanged,
     captureScoutToolsSaveResult,
     ScoutChatType,
+    ScoutDeleteEntryPoint,
     ScoutFleetSyncOutcome,
     ScoutSurface,
 } from '../inboxAnalytics'
@@ -75,6 +77,7 @@ import {
     computeScoutRollups,
     FleetSummary,
     isSettledRun,
+    normalizeRunStatus,
     runResponseCoversFleet,
     scoutDisplayName,
     scoutNamesBySkill,
@@ -218,6 +221,11 @@ export function mergeQueuedScoutConfigUpdates(
     }
     return merged
 }
+
+// A stop interrupts the agent and tears the sandbox down before the run turns terminal, so the page
+// polls that one scout's runs until it does. Past the bound, the 60s fleet poll takes over.
+const STOP_POLL_INTERVAL_MS = 5_000
+const STOP_POLL_TIMEOUT_MS = 5 * 60_000
 
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
@@ -421,6 +429,7 @@ export interface scoutFleetLogicValues {
     scoutTagOptions: ScoutTagOption[]
     selectedScoutOwner: string | null
     selectedScoutTags: string[]
+    stoppingScoutRuns: Record<string, string | null>
     updatingScoutIds: string[]
 }
 
@@ -428,9 +437,11 @@ export interface scoutFleetLogicValues {
 export interface scoutFleetLogicActions {
     deleteScout: (
         configId: string,
-        surface?: ScoutSurface
+        surface?: ScoutSurface,
+        entryPoint?: ScoutDeleteEntryPoint | null
     ) => {
         configId: string
+        entryPoint: ScoutDeleteEntryPoint | null
         surface: ScoutSurface
     }
     deleteScoutFinished: (configId: string) => {
@@ -617,6 +628,9 @@ export interface scoutFleetLogicActions {
     setScoutTagFilter: (tags: string[]) => {
         tags: string[]
     }
+    settleStoppedRuns: () => {
+        value: true
+    }
     startRunsPolling: () => {
         value: true
     }
@@ -639,6 +653,19 @@ export interface scoutFleetLogicActions {
     }
     stopRunsPolling: () => {
         value: true
+    }
+    stopScoutRun: (configId: string) => {
+        configId: string
+    }
+    stopScoutRunAccepted: (
+        configId: string,
+        runId: string
+    ) => {
+        configId: string
+        runId: string
+    }
+    stopScoutRunFinished: (configId: string) => {
+        configId: string
     }
     syncScoutFleet: (_: void) => void
     syncScoutFleetFailure: (
@@ -771,7 +798,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             configId,
             updates,
         }),
-        deleteScout: (configId: string, surface: ScoutSurface = 'fleet_list') => ({ configId, surface }),
+        deleteScout: (
+            configId: string,
+            surface: ScoutSurface = 'fleet_list',
+            entryPoint: ScoutDeleteEntryPoint | null = null
+        ) => ({ configId, surface, entryPoint }),
         deleteScoutFinished: (configId: string) => ({ configId }),
         removeScoutConfigLocally: (configId: string) => ({ configId }),
         setScoutTagFilter: (tags: string[]) => ({ tags }),
@@ -791,6 +822,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         runScoutNow: (configId: string, note?: string) => ({ configId, note }),
         runScoutNowFinished: (configId: string) => ({ configId }),
         runScoutNowSucceeded: (configId: string, hasNote: boolean) => ({ configId, hasNote }),
+        // Both runs reads land here, so a stop settles on whichever poll sees the run finish.
+        settleStoppedRuns: true,
+        stopScoutRun: (configId: string) => ({ configId }),
+        stopScoutRunAccepted: (configId: string, runId: string) => ({ configId, runId }),
+        stopScoutRunFinished: (configId: string) => ({ configId }),
         setRunNoteDraft: (configId: string, note: string) => ({ configId, note }),
         setRunNotePopoverConfigId: (configId: string | null) => ({ configId }),
         publishScoutToCommunity: (configId: string, options: PublishScoutOptions) => ({ configId, options }),
@@ -1202,6 +1238,18 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 runScoutNowFinished: (state, { configId }) => state.filter((id) => id !== configId),
             },
         ],
+        // Config id to the run being stopped. Null while the stop request is in flight.
+        stoppingScoutRuns: [
+            {} as Record<string, string | null>,
+            {
+                stopScoutRun: (state, { configId }) => ({ ...state, [configId]: state[configId] ?? null }),
+                stopScoutRunAccepted: (state, { configId, runId }) => ({ ...state, [configId]: runId }),
+                stopScoutRunFinished: (state, { configId }) => {
+                    const { [configId]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
         // A failed run keeps its note, so the person can retry without typing it again.
         runNoteDrafts: [
             {} as Record<string, string>,
@@ -1502,7 +1550,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     })),
 
     listeners(({ actions, values, cache, sharedListeners }) => ({
+        loadScoutRunsForSkillSuccess: () => {
+            actions.settleStoppedRuns()
+        },
         loadScoutRunsSuccess: () => {
+            actions.settleStoppedRuns()
             const spendLogic = selfDrivingSpendLogic({ teamId: teamLogic.values.currentTeamId ?? 0 })
             if (spendLogic.isMounted()) {
                 spendLogic.actions.loadOverview()
@@ -1623,6 +1675,75 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.runScoutNowFinished(configId)
             }
         },
+        stopScoutRun: async ({ configId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const config = values.scoutConfigs?.find((candidate) => candidate.id === configId)
+            if (!teamId || !config) {
+                actions.stopScoutRunFinished(configId)
+                return
+            }
+            const captureStop = (outcome: string): void =>
+                captureScoutAction({
+                    actionType: 'stop_run',
+                    surface: 'scout_detail',
+                    skillName: config.skill_name,
+                    extra: { outcome },
+                })
+            try {
+                const run = await signalsScoutConfigStop(String(teamId), configId)
+                const status = normalizeRunStatus(run.status)
+                if (status === 'running' || status === 'queued') {
+                    captureStop('stopping')
+                    actions.stopScoutRunAccepted(configId, run.run_id)
+                    cache.disposables.add(() => {
+                        const startedAt = Date.now()
+                        const interval = setInterval(() => {
+                            if (Date.now() - startedAt > STOP_POLL_TIMEOUT_MS) {
+                                actions.stopScoutRunFinished(configId)
+                                lemonToast.info('The run is still stopping. Check its status again in a few minutes.')
+                                return
+                            }
+                            actions.loadScoutRunsForSkill(config.skill_name)
+                        }, STOP_POLL_INTERVAL_MS)
+                        return () => clearInterval(interval)
+                    }, `stopPoll:${configId}`)
+                } else {
+                    // A run that had not started yet is cancelled before the response returns.
+                    const stopped = run.status === 'cancelled'
+                    captureStop(stopped ? 'stopped' : 'already_finished')
+                    actions.stopScoutRunFinished(configId)
+                    if (stopped) {
+                        lemonToast.success('Run stopped. You can start a new run now.')
+                    } else {
+                        lemonToast.info('This run already finished.')
+                    }
+                }
+                actions.loadScoutRunsForSkill(config.skill_name)
+            } catch (error: any) {
+                actions.stopScoutRunFinished(configId)
+                if (error?.status === 404) {
+                    // The run finished between the last poll and the click.
+                    captureStop('already_finished')
+                    lemonToast.info('This run already finished.')
+                    actions.loadScoutRunsForSkill(config.skill_name)
+                    return
+                }
+                captureStop('error')
+                lemonToast.error(error?.detail || error?.message || 'Could not stop the run. Try again.')
+            }
+        },
+        stopScoutRunFinished: ({ configId }) => {
+            cache.disposables.dispose(`stopPoll:${configId}`)
+        },
+        settleStoppedRuns: () => {
+            for (const [configId, runId] of Object.entries(values.stoppingScoutRuns)) {
+                const run = runId ? values.scoutRuns.find((candidate) => candidate.run_id === runId) : undefined
+                if (run && isSettledRun(run)) {
+                    actions.stopScoutRunFinished(configId)
+                    lemonToast.success('Run stopped. You can start a new run now.')
+                }
+            }
+        },
         // Publishing goes through the skills endpoint because that owns the community repo. It reads
         // the scout's cadence, emit posture and tags off its config, so the published scout carries
         // the settings the person publishing it can already see here.
@@ -1716,7 +1837,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 }
             }
         },
-        deleteScout: async ({ configId, surface }) => {
+        deleteScout: async ({ configId, surface, entryPoint }) => {
             // The reducer above already flags this id, but that value is reactive (for the button)
             // and can't tell a fresh submit from a duplicate. The cache Set is the non-reactive guard:
             // a second submit while the first is in flight bails before issuing another request.
@@ -1772,7 +1893,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         actionType: 'delete_scout',
                         surface,
                         skillName: config.skill_name,
-                        extra: { scout_origin: config.scout_origin, success: true },
+                        extra: { scout_origin: config.scout_origin, success: true, entry_point: entryPoint },
                     })
                     lemonToast.success(`Deleted ${displayName}`)
                     // The scout's own page (and any finding deep link under it) has nothing left to show
@@ -1787,7 +1908,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         actionType: 'delete_scout',
                         surface,
                         skillName: config.skill_name,
-                        extra: { scout_origin: config.scout_origin, success: false },
+                        extra: { scout_origin: config.scout_origin, success: false, entry_point: entryPoint },
                     })
                     lemonToast.error(error?.detail || error?.message || 'Failed to delete scout')
                     // A partial failure (skill archived but config delete failed) could desync the list

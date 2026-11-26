@@ -1,3 +1,5 @@
+import json
+import hashlib
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
@@ -13,7 +15,13 @@ from products.warehouse_sources.sources.codacy.settings import (
     METRICS_PERIOD,
     CodacyEndpointConfig,
 )
-from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session, retry_with_deadline
+from products.warehouse_sources.sources.sdk import (
+    SourceResponse,
+    make_tracked_session,
+    parse_datetime_or_epoch,
+    retry_with_deadline,
+    to_epoch,
+)
 
 CODACY_BASE_URL = "https://api.codacy.com/api/v3"
 # Documented maximum page size for v3 list endpoints.
@@ -520,12 +528,44 @@ def _fan_out_over_metrics(
             _skip_missing_parent(exc, logger, endpoint, f"metric {metric}")
 
 
+def _audit_log_id(event: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(event, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _iter_audit_logs(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    provider: str,
+    organization: str,
+    endpoint_config: CodacyEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    params: dict[str, Any] = {}
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        last_seen = parse_datetime_or_epoch(db_incremental_field_last_value)
+        if last_seen is None:
+            raise ValueError(f"Codacy: cannot read the audit log cursor {db_incremental_field_last_value!r}")
+        # `from` is inclusive, so the boundary event is read again and merges onto its own row.
+        params["from"] = to_epoch(last_seen, "ms")
+
+    path = endpoint_config.path.format(provider=provider, organization=organization)
+    data: Any = _fetch_page(session, "GET", _build_url(path, params), headers, logger)
+    events = data if isinstance(data, list) else (data or {}).get("data") or []
+    rows = [{"id": _audit_log_id(event), **event} for event in events if isinstance(event, dict)]
+    if rows:
+        yield rows
+
+
 def get_rows(
     api_token: str,
     provider: str,
     organization: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = CODACY_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
@@ -545,6 +585,17 @@ def get_rows(
         yield from _fan_out_over_tools(session, headers, logger, endpoint_config)
     elif endpoint_config.fan_out == "metric":
         yield from _fan_out_over_metrics(session, headers, logger, provider, organization, endpoint_config)
+    elif endpoint == "audit_logs":
+        yield from _iter_audit_logs(
+            session,
+            headers,
+            logger,
+            provider,
+            organization,
+            endpoint_config,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
     else:
         path = endpoint_config.path.format(provider=provider, organization=organization)
         for page in _paginate(session, headers, logger, path, endpoint_config.method, endpoint_config.extra_params):
@@ -557,6 +608,8 @@ def codacy_source(
     organization: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     endpoint_config = CODACY_ENDPOINTS[endpoint]
 
@@ -568,6 +621,8 @@ def codacy_source(
             organization=organization,
             endpoint=endpoint,
             logger=logger,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=endpoint_config.primary_keys,
         sort_mode=endpoint_config.sort_mode,

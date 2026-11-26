@@ -477,7 +477,6 @@ class RelationshipProposalSerializer(serializers.ModelSerializer):
             "joining_table_key",
             "field_name",
             "configuration",
-            "confidence",
             "reasoning",
             "evidence",
             "status",
@@ -504,7 +503,6 @@ class RelationshipProposalSerializer(serializers.ModelSerializer):
             "joining_table_name": {"help_text": "Name of the table being joined in."},
             "joining_table_key": {"help_text": "HogQL key expression on the joining table (casts allowed)."},
             "field_name": {"help_text": "Accessor the join adds to the source table."},
-            "confidence": {"help_text": "Discovery confidence in this join, 0-1."},
             "reasoning": {"help_text": "Why this join is proposed."},
         }
 
@@ -567,11 +565,6 @@ class TopicClusterSerializer(serializers.Serializer):
     session_count = serializers.IntegerField(help_text="Agent sessions in the topic. Scout sessions are not included.")
     people = serializers.IntegerField(help_text="Distinct people behind the topic's sessions.")
     coverage = TopicCoverageSerializer(help_text="What the sessions that asked for a metric ended up with.")
-
-
-class TopicDefinitionSerializer(serializers.Serializer):
-    title = serializers.CharField(help_text="Short name of the subject.")
-    description = serializers.CharField(allow_blank=True, help_text="One sentence on what the topic covers.")
 
 
 class TableSourceSerializer(serializers.Serializer):
@@ -688,12 +681,6 @@ class UsageSnapshotPayloadSerializer(serializers.Serializer):
         many=True, allow_null=True, help_text="Agent queries that re-derived a metric. Null until judged."
     )
     topics = TopicClusterSerializer(many=True, allow_null=True, help_text="Agent session topics. Null until grouped.")
-    topic_definitions = TopicDefinitionSerializer(
-        many=True,
-        allow_null=True,
-        help_text="The whole topic list that the next scan keeps, including topics with no sessions in this scan. "
-        "Null until grouped.",
-    )
     topic_sessions = TopicSessionCountsSerializer(
         allow_null=True, help_text="What the sampled sessions were about, by kind. Null until grouped."
     )
@@ -728,6 +715,10 @@ class UsageSnapshotSummarySerializer(serializers.Serializer):
 
 class UsageSnapshotSerializer(UsageSnapshotSummarySerializer):
     payload = UsageSnapshotPayloadSerializer(help_text="The scan result, one key per section.")
+    hidden_topics = serializers.IntegerField(
+        help_text="How many of the scan's topics the payload leaves out for this reader. A topic is left out when "
+        "its sessions read a table or view the reader is denied, or read data the scan could not trace to tables."
+    )
 
 
 class MetricUsageSerializer(serializers.Serializer):
@@ -755,3 +746,14 @@ class PendingReviewCountsSerializer(serializers.Serializer):
     metrics = serializers.IntegerField(help_text="Proposed metrics you can see that wait for approval.")
     relationships = serializers.IntegerField(help_text="Proposed joins that wait to be accepted or rejected.")
     certifications = serializers.IntegerField(help_text="Proposed certifications that wait for review.")
+
+
+class CatalogAttentionSerializer(serializers.Serializer):
+    pending_review = PendingReviewCountsSerializer(
+        allow_null=True,
+        help_text="Items that wait in each review queue. Every count is 0 without data catalog access. "
+        "Null when the counts could not be read, so the badge keeps its last counts.",
+    )
+    failing_models = serializers.IntegerField(
+        help_text="Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access."
+    )

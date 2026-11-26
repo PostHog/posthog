@@ -1,11 +1,15 @@
 from typing import Any
 
 from django.apps import AppConfig
+from django.conf import settings
 
 from celery.signals import worker_ready
 
 
 def queue_catalog_sync_when_worker_is_ready(**kwargs: Any) -> None:
+    if not settings.MCP_CATALOG_SYNC_ON_WORKER_READY:
+        return
+
     # Deferred: task modules pull in models, which can't import until the app registry is ready.
     from products.mcp_store.backend.tasks.tasks import queue_sync_mcp_server_templates  # noqa: PLC0415
 

@@ -99,6 +99,7 @@ const depotBackend = suite(DEPOT_BACKEND, backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
 const deltalite = suite('build-deltalite.yml')
 const agentEgress = suite('ci-agent-egress.yml')
+const storybook = suite('ci-storybook.yml')
 const PINNED_WORKFLOWS = [DEPOT_BACKEND, 'ci-frontend.yml']
 
 interface ReleaseWorkflow {
@@ -421,6 +422,63 @@ const EXPECTATIONS: Expectation[] = [
         {
             results: { frontend_tests: 'cancelled' },
         }
+    ),
+    // vr-skip posts the Visual Review status for a commit that needs no visual run. Without it
+    // that required status never arrives, and no gate job turns red to show it.
+    storybook(
+        {
+            name: 'ready PR without frontend changes',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { runs: ['vr-skip'], skipped: ['build-storybook', 'vr-setup'] }
+    ),
+    storybook(
+        {
+            name: 'ready PR without frontend changes, report variable unset',
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { skipped: ['vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'fork PR without frontend changes',
+            github: pullRequest({ fork: true }),
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { skipped: ['vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'merge queue without frontend changes',
+            github: mergeQueue(),
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'false' } },
+        },
+        { runs: ['vr-skip'] }
+    ),
+    storybook(
+        { name: 'master push', github: push(), vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' } },
+        { skipped: ['vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'ready PR whose frontend changes select no stories',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'true' } },
+            steps: { 'select-stories': { classify: { outputs: { should_run: 'false' } } } },
+        },
+        { runs: ['build-storybook', 'select-stories', 'vr-skip'] }
+    ),
+    storybook(
+        {
+            name: 'ready PR whose frontend changes select stories',
+            vars: { VISUAL_REVIEW_REPORT_NO_RUN: 'true' },
+            jobOutputs: { changes: { frontend: 'true' } },
+            steps: { 'select-stories': { classify: { outputs: { should_run: 'true' } } } },
+        },
+        { runs: ['select-stories'], skipped: ['vr-skip'] }
     ),
     ...RELEASE_WORKFLOWS.flatMap(releaseExpectations),
     ...[pullRequest(), pullRequest({ fork: true })].map((github, index) =>
@@ -1508,42 +1566,6 @@ describe('CI workflow run plans', () => {
         expect(
             plan.jobs['code-quality']?.steps.find((step) => step.name === 'Check if "schema.py" is up to date')?.runs
         ).toBe(runs)
-    })
-
-    it.each([
-        ['PR without baseline changes', pullRequest(), 'false', true, false],
-        ['PR with baseline changes', pullRequest(), 'true', true, true],
-        ['draft PR with baseline changes', pullRequest({ draft: true }), 'true', true, true],
-        ['fork PR with baseline changes', pullRequest({ fork: true }), 'true', true, true],
-        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), 'true', true, true],
-        ['merge queue', mergeQueue(), 'true', true, true],
-        ['master push', push(), 'true', false, false],
-        ['nightly', schedule(), 'true', false, false],
-    ] as const)('Storybook selection artifacts on %s', (name, github, snapshotsBaseline, graphUpload, indexUpload) => {
-        const plan = planWorkflow(workflow('ci-storybook.yml'), {
-            name,
-            github,
-            jobOutputs: {
-                changes: {
-                    frontend: 'true',
-                    snapshots_baseline: snapshotsBaseline,
-                    merge_queue: name === 'merge queue' ? 'true' : 'false',
-                },
-            },
-            steps: { 'select-stories': { classify: { outputs: { mode: 'selective' } } } },
-        })
-        expect(plan.errors).toEqual([])
-        const steps = plan.jobs['build-storybook']?.steps
-        const uploadsGraph = steps?.find((step) => step.name === 'Upload module-graph artifact')?.runs
-        const uploadsIndex = steps?.find((step) => step.name === 'Upload story index artifact')?.runs
-        expect(uploadsGraph).toBe(graphUpload)
-        expect(uploadsIndex).toBe(indexUpload)
-        if (plan.jobs['select-stories']?.result === 'success') {
-            expect(uploadsGraph).toBe(true)
-        }
-        if (plan.jobs['check-baseline-removals']?.result === 'success') {
-            expect(uploadsIndex).toBe(true)
-        }
     })
 
     it.each([

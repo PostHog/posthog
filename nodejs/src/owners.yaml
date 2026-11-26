@@ -5,6 +5,8 @@ rules:
       owners: team-ai-observability
     - match: '/cdp/'
       owners: team-workflows
+    - match: '/capabilities.test.*'
+      owners: team-workflows
     - match:
           - '/cdp/consumers/cdp-cohort-membership.consumer.*'
           - '/cdp/services/cohort-membership/'

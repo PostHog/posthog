@@ -551,6 +551,7 @@ describe('dataVisualizationLogic', () => {
         logic.actions.updateXSeries('event')
 
         expect(logic.values.xData?.data).toEqual(['Pageview', 'signed_up'])
+        expect(logic.values.xData?.rawData).toEqual(['$pageview', 'signed_up'])
     })
 
     it('does not resolve to a time-series chart when there is only one row', async () => {

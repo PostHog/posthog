@@ -36,6 +36,9 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
         cache.clear()
+        refresh_task = patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
+        refresh_task.start()
+        self.addCleanup(refresh_task.stop)
         self.private_key = PARTNER_KEY
         public_jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(self.private_key.public_key()))
         public_jwk.update({"kid": KID, "use": "sig", "alg": "RS256"})
@@ -45,6 +48,7 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
             name="JWT Partner",
             client_id=PARTNER_CLIENT_ID,
             is_cimd_client=True,
+            organization=self.organization,
             client_secret="",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             jwks_uri=PARTNER_JWKS_URI,

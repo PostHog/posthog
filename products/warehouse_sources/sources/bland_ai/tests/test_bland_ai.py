@@ -6,7 +6,9 @@ from parameterized import parameterized
 
 from products.warehouse_sources.sources.bland_ai._config import BlandAISourceConfig
 from products.warehouse_sources.sources.bland_ai.bland_ai import (
+    ALARM_EVENTS_LIMIT,
     BASE_URL,
+    CONTACTS_PAGE_SIZE,
     EVALS_PAGE_SIZE,
     MAX_PAGE_SIZE,
     PAGE_SIZE,
@@ -21,6 +23,13 @@ from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, Sou
 
 def _driver() -> SourceDriver:
     return SourceDriver(BlandAISource(), BlandAISourceConfig(api_key="key"))
+
+
+def _wrap(selector: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    body: Any = rows
+    for key in reversed(selector.split(".")):
+        body = {key: body}
+    return body
 
 
 class TestFormatStartDate:
@@ -324,17 +333,34 @@ class TestLookupEndpoints:
                 {"id": "scn-1", "name": "Booking flow"},
                 "id",
             ),
+            ("alarms", "v1/alarms", "data.alarms", {"id": "alarm-1", "metric_type": "latency"}, "id"),
+            # The endpoint returns 50 events unless asked for its maximum.
+            (
+                "alarm_events",
+                "v1/alarms/history",
+                "data.events",
+                {"id": "evt-1", "new_state": "NORMAL"},
+                "id",
+                str(ALARM_EVENTS_LIMIT),
+            ),
         ]
     )
     def test_single_page_lookup_selects_rows(
-        self, endpoint: str, path: str, wrapper: str, row: dict[str, Any], key: str
+        self,
+        endpoint: str,
+        path: str,
+        selector: str,
+        row: dict[str, Any],
+        key: str,
+        expected_limit: str | None = None,
     ) -> None:
-        result = _driver().run(endpoint, [ScriptedResponse(json={wrapper: [row]})])
+        result = _driver().run(endpoint, [ScriptedResponse(json=_wrap(selector, [row]))])
 
         assert result.raised is None
         assert len(result.rows) == 1
         assert result.rows[0][key] == row[key]
         assert result.paths == [f"/{path}"]
+        assert result.params("limit") == [expected_limit]
 
 
 class TestPaginatedLists:
@@ -356,6 +382,42 @@ class TestPaginatedLists:
                 "offset",
                 ["0", str(MAX_PAGE_SIZE)],
                 "/v1/agent-testing/runs",
+            ),
+            # The total sits under `pagination`, not at the root of the body. A full last page
+            # ends the walk only through the total.
+            (
+                "contacts",
+                [
+                    ScriptedResponse(
+                        json={
+                            "data": [{"id": f"ct{page}-{i}"} for i in range(CONTACTS_PAGE_SIZE)],
+                            "pagination": {"total": 2 * CONTACTS_PAGE_SIZE},
+                            "errors": None,
+                        }
+                    )
+                    for page in range(2)
+                ],
+                2 * CONTACTS_PAGE_SIZE,
+                "offset",
+                ["0", str(CONTACTS_PAGE_SIZE)],
+                "/v1/contacts",
+                CONTACTS_PAGE_SIZE,
+            ),
+            # `data.pagination.total_pages` ends the walk without an extra empty page.
+            (
+                "outcomes",
+                [
+                    ScriptedResponse(
+                        json={"data": {"dispositions": [{"id": "o1"}], "pagination": {"page": 1, "total_pages": 2}}}
+                    ),
+                    ScriptedResponse(
+                        json={"data": {"dispositions": [{"id": "o2"}], "pagination": {"page": 2, "total_pages": 2}}}
+                    ),
+                ],
+                2,
+                "page",
+                ["1", "2"],
+                "/v1/dispositions",
             ),
             # `data.total` counts items, not pages, so the walk ends on the first empty page.
             (
@@ -380,14 +442,57 @@ class TestPaginatedLists:
         page_param: str,
         expected_pages: list[str],
         path: str,
+        page_size: int = MAX_PAGE_SIZE,
     ) -> None:
         result = _driver().run(endpoint, responses)
 
         assert result.raised is None
         assert len(result.rows) == expected_rows
         assert result.params(page_param) == expected_pages
-        assert result.params("limit") == [str(MAX_PAGE_SIZE)] * len(expected_pages)
+        assert result.params("limit") == [str(page_size)] * len(expected_pages)
         assert set(result.paths) == {path}
+
+    def test_contacts_resume_from_saved_offset(self) -> None:
+        result = _driver().run(
+            "contacts",
+            [ScriptedResponse(json={"data": [{"id": "ct401"}], "pagination": {"total": 401}})],
+            resume_state=BlandAIResumeConfig(offset=400),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["ct401"]
+        assert result.params("offset") == ["400"]
+
+
+def _triage_page(ids: list[str], next_cursor: str | None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"data": {"items": [{"id": i} for i in ids], "next_cursor": next_cursor}, "errors": None}
+    )
+
+
+class TestTriageIssues:
+    @parameterized.expand(
+        [
+            ("fresh", None, [None, "i2"]),
+            ("resumed", BlandAIResumeConfig(cursor="i0"), ["i0", "i2"]),
+        ]
+    )
+    def test_walks_keyset_pages_in_creation_order(
+        self, _name: str, resume_state: BlandAIResumeConfig | None, expected_cursors: list[str | None]
+    ) -> None:
+        result = _driver().run(
+            "triage_issues",
+            [_triage_page(["i1", "i2"], "i2"), _triage_page(["i3"], None)],
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["i1", "i2", "i3"]
+        assert result.paths == ["/v1/triage/issues", "/v1/triage/issues"]
+        assert result.params("cursor") == expected_cursors
+        # The default sort is last_activity_at, which moves while the walk pages.
+        assert result.params("sort") == ["created_at"] * 2
+        assert result.params("order") == ["asc"] * 2
 
 
 class TestWidgetThreads:

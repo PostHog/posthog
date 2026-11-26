@@ -225,7 +225,7 @@ def accept_suggestion(
     bulk: bool = False,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
-    if not options.delete_view:
+    if _writes_the_catalog(options):
         _require_catalog_edit_access(row, user_access_control)
     outcome = accept.accept(
         team.pk,
@@ -258,6 +258,10 @@ def _actionable_suggestion(
     if not access.can_act_on(row):
         raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind(row.subject_kind))
     return row, access
+
+
+def _writes_the_catalog(options: AcceptOptions) -> bool:
+    return not options.delete_view and options.mark_deprecated is not False
 
 
 def _require_catalog_edit_access(row: WarehouseSuggestion, user_access_control: "UserAccessControl") -> None:

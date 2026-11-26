@@ -164,17 +164,16 @@ class TestTrinoShadowMaterialization(BaseTest):
             self.execute()
 
         writes = [
-            call.args for call in self.cursor.execute.call_args_list if call.args[0].startswith("CREATE OR REPLACE")
+            call.args[0] for call in self.cursor.execute.call_args_list if call.args[0].startswith("CREATE OR REPLACE")
         ]
         assert len(writes) == 2
-        for sql, _values in writes:
+        for sql in writes:
             assert 'FROM "org_catalog"."posthog"."events_current"' in sql
-            assert "= ?)" in sql
             assert "SELECT 0" not in sql
-        assert "LIMIT" not in writes[0][0]
-        assert writes[0][1] == ["signup"]
-        assert writes[1][0].endswith("LIMIT 75000")
-        assert writes[1][1] == ["purchase"]
+        assert "LIMIT" not in writes[0]
+        assert "= 'signup')" in writes[0]
+        assert writes[1].endswith("LIMIT 75000")
+        assert "= 'purchase')" in writes[1]
 
     @parameterized.expand(
         [

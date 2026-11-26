@@ -7,6 +7,7 @@ import {
     Describer,
     Description,
     defaultDescriber,
+    humanize,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
@@ -57,13 +58,25 @@ describe('humanizeActivity', () => {
                 { field: 'effective_membership_level', after: 1 },
                 {
                     field: 'feature_flag_policy_config',
-                    before: { require_tags: false, blocked_hosts: ['old.example.com'], blocked_ips: [] },
-                    after: { require_tags: true, blocked_hosts: ['new.example.com'], blocked_ips: [] },
+                    before: {
+                        require_tags: false,
+                        blocked_hosts: ['old.example.com'],
+                        blocked_ips: [],
+                        allowed_hosts: ['shop.example.com'],
+                        allowed_ips: [],
+                    },
+                    after: {
+                        require_tags: true,
+                        blocked_hosts: ['new.example.com'],
+                        blocked_ips: [],
+                        allowed_hosts: [],
+                        allowed_ips: ['203.0.113.7'],
+                    },
                 },
             ],
-            action: 'enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests',
+            action: 'enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, removed old.example.com from the blocked domains for feature flag requests, removed shop.example.com from the allowed domains for feature flag requests, and added 203.0.113.7 to the allowed IP addresses for feature flag requests',
             description:
-                'A user enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests on Example',
+                'A user enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, removed old.example.com from the blocked domains for feature flag requests, removed shop.example.com from the allowed domains for feature flag requests, and added 203.0.113.7 to the allowed IP addresses for feature flag requests on Example',
         },
         {
             scope: ActivityScope.EVENT_DEFINITION,
@@ -210,6 +223,89 @@ describe('humanizeActivity', () => {
         expect(text(result.summary?.action)).toBe(action)
     })
 
+    it.each<{
+        name: string
+        before: Record<string, any> | null
+        after: Record<string, any> | null
+        expected: string[]
+        unexpected?: string[]
+    }>([
+        {
+            name: 'mobile masking turned on',
+            before: { maskAllInputs: true, mobile: { maskAllImages: true } },
+            after: { maskAllInputs: true, mobile: { maskAllText: true, maskAllImages: true } },
+            expected: ['enabled masking all text in mobile session replay'],
+        },
+        {
+            name: 'mobile masking turned off',
+            before: { maskAllInputs: true, mobile: { maskAllText: true, maskAllImages: true } },
+            after: { maskAllInputs: true, mobile: { maskAllText: true, maskAllImages: false } },
+            expected: ['disabled masking all images in mobile session replay'],
+            unexpected: ['masking all text in mobile'],
+        },
+        {
+            name: 'mobile masking set when there was no config',
+            before: null,
+            after: { mobile: { maskAllText: true, maskAllImages: true } },
+            expected: [
+                'enabled masking all text in mobile session replay',
+                'enabled masking all images in mobile session replay',
+            ],
+            unexpected: ['masking all inputs', 'masking text selector'],
+        },
+        {
+            name: 'web masking changed alongside unchanged mobile masking',
+            before: { maskAllInputs: false, mobile: { maskAllText: true } },
+            after: { maskAllInputs: true, mobile: { maskAllText: true } },
+            expected: ['enabled masking all inputs in session replay'],
+            unexpected: ['mobile session replay'],
+        },
+        {
+            name: 'config with inputs unmasked cleared',
+            before: { maskAllInputs: false, mobile: { maskAllText: true } },
+            after: null,
+            expected: [
+                'enabled masking all inputs in session replay',
+                'disabled masking all text in mobile session replay',
+            ],
+        },
+        {
+            name: 'inputs unmasked on a config with no maskAllInputs key',
+            before: { mobile: { maskAllText: true } },
+            after: { maskAllInputs: false, mobile: { maskAllText: true } },
+            expected: ['disabled masking all inputs in session replay'],
+        },
+    ])('describes a masking config change: $name', ({ before, after, expected, unexpected = [] }) => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.TEAM,
+            detail: {
+                merge: null,
+                trigger: null,
+                name: 'Example',
+                changes: [
+                    {
+                        type: ActivityScope.TEAM,
+                        action: 'changed',
+                        field: 'session_recording_masking_config',
+                        before,
+                        after,
+                    },
+                ],
+            },
+        })
+        const text = (value: Description | undefined): string =>
+            (render(<>{value}</>).container.textContent || '').replace(/\s+/g, ' ').trim()
+
+        const action = text(teamActivityDescriber(logItem, true).summary?.action)
+
+        for (const phrase of expected) {
+            expect(action).toContain(phrase)
+        }
+        for (const phrase of unexpected) {
+            expect(action).not.toContain(phrase)
+        }
+    })
+
     it.each<{ activity: string; isSystem?: boolean; jobType?: string; action: string; description: string }>([
         {
             activity: 'stopped_ingesting',
@@ -265,6 +361,23 @@ describe('humanizeActivity', () => {
                 .container.textContent?.replace(/\s+/g, ' ')
                 .trim()
         ).toBe(expected)
+    })
+
+    it.each([
+        [ActivityScope.SCORE_DEFINITION, false, 'Project key example-key-id', false],
+        [ActivityScope.TRACE_REVIEW, true, 'Project key example-key-id', false],
+        [ActivityScope.PERSON, true, 'PostHog', true],
+    ] as const)('renders the project-key actor for %s', (scope, storedAsSystem, expectedName, displayedAsSystem) => {
+        const logItem = makeLogItem({
+            scope,
+            is_system: storedAsSystem,
+            credential_type: 'project_secret_key',
+            credential_id: 'example-key-id',
+        })
+        const [row] = humanize([logItem], () => defaultDescriber)
+
+        expect(render(<ActivityLogUserName logItem={logItem} />).container.textContent).toBe(expectedName)
+        expect(row.isSystem).toBe(displayedAsSystem)
     })
 
     describe('userNameForLogItem', () => {

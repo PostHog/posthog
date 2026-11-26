@@ -79,6 +79,7 @@ class TestSharedFailures(SimpleTestCase):
     @parameterized.expand(
         [
             ("clickhouse_server_error", lambda: _clickhouse_error("Cannot compare", 386)),
+            ("argument_type", lambda: _clickhouse_error("Illegal type String of argument of function plus", 43)),
             ("clickhouse_error_without_a_dedicated_class", lambda: _clickhouse_error("Division by zero", 153)),
             ("timeout", lambda: _clickhouse_error("Timeout exceeded", 159)),
             ("too_slow", lambda: _clickhouse_error("Estimated query execution time (300 seconds) is too long.", 160)),

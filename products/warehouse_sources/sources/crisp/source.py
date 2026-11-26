@@ -63,6 +63,7 @@ class CrispSource(ResumableSource[CrispSourceConfig, CrispResumeConfig]):
         return {
             "401 Client Error": "Crisp rejected the token. Enter a valid website token identifier and key.",
             "403 Client Error": "Crisp denied access. Check that the website token belongs to this workspace.",
+            "402 Client Error": "Your Crisp plan does not include this table. Upgrade the Crisp plan or turn off this table.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -116,6 +117,8 @@ class CrispSource(ResumableSource[CrispSourceConfig, CrispResumeConfig]):
                     # Website tokens have no table scopes, so a denied workspace probe must fail validation.
                     return False, "Crisp denied access. Check that the website token belongs to this workspace."
                 return False, "Crisp denied access to this table. Check the workspace token permissions."
+            if status == 402:
+                return False, "Your Crisp plan does not include this table."
             if status == 404:
                 return False, "Crisp could not find the workspace. Check the workspace UUID."
             raise
