@@ -690,7 +690,9 @@ class TestMemoryUpkeepGate(BaseTest):
             )
             remember(team_id=self.team.id, key="learned:area:checkout", content="pattern", run_id=str(run.id))
 
-        assert _memory_upkeep_is_live(self.team) is expected
+        # The runner calls the check from a Temporal activity, which sets no team scope.
+        with unscoped():
+            assert _memory_upkeep_is_live(self.team) is expected
 
 
 class TestActivitySummarySearchAvailability(SimpleTestCase):
