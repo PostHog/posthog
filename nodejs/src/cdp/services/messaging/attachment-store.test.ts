@@ -80,7 +80,7 @@ const settledWithin = async <T>(ms: number, promise: Promise<T>): Promise<T> => 
     }
 }
 
-type FileBody = 'stall after its first byte' | 'change its last byte'
+type FileBody = 'stall after its first byte' | 'change its last byte' | 'stall after the whole file, without its length'
 type BucketFault = FileBody | 'stall every copy' | 'pass every request' | 'serve bodies without their length'
 
 type BucketProxy = {
@@ -102,6 +102,11 @@ const answerTheFileBody = (body: FileBody, file: NodeJS.ReadableStream, response
             file.resume()
             return
         }
+        if (body === 'stall after the whole file, without its length') {
+            file.on('data', (chunk: Buffer) => response.write(chunk))
+            file.on('end', answered)
+            return
+        }
         const chunks: Buffer[] = []
         file.on('data', (chunk: Buffer) => chunks.push(chunk))
         file.on('end', () => {
@@ -110,6 +115,15 @@ const answerTheFileBody = (body: FileBody, file: NodeJS.ReadableStream, response
             response.end(bytes, answered)
         })
     })
+
+const servedWithoutLength = new Set<BucketFault>([
+    'serve bodies without their length',
+    'stall after the whole file, without its length',
+])
+const isFileBody = (fault: BucketFault): fault is FileBody =>
+    fault === 'stall after its first byte' ||
+    fault === 'change its last byte' ||
+    fault === 'stall after the whole file, without its length'
 
 const bucketProxyThat = async (fault: BucketFault): Promise<BucketProxy> => {
     let bodyAnswered: () => void = () => undefined
@@ -127,16 +141,15 @@ const bucketProxyThat = async (fault: BucketFault): Promise<BucketProxy> => {
             new URL(request.url!, config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT),
             { method: request.method, headers: request.headers },
             (answer) => {
-                if (fault === 'serve bodies without their length') {
+                if (servedWithoutLength.has(fault)) {
                     delete answer.headers['content-length']
                 }
                 response.writeHead(answer.statusCode!, answer.headers)
-                if (
-                    (fault === 'stall after its first byte' || fault === 'change its last byte') &&
-                    request.method === 'GET' &&
-                    answer.statusCode === 200
-                ) {
+                const fileBody = request.method === 'GET' && answer.statusCode === 200
+                if (fileBody && (servedWithoutLength.has(fault) || isFileBody(fault))) {
                     response.once('close', bodyClosed)
+                }
+                if (fileBody && isFileBody(fault)) {
                     void answerTheFileBody(fault, answer, response).then(bodyAnswered)
                     return
                 }
@@ -717,14 +730,21 @@ describe('S3AttachmentStore', () => {
         })
 
         it.each([
-            ['longer', -1],
-            ['shorter', 1],
-        ])(
-            'throws unavailable without reading a stored body %s than declared, and closes it',
-            async (_, declaredBeyondStored) => {
+            ['longer than declared', 'stall after its first byte', -1],
+            ['shorter than declared', 'stall after its first byte', 1],
+            ['longer than declared, served without its length', 'serve bodies without their length', -1],
+            ['shorter than declared, served without its length', 'serve bodies without their length', 1],
+            [
+                'longer than declared that never ends, served without its length',
+                'stall after the whole file, without its length',
+                -1,
+            ],
+        ] as const)(
+            'throws unavailable for a stored body %s, and closes it',
+            async (_, fault, declaredBeyondStored) => {
                 const f = file()
                 await uploaded(1, f)
-                const bucket = await bucketProxyThat('stall after its first byte')
+                const bucket = await bucketProxyThat(fault)
                 const viaBucket = buildAttachmentStore({
                     ...config,
                     CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,

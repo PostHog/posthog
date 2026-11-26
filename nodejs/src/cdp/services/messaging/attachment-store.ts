@@ -276,15 +276,33 @@ export class S3AttachmentStore implements AttachmentStore {
     }
 }
 
-function bodyOfTheDeclaredSize(object: GetObjectCommandOutput, sizeBytes: number): Promise<Uint8Array> {
-    if (object.ContentLength !== undefined && object.ContentLength !== sizeBytes) {
-        if (object.Body instanceof Readable) {
-            object.Body.destroy()
-        }
-        attachmentStoreFiles.labels({ operation: 'load', outcome: 'other_size' }).inc()
-        throw new Error(`The stored body is ${object.ContentLength} bytes, not the declared ${sizeBytes}`)
+async function bodyOfTheDeclaredSize(object: GetObjectCommandOutput, sizeBytes: number): Promise<Uint8Array> {
+    const body = object.Body
+    if (!(body instanceof Readable)) {
+        throw new Error('The stored body is not a stream')
     }
-    return object.Body!.transformToByteArray()
+    if (object.ContentLength !== undefined && object.ContentLength !== sizeBytes) {
+        body.destroy()
+        return refusedForItsSize(`${object.ContentLength}`, sizeBytes)
+    }
+    const chunks: Buffer[] = []
+    let read = 0
+    for await (const chunk of body) {
+        read += chunk.length
+        if (read > sizeBytes) {
+            return refusedForItsSize(`over ${sizeBytes}`, sizeBytes)
+        }
+        chunks.push(chunk)
+    }
+    if (read !== sizeBytes) {
+        return refusedForItsSize(`${read}`, sizeBytes)
+    }
+    return new Uint8Array(Buffer.concat(chunks, read))
+}
+
+function refusedForItsSize(storedBytes: string, sizeBytes: number): never {
+    attachmentStoreFiles.labels({ operation: 'load', outcome: 'other_size' }).inc()
+    throw new Error(`The stored body is ${storedBytes} bytes, not the declared ${sizeBytes}`)
 }
 
 function matchingItsHash(bytes: Uint8Array, sha256: Sha256Hex): Uint8Array {
