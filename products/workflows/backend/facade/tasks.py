@@ -5,7 +5,6 @@ from products.workflows.backend.tasks.batch_jobs import (
 )
 from products.workflows.backend.tasks.email_sender_verification import recheck_pending_email_senders
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
-from products.workflows.backend.tasks.first_real_sends import capture_workflow_first_real_sends
 from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows
 from products.workflows.backend.tasks.sandbox_sender_tenant_state import sync_sandbox_sender_tenant_state
 from products.workflows.backend.tasks.ses_account_reputation import (
@@ -14,7 +13,10 @@ from products.workflows.backend.tasks.ses_account_reputation import (
 )
 from products.workflows.backend.tasks.ses_sender_health import check_ses_sender_health
 from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
-from products.workflows.backend.tasks.workflow_email_health import sweep_workflow_email_deliverability
+from products.workflows.backend.tasks.workflow_email_health import (
+    capture_workflow_first_real_sends,
+    sweep_workflow_email_deliverability,
+)
 
 __all__ = [
     "capture_workflow_first_real_sends",
