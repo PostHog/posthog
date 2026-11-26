@@ -8,10 +8,11 @@ use super::dom::{DomInspector, FlushBudgets, UrlLimit};
 use super::edits::EventEdits;
 use super::events::{href_from, number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
+use super::json_ld::{self, MAX_JSON_LD_ROOT_TYPES};
 use super::rrweb::{
     is_click, CUSTOM, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, META, MOUSE_INTERACTION, MUTATION,
 };
-use super::stats::{BlockStats, MAX_WINDOW_IDS};
+use super::stats::{union, BlockStats, MAX_WINDOW_IDS};
 use crate::scan::message::{Event, Message};
 
 /// Moments kept per block, so a long block cannot grow its index row without bound.
@@ -195,6 +196,16 @@ impl SessionInspector {
             }
         });
         let navigated = block.counter.stats.navigations > navigations;
+        let json_ld = json_ld::is_json_ld_event(inner, event.kind, &data);
+        if json_ld {
+            let stats = &mut block.counter.stats;
+            stats.json_ld_events += 1;
+            union(
+                &mut stats.json_ld_root_types,
+                &json_ld::root_types(inner, &data),
+                MAX_JSON_LD_ROOT_TYPES,
+            );
+        }
 
         let waiting = block.counter.stats.events_before_first_full_snapshot;
         let observed = self.dom.observe(
@@ -248,6 +259,7 @@ impl SessionInspector {
             // A reader seeks to a full snapshot only when it is one the inspector could read.
             Some(FULL_SNAPSHOT) if observed.full_snapshot => Some("full_snapshot"),
             Some(FULL_SNAPSHOT) => Some("full_snapshot_undecoded"),
+            Some(CUSTOM) if json_ld => Some("json_ld"),
             Some(META | CUSTOM) if navigated => Some("navigation"),
             Some(INCREMENTAL_SNAPSHOT)
                 if event.source == Some(MUTATION) && observed.changed >= LARGE_DOM_CHANGE_NODES =>
@@ -332,6 +344,8 @@ mod tests {
             click(3),
             big_mutation(4),
             {"type": 2, "timestamp": 5, "data": "not gzip", "cv": "2024-10"},
+            {"type": 5, "timestamp": 6, "data": {"tag": "$json_ld", "payload": [{"@type": "WebSite"}, {"@type": "Product"}]}},
+            {"type": 5, "timestamp": 7, "data": {"tag": "$json_ld", "payload": {"@type": "Product"}}},
         ]));
         let mut session = SessionInspector::default();
         let (stats, moments) = inspect(&mut session, &first);
@@ -343,8 +357,14 @@ mod tests {
                 ("full_snapshot", 1),
                 ("click", 2),
                 ("dom_change", 3),
-                ("full_snapshot_undecoded", 4)
+                ("full_snapshot_undecoded", 4),
+                ("json_ld", 5),
+                ("json_ld", 6)
             ]
+        );
+        assert_eq!(
+            (stats.json_ld_events, stats.json_ld_root_types.as_slice()),
+            (2, ["WebSite", "Product"].map(str::to_owned).as_slice())
         );
         let window = first.window_id.as_ref().unwrap();
         assert!(moments.iter().all(|m| Arc::ptr_eq(&m.window_id, window)));

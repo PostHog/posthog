@@ -303,6 +303,8 @@ For v2, use the encrypted reader for index entries. For v3, read the Parquet col
 Then fetch selected recording blocks to inspect their JSON-LD payloads.
 Legacy v1 indexes retain their pseudonymized identifiers and daily partitions.
 
+The v4 dataset has no separate evaluation index. Its [block index](#block-index) counts each block's JSON-LD events, lists their root types and marks each one with a `json_ld` moment, so a reader selects sessions by the folded columns and pairs each event with the latest `full_snapshot` moment before it in the same window. A block row keeps at most 256 moments, so in a block with `moments_truncated` a reader finds the JSON-LD events past the last moment by reading the block.
+
 ### Deletion worker isolation
 
 The deletion task uses the `ai_research_privacy` Celery queue.
@@ -563,7 +565,7 @@ A reader that needs whole sessions selects them by the start time in the session
 A session row is a fold over its block rows: sort them by `first_ts_ms`, then merge each into the result in order.
 Counts sum, times take the minimum or maximum, flags take the logical or, `host` takes the first value and the viewport takes the one with the highest `viewport_ts_ms`.
 The DOM sizes `dom_nodes` and `dom_text_chars` and `max_written_event_bytes` take the maximum, because they describe a state or a single event, not an amount.
-`url_fingerprints` and `window_ids` take the ordered union, capped at 10 and 32 entries. A session at the cap has that many or more.
+`url_fingerprints`, `window_ids` and `json_ld_root_types` take the ordered union, capped at 10, 32 and `MAX_JSON_LD_ROOT_TYPES` entries. A session at the cap has that many or more.
 The [surfacing](#surfacing-features) sums add, its two maxima take the maximum, and its three sets take the union with no cap.
 The flush columns describe a row, not a session, so the fold does not carry them.
 `events_before_first_full_snapshot` sums, because the recorder stops counting it once the session has a decoded full snapshot.
@@ -585,7 +587,8 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 | Activity    | `active_ms`, `clicks`, `mouse_interactions`, `rage_clicks`, `dead_clicks`, `keypresses`, `scrolls`, `mouse_moves`, `touches`, `touch_moves`, `selections`, `media_events`, `viewport_resizes`, `navigations`, `console_errors`, `console_warnings`, `network_requests`, `network_failures`              |
 | Context     | `viewport_width`, `viewport_height`, `viewport_ts_ms` (the time of the viewport event), `touch_input`                                                                                                                                                                                                   |
 | Images      | `images_extracted`, `image_bytes`, `images_inline`, `image_urls`, `image_ref_sketch`                                                                                                                                                                                                                    |
-| Moments     | `moments`: a list of `{kind, window_id, ts_ms, event_index}` for full snapshots, navigations, clicks and large DOM changes, and `moments_truncated`                                                                                                                                                     |
+| Moments     | `moments`: a list of `{kind, window_id, ts_ms, event_index}` for full snapshots, navigations, clicks, large DOM changes and JSON-LD events, and `moments_truncated`                                                                                                                                     |
+| JSON-LD     | `json_ld_events`, `json_ld_root_types`                                                                                                                                                                                                                                                                  |
 | Sealed      | `urls`: the visited URLs as a sealed index value, `urls_truncated`, and `url_fingerprints`                                                                                                                                                                                                              |
 | Surfacing   | The `surfacing_` columns: the surfacing features of the block's events. See [Surfacing features](#surfacing-features)                                                                                                                                                                                   |
 
@@ -602,6 +605,7 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 - `unread_reason` names why the recorder could not read a block in full, and is null otherwise. A session row keeps the reason of its first such block. A reader must not treat the URLs of such a block as checked.
 - `moments` are hints for where to look, not checked baselines. A `full_snapshot` moment means the recorder decoded that snapshot. `full_snapshot_undecoded` marks an event tagged as a full snapshot that it did not decode. The list keeps the first 256 moments, and `moments_truncated` is true when it dropped more.
 - `window_ids` lists the distinct window IDs of the block's events, the same IDs as in `moments`.
+- `json_ld_events` counts posthog-js's `$json_ld` custom events, each the schema.org JSON-LD of a page, and a `json_ld` moment marks each one. `json_ld_root_types` lists the distinct `@type`s of the events' roots and their `@graph` items, as v3's evaluation index reads them, with a `https://schema.org/` prefix removed. The column is not sealed, so it keeps only a type of up to 100 ASCII letters and digits with at least one letter, the shape the replay anonymizer gives a schema.org term, and at most 20 types of each event and `MAX_JSON_LD_ROOT_TYPES` of a block, in the order the block first saw them. The payload stays in the block. Both columns are null in a row from a recorder that predates them.
 - `urls` holds at most 100 page URLs of up to 2 KiB each and 32 KiB in all. `urls_truncated` is true when the recorder left pages out.
 - `url_fingerprints` holds up to 10 distinct page URLs of the block as the first 16 hexadecimal characters of an HMAC-SHA256 of the URL. The key is derived from the session key with HKDF-SHA256, empty salt and info `ml-url-fingerprint-key`, so fingerprints can be compared only within one session. They count distinct URLs, where `navigations` counts URL changes.
 - `cold_start` is true when the recorder first sees a session after it started, for example after a partition rebalance, or after it dropped the session's DOM state to stay within its memory budget. Its playability columns then describe only the part of the session the recorder saw.
