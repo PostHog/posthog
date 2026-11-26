@@ -1259,11 +1259,11 @@ class _FeaturePropertyFinder(SyntaxVisitor):
     def visit_field(self, node: ast.Field) -> None:
         column = self._column(node)
         if column is not None and len(column) > 1 and column[0] == "properties":
-            self._note(column[1], json_only=True)
+            self._note(column[1], may_read_column=True)
 
     def visit_array_access(self, node: ast.ArrayAccess) -> None:
         if self._column(node.array) == ["properties"] and isinstance(node.property, ast.Constant):
-            self._note(node.property.value, json_only=True)
+            self._note(node.property.value, may_read_column=True)
         super().visit_array_access(node)
 
     def visit_call(self, node: ast.Call) -> None:
@@ -1272,14 +1272,14 @@ class _FeaturePropertyFinder(SyntaxVisitor):
                 self._note(node.args[1].value)
         super().visit_call(node)
 
-    def _note(self, name: object, json_only: bool = False) -> None:
-        """With `json_only`, counts `name` only when the printer reads it from the JSON. A `JSONExtract*` call always
+    def _note(self, name: object, may_read_column: bool = False) -> None:
+        """With `may_read_column`, counts `name` only when the printer reads it from the JSON. A `JSONExtract*` call always
         parses the JSON. A property read can use a column instead."""
         if (
             self.found is None
             and isinstance(name, str)
             and name.startswith(_FEATURE_PROPERTY_PREFIX)
-            and (not json_only or self.reads_property_json(name))
+            and (not may_read_column or self.reads_property_json(name))
         ):
             self.found = name
 

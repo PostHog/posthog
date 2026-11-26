@@ -1325,7 +1325,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
             ),
             param("property_groups_disabled", UNKEYED_FEATURE_PROPERTY, ONLY, True, True, property_groups=DISABLED),
             param(
-                "restricted_key_reads_json",
+                "restricted_key_stays_capped",
                 UNKEYED_FEATURE_PROPERTY,
                 ONLY,
                 True,
