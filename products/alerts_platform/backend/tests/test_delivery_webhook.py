@@ -221,8 +221,14 @@ class TestWebhookTransport(SimpleTestCase):
         assert len(adapter.sent) == 1
         assert adapter.body.bytes_read == 0
 
-    def test_a_plain_http_url_is_refused_before_anything_is_sent(self) -> None:
-        target = cast(AlertDestinationData, {"type": "webhook", "webhook_url": "http://hooks.example.com/alerts"})
+    @parameterized.expand(
+        [
+            ("plain http", "http://hooks.example.com/alerts"),
+            ("not a valid URL", "https://[::1"),
+        ]
+    )
+    def test_a_url_that_is_not_valid_https_is_refused_before_anything_is_sent(self, _name: str, url: str) -> None:
+        target = cast(AlertDestinationData, {"type": "webhook", "webhook_url": url})
 
         with pinned_post() as adapter:
             with pytest.raises(DestinationMisconfigured):

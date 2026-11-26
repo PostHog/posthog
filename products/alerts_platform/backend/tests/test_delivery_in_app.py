@@ -1,6 +1,7 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -10,6 +11,7 @@ from posthog.models.user import User
 
 from products.alerts_platform.backend.delivery.in_app import InAppTransport
 from products.alerts_platform.backend.delivery.message import MessageDetail
+from products.alerts_platform.backend.delivery.transport import DestinationMisconfigured
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind, DestinationType
 from products.alerts_platform.backend.tests.delivery_messages import OCCURRED, alert_message, announced_transition
 from products.notifications.backend.facade.testing import stored_notifications_for_team
@@ -69,3 +71,11 @@ class TestInAppTransport(BaseTest):
         self._deliver(kind, occurred_at=OCCURRED + timedelta(hours=1))
 
         assert len(stored_notifications_for_team(self.team.id)) == 4
+
+    def test_a_destination_without_recipients_is_refused(self) -> None:
+        target = cast(AlertDestinationData, {"type": DestinationType.IN_APP, "in_app_user_ids": []})
+
+        with pytest.raises(DestinationMisconfigured):
+            InAppTransport().deliver(team_id=self.team.id, target=target, message=alert_message())
+
+        assert stored_notifications_for_team(self.team.id) == []
