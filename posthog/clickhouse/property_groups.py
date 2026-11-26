@@ -243,15 +243,15 @@ def without_materialization(definitions: PropertyGroupDefinitions) -> PropertyGr
 
 
 # Flag calls carry no $ai_* keys, so the ai groups are left out. No column on this table family carries a CODEC.
-# The feature_flags group stays hidden until every part inside the TTL has the map. A part written before migration
-# 0394 computes the map from the JSON on every read.
+# HogQL reads `$feature/*` keys from the feature_flags map. A part without the map files, such as one attached from a
+# build that skips MATERIALIZED columns, computes the map from the JSON on every read, which is slower than reading
+# the JSON. Run MATERIALIZE COLUMN on such a part.
 flag_evaluations_property_group_definitions: PropertyGroupDefinitions = {
     "properties": {
         "custom": dataclasses.replace(event_property_group_definitions["properties"]["custom"], codec=None),
         "feature_flags": dataclasses.replace(
             event_property_group_definitions["properties"]["feature_flags"],
             codec=None,
-            hidden=True,
             has_indexes=False,
             # A team sends the same flag keys on every call, and almost every value is true, false or a variant key.
             map_type="Map(LowCardinality(String), LowCardinality(String))",

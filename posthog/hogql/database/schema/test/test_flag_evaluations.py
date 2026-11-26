@@ -59,7 +59,6 @@ from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.property_groups import PropertyGroupDefinition
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.models import Team
@@ -460,15 +459,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert "properties_group_custom" not in (json_read.clickhouse or "")
         assert map_read.results == json_read.results == [(EVENT_PROBE,)]
 
-    def test_feature_flag_property_filter_reads_the_json_while_the_group_is_hidden(self):
-        read = self._execute(
-            "properties.`$feature/beta`",
-            " AND properties.`$feature/beta` = 'true'",
-            modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
-        )
-
-        assert "properties_group_feature_flags" not in (read.clickhouse or "")
-
     @parameterized.expand(
         [
             ("equals", "properties.`$feature/beta` = 'true'", 1),
@@ -499,14 +489,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.DISABLED),
             row_uuids=tuple(rows),
         )
-        # The query reads only flag_evaluations, where feature_flags is the one hidden group.
-        with patch.object(PropertyGroupDefinition, "contains", lambda group, key: group.key_filter_function(key)):
-            map_read = self._execute(
-                columns,
-                where,
-                modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
-                row_uuids=tuple(rows),
-            )
+        map_read = self._execute(
+            columns,
+            where,
+            modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
+            row_uuids=tuple(rows),
+        )
 
         assert "properties_group_feature_flags" in (map_read.clickhouse or "")
         assert len(json_read.results) == matches
