@@ -62,9 +62,12 @@ export function PublishedNotebookAppControls({
                 Open notebook
             </LemonButton>
             {canEditNotebook && !isTemplate && (
-                <LemonButton size="small" to={urls.notebook(shortId) + '?view=builder'}>
-                    App builder
-                </LemonButton>
+                <>
+                    <LemonButton size="small" to={urls.notebook(shortId) + '?view=builder'}>
+                        App builder
+                    </LemonButton>
+                    <NotebookAppAccess project={viewer.project} shortId={shortId} />
+                </>
             )}
             <LemonButton
                 size="small"
@@ -74,7 +77,6 @@ export function PublishedNotebookAppControls({
             >
                 Copy app link
             </LemonButton>
-            {canEditNotebook && !isTemplate && <NotebookAppAccess project={viewer.project} shortId={shortId} />}
             {variables.length > 0 && <LemonCheckbox label="Auto-update results" checked={auto} onChange={setAuto} />}
             {(hasNativeSql || variables.length > 0) && (
                 <LemonButton type="secondary" size="small" loading={busy} onClick={() => refresh(!dirty)}>
