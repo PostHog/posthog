@@ -3,7 +3,7 @@ import { CompareLabelType } from '~/types'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import type { AnomalyBucketApi, AnomalyInsightSeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { buildAnomalyScorePoints, contiguousRuns, scoreHistoryRange } from './anomalyScorePoints'
+import { buildAnomalyScorePoints, contiguousRuns, scoreHistoryRange, seriesToIsolate } from './anomalyScorePoints'
 
 function makeResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
     return {
@@ -86,6 +86,36 @@ describe('anomalyScorePoints', () => {
             expected === null ? [] : [expected]
         )
     })
+
+    it.each([
+        ['the matching series of a breakdown', ['free', 'pro', 'other'], [], 'pro', 1],
+        ['no series when the breakdown value is not on the chart', ['free', 'other'], [], 'pro', null],
+        ['no series when the chart has one series', ['pro'], [], 'pro', null],
+        ['no series when only the previous period of the series is beside it', ['pro'], ['pro'], 'pro', null],
+        ['no series when the chart already shows it alone', ['pro', 'free'], [], 'pro', null, [1]],
+        ['the series when it is hidden', ['pro', 'free'], [], 'pro', 0, [0]],
+    ])(
+        'seriesToIsolate picks %s',
+        (_name, breakdowns, previousBreakdowns, scoredBreakdown, expected, hiddenSeries: number[] = []) => {
+            const results = [
+                ...breakdowns.map((breakdown, index) => makeResult({ seriesIndex: index, breakdown_value: breakdown })),
+                ...previousBreakdowns.map((breakdown, index) =>
+                    makeResult({
+                        seriesIndex: breakdowns.length + index,
+                        breakdown_value: breakdown,
+                        compare_label: CompareLabelType.Previous,
+                    })
+                ),
+            ]
+            const scored = [
+                makeScored({ series_key: 'other-key', breakdown_value: 'other' }),
+                makeScored({ series_key: 'card-key', breakdown_value: scoredBreakdown }),
+            ]
+            const isHidden = (result: IndexedTrendResult): boolean => hiddenSeries.includes(result.seriesIndex)
+
+            expect(seriesToIsolate(scored, 'card-key', results, isHidden)?.seriesIndex ?? null).toEqual(expected)
+        }
+    )
 
     it('joins neighbouring flagged buckets into one run', () => {
         expect(contiguousRuns([7, 3, 4, 4, 9, 5])).toEqual([

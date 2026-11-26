@@ -1698,6 +1698,7 @@ class CanvasCommentEntrySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Comment id.")
     content = serializers.CharField(help_text="Byte-bounded comment body chunk.")
     content_truncated = serializers.BooleanField(help_text="Whether this comment body has more content.")
+    content_offset = serializers.IntegerField(help_text="Byte offset where this body chunk starts.")
     content_next_offset = serializers.IntegerField(
         allow_null=True,
         help_text="Byte offset for the next body chunk, or null when complete.",

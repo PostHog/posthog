@@ -1,11 +1,3 @@
-diff --git a/products/visual_review/backend/logic/broken_probe.py b/products/visual_review/backend/logic/broken_probe.py
-new file mode 100644
-index 000000000000..5bcfb06a3d71
---- /dev/null
-+++ b/products/visual_review/backend/logic/broken_probe.py
-@@ -0,0 +1,2 @@
-+def broken(:
-+    return 1
 diff --git "a/products/visual_review/backend/logic/caf\303\251_probe.py" "b/products/visual_review/backend/logic/caf\303\251_probe.py"
 new file mode 100644
 index 000000000000..195a91d093c4
@@ -17,6 +9,17 @@ index 000000000000..195a91d093c4
 +
 +def schema_model() -> type:
 +    return EventSchema
+diff --git a/products/visual_review/backend/logic/shadow_probe.py b/products/visual_review/backend/logic/shadow_probe.py
+new file mode 100644
+index 000000000000..3576a0593f8d
+--- /dev/null
++++ b/products/visual_review/backend/logic/shadow_probe.py
+@@ -0,0 +1,5 @@
++from products.event_definitions.backend.models.event_definition import EventDefinition
++
++
++def probe_names() -> list[str]:
++    return [EventDefinition.__name__]
 diff --git a/products/visual_review/backend/logic/space probe.py b/products/visual_review/backend/logic/space probe.py
 new file mode 100644
 index 000000000000..b4f24925b81b

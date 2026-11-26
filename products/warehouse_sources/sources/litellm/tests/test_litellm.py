@@ -272,6 +272,70 @@ class TestListEndpoints:
             {"model_name": "bare", "model_id": None},
         ]
 
+    @pytest.mark.parametrize(
+        ("schema", "path", "row"),
+        [
+            ("budgets", "/litellm/budget/list", {"budget_id": "b1", "max_budget": 10.0}),
+            ("tags", "/litellm/tag/list", {"name": "prod", "models": None}),
+        ],
+    )
+    def test_bare_list_endpoints_read_one_page(self, schema: str, path: str, row: dict[str, Any]) -> None:
+        result = _run(schema, [ScriptedResponse(json=[row])])
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.rows == [row]
+
+    def test_organizations_drop_embedded_teams_and_credentials(self) -> None:
+        organization = {
+            "organization_id": "org-1",
+            "metadata": _METADATA,
+            "members": [{"user_id": "u1", "user_role": "org_admin"}],
+            "teams": [{"team_id": "team-1", "metadata": _METADATA}],
+        }
+        result = _run("organizations", [ScriptedResponse(json=[organization])])
+
+        assert result.raised is None
+        assert result.paths == ["/litellm/organization/list"]
+        assert result.rows == [
+            {
+                "organization_id": "org-1",
+                "metadata": _REDACTED_METADATA,
+                "members": [{"user_id": "u1", "user_role": "org_admin"}],
+            }
+        ]
+        assert {options.get("capture") for options in result.session_options} == {False}
+
+    @pytest.mark.parametrize(
+        ("pages", "expected_pages", "expected_rows"),
+        [
+            # A paging proxy: a short page ends the walk.
+            ([[f"c{i:03}" for i in range(100)], ["c100"]], ["1", "2"], 101),
+            # An older proxy sends the whole list on every page, longer than a page...
+            ([[f"c{i:03}" for i in range(150)]], ["1"], 150),
+            # ...or exactly one page long, so the repeat on page 2 is dropped.
+            ([[f"c{i:03}" for i in range(100)], [f"c{i:03}" for i in range(100)]], ["1", "2"], 100),
+            # An insert between requests pushes the last row of page 1 onto page 2; the walk goes on.
+            (
+                [[f"c{i:03}" for i in range(100)], [f"c{i:03}" for i in range(99, 199)], ["c199"]],
+                ["1", "2", "3"],
+                200,
+            ),
+        ],
+    )
+    def test_customers_stop_without_a_page_count(
+        self, pages: list[list[str]], expected_pages: list[str], expected_rows: int
+    ) -> None:
+        script = [ScriptedResponse(json=[{"user_id": user_id} for user_id in page]) for page in pages]
+        result = _run("customers", script)
+
+        assert result.raised is None
+        assert result.paths == ["/litellm/customer/list"] * len(expected_pages)
+        assert result.params("page") == expected_pages
+        assert set(result.params("page_size")) == {"100"}
+        assert len(result.rows) == expected_rows
+        assert len({row["user_id"] for row in result.rows}) == expected_rows
+
 
 class TestNormalizeBaseUrl:
     @pytest.mark.parametrize(

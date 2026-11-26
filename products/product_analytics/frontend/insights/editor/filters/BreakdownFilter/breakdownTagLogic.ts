@@ -42,7 +42,7 @@ export interface breakdownTagLogicValues {
     globalPathCleaningEnabled: boolean // taxonomicBreakdownFilterLogic
     isMultipleBreakdownsEnabled: boolean // taxonomicBreakdownFilterLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     breakdown: number | string
     breakdownType: string
     hasAdvancedPaths: boolean
@@ -166,7 +166,7 @@ export interface breakdownTagLogicMeta {
         ) => boolean
         pathCleaningEnabled: (globalPathCleaningEnabled: boolean) => boolean
         hasAdvancedPaths: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         hasPathCleaningFilters: (currentTeam: TeamPublicType | TeamType | null) => boolean
         isPathCleaningAvailable: (

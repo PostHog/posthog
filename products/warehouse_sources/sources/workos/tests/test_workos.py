@@ -139,6 +139,203 @@ class TestWorkOSWaitlistEntriesFanout:
         assert [row["id"] for row in resumed.rows] == ["wl_user_3"]
 
 
+class TestWorkOSOrganizationMembershipsFanout:
+    @staticmethod
+    def _run(script: list[ScriptedResponse], **inputs: Any) -> DriveResult:
+        return SourceDriver(WorkOSSource(), WorkOSSourceConfig(api_key="sk_test_123")).run(
+            "organization_memberships", script, **inputs
+        )
+
+    def test_walks_every_page_of_every_organization_with_all_statuses(self) -> None:
+        result = self._run(
+            [
+                ScriptedResponse(json=_page(["org_a"], after="org_a")),
+                ScriptedResponse(json=_page(["om_1"], after="om_1")),
+                ScriptedResponse(json=_page(["om_2"], after=None)),
+                ScriptedResponse(json=_page(["org_b"], after=None)),
+                ScriptedResponse(json=_page(["om_3"], after=None)),
+            ]
+        )
+
+        assert [row["id"] for row in result.rows] == ["om_1", "om_2", "om_3"]
+        assert result.paths == [
+            "/organizations",
+            "/user_management/organization_memberships",
+            "/user_management/organization_memberships",
+            "/organizations",
+            "/user_management/organization_memberships",
+        ]
+        # WorkOS refuses the list call without an `organization_id` or `user_id`.
+        assert result.params("organization_id") == [None, "org_a", "org_a", None, "org_b"]
+        # Without `statuses`, WorkOS leaves out inactive and pending memberships.
+        assert result.params("statuses") == [None, *["active,inactive,pending"] * 2, None, "active,inactive,pending"]
+        assert result.params("limit") == ["100"] * 5
+        assert result.params("after") == [None, None, "om_1", "org_a", None]
+
+    def test_resume_starts_from_the_saved_organizations_page(self) -> None:
+        first = self._run(
+            [
+                ScriptedResponse(json=_page(["org_a"], after="org_a")),
+                ScriptedResponse(json=_page(["om_1"], after=None)),
+                ScriptedResponse(json=_page(["org_b"], after="org_b")),
+                ScriptedResponse(json=_page(["om_2"], after=None)),
+                ScriptedResponse(json=_page(["org_c"], after="org_c")),
+                ScriptedResponse(json=_page(["om_3"], after=None)),
+                ScriptedResponse(json=_page(["org_d"], after=None)),
+            ]
+            + [ScriptedResponse(status=500, json={"message": "boom"})] * 10
+        )
+        assert first.raised is not None
+        assert first.final_state is not None
+
+        resumed = self._run(
+            [
+                ScriptedResponse(json=_page(["org_b"], after="org_b")),
+                ScriptedResponse(json=_page(["org_c"], after="org_c")),
+                ScriptedResponse(json=_page(["org_d"], after=None)),
+                ScriptedResponse(json=_page(["om_4"], after=None)),
+            ],
+            resume_state=first.final_state,
+        )
+
+        # The resume reads organizations from one page before the failed page, not from the start,
+        # and skips the organizations it already finished.
+        assert resumed.paths == ["/organizations"] * 3 + ["/user_management/organization_memberships"]
+        assert resumed.params("after") == ["org_a", "org_b", "org_c", None]
+        assert resumed.params("organization_id") == [None, None, None, "org_d"]
+        assert [row["id"] for row in resumed.rows] == ["om_4"]
+
+
+class TestWorkOSOrganizationGroupsFanout:
+    def test_walks_the_groups_of_every_organization(self) -> None:
+        result = SourceDriver(WorkOSSource(), WorkOSSourceConfig(api_key="sk_test_123")).run(
+            "organization_groups",
+            [
+                ScriptedResponse(json=_page(["org_a", "org_b"], after=None)),
+                ScriptedResponse(json=_page(["group_1"], after="group_1")),
+                ScriptedResponse(json=_page(["group_2"], after=None)),
+                ScriptedResponse(json=_page(["group_3"], after=None)),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["group_1", "group_2", "group_3"]
+        assert result.paths == [
+            "/organizations",
+            "/organizations/org_a/groups",
+            "/organizations/org_a/groups",
+            "/organizations/org_b/groups",
+        ]
+        assert result.params("after") == [None, None, "group_1", None]
+
+
+class TestWorkOSTopLevelRequestsAndRows:
+    @pytest.mark.parametrize(
+        ("endpoint", "row", "expected_limit", "expected_order", "expected_row"),
+        [
+            (
+                "invitations",
+                {
+                    "id": "invitation_1",
+                    "state": "pending",
+                    "token": "invite-token-not-real",
+                    "accept_invitation_url": "https://app.example.com/invite?invitation_token=invite-token-not-real",
+                },
+                "100",
+                "desc",
+                {"id": "invitation_1", "state": "pending"},
+            ),
+            # The roles list is returned whole and documents no `limit` or `order`.
+            (
+                "roles",
+                {"id": "role_1", "slug": "admin", "permissions": ["posts:read"]},
+                None,
+                None,
+                {"id": "role_1", "slug": "admin", "permissions": ["posts:read"]},
+            ),
+        ],
+    )
+    def test_request_params_and_row_shape(
+        self,
+        endpoint: str,
+        row: dict[str, Any],
+        expected_limit: str | None,
+        expected_order: str | None,
+        expected_row: dict[str, Any],
+    ) -> None:
+        result = SourceDriver(WorkOSSource(), WorkOSSourceConfig(api_key="sk_test_123")).run(
+            endpoint, [ScriptedResponse(json={"object": "list", "data": [row]})]
+        )
+
+        assert result.raised is None
+        assert result.params("limit") == [expected_limit]
+        assert result.params("order") == [expected_order]
+        assert result.rows == [expected_row]
+        assert result.response is not None and result.response.sort_mode is None
+
+
+def _event_page(ids: list[str], after: str | None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "object": "list",
+            "data": [
+                {"object": "event", "id": i, "event": "user.created", "data": {"id": "user_1"}, "created_at": "x"}
+                for i in ids
+            ],
+            "list_metadata": {"after": after},
+        }
+    )
+
+
+class TestWorkOSEvents:
+    @pytest.mark.parametrize(
+        ("inputs", "resume_state", "expected_after", "expected_range_start"),
+        [
+            ({}, None, [None, "evt_2", "evt_3"], [None, None, None]),
+            (
+                {"incremental_field": "created_at", "db_incremental_field_last_value": "2026-03-04T05:06:07.890123Z"},
+                None,
+                [None, "evt_2", "evt_3"],
+                ["2026-03-04T05:06:07.890Z", None, None],
+            ),
+            # WorkOS refuses `range_start` with `after`, so a resumed run sends the cursor alone.
+            (
+                {"incremental_field": "created_at", "db_incremental_field_last_value": "2026-03-04T05:06:07Z"},
+                WorkOSResumeConfig(after="evt_1"),
+                ["evt_1", "evt_2", "evt_3"],
+                [None, None, None],
+            ),
+        ],
+    )
+    def test_walks_the_stream_until_an_empty_page(
+        self,
+        inputs: dict[str, Any],
+        resume_state: WorkOSResumeConfig | None,
+        expected_after: list[str | None],
+        expected_range_start: list[str | None],
+    ) -> None:
+        result = SourceDriver(WorkOSSource(), WorkOSSourceConfig(api_key="sk_test_123")).run(
+            "events",
+            [
+                _event_page(["evt_1", "evt_2"], after="evt_2"),
+                _event_page(["evt_3"], after="evt_3"),
+                # The last page still names a cursor, so only the empty page ends the walk.
+                _event_page([], after="evt_3"),
+            ],
+            resume_state=resume_state,
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["evt_1", "evt_2", "evt_3"]
+        assert result.params("after") == expected_after
+        assert result.params("range_start") == expected_range_start
+        # The events stream is oldest first and takes no `order`; "desc" would reverse it.
+        assert result.params("order") == [None, None, None]
+        assert all("user.created" in (events or "").split(",") for events in result.params("events"))
+        assert result.response is not None and result.response.sort_mode == "asc"
+
+
 class TestWorkOSValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "body", "expected_valid"),

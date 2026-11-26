@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.sdk import (
     default_request_timeout,
     make_tracked_session,
     rest_api_resource,
+    to_epoch,
     validate_via_probe,
 )
 
@@ -53,11 +54,8 @@ def _to_epoch_ms(value: Any) -> Optional[int]:
         return value
     if isinstance(value, float):
         return int(value)
-    if isinstance(value, datetime):
-        dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-        return int(dt.timestamp() * 1000)
-    if isinstance(value, date):
-        return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp() * 1000)
+    if isinstance(value, datetime | date):
+        return to_epoch(value, "ms")
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -322,6 +320,8 @@ def onfleet_source(
             job_id=job_id,
             db_incremental_field_last_value=db_incremental_field_last_value,
         )
+        if config.drop_rows_without_id:
+            resource.add_filter(lambda row: row.get("id") is not None)
 
     return SourceResponse(
         name=endpoint,

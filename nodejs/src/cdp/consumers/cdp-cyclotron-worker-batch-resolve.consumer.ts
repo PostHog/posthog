@@ -326,6 +326,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             logger.info('📝', `${this.name} - audience snapshot ready for batch ${state.batchJobId}`, {
                 audienceSize: response.audience_size,
             })
+            this.emitSkippedTestAccountFiltersLog(
+                state,
+                Array.isArray(response.skipped_test_account_filters) ? response.skipped_test_account_filters : []
+            )
             await job.reschedule({
                 scheduledAt: new Date(),
                 state: serializeResolverState({
@@ -472,7 +476,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         job,
                         state,
                         'realtime_cohort_unavailable',
-                        "Sending to a realtime cohort isn't available here yet. Use a different audience."
+                        "Sending to a real-time cohort isn't available here yet. Use a different audience."
                     )
                     return
                 }
@@ -676,7 +680,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         )
 
         if (pageTruncated) {
-            this.emitTruncationLog(newState)
+            this.recordTruncatedRunAfterCommit(newState)
         }
 
         counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'success' }).inc()
@@ -684,6 +688,47 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         logger.info(
             '📝',
             `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} enqueued, ${masked.length} masked (${newState.totalEnqueued} total resolved, ${newState.pagesProcessed} pages)`
+        )
+    }
+
+    private recordTruncatedRunAfterCommit(state: BatchResolverState): void {
+        this.emitTruncationLog(state)
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            [
+                {
+                    team_id: state.teamId,
+                    app_source_id: state.batchJobId,
+                    metric_kind: 'other',
+                    metric_name: 'audience_truncated',
+                    count: 1,
+                },
+            ],
+            'hog_flow'
+        )
+    }
+
+    private emitSkippedTestAccountFiltersLog(state: BatchResolverState, skippedKeys: string[]): void {
+        if (skippedKeys.length === 0) {
+            return
+        }
+        const filters =
+            skippedKeys.length === 1
+                ? '1 test account filter that only applies'
+                : `${skippedKeys.length} test account filters that only apply`
+        this.hogFunctionMonitoringService.queueLogs(
+            [
+                {
+                    team_id: state.teamId,
+                    log_source: 'hog_flow',
+                    log_source_id: state.batchJobId,
+                    instance_id: state.batchJobId,
+                    ...logEntry(
+                        'info',
+                        `This run left out ${filters} to events, not people: ${skippedKeys.join(', ')}`
+                    ),
+                },
+            ],
+            'hog_flow'
         )
     }
 
@@ -710,13 +755,13 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     }
 
     private async transitionToTruncatedTerminal(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
-        this.emitTruncationLog(state)
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'completed',
             attempts: 0, // give the terminal write a fresh retry budget
         }
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
+        this.recordTruncatedRunAfterCommit(state)
     }
 
     private async transitionToFailedTerminal(
@@ -725,6 +770,12 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         reason: BatchResolverFailureReason,
         reasonMessage: string
     ): Promise<void> {
+        logger.warn('⚠️', `${this.name} - batch ${state.batchJobId} failing: ${reasonMessage}`, {
+            teamId: state.teamId,
+            hogFlowId: state.hogFlowId,
+            batchJobId: state.batchJobId,
+            reason,
+        })
         this.hogFunctionMonitoringService.queueLogs(
             [
                 {
@@ -797,6 +848,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         // dequeue clears its own queued logs/metrics, not just terminal writes.
         await job.ack()
         logger.info('✅', `${this.name} - batch ${state.batchJobId} → ${state.pendingTerminal}`, {
+            teamId: state.teamId,
+            hogFlowId: state.hogFlowId,
+            reason: state.terminalReason,
             totalEnqueued: state.totalEnqueued,
             pagesProcessed: state.pagesProcessed,
         })

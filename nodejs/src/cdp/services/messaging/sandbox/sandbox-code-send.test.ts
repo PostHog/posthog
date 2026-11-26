@@ -1,10 +1,11 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockKafkaClient } from '~/tests/helpers/mocks/producer.mock'
 
 import { ClickHouseClient } from '@clickhouse/client'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -29,6 +30,7 @@ import { createCdpCoreServices } from '../../../cdp-services'
 import { CdpCyclotronWorkerEmailSandbox } from '../../../consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from '../../../consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from '../../../consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { insertIntakeBatch } from '../../../intake/intake-batch'
 import { RerunJobQueues, RerunPaginatorService } from '../../../rerun/rerun-paginator.service'
 import {
     CyclotronJobInvocation,
@@ -36,10 +38,12 @@ import {
     HogFlowInvocationContext,
     MinimalAppMetric,
 } from '../../../types'
+import { EncryptedFields } from '../../../utils/encryption-utils'
+import { v2JobToInvocation } from '../../cyclotron-v2/job-codec'
 import { CyclotronJobConflictError } from '../../cyclotron-v2/manager'
-import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
 import { IdempotentJobQueue } from '../../job-queue/job-queue.interface'
-import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
+import { createEmailAttachmentsValkeyPool } from '../attachment-uploads'
+import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
 
@@ -71,6 +75,11 @@ type FakeJob = {
 }
 
 const copyOf = (invocation: CyclotronJobInvocation): CyclotronJobInvocation => parseJSON(JSON.stringify(invocation))
+
+const recordsAtKafka = <T = unknown>(topic: string): T[] =>
+    mockKafkaClient.produce.mock.calls
+        .filter(([produced]) => produced === topic)
+        .map(([, , value]) => parseJSON(String(value)) as T)
 
 const dueAtOf = (invocation: CyclotronJobInvocation): number =>
     invocation.queueScheduledAt ? new Date(String(invocation.queueScheduledAt)).getTime() : 0
@@ -169,6 +178,8 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     let app: express.Application
     let server: Server
     let queued: CyclotronJobInvocation[]
+    let hogflowQueue: IdempotentJobQueue
+    let consumedIntake: number
     const cyclotron = createFakeCyclotron()
     let hogFlow: HogFlow
     let sandboxSenderId: number
@@ -184,19 +195,17 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             CDP_EMAIL_ATTACHMENTS_TEAMS: '*',
         })
         queued = []
+        hogflowQueue = {
+            ...cyclotron.queue,
+            queueInvocations: (invocations: CyclotronJobInvocation[]) => {
+                queued.push(...invocations.map(copyOf))
+                return cyclotron.queue.queueInvocations(invocations)
+            },
+        }
         api = new CdpApi(
             hub,
-            { ...createCdpConsumerDeps(hub), idempotencyValkey: createIdempotencyValkeyPool(hub) },
-            {
-                hogQueue: createMockJobQueue(),
-                hogflowQueue: {
-                    ...cyclotron.queue,
-                    queueInvocations: (invocations: CyclotronJobInvocation[]) => {
-                        queued.push(...invocations.map(copyOf))
-                        return cyclotron.queue.queueInvocations(invocations)
-                    },
-                },
-            }
+            { ...createCdpConsumerDeps(hub), emailAttachmentsValkey: createEmailAttachmentsValkeyPool(hub) },
+            { hogQueue: createMockJobQueue(), hogflowQueue }
         )
         clickhouse = Clickhouse.createClient()
         app = setupExpressApp()
@@ -243,9 +252,9 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         )
 
     beforeEach(async () => {
-        mockProducerObserver.resetKafkaProducer()
         capturedAnalytics.length = 0
         queued.length = 0
+        consumedIntake = intakeRecords().length
         cyclotron.clear()
         hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = true
         hub.HOG_INVOCATION_RESULTS_ENABLED = false
@@ -270,8 +279,58 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         return rows[0].id
     }
 
-    const sendFromCode = (payload: Record<string, unknown>) =>
-        supertest(app)
+    const intakeRecords = (): Message[] =>
+        mockKafkaClient.produce.mock.calls
+            .filter(([topic]) => topic === hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+            .map(([topic, , value], offset) => ({ topic, value, key: null, partition: 0, offset, size: 0 }) as Message)
+
+    // The intake consumer's insert, onto the fake cyclotron, so each send reaches the workers as it does in production.
+    const consumeIntake = async (): Promise<void> => {
+        const messages = intakeRecords().slice(consumedIntake)
+        consumedIntake += messages.length
+        const opener = new EncryptedFields(hub.CDP_SEALED_STATE_KEYS)
+        await insertIntakeBatch(
+            messages,
+            {
+                cyclotron: {
+                    createJobsIdempotently: async (inputs) =>
+                        (
+                            await hogflowQueue.queueInvocationsIdempotently(
+                                inputs.map(({ job, fingerprint, reply }) => ({
+                                    // The fake copies jobs through JSON, which a DateTime does not survive.
+                                    invocation: {
+                                        ...v2JobToInvocation(
+                                            {
+                                                ...job,
+                                                functionId: job.functionId ?? null,
+                                                priority: job.priority ?? 0,
+                                                parentRunId: job.parentRunId ?? null,
+                                                state: job.state ?? null,
+                                                cancelRequestedAt: null,
+                                                scheduled: DateTime.fromJSDate(job.scheduled ?? new Date()),
+                                                created: DateTime.now(),
+                                            },
+                                            opener
+                                        ),
+                                        queueCreatedAt: undefined,
+                                    },
+                                    fingerprint,
+                                    reply,
+                                }))
+                            )
+                        ).map(({ outcome }) => outcome),
+                },
+                deadLetters: { recordMessageFailure: () => false, produceForBatch: () => Promise.resolve() },
+                invocationResults: api['invocationResultsService'].invocationResultsRowsService,
+                emailStatus: api['emailStatusService'],
+                stateOpener: opener,
+            },
+            { kind: 'transactional-email', claimRetry: { initialDelayMs: 0, maxElapsedMs: 0 } }
+        )
+    }
+
+    const sendFromCode = async (payload: Record<string, unknown>) => {
+        const res = await supertest(app)
             .post(`/api/projects/${world.team.id}/hog_flows/${hogFlow.id}/transactional_email/send`)
             .set({
                 Authorization: `Bearer ${jwt.sign(
@@ -281,6 +340,9 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 )}`,
             })
             .send(payload)
+        await consumeIntake()
+        return res
+    }
 
     const sandboxSend = (overrides: Record<string, unknown> = {}) => ({
         content,
@@ -333,16 +395,12 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     }
 
     const deliveryStatuses = (messageId: string): { status: string; reason: string }[] =>
-        mockProducerObserver
-            .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
-            .map(({ value }) => value as { message_id: string; status: string; reason: string })
+        recordsAtKafka<{ message_id: string; status: string; reason: string }>(KAFKA_EMAIL_STATUS)
             .filter((row) => row.message_id === messageId && row.status !== 'queued')
             .map(({ status, reason }) => ({ status, reason }))
 
     const finalStatus = (messageId: string): string | undefined =>
-        mockProducerObserver
-            .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
-            .map(({ value }) => value as { message_id: string; status: string; version: string })
+        recordsAtKafka<{ message_id: string; status: string; version: string }>(KAFKA_EMAIL_STATUS)
             .filter((row) => row.message_id === messageId)
             .sort((a, b) => (BigInt(a.version) < BigInt(b.version) ? -1 : 1))
             .at(-1)?.status
@@ -397,10 +455,10 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             expect(metricNames(results)).not.toContain('billable_invocation')
             expect(deliveryStatuses(queued[0].id)).toEqual([
                 ...(scheduledAt ? [{ status: 'scheduled', reason: '' }] : []),
-                { status: 'sent', reason: '' },
+                { status: 'sent', reason: 'untracked' },
             ])
             await waitForExpect(() =>
-                expect(capturedAnalytics).toEqual([
+                expect(capturedFor(world.team.uuid)).toEqual([
                     expect.objectContaining({
                         event: 'workflows sandbox email sent',
                         properties: expect.objectContaining({ is_test: false, source: 'code' }),
@@ -410,36 +468,53 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         }
     )
 
-    it('answers with the sandbox sender kind when its team hands sends to the intake consumer', async () => {
-        hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(world.team.id)
-        try {
-            const res = await sendFromCode(request(sandboxSend()))
+    describe('in a batch', () => {
+        const sendBatchFromCode = (payload: Record<string, unknown>) =>
+            supertest(app)
+                .post(`/api/projects/${world.team.id}/hog_flows/${hogFlow.id}/transactional_email/send/batch`)
+                .set({
+                    Authorization: `Bearer ${jwt.sign(
+                        { team_id: world.team.id, hog_flow_id: hogFlow.id, kind: 'code_send_batch' },
+                        hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
+                        { audience: 'posthog:workflows:send_transactional_email', expiresIn: '2m' }
+                    )}`,
+                })
+                .send(payload)
+        const batchTo = (...recipients: string[]) => ({
+            send: sandboxSend(),
+            recipients: recipients.map((to) => ({ to, distinct_id: to, idempotency_key: `key-${to}` })),
+        })
+        const intakeJobIds = (): string[] =>
+            recordsAtKafka<{ job: { id: string } }>(hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC).map(({ job }) => job.id)
 
-            expect(res.status).toEqual(202)
-            expect(res.body).toEqual({
-                status: 'queued',
-                invocation_id: expect.any(String),
-                replayed: false,
-                scheduled_at: null,
-                sender_kind: 'email_sandbox',
-                attachment_count: 0,
-                attachment_bytes: 0,
-            })
-            expect(queued).toEqual([])
-            expect(
-                mockProducerObserver
-                    .getProducedKafkaMessagesForTopic(hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
-                    .map(({ value }) => value)
-            ).toEqual([
-                expect.objectContaining({
-                    kind: 'transactional-email',
-                    teamId: world.team.id,
-                    job: expect.objectContaining({ id: res.body.invocation_id }),
-                }),
+        it('refuses only the recipients outside the organization, and queues the members as sandbox sends', async () => {
+            const outsider = `other-${new UUIDT().toString()}@example.com`
+
+            const res = await sendBatchFromCode(batchTo(outsider, member))
+
+            expect(res.status).toEqual(200)
+            expect(res.body.results).toEqual([
+                {
+                    status: 422,
+                    body: { error: 'sandbox_recipient_not_member', invocation_id: expect.any(String) },
+                },
+                {
+                    status: 202,
+                    body: expect.objectContaining({ status: 'queued', sender_kind: 'email_sandbox' }),
+                },
             ])
-        } finally {
-            hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
-        }
+            expect(intakeJobIds()).toEqual([res.body.results[1].body.invocation_id])
+        })
+
+        it('refuses the whole batch when the sandbox sender is paused', async () => {
+            await world.setTenant('PAUSED', new Date())
+
+            const res = await sendBatchFromCode(batchTo(member))
+
+            expect(res.status).toEqual(403)
+            expect(res.body).toEqual({ error: 'sandbox_sender_unavailable' })
+            expect(intakeJobIds()).toEqual([])
+        })
     })
 
     const runLogs = (results: CyclotronJobInvocationResult[]): string[] =>
@@ -498,7 +573,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         )
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason }])
         await waitForExpect(() =>
-            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+            expect(capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])).toEqual([
                 ['workflows sandbox email blocked', 'code'],
             ])
         )
@@ -545,7 +620,12 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             0,
             { status: 'failed', reason: 'ses_rejected' },
         ],
-        ['SES throttles the first attempt', () => world.ses.replyNext(SES_THROTTLE), 1, { status: 'sent', reason: '' }],
+        [
+            'SES throttles the first attempt',
+            () => world.ses.replyNext(SES_THROTTLE),
+            1,
+            { status: 'sent', reason: 'untracked' },
+        ],
         [
             'SES throttles every attempt',
             () => world.ses.replyAlways(SES_THROTTLE),
@@ -565,7 +645,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         const expectedEvent =
             final.status === 'sent' ? 'workflows sandbox email sent' : 'workflows sandbox email failed'
         await waitForExpect(() =>
-            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+            expect(capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])).toEqual([
                 [expectedEvent, 'code'],
             ])
         )
@@ -574,10 +654,9 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     const rerunFromStoredRun = async (invocationId: string): Promise<CyclotronJobInvocation[]> => {
         await clickhouse.insert({
             table: 'hog_invocation_results',
-            values: mockProducerObserver
-                .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
-                .map(({ value }) => value as Record<string, unknown>)
-                .filter((row) => row.invocation_id === invocationId),
+            values: recordsAtKafka<Record<string, unknown>>(KAFKA_HOG_INVOCATION_RESULTS).filter(
+                (row) => row.invocation_id === invocationId
+            ),
             format: 'JSONEachRow',
         })
         const rerunQueued: CyclotronJobInvocation[] = []
@@ -736,6 +815,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         ['a reply-to address', () => ({ replyTo: ['help@example.com'] })],
         ['a custom from address', (integrationId) => ({ from: { integrationId, email: 'me@example.com' } })],
         ['a custom from name', (integrationId) => ({ from: { integrationId, name: 'Support' } })],
+        ['a reply thread', () => ({ thread: { inReplyTo: '<parent@example.com>', references: [] } })],
         [
             'a file attachment',
             () => ({
@@ -805,7 +885,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(queued).toHaveLength(1)
 
         await deliver()
-        expect(deliveryStatuses(sent.body.invocation_id)).toEqual([{ status: 'sent', reason: '' }])
+        expect(deliveryStatuses(sent.body.invocation_id)).toEqual([{ status: 'sent', reason: 'untracked' }])
     })
 
     it('replays a keyed own-sender send with cc when the retry names the sandbox sender', async () => {

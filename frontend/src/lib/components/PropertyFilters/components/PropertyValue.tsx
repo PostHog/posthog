@@ -21,10 +21,10 @@ import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/compone
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
 import { QuillPropertyValueSelect } from 'lib/components/PropertyFilters/components/QuillPropertyValueSelect'
 import { isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { formatDate } from 'lib/utils/datetime'
 import {
     isOperatorBetween,

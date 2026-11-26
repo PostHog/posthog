@@ -785,9 +785,9 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         docsUrl: 'https://posthog.com/docs/product-analytics/subscriptions',
     },
     support_ticket: {
-        name: 'Support ticket',
-        plural: 'support tickets',
-        description: 'Support tickets fetched through the external ticket API, used only by project secret API keys.',
+        name: 'External ticket API',
+        plural: 'tickets from the external ticket API',
+        description: 'Single tickets fetched through the external ticket API, for project secret API keys only.',
         group: 'Customers & support',
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/support',
@@ -804,15 +804,6 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
             reason: 'Surveys with targeting also manage a feature flag, so this key needs write access to feature flags too.',
         },
     },
-    tagger: {
-        name: 'Tagger',
-        plural: 'taggers',
-        description:
-            'Taggers that automatically label your AI generations, including testing tagger code on sample events.',
-        group: 'LLM & MCP analytics',
-        actions: ['read', 'write'],
-        docsUrl: 'https://posthog.com/docs/ai-evals/taggers',
-    },
     task: {
         name: 'Task',
         plural: 'tasks',
@@ -822,8 +813,8 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         docsUrl: 'https://posthog.com/docs/tasks',
     },
     ticket: {
-        name: 'Ticket',
-        plural: 'tickets',
+        name: 'Support ticket',
+        plural: 'support tickets',
         description: 'Support tickets, including their messages, notes, status, assignment, saved views, and macros.',
         group: 'Customers & support',
         actions: ['read', 'write'],

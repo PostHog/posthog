@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { TRANSPORT_MAX_BACKOFF_MS, TRANSPORT_MAX_RETRIES } from '~/common/personhog/grpc-retry'
 import {
     DistinctIdKey,
@@ -27,7 +28,7 @@ import { logger } from '~/common/utils/logger'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson } from '~/types'
+import { InternalPerson, ValueMatcher } from '~/types'
 
 import { MergeMode, PersonMergeCallFailedError, PersonMergeNotAppliedError } from './person-merge-types'
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
@@ -98,6 +99,12 @@ export const personhogStoreMergeOutcomeCounter = new Counter({
     labelNames: ['outcome'],
 })
 
+export const personhogStoreSamePersonMergeCounter = new Counter({
+    name: 'personhog_store_same_person_merge_total',
+    help: 'Merges whose target and sources already shared one person, by action: settled without the identity call, or sent to identity and why',
+    labelNames: ['action'],
+})
+
 export interface PersonhogPersonsStoreOptions {
     /** Bounds concurrent RPC fan-out; separate from the Postgres store's same-named pool option. */
     maxConcurrentUpdates: number
@@ -108,6 +115,14 @@ export interface PersonhogPersonsStoreOptions {
     /** The injected repository's per-request timeout; the flush's lane wait derives from it. */
     requestTimeoutMs: number
     mergeTimeoutMs: number
+    /**
+     * How long a flush writes a lane again after a retriable transport error, counted from the start
+     * of the first lane write that fails this way. Zero turns the retry off, and the first such error
+     * fails the flush. A flush that retries holds the consumer's request open, so this budget plus one
+     * call in progress must end before the consumer's revoke drain timeout.
+     */
+    flushTransientRetryBudgetMs: number
+    settleSamePersonMergesTeamAllowlist: string
 }
 
 const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
@@ -116,6 +131,8 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     syncMergeMoveLimit: 10_000,
     requestTimeoutMs: 3_000,
     mergeTimeoutMs: 35_000,
+    flushTransientRetryBudgetMs: 10_000,
+    settleSamePersonMergesTeamAllowlist: '',
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -154,8 +171,34 @@ const REDIRECT_MAX_ATTEMPTS = 3
 
 const FLUSH_WAIT_ROUND_MS = 1_000
 
+const FLUSH_RETRY_CODES = new Set([Code.Unavailable, Code.DeadlineExceeded, Code.Canceled, Code.Aborted])
+
+function isTransientTransportError(error: unknown): error is ConnectError & { isRetriable: true } {
+    return (
+        error instanceof ConnectError &&
+        (error as { isRetriable?: boolean }).isRetriable === true &&
+        FLUSH_RETRY_CODES.has(error.code)
+    )
+}
+
 /** A redirect failure that already incremented its own flush outcome. */
 class CountedRedirectError extends Error {}
+
+/** Stops a lane between segments once the flush's transient retry budget is spent. */
+class TransientBudgetSpentError extends Error {}
+
+interface WritePass {
+    deferrals: number
+    fenced: number
+    transientFailures: number
+}
+
+/** Spans the rounds of one flush, so a retry round cannot restart the budget. */
+interface TransientRetryBudget {
+    disabled: boolean
+    expiresAt?: number
+    lastError?: unknown
+}
 
 interface CapturedLane {
     personKey: string
@@ -206,6 +249,19 @@ const HELD_RESOLVE_INTERVAL_MS = 5_000
  * can place them, so this bound is what keeps the outage from growing memory; past it the earliest-held lane is shed.
  */
 export const HELD_LANES_LIMIT = 10_000
+
+// Past the limit the earliest op id is forgotten, and a retry of that op can then settle locally and leave an
+// open saga to the lifecycle sweeper.
+const NO_VERDICT_MERGE_OPS_LIMIT = 10_000
+
+function pruneMarks(marks: Map<string, number>, oldestRead: number): void {
+    for (const [key, seq] of marks) {
+        if (seq > oldestRead) {
+            return
+        }
+        marks.delete(key)
+    }
+}
 
 /**
  * The personhog person store: resolution and creation through the identity
@@ -260,16 +316,23 @@ export class PersonhogPersonsStore implements PersonsStore {
     private batchDistinctKeys: Map<number, Set<string>> = new Map()
     /** ↔ distinctKeyRefCount. Batches per distinct key; zero at release evicts the key. */
     private distinctKeyRefCount: Map<string, number> = new Map()
+    private purgeSeq = 0
+    private nextRead = 0
+    private readsInFlight: Map<number, number> = new Map()
+    private purgedDistinctKeys: Map<string, number> = new Map()
+    private purgedPersonKeys: Map<string, number> = new Map()
+    private purgedTeams: Map<string, number> = new Map()
     /**
-     * The single staleness guard, with no Postgres counterpart: bumped on
-     * every purge. A read stamps it before its first await and declines to
-     * record on mismatch, so a response from before the purge cannot
-     * refill what the purge dropped.
+     * Op ids of merge calls with no verdict: at identity now, or ended without one. Such a call can have its saga
+     * past the step that repoints the mappings, where the merged ids already share one person while the op is still
+     * open. Only a call under the same op id resumes that op, so a merge under a remembered op id goes to identity.
      */
-    private teamGeneration: Map<number, number> = new Map()
+    private noVerdictMergeOps: Set<string> = new Set()
+    private settlesSamePersonMerges: ValueMatcher<number>
 
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
+    private transientBudgetSpent = false
     /** Total lane wait per flush, derived in the constructor from the transport retry budget. */
     private flushWaitBudgetMs: number
     private fenceWaitBudgetMs: number
@@ -279,6 +342,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         options?: Partial<PersonhogPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
+        this.settlesSamePersonMerges = buildIntegerMatcher(this.options.settleSamePersonMergesTeamAllowlist, true)
         // A bad limit would fail every merge, or strand claimed lanes when
         // pLimit rejects it mid-flush; startup is where both fail usefully.
         if (!Number.isInteger(this.options.syncMergeMoveLimit) || this.options.syncMergeMoveLimit < 1) {
@@ -297,6 +361,14 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (!Number.isInteger(this.options.mergeTimeoutMs) || this.options.mergeTimeoutMs < 1) {
             throw new Error(`PERSONHOG_MERGE_TIMEOUT_MS must be an integer >= 1, got ${this.options.mergeTimeoutMs}`)
         }
+        if (
+            !Number.isInteger(this.options.flushTransientRetryBudgetMs) ||
+            this.options.flushTransientRetryBudgetMs < 0
+        ) {
+            throw new Error(
+                `PERSONHOG_STORE_FLUSH_TRANSIENT_RETRY_BUDGET_MS must be an integer >= 0, got ${this.options.flushTransientRetryBudgetMs}`
+            )
+        }
         // A flush waits out a claimed lane rather than failing past it. The
         // wait outlasts one write's full transport retry budget, derived
         // rather than chosen so the two cannot drift apart; a holder writing
@@ -314,12 +386,63 @@ export class PersonhogPersonsStore implements PersonsStore {
         return new BatchBoundPersonsStore(this, batchId)
     }
 
-    private generationOf(teamId: number): number {
-        return this.teamGeneration.get(teamId) ?? 0
+    private beginRead(): number {
+        const read = this.nextRead++
+        this.readsInFlight.set(read, this.purgeSeq)
+        return read
     }
 
-    private bumpGeneration(teamId: number): void {
-        this.teamGeneration.set(teamId, this.generationOf(teamId) + 1)
+    private endRead(read: number): void {
+        this.readsInFlight.delete(read)
+        const oldest = this.readsInFlight.values().next()
+        if (oldest.done) {
+            this.purgedDistinctKeys.clear()
+            this.purgedPersonKeys.clear()
+            this.purgedTeams.clear()
+            return
+        }
+        pruneMarks(this.purgedDistinctKeys, oldest.value)
+        pruneMarks(this.purgedPersonKeys, oldest.value)
+        pruneMarks(this.purgedTeams, oldest.value)
+    }
+
+    private fencePurge(distinctKeys: Iterable<string>, personKeys: Iterable<string>): void {
+        if (this.readsInFlight.size === 0) {
+            return
+        }
+        const seq = ++this.purgeSeq
+        for (const key of distinctKeys) {
+            this.purgedDistinctKeys.delete(key)
+            this.purgedDistinctKeys.set(key, seq)
+        }
+        for (const key of personKeys) {
+            this.purgedPersonKeys.delete(key)
+            this.purgedPersonKeys.set(key, seq)
+        }
+    }
+
+    /** A merge without a full verdict can have destroyed a person the store cannot name, so it marks the team. */
+    private fenceTeam(teamId: number): void {
+        if (this.readsInFlight.size === 0) {
+            return
+        }
+        const team = String(teamId)
+        this.purgedTeams.delete(team)
+        this.purgedTeams.set(team, ++this.purgeSeq)
+    }
+
+    private purgedSince(read: number, distinctKey: string, personKey: string | null): boolean {
+        const began = this.readsInFlight.get(read)
+        // The marks a read needs are pruned when the read ends, so an ended read cannot prove that its answer is fresh.
+        if (began === undefined) {
+            return true
+        }
+        const team = distinctKey.slice(0, distinctKey.indexOf(':'))
+        return (
+            (this.purgedTeams.get(team) ?? -1) > began ||
+            (this.purgedDistinctKeys.get(distinctKey) ?? -1) > began ||
+            (personKey !== null && (this.purgedPersonKeys.get(personKey) ?? -1) > began)
+        )
     }
 
     /** Shallow: callers may replace fields, but never edit properties in place. */
@@ -441,23 +564,21 @@ export class PersonhogPersonsStore implements PersonsStore {
      * not — one pass over the resolutions however many persons the merge
      * touched.
      */
-    private clearAllCachesForPersonIds(personKeys: Set<string>, reason: string): void {
+    private clearAllCachesForPersonIds(personKeys: Set<string>, reason: string): string[] {
+        const siblings: string[] = []
         for (const [distinctKey, mapped] of this.resolutions) {
             if (mapped !== null && personKeys.has(mapped)) {
                 this.resolutions.delete(distinctKey)
+                siblings.push(distinctKey)
                 personhogStoreCachePurgeCounter.inc({ reason })
             }
         }
         for (const personKey of personKeys) {
             this.clearPersonCacheForPersonId(personKey, reason)
         }
+        return siblings
     }
 
-    /**
-     * Caches a fetch result and returns the view callers should see. A
-     * generation moved by a purge means the answer predates it: served,
-     * never cached.
-     */
     private cacheFetchedPerson(
         teamId: number,
         distinctId: string,
@@ -465,13 +586,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         batchId: number,
         options: {
             grade: 'check' | 'update'
-            generation: number
+            read: number
             fillOnly?: boolean
             onOutcome?: (outcome: CacheFillOutcome) => void
         }
     ): InternalPerson | null {
         const distinctKey = `${teamId}:${distinctId}`
-        if (options.generation !== this.generationOf(teamId)) {
+        if (this.purgedSince(options.read, distinctKey, fetched === null ? null : `${teamId}:${fetched.id}`)) {
             options.onOutcome?.('stale_generation')
             // A cached absence this answer contradicts is wrong even when the answer is not installed.
             if (fetched !== null && this.resolutions.get(distinctKey) === null) {
@@ -557,13 +678,14 @@ export class PersonhogPersonsStore implements PersonsStore {
                 return prefetched
             }
         }
-        const generation = this.generationOf(teamId)
-        const [resolved] = await this.resolveDistinctIds('fetch_for_checking', [{ teamId, distinctId }])
-        const document = resolved?.person ? this.identityDocument(resolved.person) : null
-        return this.cacheFetchedPerson(teamId, distinctId, document, batchId, {
-            grade: 'check',
-            generation,
-        })
+        const read = this.beginRead()
+        try {
+            const [resolved] = await this.resolveDistinctIds('fetch_for_checking', [{ teamId, distinctId }])
+            const document = resolved?.person ? this.identityDocument(resolved.person) : null
+            return this.cacheFetchedPerson(teamId, distinctId, document, batchId, { grade: 'check', read })
+        } finally {
+            this.endRead(read)
+        }
     }
 
     /** Identity resolves the distinct id, then the leader supplies the freshest document. */
@@ -581,50 +703,55 @@ export class PersonhogPersonsStore implements PersonsStore {
                 return prefetched
             }
         }
-        const generation = this.generationOf(teamId)
-        const distinctKey = `${teamId}:${distinctId}`
-        const edge = this.resolutions.get(distinctKey)
-        if (edge != null) {
-            // The edge is trusted but only a checking read backs it, which
-            // lags the leader; the update path pays one leader read.
-            const person = await this.repository.fetchPersonById(teamId, edge.slice(edge.indexOf(':') + 1), CALLER_TAG)
-            if (person !== null) {
-                return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
+        const read = this.beginRead()
+        try {
+            const distinctKey = `${teamId}:${distinctId}`
+            const edge = this.resolutions.get(distinctKey)
+            if (edge != null) {
+                // The edge is trusted but only a checking read backs it, which
+                // lags the leader; the update path pays one leader read.
+                const person = await this.repository.fetchPersonById(
+                    teamId,
+                    edge.slice(edge.indexOf(':') + 1),
+                    CALLER_TAG
+                )
+                if (person !== null) {
+                    return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', read })
+                }
+                // The leader no longer holds this person; identity decides where the id lives now. A purge or a newer
+                // read during the leader read owns the entry, so only the edge this read found is removed.
+                if (!this.purgedSince(read, distinctKey, edge) && this.resolutions.get(distinctKey) === edge) {
+                    this.clearPersonCacheForPersonId(edge, 'stale_write_answer')
+                    this.resolutions.delete(distinctKey)
+                }
             }
-            // The leader no longer holds this person; identity decides where the id lives now. A purge or a newer
-            // read during the leader read owns the entry, so only the edge this read found is removed.
-            if (this.generationOf(teamId) === generation && this.resolutions.get(distinctKey) === edge) {
-                this.clearPersonCacheForPersonId(edge, 'stale_write_answer')
-                this.resolutions.delete(distinctKey)
+            const [resolved] = await this.resolveDistinctIds('fetch_for_update', [{ teamId, distinctId }])
+            if (!resolved?.person) {
+                return this.cacheFetchedPerson(teamId, distinctId, null, batchId, { grade: 'update', read })
             }
+            const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
+            if (person === null) {
+                // The person died mid-call; serve identity's answer rather than cache an absence.
+                this.clearPersonCacheForPersonId(`${teamId}:${resolved.person.id}`, 'stale_write_answer')
+                return this.identityDocument(resolved.person)
+            }
+            return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', read })
+        } finally {
+            this.endRead(read)
         }
-        const [resolved] = await this.resolveDistinctIds('fetch_for_update', [{ teamId, distinctId }])
-        if (!resolved?.person) {
-            return this.cacheFetchedPerson(teamId, distinctId, null, batchId, { grade: 'update', generation })
-        }
-        const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
-        if (person === null) {
-            // The person died mid-call; serve identity's answer rather than cache an absence.
-            this.clearPersonCacheForPersonId(`${teamId}:${resolved.person.id}`, 'stale_write_answer')
-            return this.identityDocument(resolved.person)
-        }
-        return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
     }
 
-    private purgeExtraDistinctIds(
-        teamId: number,
-        extraDistinctIds: { distinctId: string }[] | undefined,
-        generation: number
-    ): number {
+    private purgeExtraDistinctIds(teamId: number, extraDistinctIds: { distinctId: string }[] | undefined): void {
         if (!extraDistinctIds?.length) {
-            return generation
+            return
         }
         for (const { distinctId } of extraDistinctIds) {
             this.removeDistinctIdFromCache(teamId, distinctId, 'extra_distinct_id')
         }
-        const unpurged = generation === this.generationOf(teamId)
-        this.bumpGeneration(teamId)
-        return unpurged ? this.generationOf(teamId) : generation
+        this.fencePurge(
+            extraDistinctIds.map(({ distinctId }) => `${teamId}:${distinctId}`),
+            []
+        )
     }
 
     async createPerson(
@@ -639,41 +766,45 @@ export class PersonhogPersonsStore implements PersonsStore {
         _tx: PersonRepositoryTransaction | undefined,
         batchId: number
     ): Promise<CreatePersonResult> {
-        const generation = this.generationOf(teamId)
-        const createResult = await this.repository.getOrCreatePersonByDistinctId(
-            {
-                teamId,
-                distinctId: primaryDistinctId.distinctId,
-                extraDistinctIds: extraDistinctIds?.map(({ distinctId }) => distinctId),
-                eventName: CREATE_EVENT_NAME,
-                setProperties: properties,
-                createdAtMs: createdAt.toMillis(),
-                isIdentified,
-            },
-            CALLER_TAG
-        )
-        const { created } = createResult
-        const recordGeneration = this.purgeExtraDistinctIds(teamId, extraDistinctIds, generation)
-        let person: InternalPerson
-        if (createResult.created) {
-            person = createResult.person
-        } else {
-            // A null means the person died mid-call, and the redirect heals
-            // any ops folded onto identity's answer.
-            const identity = createResult.person
-            const leaderDoc = await this.repository.fetchPersonById(teamId, identity.id, CALLER_TAG)
-            if (leaderDoc === null) {
-                this.clearPersonCacheForPersonId(`${teamId}:${identity.id}`, 'stale_write_answer')
-                return { success: true, person: this.identityDocument(identity), messages: [], created }
+        const read = this.beginRead()
+        try {
+            const createResult = await this.repository.getOrCreatePersonByDistinctId(
+                {
+                    teamId,
+                    distinctId: primaryDistinctId.distinctId,
+                    extraDistinctIds: extraDistinctIds?.map(({ distinctId }) => distinctId),
+                    eventName: CREATE_EVENT_NAME,
+                    setProperties: properties,
+                    createdAtMs: createdAt.toMillis(),
+                    isIdentified,
+                },
+                CALLER_TAG
+            )
+            const { created } = createResult
+            this.purgeExtraDistinctIds(teamId, extraDistinctIds)
+            let person: InternalPerson
+            if (createResult.created) {
+                person = createResult.person
+            } else {
+                // A null means the person died mid-call, and the redirect heals
+                // any ops folded onto identity's answer.
+                const identity = createResult.person
+                const leaderDoc = await this.repository.fetchPersonById(teamId, identity.id, CALLER_TAG)
+                if (leaderDoc === null) {
+                    this.clearPersonCacheForPersonId(`${teamId}:${identity.id}`, 'stale_write_answer')
+                    return { success: true, person: this.identityDocument(identity), messages: [], created }
+                }
+                person = leaderDoc
             }
-            person = leaderDoc
+            const recorded = this.cacheFetchedPerson(teamId, primaryDistinctId.distinctId, person, batchId, {
+                grade: 'update',
+                read,
+            })
+            // No messages: the identity service publishes its own on creation.
+            return { success: true, person: recorded ?? this.snapshot(person), messages: [], created }
+        } finally {
+            this.endRead(read)
         }
-        const recorded = this.cacheFetchedPerson(teamId, primaryDistinctId.distinctId, person, batchId, {
-            grade: 'update',
-            generation: recordGeneration,
-        })
-        // No messages: the identity service publishes its own on creation.
-        return { success: true, person: recorded ?? this.snapshot(person), messages: [], created }
     }
 
     async applyEventOps(
@@ -687,9 +818,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (ops.denied && ops.isIdentified === undefined && ops.lastSeenAtMs === undefined) {
             return [person, []]
         }
-        const generation = this.generationOf(person.team_id)
-        const target = await this.personNow(person, distinctId, batchId)
-        return this.foldEventOps(target, ops, distinctId, batchId, generation)
+        const read = this.beginRead()
+        try {
+            const target = await this.personNow(person, distinctId, batchId)
+            return this.foldEventOps(target, ops, distinctId, batchId, read)
+        } finally {
+            this.endRead(read)
+        }
     }
 
     /** The person this id belongs to now: a merge may have destroyed the caller's copy. */
@@ -713,7 +848,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         ops: EventOps,
         distinctId: string,
         batchId: number,
-        generation: number
+        read: number
     ): [InternalPerson, PersonMessage[]] {
         // The caller's view, matching what Postgres would apply; the
         // leader's application at flush is the authoritative one.
@@ -738,7 +873,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // Replaces the projection outright. A purge during personNow's read
         // outdates the view; the install declines and the next touch
         // re-resolves, while the lane keeps the ops.
-        if (generation === this.generationOf(person.team_id)) {
+        if (!this.purgedSince(read, `${person.team_id}:${distinctId}`, personKey)) {
             this.projections.set(personKey, projected)
             this.setDistinctIdToPersonId(`${person.team_id}:${distinctId}`, personKey)
             this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
@@ -833,7 +968,9 @@ export class PersonhogPersonsStore implements PersonsStore {
      * Runs the identity service's merge saga. Any verdict purges local
      * state for the merge's persons rather than repairing it; a call with
      * no verdict purges the same set and throws for the caller's bounded
-     * retries.
+     * retries. For a team on settleSamePersonMergesTeamAllowlist, a merge
+     * whose ids already share one person is answered here and purges
+     * nothing.
      */
     async mergePersons(request: MergePersonsRequest, _batchId: number): Promise<MergePersonsResult> {
         const { teamId } = request
@@ -851,10 +988,31 @@ export class PersonhogPersonsStore implements PersonsStore {
         const believed = namedIds
             .map((distinctId) => this.resolutions.get(`${teamId}:${distinctId}`))
             .filter((personKey): personKey is string => personKey != null)
-        const resolved = await this.resolveMergeParticipants(teamId, namedIds)
-        const affected = new Set<string>([...believed, ...resolved])
+        let participants: Map<string, string | null>
+        if (this.settlesSamePersonMerges(teamId)) {
+            const read = this.beginRead()
+            try {
+                participants = await this.resolveMergeParticipants(teamId, namedIds)
+                const settled = await this.settleSamePersonMerge(request, opId, believed, participants, read)
+                if (settled !== null) {
+                    return settled
+                }
+            } finally {
+                this.endRead(read)
+            }
+        } else {
+            participants = await this.resolveMergeParticipants(teamId, namedIds)
+        }
+        const affected = new Set<string>(believed)
+        for (const personId of participants.values()) {
+            if (personId !== null) {
+                affected.add(`${teamId}:${personId}`)
+            }
+        }
         await this.drainLanesBeforeMerge(teamId, [...affected], opId)
 
+        // Remembered before the call, so a second delivery under this op id also goes to identity while the call waits.
+        this.rememberNoVerdictMerge(opId)
         let result
         try {
             result = await this.repository.mergePersons(
@@ -879,14 +1037,24 @@ export class PersonhogPersonsStore implements PersonsStore {
         } catch (error) {
             // The saga may have run without answering; Postgres purges on
             // any merge throw too. Settled refusals get their own reason.
-            const refused =
+            const invalid = error instanceof ConnectError && error.code === Code.InvalidArgument
+            const opIdReused =
                 error instanceof ConnectError &&
-                (error.code === Code.InvalidArgument ||
-                    error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED)
-            this.purgeAfterMerge(teamId, namedIds, affected, refused ? 'merge_refused' : 'merge_no_verdict')
+                error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED
+            // Keyed on the header: a hop in between may remap the status code.
+            const notApplied = error instanceof ConnectError ? error.metadata.get(NOT_APPLIED_METADATA_KEY) : null
+            // Only a validation refusal or a not-applied answer proves that no saga ran against persons the store never saw.
+            // A reused op id means that a different merge ran under this id, and this request does not name its persons.
+            this.purgeAfterMerge(
+                teamId,
+                namedIds,
+                affected,
+                invalid || opIdReused ? 'merge_refused' : 'merge_no_verdict',
+                !opIdReused && (invalid || notApplied !== null)
+            )
             // A verdict: redelivery meets the same validation forever, so
             // it propagates raw rather than wedging the partition.
-            if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
+            if (invalid) {
                 personhogStoreMergeCallFailedCounter.inc({ error: 'InvalidArgumentSettled' })
                 throw error
             }
@@ -894,15 +1062,10 @@ export class PersonhogPersonsStore implements PersonsStore {
             // refusal from a later saga step is a parked op, so it takes the
             // no-verdict path below, whose retries attach and resume it; if
             // they give up, the lifecycle sweeper settles it.
-            if (
-                error instanceof ConnectError &&
-                error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED
-            ) {
+            if (opIdReused) {
                 personhogStoreMergeCallFailedCounter.inc({ error: 'OpIdReusedSettled' })
                 throw error
             }
-            // Keyed on the header: a hop in between may remap the status code.
-            const notApplied = error instanceof ConnectError ? error.metadata.get(NOT_APPLIED_METADATA_KEY) : null
             if (notApplied !== null) {
                 const reason = /^[a-z0-9_-]{1,64}$/i.test(notApplied) ? notApplied : 'unknown'
                 personhogStoreMergeCallFailedCounter.inc({ error: `not_applied_${reason}` })
@@ -927,6 +1090,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 error
             )
         }
+        this.noVerdictMergeOps.delete(opId)
         for (const source of result.results) {
             personhogStoreMergeOutcomeCounter.inc({ outcome: source.outcome })
         }
@@ -939,7 +1103,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (result.survivor) {
             purgedPersons.add(`${teamId}:${result.survivor.id}`)
         }
-        this.purgeAfterMerge(teamId, namedIds, purgedPersons, 'merge_verdict')
+        // The saga names a destroyed person only on a merged source that carries a person id.
+        const namesEveryPerson = result.results.every((source) =>
+            source.outcome === 'merged'
+                ? source.sourcePersonId != null && result.survivor != null
+                : source.outcome !== 'error' && source.outcome !== 'unknown'
+        )
+        this.purgeAfterMerge(teamId, namedIds, purgedPersons, 'merge_verdict', namesEveryPerson)
         // A fold that skipped or failed to settle any source aborts to the
         // sequential path, where each event gets its own durability
         // decision. The trigger id marks a fold request, so a single-pair
@@ -969,8 +1139,99 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /** One batched identity resolve of a merge's named ids, answering the person keys. */
-    private async resolveMergeParticipants(teamId: number, distinctIds: string[]): Promise<Set<string>> {
+    private rememberNoVerdictMerge(opId: string): void {
+        // Added again as the latest, so the limit does not forget an op whose retries still fail.
+        this.noVerdictMergeOps.delete(opId)
+        this.noVerdictMergeOps.add(opId)
+        if (this.noVerdictMergeOps.size > NO_VERDICT_MERGE_OPS_LIMIT) {
+            const [earliest] = this.noVerdictMergeOps
+            this.noVerdictMergeOps.delete(earliest)
+        }
+    }
+
+    private laneHoldsOps(personKey: string): boolean {
+        const lane = this.entries.get(personKey)
+        return lane !== undefined && (lane.segments.length > 0 || lane.inFlight === true)
+    }
+
+    /** Returns null when identity must run the request. */
+    private async settleSamePersonMerge(
+        request: MergePersonsRequest,
+        opId: string,
+        believed: string[],
+        participants: Map<string, string | null>,
+        read: number
+    ): Promise<MergePersonsResult | null> {
+        const { teamId } = request
+        const personId = participants.get(request.targetDistinctId)
+        if (personId == null || request.sources.some((source) => participants.get(source.distinctId) !== personId)) {
+            return null
+        }
+        if (this.noVerdictMergeOps.has(opId)) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_no_verdict_op' })
+            return null
+        }
+        const personKey = `${teamId}:${personId}`
+        const projection = this.projections.get(personKey)
+        const document = projection ?? (await this.fetchSurvivorDocument(teamId, personId))
+        if (document === null) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_survivor_unavailable' })
+            return null
+        }
+        const distinctKeys = [...participants.keys()].map((distinctId) => `${teamId}:${distinctId}`)
+        // A purge of one of these ids or of the person since the resolve went out means the answers above can
+        // predate a change to their mappings. The full request ends in its own purge, which keeps the caller's
+        // follow-up off a stale edge.
+        if (distinctKeys.some((distinctKey) => this.purgedSince(read, distinctKey, personKey))) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_stale_generation' })
+            return null
+        }
+        const edges = distinctKeys.map((distinctKey) => this.resolutions.get(distinctKey))
+        // An edge that names another person, or a cached absence, is stale. Only the full request clears it:
+        // the drain writes the lane the edge points at before identity runs, and the purge drops the entry
+        // together with the reads in flight for it.
+        if ([...believed, ...edges].some((edge) => edge !== undefined && edge !== personKey)) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_stale_edge' })
+            return null
+        }
+        // A leader document lacks the ops the survivor's own lane holds.
+        if (!this.projections.has(personKey) && this.laneHoldsOps(personKey)) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_unwritten_lane' })
+            return null
+        }
+        // Read again: an event can install a projection that carries its ops while the leader read waits. A
+        // document that no edge names is not cached, because nothing would evict it.
+        if (!this.projections.has(personKey) && edges.includes(personKey)) {
+            this.setCachedPersonForUpdate(personKey, document)
+        }
+        personhogStoreSamePersonMergeCounter.inc({ action: 'settled' })
+        return {
+            survivor: this.snapshot(this.projections.get(personKey) ?? document),
+            results: request.sources.map((source) => ({
+                sourceDistinctId: source.distinctId,
+                outcome: 'noop_same_person',
+                settled: true,
+            })),
+        }
+    }
+
+    private async fetchSurvivorDocument(teamId: number, personId: string): Promise<InternalPerson | null> {
+        try {
+            return await this.repository.fetchPersonById(teamId, personId, CALLER_TAG)
+        } catch (error) {
+            // The merge service reads a transport error out of mergePersons as identity's refusal of the merge
+            // and acks the event with a warning. A failed read sends the merge to identity instead.
+            logger.warn('survivor read failed for a same-person merge; the merge goes to identity', {
+                team_id: teamId,
+                person_id: personId,
+                error: String(error),
+            })
+            return null
+        }
+    }
+
+    /** One batched identity resolve of a merge's named ids, answering each id's person id, or null for no person. */
+    private async resolveMergeParticipants(teamId: number, distinctIds: string[]): Promise<Map<string, string | null>> {
         let resolved
         try {
             resolved = await this.resolveDistinctIds(
@@ -986,13 +1247,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 error
             )
         }
-        const personKeys = new Set<string>()
-        for (const entry of resolved) {
-            if (entry.person) {
-                personKeys.add(`${teamId}:${entry.person.id}`)
-            }
-        }
-        return personKeys
+        return new Map(resolved.map((entry) => [entry.distinctId, entry.person?.id ?? null]))
     }
 
     /**
@@ -1058,17 +1313,21 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /**
-     * Every named id, affected person, and sibling id leaves the cache
-     * under one generation bump. Lanes are kept: a destroyed person's ops
-     * reach the survivor through the redirect, as they do under Postgres.
-     */
-    private purgeAfterMerge(teamId: number, distinctIds: string[], personKeys: Set<string>, reason: string): void {
-        this.clearAllCachesForPersonIds(personKeys, reason)
+    private purgeAfterMerge(
+        teamId: number,
+        distinctIds: string[],
+        personKeys: Set<string>,
+        reason: string,
+        namesEveryPerson: boolean
+    ): void {
+        const siblings = this.clearAllCachesForPersonIds(personKeys, reason)
         for (const distinctId of distinctIds) {
             this.removeDistinctIdFromCache(teamId, distinctId, reason)
         }
-        this.bumpGeneration(teamId)
+        this.fencePurge([...siblings, ...distinctIds.map((distinctId) => `${teamId}:${distinctId}`)], personKeys)
+        if (!namesEveryPerson) {
+            this.fenceTeam(teamId)
+        }
     }
 
     /** The leader enforces the size ceiling at admission; there is nothing to measure here. */
@@ -1108,100 +1367,105 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
             throw new PersonhogUnsupportedFieldError(unsupported)
         }
-        const generation = this.generationOf(person.team_id)
-        const { person: updated, updated: applied } = await this.repository.updatePersonProperties(
-            {
-                teamId: person.team_id,
-                personId: person.id,
-                eventName: DIRECT_UPDATE_EVENT_NAME,
-                setProperties: propertiesToSet,
-                setOnceProperties: {},
-                unsetProperties: propertiesToUnset,
-                isIdentified: otherUpdates.is_identified === true ? true : undefined,
-                lastSeenAtMs: otherUpdates.last_seen_at?.toMillis(),
-                forceUpdate: forceUpdate ?? false,
-            },
-            CALLER_TAG
-        )
-        const personKey = `${person.team_id}:${person.id}`
-        if (!updated) {
-            // A null document with the write applied means the leader moved
-            // past what we held; without an applied write it is a no-op.
-            if (applied) {
-                this.clearPersonCacheForPersonId(personKey, 'stale_write_answer')
+        const read = this.beginRead()
+        try {
+            const { person: updated, updated: applied } = await this.repository.updatePersonProperties(
+                {
+                    teamId: person.team_id,
+                    personId: person.id,
+                    eventName: DIRECT_UPDATE_EVENT_NAME,
+                    setProperties: propertiesToSet,
+                    setOnceProperties: {},
+                    unsetProperties: propertiesToUnset,
+                    isIdentified: otherUpdates.is_identified === true ? true : undefined,
+                    lastSeenAtMs: otherUpdates.last_seen_at?.toMillis(),
+                    forceUpdate: forceUpdate ?? false,
+                },
+                CALLER_TAG
+            )
+            const personKey = `${person.team_id}:${person.id}`
+            const distinctKey = `${person.team_id}:${distinctId}`
+            if (!updated) {
+                // A null document with the write applied means the leader moved
+                // past what we held; without an applied write it is a no-op.
+                if (applied) {
+                    this.clearPersonCacheForPersonId(personKey, 'stale_write_answer')
+                }
+                return [person, [], false]
             }
-            return [person, [], false]
+            if (!this.purgedSince(read, distinctKey, personKey)) {
+                this.setDistinctIdToPersonId(distinctKey, personKey)
+                this.trackBatchEntry(batchId, distinctKey)
+                this.setCachedPersonForUpdate(personKey, updated)
+            }
+            // No ClickHouse message: the leader's changelog is the person feed.
+            return [this.snapshot(updated), [], false]
+        } finally {
+            this.endRead(read)
         }
-        // A generation moved by a purge means this answer predates it.
-        if (generation === this.generationOf(person.team_id)) {
-            this.setDistinctIdToPersonId(`${person.team_id}:${distinctId}`, personKey)
-            this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
-            this.setCachedPersonForUpdate(personKey, updated)
-        }
-        // No ClickHouse message: the leader's changelog is the person feed.
-        return [this.snapshot(updated), [], false]
     }
 
     /** Resolves and reads the batch's unresolved ids, caching what it finds. Never rejects. */
     private async prefetchUnresolved(
         unresolved: { teamId: number; distinctId: string; batchId: number }[]
     ): Promise<void> {
-        const generations = new Map<number, number>()
         for (const entry of unresolved) {
             this.prefetchingBatches.add(entry.batchId)
-            if (!generations.has(entry.teamId)) {
-                generations.set(entry.teamId, this.generationOf(entry.teamId))
-            }
         }
+        const read = this.beginRead()
+        let tasks: Promise<void>[] = []
         try {
             const resolved = await this.resolvePersonIds(
                 'prefetch',
                 unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId }))
             )
             const limit = pLimit(this.options.maxConcurrentUpdates)
-            await Promise.all(
-                resolved.map((entry, i) =>
-                    limit(async () => {
-                        const { batchId } = unresolved[i]
-                        const generation = generations.get(entry.teamId) ?? 0
-                        // Caching for a released batch recreates its key
-                        // set, and nothing ever releases it again.
-                        if (!this.prefetchingBatches.has(batchId)) {
-                            personhogStorePrefetchAnswerCounter.inc({ outcome: 'batch_released' })
-                            return
-                        }
-                        if (entry.personId === null) {
-                            this.cacheFetchedPerson(entry.teamId, entry.distinctId, null, batchId, {
-                                grade: 'check',
-                                generation,
-                                onOutcome: (outcome) => personhogStorePrefetchAnswerCounter.inc({ outcome }),
-                            })
-                            return
-                        }
-                        const person = await this.repository.fetchPersonById(entry.teamId, entry.personId, CALLER_TAG)
-                        // Deleted or merged away; the update read resolves it.
-                        if (!this.prefetchingBatches.has(batchId) || person === null) {
-                            personhogStorePrefetchAnswerCounter.inc({
-                                outcome: this.prefetchingBatches.has(batchId) ? 'leader_gone' : 'batch_released',
-                            })
-                            return
-                        }
-                        // Fill-only: this response raced everything the
-                        // batch did since the request went out.
-                        this.cacheFetchedPerson(entry.teamId, entry.distinctId, person, batchId, {
-                            grade: 'update',
-                            generation,
-                            fillOnly: true,
+            tasks = resolved.map((entry, i) =>
+                limit(async () => {
+                    const { batchId } = unresolved[i]
+                    // Caching for a released batch recreates its key
+                    // set, and nothing ever releases it again.
+                    if (!this.prefetchingBatches.has(batchId)) {
+                        personhogStorePrefetchAnswerCounter.inc({ outcome: 'batch_released' })
+                        return
+                    }
+                    if (entry.personId === null) {
+                        this.cacheFetchedPerson(entry.teamId, entry.distinctId, null, batchId, {
+                            grade: 'check',
+                            read,
                             onOutcome: (outcome) => personhogStorePrefetchAnswerCounter.inc({ outcome }),
                         })
+                        return
+                    }
+                    const person = await this.repository.fetchPersonById(entry.teamId, entry.personId, CALLER_TAG)
+                    // Deleted or merged away; the update read resolves it.
+                    if (!this.prefetchingBatches.has(batchId) || person === null) {
+                        personhogStorePrefetchAnswerCounter.inc({
+                            outcome: this.prefetchingBatches.has(batchId) ? 'leader_gone' : 'batch_released',
+                        })
+                        return
+                    }
+                    // Fill-only: this response raced everything the
+                    // batch did since the request went out.
+                    this.cacheFetchedPerson(entry.teamId, entry.distinctId, person, batchId, {
+                        grade: 'update',
+                        read,
+                        fillOnly: true,
+                        onOutcome: (outcome) => personhogStorePrefetchAnswerCounter.inc({ outcome }),
                     })
-                )
+                })
             )
+            await Promise.all(tasks)
         } catch (error) {
             // Counted because the degradation reads as latency.
             personhogStorePrefetchFailedCounter.inc()
             logger.warn('personhog prefetch failed; resolution falls back to first touch', { error })
+            // The first failure releases the waiters, so that they do not wait for every remaining leader read.
+            // The read stays open until those reads settle, because an answer that lands after it ends is never recorded.
+            void Promise.allSettled(tasks).then(() => this.endRead(read))
+            return
         }
+        this.endRead(read)
     }
 
     /**
@@ -1266,17 +1530,27 @@ export class PersonhogPersonsStore implements PersonsStore {
         // lane holds unwritten segments: claimed lanes are waited out and
         // rewritten, or the pass fails and the batch redelivers.
         let fenceSeen = false
-        for (let round = 0; ; round++) {
-            const pass = { deferrals: 0, fenced: 0 }
-            await this.writeEligibleLanes(pass)
-            if (pass.deferrals === 0) {
+        let deferredRounds = 0
+        // A spent budget makes the consumer replay the batch on another worker. A later flush here, such as
+        // the shutdown drain, must not retry, or its older write can land after the replay's newer one.
+        const retryBudget: TransientRetryBudget = { disabled: this.transientBudgetSpent }
+        for (;;) {
+            const pass: WritePass = { deferrals: 0, fenced: 0, transientFailures: 0 }
+            await this.writeEligibleLanes(pass, retryBudget)
+            if (pass.deferrals === 0 && pass.transientFailures === 0) {
                 // No FlushResults: the leader's changelog is the person
                 // feed, so a flush publishes nothing.
                 return []
             }
+            if (pass.transientFailures > 0 && this.transientBudgetExpired(retryBudget)) {
+                personhogStoreFlushCounter.inc({ outcome: 'transient_exhausted' })
+                this.transientBudgetSpent = true
+                throw retryBudget.lastError
+            }
             fenceSeen ||= pass.fenced > 0
             const budgetMs = fenceSeen ? this.fenceWaitBudgetMs : this.flushWaitBudgetMs
-            if (round * FLUSH_WAIT_ROUND_MS >= budgetMs) {
+            // Counts only deferred rounds, so transport retries do not spend the budget of a parked lane.
+            if (pass.deferrals > 0 && deferredRounds++ * FLUSH_WAIT_ROUND_MS >= budgetMs) {
                 if (pass.fenced > 0) {
                     personhogStoreFlushCounter.inc({ outcome: 'fence_exhausted' })
                     throw new Error(
@@ -1308,7 +1582,52 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private async writeEligibleLanes(pass: { deferrals: number; fenced: number }): Promise<void> {
+    private retriesTransportError(error: unknown, budget: TransientRetryBudget | undefined): boolean {
+        return (
+            budget !== undefined &&
+            !budget.disabled &&
+            this.options.flushTransientRetryBudgetMs > 0 &&
+            isTransientTransportError(error)
+        )
+    }
+
+    private transientBudgetExpired(budget: TransientRetryBudget): boolean {
+        return budget.expiresAt !== undefined && Date.now() >= budget.expiresAt
+    }
+
+    /**
+     * Queued lanes check the budget here, so a long queue cannot outlive it.
+     * A skipped lane counts as a failure, because a pass that counted nothing would ack the batch.
+     */
+    private async writeLaneWithinBudget(
+        lane: CapturedLane,
+        pass: WritePass,
+        budget: TransientRetryBudget
+    ): Promise<void> {
+        if (this.transientBudgetExpired(budget)) {
+            this.releaseWritten(lane.personKey, lane.entry)
+            pass.transientFailures += 1
+            return
+        }
+        const startedAt = Date.now()
+        try {
+            await this.writeEntry(lane.personKey, lane.entry, lane.segments, budget)
+        } catch (error) {
+            if (error instanceof TransientBudgetSpentError) {
+                pass.transientFailures += 1
+                return
+            }
+            if (!this.retriesTransportError(error, budget)) {
+                throw error
+            }
+            // From the write's start, because the time the failing write took also holds the request open.
+            budget.expiresAt ??= startedAt + this.options.flushTransientRetryBudgetMs
+            budget.lastError = error
+            pass.transientFailures += 1
+        }
+    }
+
+    private async writeEligibleLanes(pass: WritePass, retryBudget: TransientRetryBudget): Promise<void> {
         // Before the claim, so a held lane that resolves writes in this pass.
         await this.resolveHeldLanes()
         // No await in this block, so the claim snapshot is atomic.
@@ -1332,7 +1651,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         const limit = pLimit(this.options.maxConcurrentUpdates)
         const outcomes = await Promise.allSettled(
-            captured.map(({ personKey, entry, segments }) => limit(() => this.writeEntry(personKey, entry, segments)))
+            captured.map((lane) => limit(() => this.writeLaneWithinBudget(lane, pass, retryBudget)))
         )
         let failed: PromiseRejectedResult | undefined
         for (const outcome of outcomes) {
@@ -1380,7 +1699,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private async writeEntry(personKey: string, entry: OpsLaneEntry, segments: number): Promise<void> {
+    /** Only the flush passes a retry budget, because only the flush writes a lane again. */
+    private async writeEntry(
+        personKey: string,
+        entry: OpsLaneEntry,
+        segments: number,
+        retryBudget?: TransientRetryBudget
+    ): Promise<void> {
         try {
             // What this pass owes; the array length is no substitute, since
             // folds arriving mid-redirect inflate it.
@@ -1393,16 +1718,16 @@ export class PersonhogPersonsStore implements PersonsStore {
             while (progress.remaining > 0) {
                 try {
                     if (viaRedirect) {
-                        if (await this.redirectToSurvivor(entry, progress)) {
+                        if (await this.redirectToSurvivor(entry, progress, retryBudget)) {
                             personhogStoreFlushCounter.inc({ outcome: 'redirected' })
                         }
                         break
                     }
                     if (entry.heldSince !== undefined) {
-                        await this.writeHeldSegments(entry, progress)
+                        await this.writeHeldSegments(entry, progress, retryBudget)
                         break
                     }
-                    await this.writeSegments(entry, entry.personId, progress)
+                    await this.writeSegments(entry, entry.personId, progress, retryBudget)
                     personhogStoreFlushCounter.inc({ outcome: 'success' })
                     break
                 } catch (error) {
@@ -1442,6 +1767,10 @@ export class PersonhogPersonsStore implements PersonsStore {
                         progress.remaining -= 1
                         continue
                     }
+                    if (error instanceof TransientBudgetSpentError) {
+                        // Not this lane's failure; the pass counts the spent budget once.
+                        throw error
+                    }
                     if (error instanceof PersonhogFencedError) {
                         // Expected coordination, so it stays off the error
                         // series an alert would page on: the holder settles
@@ -1451,6 +1780,13 @@ export class PersonhogPersonsStore implements PersonsStore {
                             teamId: entry.teamId,
                             personId: entry.personId,
                             fencingOpId: error.fencingOpId,
+                        })
+                    } else if (this.retriesTransportError(error, retryBudget)) {
+                        personhogStoreFlushCounter.inc({ outcome: 'transient' })
+                        logger.warn('transport failed a folded update; the flush retries the lane next round', {
+                            teamId: entry.teamId,
+                            personId: entry.personId,
+                            error,
                         })
                     } else {
                         if (!(error instanceof CountedRedirectError)) {
@@ -1489,24 +1825,41 @@ export class PersonhogPersonsStore implements PersonsStore {
      * answers are not cached: the projection already carries every folded
      * op, and the leader's refinement arrives on the next re-read.
      */
-    private async writeSegments(entry: OpsLaneEntry, personId: string, progress: { remaining: number }): Promise<void> {
+    private async writeSegments(
+        entry: OpsLaneEntry,
+        personId: string,
+        progress: { remaining: number },
+        retryBudget?: TransientRetryBudget
+    ): Promise<void> {
         const count = Math.min(progress.remaining, entry.segments.length)
         for (let written = 0; written < count; written++) {
+            // Checked per segment, so a deep lane that started inside the budget cannot outlive it.
+            if (retryBudget !== undefined && this.transientBudgetExpired(retryBudget)) {
+                throw new TransientBudgetSpentError('the flush transient retry budget ran out mid-lane')
+            }
             const ops = entry.segments[0]
-            const { person: answer } = await this.repository.updatePersonProperties(
-                {
-                    teamId: entry.teamId,
-                    personId,
-                    eventName: ops.eventName,
-                    setProperties: ops.set,
-                    setOnceProperties: ops.setOnce,
-                    unsetProperties: ops.unset,
-                    isIdentified: ops.isIdentified,
-                    lastSeenAtMs: ops.lastSeenAtMs,
-                    forceUpdate: ops.shouldForceUpdate,
-                },
-                CALLER_TAG
-            )
+            const startedAt = Date.now()
+            const { person: answer } = await this.repository
+                .updatePersonProperties(
+                    {
+                        teamId: entry.teamId,
+                        personId,
+                        eventName: ops.eventName,
+                        setProperties: ops.set,
+                        setOnceProperties: ops.setOnce,
+                        unsetProperties: ops.unset,
+                        isIdentified: ops.isIdentified,
+                        lastSeenAtMs: ops.lastSeenAtMs,
+                        forceUpdate: ops.shouldForceUpdate,
+                    },
+                    CALLER_TAG
+                )
+                .catch((error: unknown) => {
+                    if (retryBudget !== undefined && this.retriesTransportError(error, retryBudget)) {
+                        retryBudget.expiresAt ??= startedAt + this.options.flushTransientRetryBudgetMs
+                    }
+                    throw error
+                })
             entry.segments.shift()
             progress.remaining -= 1
             // A null answer without a throw means the write applied and
@@ -1525,12 +1878,28 @@ export class PersonhogPersonsStore implements PersonsStore {
      * tombstone, and no owner means a genuine delete. Returns whether the
      * ops were written; a delete drops them.
      */
-    private async redirectToSurvivor(entry: OpsLaneEntry, progress: { remaining: number }): Promise<boolean> {
-        const generation = this.generationOf(entry.teamId)
-        const [resolved] = await this.resolveDistinctIds('redirect_survivor', [
-            { teamId: entry.teamId, distinctId: entry.distinctId },
-        ])
-        const survivorId = resolved?.person?.id
+    private async redirectToSurvivor(
+        entry: OpsLaneEntry,
+        progress: { remaining: number },
+        retryBudget?: TransientRetryBudget
+    ): Promise<boolean> {
+        const distinctKey = `${entry.teamId}:${entry.distinctId}`
+        const read = this.beginRead()
+        let survivorId: string | undefined
+        let purged: boolean
+        try {
+            const [resolved] = await this.resolveDistinctIds('redirect_survivor', [
+                { teamId: entry.teamId, distinctId: entry.distinctId },
+            ])
+            survivorId = resolved?.person?.id
+            purged = this.purgedSince(
+                read,
+                distinctKey,
+                survivorId === undefined ? null : `${entry.teamId}:${survivorId}`
+            )
+        } finally {
+            this.endRead(read)
+        }
         if (survivorId === undefined || survivorId === entry.personId) {
             // Released, so later events re-resolve rather than folding onto
             // the corpse again.
@@ -1559,20 +1928,14 @@ export class PersonhogPersonsStore implements PersonsStore {
                     `the same person; failing the flush to redeliver`
             )
         }
-        // The resolve proved where the id belongs, so heal the edge, the
-        // repoint the Postgres cache performs too. Skipped when a purge
-        // moved the generation (this answer predates it), and for a key no
-        // batch recorded (a mapping nothing would ever release).
-        if (generation === this.generationOf(entry.teamId)) {
-            const distinctKey = `${entry.teamId}:${entry.distinctId}`
-            if (this.resolutions.has(distinctKey)) {
-                this.setDistinctIdToPersonId(distinctKey, `${entry.teamId}:${survivorId}`)
-            }
+        // A key that no batch recorded gets no edge here, because nothing would ever release that edge.
+        if (!purged && this.resolutions.has(distinctKey)) {
+            this.setDistinctIdToPersonId(distinctKey, `${entry.teamId}:${survivorId}`)
         }
         this.clearPersonCacheForPersonId(`${entry.teamId}:${entry.personId}`, 'redirect_survivor')
         // Ops travel as they stand, deletions included, matching Postgres.
         try {
-            await this.writeSegments(entry, survivorId, progress)
+            await this.writeSegments(entry, survivorId, progress, retryBudget)
         } finally {
             // The survivor's projection cannot know about these ops, even
             // the partial set a failed write may have landed.
@@ -1653,9 +2016,13 @@ export class PersonhogPersonsStore implements PersonsStore {
      * dropped after the write either way; an owner merged away since the
      * resolve takes the redirect like any other lane.
      */
-    private async writeHeldSegments(entry: OpsLaneEntry, progress: { remaining: number }): Promise<void> {
+    private async writeHeldSegments(
+        entry: OpsLaneEntry,
+        progress: { remaining: number },
+        retryBudget?: TransientRetryBudget
+    ): Promise<void> {
         try {
-            await this.writeSegments(entry, entry.personId, progress)
+            await this.writeSegments(entry, entry.personId, progress, retryBudget)
             personhogStoreFlushCounter.inc({ outcome: 'held_written' })
         } finally {
             this.clearPersonCacheForPersonId(`${entry.teamId}:${entry.personId}`, 'held_write')

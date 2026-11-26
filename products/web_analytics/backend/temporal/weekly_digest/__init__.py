@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from products.web_analytics.backend.temporal.weekly_digest.activities import (
     get_org_batch_page,
@@ -11,8 +11,11 @@ from products.web_analytics.backend.temporal.weekly_digest.workflows import (
     WAWeeklyDigestWorkflow,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [WAWeeklyDigestWorkflow, WAWeeklyDigestTestWorkflow]
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     get_org_batch_page,
     run_wa_digest_batch,
     push_wa_digest_metrics_activity,

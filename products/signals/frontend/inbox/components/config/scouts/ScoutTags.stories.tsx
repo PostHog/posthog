@@ -31,6 +31,8 @@ const config: SignalScoutConfigApi = {
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    report_actions: [],
+    max_report_actions_per_day: 3,
     allowed_mcp_tools: null,
     tool_preset: null,
     network_access: 'trusted',

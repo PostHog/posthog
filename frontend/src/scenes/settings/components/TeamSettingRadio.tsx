@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamType } from '~/types'
+
+import { QuillTeamSettingRadio } from './QuillTeamSettingRadio'
 
 function getNestedValue(obj: Record<string, any> | undefined | null, path: string): any {
     if (!obj) {
@@ -51,6 +54,7 @@ export function TeamSettingRadio<T extends string>({
 }): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const currentTeamRecord = currentTeam as Record<string, any> | undefined
 
@@ -79,15 +83,25 @@ export function TeamSettingRadio<T extends string>({
         onSave?.(value)
     }
 
+    const saveDisabledReason = value === savedValue ? 'No changes to save' : disabledReason
+
+    if (todayRailNav) {
+        return (
+            <QuillTeamSettingRadio
+                options={options}
+                value={value}
+                onValueChange={setValue}
+                onSave={handleSave}
+                saveDisabledReason={saveDisabledReason}
+            />
+        )
+    }
+
     return (
         <>
             <LemonRadio value={value} onChange={setValue} options={options} />
             <div className="mt-4">
-                <LemonButton
-                    type="primary"
-                    onClick={handleSave}
-                    disabledReason={value === savedValue ? 'No changes to save' : disabledReason}
-                >
+                <LemonButton type="primary" onClick={handleSave} disabledReason={saveDisabledReason}>
                     Save
                 </LemonButton>
             </div>

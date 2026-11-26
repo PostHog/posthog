@@ -65,6 +65,11 @@ class TestBuildParams:
             ("worker_changes", True, "applied_on", "applied_on ge 2024-10-01T00:00:00", None),
             ("worker_changes", False, None, None, None),
             ("leave_accruals", True, "accrual_date", None, "created_at"),
+            # These lists filter only on lookup ids, never on a timestamp, so they stay full refresh.
+            ("leave_types", True, "updated_at", None, "created_at"),
+            ("job_codes", True, "updated_at", None, "created_at"),
+            ("job_assignments", True, "updated_at", None, "created_at"),
+            ("time_cards", True, "created_at", None, "created_at"),
         ],
     )
     def test_request_params(

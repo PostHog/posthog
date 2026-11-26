@@ -2,6 +2,8 @@ import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
+import { Counter, register } from 'prom-client'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { DependencyUnavailableError } from '~/common/utils/db/error'
@@ -576,11 +578,22 @@ describe('CdpEventsConsumer', () => {
                 })
             })
 
-            it('should filter out functions that error while filtering', async () => {
+            it.each([
+                [
+                    'broken bytecode',
+                    HOG_FILTERS_EXAMPLES.broken_filters.filters,
+                    'Invalid HogQL bytecode, stack is empty, can not pop',
+                ],
+                [
+                    'a null event filter',
+                    { ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, events: [null] },
+                    "Cannot read properties of null (reading 'type')",
+                ],
+            ])('should filter out functions that error while filtering, with %s', async (_, filters, error) => {
                 const erroringFunction = await insertHogFunction({
                     ...HOG_EXAMPLES.input_printer,
                     ...HOG_INPUTS_EXAMPLES.secret_inputs,
-                    ...HOG_FILTERS_EXAMPLES.broken_filters,
+                    filters: filters as any,
                 })
                 await processor.processBatch([globals])
                 expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
@@ -600,8 +613,7 @@ describe('CdpEventsConsumer', () => {
                     {
                         topic: 'log_entries_test',
                         value: {
-                            message:
-                                'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
+                            message: `Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: ${error}`,
                         },
                     },
                 ])
@@ -969,6 +981,45 @@ describe('CdpEventsConsumer', () => {
 
                     expect(await outcome(true)).toEqual(parsed)
                     expect(await counted()).toEqual({ unmatched: { true: 1 }, invoked: 0 })
+                })
+
+                it('skips the filter of a destination and a workflow that reject the event name while another destination runs', async () => {
+                    const catchAll = await insertHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                    })
+                    const pageviewFlow = await _insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder()
+                            .withTeamId(team.id)
+                            .withSimpleWorkflow({
+                                trigger: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                                },
+                            })
+                            .build()
+                    )
+                    processor['hogFlowManager']['onHogFlowsReloaded'](team.id, [pageviewFlow.id])
+                    const prefilter = register.getSingleMetric('cdp_hog_function_prefilter_result') as Counter
+                    prefilter.reset()
+
+                    await handleBatch([withHeaders(createIncomingEvent(team.id, { event: 'signed_up' }))])
+
+                    const queued = mockQueueInvocations.mock.calls.flatMap(([invocations]: any[]) => invocations)
+                    expect(queued.map((x: any) => x.functionId)).toEqual([catchAll.id])
+                    const metrics = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .filter(({ value }: any) =>
+                            [pageviewFunction.id, pageviewFlow.id].includes(value.app_source_id)
+                        )
+                        .map(({ value }: any) => `${value.app_source} ${value.metric_name} ${value.count}`)
+                        .sort()
+                    expect(metrics).toEqual(['hog_flow filtered 1', 'hog_function filtered 1'])
+                    expect((await prefilter.get()).values.map(({ labels }) => labels.result)).not.toContain(
+                        'bytecode_execution_skipped__pre_filtered_out'
+                    )
                 })
 
                 it('parses an event without the name header and leaves it to the pre-filter, with skipping on', async () => {

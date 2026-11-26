@@ -37,6 +37,7 @@ class AppsFlyerReportKind(StrEnum):
     AGGREGATE = "aggregate"
     RAW = "raw"
     MASTER = "master"
+    SKAN = "skan"
 
 
 # The Master API needs both groupings and kpis. The groupings mirror the aggregate reports'
@@ -78,6 +79,24 @@ _BLOCKED_ADDITIONAL_FIELDS = (
     "rejected_reason",
     "rejected_reason_value",
 )
+# Every dimension of the SKAN 4 performance report. Rows carry no id, so together they are the key.
+_SKAN_PRIMARY_KEYS = [
+    "date",
+    "media_source_pid",
+    "campaign_c",
+    "campaign_id",
+    "site_id",
+    "adset",
+    "adset_id",
+    "ad",
+    "ad_id",
+    "country",
+    "af_attribution_flag",
+    "postback_sequence_index",
+    "creative",
+    "channel",
+]
+
 _POST_ATTRIBUTION_ADDITIONAL_FIELDS = (
     "detection_date",
     "fraud_reason",
@@ -110,8 +129,9 @@ class AppsFlyerEndpointConfig:
 
 # AppsFlyer's aggregate Pull API returns CSV per date window (max ~1000 days);
 # headers are normalized to snake_case columns. The raw-data Pull API returns
-# event-level CSV rows over a 90-day window, and the Master API returns one
-# aggregate LTV report per 31-day window.
+# event-level CSV rows over a 90-day window, the Master API returns one
+# aggregate LTV report per 31-day window, and the SKAN API returns one
+# aggregate SKAdNetwork report per window of at most 90 days.
 APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
     "daily_report": AppsFlyerEndpointConfig(
         name="daily_report",
@@ -278,6 +298,75 @@ APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
         },
         should_sync_default=False,
     ),
+    "reinstalls": AppsFlyerEndpointConfig(
+        name="reinstalls",
+        report="reinstalls",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_RAW_EVENT_PRIMARY_KEYS),
+        incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
+        partition_key="event_time",
+        partition_format="day",
+        should_sync_default=False,
+    ),
+    "reinstalls_organic": AppsFlyerEndpointConfig(
+        name="reinstalls_organic",
+        report="reinstalls_organic",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_RAW_EVENT_PRIMARY_KEYS),
+        incremental_fields=list(_EVENT_TIME_INCREMENTAL_FIELDS),
+        partition_key="event_time",
+        partition_format="day",
+        should_sync_default=False,
+    ),
+    # Postback reports copy what was sent to partners. One install or event can be sent to several
+    # partners, and a failed postback is sent again, so the event key repeats. A merge would collapse
+    # those rows into one, so the postback reports are full refresh only.
+    "install_postbacks": AppsFlyerEndpointConfig(
+        name="install_postbacks",
+        report="postbacks",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_RAW_EVENT_PRIMARY_KEYS),
+        incremental_fields=[],
+        partition_key="event_time",
+        partition_format="day",
+        should_sync_default=False,
+    ),
+    "in_app_event_postbacks": AppsFlyerEndpointConfig(
+        name="in_app_event_postbacks",
+        report="in-app-events-postbacks",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_IN_APP_EVENT_PRIMARY_KEYS),
+        incremental_fields=[],
+        partition_key="event_time",
+        partition_format="day",
+        should_sync_default=False,
+    ),
+    "retargeting_install_postbacks": AppsFlyerEndpointConfig(
+        name="retargeting_install_postbacks",
+        report="retarget_install_postbacks",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_RAW_EVENT_PRIMARY_KEYS),
+        incremental_fields=[],
+        partition_key="event_time",
+        partition_format="day",
+        should_sync_default=False,
+    ),
+    "retargeting_in_app_event_postbacks": AppsFlyerEndpointConfig(
+        name="retargeting_in_app_event_postbacks",
+        report="retarget_in_app_events_postbacks",
+        kind=AppsFlyerReportKind.RAW,
+        primary_keys=list(_IN_APP_EVENT_PRIMARY_KEYS),
+        incremental_fields=[],
+        partition_key="event_time",
+        partition_format="day",
+        should_sync_default=False,
+    ),
+    "skan_performance_report": AppsFlyerEndpointConfig(
+        name="skan_performance_report",
+        kind=AppsFlyerReportKind.SKAN,
+        primary_keys=list(_SKAN_PRIMARY_KEYS),
+        should_sync_default=False,
+    ),
 }
 
 ENDPOINTS = tuple(APPSFLYER_ENDPOINTS.keys())
@@ -287,8 +376,9 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 }
 
 # Only the aggregate reports come with every AppsFlyer subscription. The raw-data reports, the
-# Master API report and the Protect360 reports need a package that most accounts don't have, so
-# they start unselected instead of failing on the first sync of every new source.
+# Master API report, the Protect360 reports and the SKAN report (iOS apps only) need a package that
+# most accounts don't have, so they start unselected instead of failing on the first sync of every
+# new source.
 SHOULD_SYNC_DEFAULT: dict[str, bool] = {
     name: config.should_sync_default for name, config in APPSFLYER_ENDPOINTS.items()
 }

@@ -12,7 +12,9 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     SEARCH_CONSOLE_URL,
     Ad,
     CampaignStats,
+    ExcludedSearch,
     FlaggedAd,
+    Keyword,
     KeywordTracking,
     OrganicQueryStats,
     PolicyAds,
@@ -76,8 +78,10 @@ def _inputs(
     organic: tuple[OrganicQueryStats, ...] = (),
     term_keywords: tuple[TermKeywordStats, ...] = (),
     ranking_pages: tuple[RankingPage, ...] = (),
+    keywords: tuple[Keyword, ...] = (),
 ) -> RecommendationInputs:
     return RecommendationInputs(
+        keywords=keywords,
         term_keywords=term_keywords,
         ranking_pages=ranking_pages,
         campaigns=campaigns,
@@ -240,14 +244,15 @@ class TestMarketingRecommendations(SimpleTestCase):
                 "Spent $360 (4.3x the account's non-brand CPA) with no non-brand conversions.",
             ),
             ("only_brand_spend_past_the_bar", 360.0, 160.0, None),
+            ("conversions_not_measured", 360.0, 0.0, None, False),
         ]
     )
     def test_campaign_without_conversions_needs_enough_spend_to_review(
-        self, _name: str, cost: float, brand_cost: float, reason: str | None
+        self, _name: str, cost: float, brand_cost: float, reason: str | None, measured: bool = True
     ) -> None:
         campaigns = (
             _campaign(id="a", name="Converting", cost=1000, conversions=20),
-            _campaign(id="b", name="Silent", cost=cost, conversions=0),
+            _campaign(id="b", name="Silent", cost=cost, conversions=0, conversions_measured=measured),
             _campaign(id="c", name="Average", cost=2000, conversions=20),
         )
         terms = (
@@ -461,25 +466,132 @@ class TestMarketingRecommendations(SimpleTestCase):
     def test_brand_comes_from_the_registrable_domain(self, _name: str, site_url: str, expected: set[str]) -> None:
         assert brands_from_site_urls([site_url]) == expected
 
-    def test_brand_conversions_do_not_make_a_non_brand_campaign_look_cheap(self) -> None:
+    @parameterized.expand(
+        [
+            ("brand_conversions_under_the_leak_share", 80, 18, {"review_campaign"}),
+            ("leaking_brand_spend", 800, 2, {"brand_leak"}),
+            # The negated leak card counts as applied and leaves the list, so the spend advice comes back.
+            ("leak_already_negated", 800, 2, {"brand_leak", "scale_campaign", "budget_constrained"}, True),
+            # PostHog conversions keep the brand sign ups from before the negative, so the advice still waits.
+            ("leak_negated_with_posthog_conversions", 800, 2, {"brand_leak"}, True, True),
+            ("no_brand_spend", 0, 0, {"scale_campaign", "budget_constrained"}),
+        ]
+    )
+    def test_campaign_gets_spend_more_advice_only_on_non_brand_cpa_without_a_brand_leak(
+        self,
+        _name: str,
+        brand_cost: float,
+        brand_conversions: int,
+        expected: set[str],
+        negated: bool = False,
+        posthog_conversions: bool = False,
+    ) -> None:
         brand_campaign = _campaign(id="brand", name="Brand", cost=500, conversions=100)
-        cheap_looking = _campaign(
-            id="generic", name="Generic", cost=2000, conversions=20, lost_to_budget=0.3, lost_to_rank=0.3
+        generic = _campaign(
+            id="generic",
+            name="Generic",
+            cost=2000,
+            conversions=20,
+            lost_to_budget=0.3,
+            lost_to_rank=0.3,
+            status_reasons=("BUDGET_CONSTRAINED",),
+            recommended_daily_budget=200.0,
         )
         other = _campaign(id="other", name="Other", cost=3000, conversions=30)
         terms = (
             _term("example", "brand", cost=500, conversions=100),
-            _term("example pricing", "generic", cost=800, conversions=18),
-            _term("product analytics", "generic", cost=1200, conversions=2),
+            _term("example pricing", "generic", cost=brand_cost, conversions=brand_conversions),
+            _term("product analytics", "generic", cost=2000 - brand_cost, conversions=20 - brand_conversions),
             _term("session replay", "other", cost=3000, conversions=30),
         )
 
-        recs = recommend(_inputs((brand_campaign, cheap_looking, other), terms))
+        excluded = frozenset({ExcludedSearch(term="example pricing", campaign_id="generic")} if negated else ())
+
+        recs = recommend(
+            replace(
+                _inputs((brand_campaign, generic, other), terms),
+                excluded_searches=excluded,
+                search_term_conversions=not posthog_conversions,
+            )
+        )
+
+        assert {rec.rule.value for rec in recs if rec.subject == "Generic" and rec.level == "campaign"} == expected
+
+    @parameterized.expand(
+        [
+            (
+                "google_ads_conversions",
+                True,
+                3,
+                {
+                    ("review_campaign", "Leaky"),
+                    ("content_gap", "feature flags"),
+                    ("content_gap", "session replay"),
+                    ("spend_without_conversions", "free analytics"),
+                },
+                False,
+            ),
+            # Counted in the benchmark, Leaky would raise it enough to stay out of review itself.
+            (
+                "posthog_conversions_leave_leaks_out_of_the_benchmark",
+                False,
+                3,
+                {("review_campaign", "Leaky")},
+                True,
+            ),
+            # Subtracting its 2 Google Ads brand conversions would leave 2 and put Leaky at 3x the benchmark.
+            ("posthog_conversions_keep_brand_conversions", False, 4, set(), False),
+        ]
+    )
+    def test_search_term_conversions_decide_term_rules_and_leaking_cpas(
+        self,
+        _name: str,
+        search_term_conversions: bool,
+        leaky_conversions: int,
+        expected: set[tuple[str, str]],
+        lists_costly_searches: bool,
+    ) -> None:
+        campaigns = (
+            _campaign(id="leaky", name="Leaky", cost=2000, conversions=leaky_conversions),
+            _campaign(id="cheap", name="Cheap", cost=1000, conversions=10),
+            _campaign(id="pricey", name="Pricey", cost=3000, conversions=10),
+        )
+        terms = (
+            _term("example", "leaky", cost=800, conversions=2),
+            _term("product analytics", "leaky", cost=1200, conversions=1),
+            _term("session replay", "cheap", cost=1000, conversions=10),
+            _term("feature flags", "pricey", cost=2400, conversions=10),
+            _term("free analytics", "pricey", cost=600, conversions=0),
+        )
+
+        recs = recommend(replace(_inputs(campaigns, terms), search_term_conversions=search_term_conversions))
 
         leak = next(rec for rec in recs if rec.rule == "brand_leak")
-        assert (leak.subject, leak.action) == ("Generic", 'Add "example" as a negative keyword')
-        assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", '"example"']
-        assert not any(rec.rule == "scale_campaign" and rec.subject == "Generic" for rec in recs)
+        assert ("with 2 conversions" in leak.reason) is search_term_conversions
+        assert {(rec.rule.value, rec.subject) for rec in recs if rec.rule != "brand_leak"} == expected
+        review_steps = [step.text for rec in recs if rec.rule == "review_campaign" for step in rec.steps or []]
+        assert any('spent the most: "product analytics"' in text for text in review_steps) is lists_costly_searches
+
+    def test_leaking_search_campaigns_leave_no_benchmark_instead_of_falling_back(self) -> None:
+        # The fallback is for accounts without Search campaigns, so a leaking Search campaign must not slip back in.
+        leaky = _campaign(id="leaky", name="Leaky", cost=2000, conversions=40)
+        pmax = _campaign(
+            id="pmax",
+            name="PMax",
+            channel_type="PERFORMANCE_MAX",
+            cost=1000,
+            conversions=20,
+            status_reasons=("BUDGET_CONSTRAINED",),
+            recommended_daily_budget=200.0,
+        )
+        terms = (
+            _term("example", "leaky", cost=800, conversions=0),
+            _term("product analytics", "leaky", cost=1200, conversions=0),
+        )
+
+        recs = recommend(replace(_inputs((leaky, pmax), terms), search_term_conversions=False))
+
+        assert not any(rec.rule == "budget_constrained" for rec in recs)
 
     @parameterized.expand(
         [
@@ -514,8 +626,10 @@ class TestMarketingRecommendations(SimpleTestCase):
             _campaign(id="a", name="Alpha", cost=2000, conversions=20),
             _campaign(id="b", name="Beta", cost=2000, conversions=20),
             _campaign(id="pmax", name="PMax", channel_type="PERFORMANCE_MAX", cost=1000, conversions=10),
+            _campaign(id="brand", name="Brand"),
         )
         terms = (
+            _term("example", "brand", cost=200, conversions=5, clicks=100),
             _term("example pricing", "a", cost=300, conversions=1),
             _term("product analytics", "a", cost=1700, conversions=19),
             _term("example login", "b", cost=500, conversions=1),
@@ -533,7 +647,78 @@ class TestMarketingRecommendations(SimpleTestCase):
         shared = next(rec for rec in leaks if rec.level == "account")
         assert [step.copyValue for step in shared.steps or [] if step.copyValue] == ['"example"', "Beta\nAlpha"]
         assert (shared.identity.campaign_id, shared.identity.subject) == ("", "example")
+        assert (shared.impact, shared.impactType) == (760, "estimated")
         validate_identity(shared.identity)
+
+    @parameterized.expand(
+        [
+            ("no_brand_campaign_saves_all_of_it", None, 300, "measured", "without an ad."),
+            ("brand_campaign_pays_for_the_clicks", 2.0, 280, "estimated", "at a lower cost."),
+            ("brand_campaign_pays_more_per_click", 40.0, None, "estimated", "without an ad."),
+            ("paused_brand_campaign_serves_nothing", 2.0, 300, "measured", "without an ad.", "PAUSED"),
+            ("brand_campaign_blocks_its_brand_search", 2.0, 300, "measured", "without an ad.", "ELIGIBLE", True),
+        ]
+    )
+    def test_brand_leak_saving_leaves_out_what_the_brand_campaign_pays_for_the_same_clicks(
+        self,
+        _name: str,
+        brand_cpc: float | None,
+        impact: int | None,
+        impact_type: str,
+        reason_end: str,
+        brand_status: str = "ELIGIBLE",
+        brand_blocks_search: bool = False,
+    ) -> None:
+        campaigns: tuple[CampaignStats, ...] = (_campaign(id="generic", name="Generic", cost=2000, conversions=20),)
+        terms: tuple[SearchTermStats, ...] = (
+            _term("example pricing", "generic", cost=300, conversions=1, clicks=10),
+            _term("product analytics", "generic", cost=1700, conversions=19),
+        )
+        if brand_cpc is not None:
+            campaigns += (_campaign(id="brand", name="Brand", primary_status=brand_status),)
+            terms += (_term("example", "brand", cost=100 * brand_cpc, conversions=5, clicks=100),)
+
+        excluded = frozenset({ExcludedSearch(term="example", campaign_id="brand")} if brand_blocks_search else ())
+        inputs = replace(_inputs(campaigns, terms), excluded_searches=excluded)
+
+        leaks = [rec for rec in recommend(inputs) if rec.rule == "brand_leak"]
+
+        assert [(rec.subject, rec.impact, rec.impactType) for rec in leaks] == [("Generic", impact, impact_type)]
+        assert leaks[0].reason.endswith(reason_end)
+
+    @parameterized.expand(
+        [
+            ("negated_in_both", ("EXCLUDED", "EXCLUDED"), "NONE", ["brand_negative"]),
+            ("one_campaign_still_serves_it", ("EXCLUDED", "NONE"), "NONE", [None]),
+            ("added_then_excluded_counts", ("EXCLUDED", "ADDED_EXCLUDED"), "NONE", ["brand_negative"]),
+            ("misspelling_negated_too", ("EXCLUDED", "EXCLUDED"), "EXCLUDED", ["brand_negative"]),
+            ("single_campaign_negated", ("EXCLUDED", None), "NONE", ["brand_negative"]),
+        ]
+    )
+    def test_brand_leak_is_applied_once_the_brand_is_negated_in_every_leaking_campaign(
+        self, _name: str, statuses: tuple[str, str | None], misspelling_status: str, expected: list[str | None]
+    ) -> None:
+        campaigns = (
+            _campaign(id="a", name="Alpha", cost=2000, conversions=20),
+            _campaign(id="b", name="Beta", cost=2000, conversions=20),
+        )
+        terms: tuple[SearchTermStats, ...] = (
+            replace(_term("example pricing", "a", cost=300, conversions=1), status=statuses[0]),
+            replace(_term("exampel", "a", cost=20, conversions=0), status=misspelling_status),
+            _term("product analytics", "a", cost=1700, conversions=19),
+            _term("session replay", "b", cost=1500, conversions=19),
+        )
+        if statuses[1] is not None:
+            terms += (replace(_term("example login", "b", cost=500, conversions=1), status=statuses[1]),)
+        excluded = frozenset(
+            ExcludedSearch(term=term.term, campaign_id=term.campaign_id) for term in terms if "EXCLUDED" in term.status
+        )
+
+        recs = recommend(replace(_inputs(campaigns, terms), excluded_searches=excluded))
+
+        leaks = [rec for rec in recs if rec.rule == "brand_leak"]
+        assert [rec.detectedChange for rec in leaks] == expected
+        assert len(apply_resolutions(recs, {}, include_resolved=False)) == len(recs) - (expected != [None])
 
     def test_review_campaign_steps_start_with_the_searches_that_waste_spend(self) -> None:
         good = _campaign(id="c1", name="Good", cost=1000, conversions=10)
@@ -546,11 +731,15 @@ class TestMarketingRecommendations(SimpleTestCase):
             replace(_term("already a keyword", "c2", cost=500, conversions=0), status="ADDED"),
             _term("example login", "c2", cost=600, conversions=0),
             _term("cheap keeper", "c2", cost=50, conversions=1),
-            replace(_term("cheap but excluded", "c2", cost=40, conversions=1), status="EXCLUDED"),
+            _term("cheap but excluded", "c2", cost=40, conversions=1),
             _term("costly converter", "c2", cost=300, conversions=1),
         )
+        inputs = replace(
+            _inputs((good, costly), terms),
+            excluded_searches=frozenset({ExcludedSearch(term="cheap but excluded", campaign_id="c2")}),
+        )
 
-        review = next(rec for rec in recommend(_inputs((good, costly), terms)) if rec.rule == "review_campaign")
+        review = next(rec for rec in recommend(inputs) if rec.rule == "review_campaign")
 
         steps = review.steps or []
         assert review.subject == "Costly"
@@ -663,6 +852,34 @@ class TestMarketingRecommendations(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("brand_campaign_serves_it_too", 1000, [("example", 1000)]),
+            ("only_the_leaking_campaign_serves_it", 0, []),
+        ]
+    )
+    def test_brand_overlap_leaves_out_the_spend_a_brand_leak_already_covers(
+        self, _name: str, brand_campaign_cost: float, expected: list[tuple[str, int]]
+    ) -> None:
+        campaigns: tuple[CampaignStats, ...] = (_campaign(id="generic", name="Generic", cost=2000, conversions=20),)
+        terms: tuple[SearchTermStats, ...] = (
+            _term("example", "generic", cost=400, conversions=1),
+            _term("product analytics", "generic", cost=1600, conversions=19),
+        )
+        if brand_campaign_cost:
+            campaigns += (_campaign(id="brand", name="Brand"),)
+            terms += (
+                replace(
+                    _term("example", "brand", cost=brand_campaign_cost, conversions=5), absolute_top_percentage=0.95
+                ),
+            )
+        organic = (OrganicQueryStats(query="example", clicks=500, impressions=1000, position=1.0),)
+
+        recs = recommend(_inputs(campaigns, terms, organic))
+
+        assert [rec.subject for rec in recs if rec.rule == "brand_leak"] == ["Generic"]
+        assert [(rec.subject, rec.impact) for rec in recs if rec.rule == "brand_overlap"] == expected
+
+    @parameterized.expand(
+        [
             ("another_ad_often_shows_above", 0.6, "keep", "Keep the ad"),
             ("ad_owns_the_top_spot", 0.95, "save", "Test pausing"),
             ("top_spot_not_measured", None, "save", "Check whether other ads show above yours"),
@@ -692,6 +909,8 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("every_word_converts_cheaply", "funnel analysis", "Search"),
             ("one_word_never_converted", "funnel spy", None),
             ("only_generic_words", "free online tool", None),
+            ("single_word_that_converts", "funnel", None),
+            ("single_word_ranking_on_a_landing_page", "funnel", None, "https://example.com/replay"),
             ("ranks_on_a_landing_page_of_the_ads", "funnel spy", "Replay", "https://www.example.com/replay/"),
             ("landing_page_of_a_paused_campaign", "funnel spy", None, "https://example.com/replay", None, "PAUSED"),
             (
@@ -758,7 +977,11 @@ class TestMarketingRecommendations(SimpleTestCase):
         organic += (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
         pages = (RankingPage(query=query, page=ranking_page, impressions=5000),) if ranking_page else ()
         keywords = (
-            (TermKeywordStats(term="funnel tracking", keyword=keyword, match_type="PHRASE", cost=100),)
+            (
+                TermKeywordStats(
+                    term="funnel tracking", campaign_id="c1", keyword=keyword, match_type="PHRASE", cost=100
+                ),
+            )
             if keyword
             else ()
         )
@@ -782,6 +1005,40 @@ class TestMarketingRecommendations(SimpleTestCase):
             assert query not in gaps
         else:
             assert gaps[query] == (expected_campaign, "", "")
+
+    @parameterized.expand(
+        [
+            ("keyword_in_active_search_campaign", "SEARCH", "ENABLED", "keyword_added"),
+            ("keyword_in_paused_campaign", "SEARCH", "PAUSED", None),
+            ("keyword_in_display_campaign", "DISPLAY", "ENABLED", None),
+        ]
+    )
+    def test_keyword_gap_is_applied_once_the_search_is_a_keyword(
+        self, _name: str, channel_type: str, campaign_status: str, expected: str | None
+    ) -> None:
+        campaigns = (_campaign(),)
+        terms = (_term("funnel tracking", "c1", cost=100, conversions=10),)
+        organic = (OrganicQueryStats(query="funnel tracking tool", clicks=1, impressions=5000, position=25),)
+
+        recs = recommend(
+            _inputs(
+                campaigns,
+                terms,
+                organic,
+                # A campaign with no spend in the selected dates, so it is not among the campaigns above.
+                keywords=(
+                    Keyword(
+                        text="funnel tracking tool",
+                        campaign_id="new",
+                        channel_type=channel_type,
+                        campaign_status=campaign_status,
+                    ),
+                ),
+            )
+        )
+
+        gap = next(rec for rec in recs if rec.rule == "keyword_gap")
+        assert gap.detectedChange == expected
 
     @parameterized.expand(
         [
@@ -898,7 +1155,35 @@ class TestMarketingRecommendations(SimpleTestCase):
             *(expected_copy if expected_copy is not None else [f"Ad {i}" for i in range(len(named))]),
         ]
 
-    def test_performance_max_gets_brand_exclusion_and_rank_advice(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "brand_leak_comes_before_rank",
+                "example",
+                {
+                    "brand_leak": (
+                        'Add a brand exclusion for "example"',
+                        ["PMax", "example"],
+                        ["Campaigns", "search terms"],
+                    ),
+                },
+            ),
+            (
+                "rank_without_a_brand_leak",
+                "task tracker",
+                {
+                    "scale_campaign": (
+                        "Raise the target CPA or improve its asset groups",
+                        ["PMax"],
+                        ["Campaigns", "Asset groups"],
+                    ),
+                },
+            ),
+        ]
+    )
+    def test_performance_max_gets_brand_exclusion_or_rank_advice(
+        self, _name: str, top_term: str, expected: dict[str, tuple[str, list[str], list[str]]]
+    ) -> None:
         pmax = _campaign(
             id="pmax",
             name="PMax",
@@ -907,29 +1192,28 @@ class TestMarketingRecommendations(SimpleTestCase):
             lost_to_rank=0.6,
         )
         terms = (
-            _term("example", "pmax", cost=300, conversions=2),
+            _term(top_term, "pmax", cost=300, conversions=2),
             _term("project planning software", "pmax", cost=700, conversions=8),
         )
 
         recs = [rec for rec in recommend(_inputs((pmax,), terms)) if rec.level == "campaign"]
 
-        assert {(rec.rule.value, rec.action) for rec in recs} == {
-            ("brand_leak", 'Add a brand exclusion for "example"'),
-            ("scale_campaign", "Raise the target CPA or improve its asset groups"),
-            ("policy_limited", "Fix or appeal the policy issues in this campaign"),
+        assert {
+            rec.rule.value: (
+                rec.action,
+                [step.copyValue for step in rec.steps or [] if step.copyValue],
+                [step.linkText for step in rec.steps or [] if step.linkText],
+            )
+            for rec in recs
+        } == {
+            **expected,
+            "policy_limited": (
+                "Fix or appeal the policy issues in this campaign",
+                ["PMax"],
+                ["Campaigns", "Asset groups", "Policy manager"],
+            ),
         }
         assert all(rec.cpa is None for rec in recs)
-        leak = next(rec for rec in recs if rec.rule == "brand_leak")
-        assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
-        scale = next(rec for rec in recs if rec.rule == "scale_campaign")
-        assert "target CPA" in (scale.steps or [])[1].text
-        assert [step.linkText for step in scale.steps or [] if step.linkText] == ["Campaigns", "Asset groups"]
-        policy = next(rec for rec in recs if rec.rule == "policy_limited")
-        assert [step.linkText for step in policy.steps or [] if step.linkText] == [
-            "Campaigns",
-            "Asset groups",
-            "Policy manager",
-        ]
 
     @parameterized.expand(
         [
@@ -969,8 +1253,13 @@ class TestMarketingRecommendations(SimpleTestCase):
             _term("product analytics", "c1", cost=500, conversions=10),
         )
         keywords = (
-            TermKeywordStats(term="spy website traffic", keyword="website traffic", match_type=match_type, cost=400),
-            TermKeywordStats(term="spy website traffic", keyword="traffic", match_type="BROAD", cost=100),
+            TermKeywordStats(
+                term="spy website traffic", campaign_id="c1", keyword="website traffic", match_type=match_type, cost=400
+            ),
+            TermKeywordStats(
+                term="spy website traffic", campaign_id="c1", keyword="traffic", match_type="BROAD", cost=100
+            ),
+            TermKeywordStats(term="spy website traffic", campaign_id="c2", keyword="spy", match_type="BROAD", cost=900),
         )
 
         recs = [
@@ -1052,7 +1341,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             replace(_term("product analytics", "c1", cost=350, conversions=10), ad_group_ids=("ag1",)),
         )
         keywords = (
-            (TermKeywordStats(term="crm for dentist", keyword=keyword, match_type="BROAD", cost=250),)
+            (TermKeywordStats(term="crm for dentist", campaign_id="c1", keyword=keyword, match_type="BROAD", cost=250),)
             if keyword
             else ()
         )
@@ -1101,19 +1390,67 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert len(recs) == PER_RULE_LIMIT
         assert recs[-1] == "analytics pricing"
 
-    @parameterized.expand([("serving", "ELIGIBLE", 1), ("paused", "PAUSED", 0), ("removed", "REMOVED", 0)])
-    def test_spend_without_conversions_skips_campaigns_that_do_not_serve(
-        self, _name: str, status: str, expected: int
+    @parameterized.expand(
+        [
+            ("serving", "ELIGIBLE", ("NONE",), [None], 1),
+            ("paused", "PAUSED", ("NONE",), [], 0),
+            ("removed", "REMOVED", ("NONE",), [], 0),
+            ("already_a_keyword", "ELIGIBLE", ("ADDED",), [], 0),
+            ("now_a_negative", "ELIGIBLE", ("EXCLUDED",), ["negative_keyword"], 0),
+            ("keyword_and_negative", "ELIGIBLE", ("ADDED_EXCLUDED",), ["negative_keyword"], 0),
+            ("negative_in_one_of_two_campaigns", "ELIGIBLE", ("EXCLUDED", "NONE"), [None], 1),
+            ("keyword_and_negative_in_one_of_two_campaigns", "ELIGIBLE", ("ADDED_EXCLUDED", "NONE"), [None], 1),
+        ]
+    )
+    def test_spend_without_conversions_needs_a_serving_campaign_and_detects_negatives(
+        self,
+        _name: str,
+        campaign_status: str,
+        term_statuses: tuple[str, ...],
+        expected_changes: list[str | None],
+        expected_unresolved: int,
     ) -> None:
-        campaigns = (_campaign(primary_status=status), _campaign(id="c2", name="Other"))
+        campaigns = (_campaign(primary_status=campaign_status), _campaign(id="c2", name="Other"))
         terms = (
-            _term("free analytics template", "c1", cost=500, conversions=0),
+            *(
+                replace(_term("free analytics template", campaign_id, cost=500, conversions=0), status=status)
+                for campaign_id, status in zip(("c1", "c2"), term_statuses)
+            ),
             _term("product analytics", "c2", cost=500, conversions=10),
         )
 
-        rows = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "spend_without_conversions"]
+        excluded = frozenset(
+            ExcludedSearch(term="free analytics template", campaign_id=campaign_id)
+            for campaign_id, status in zip(("c1", "c2"), term_statuses)
+            if "EXCLUDED" in status
+        )
+        inputs = replace(_inputs(campaigns, terms), excluded_searches=excluded)
 
-        assert len(rows) == expected
+        rows = [rec for rec in recommend(inputs) if rec.rule == "spend_without_conversions"]
+
+        assert [rec.detectedChange for rec in rows] == expected_changes
+        assert len(apply_resolutions(rows, {}, include_resolved=False)) == expected_unresolved
+        # Spend in a campaign that already blocks the search can't be saved, and that campaign needs no new negative.
+        serving = [name for name, status in zip(("Search", "Other"), term_statuses) if "EXCLUDED" not in status]
+        assert [(rec.campaign, rec.reason.split(" (")[0]) for rec in rows] == [
+            (serving[0] if serving else "Search", f"Spent ${500 * max(len(serving), 1):,}")
+        ] * len(rows)
+        assert apply_resolutions(rows, {}, include_resolved=True) == rows
+
+    def test_clicks_from_a_campaign_that_now_excludes_a_search_still_make_it_navigational(self) -> None:
+        campaigns = (_campaign(), _campaign(id="c2", name="Other"))
+        terms = (
+            _term("trackly", "c1", cost=500, conversions=0, clicks=30),
+            _term("trackly", "c2", cost=500, conversions=0, clicks=5),
+            _term("product analytics", "c2", cost=500, conversions=10),
+        )
+        organic = (OrganicQueryStats(query="trackly", clicks=10, impressions=100, position=1),)
+        inputs = replace(
+            _inputs(campaigns, terms, organic),
+            excluded_searches=frozenset({ExcludedSearch(term="trackly", campaign_id="c1")}),
+        )
+
+        assert [rec.subject for rec in recommend(inputs) if rec.rule == "spend_without_conversions"] == []
 
     def test_category_words_are_not_treated_as_competitors(self) -> None:
         terms = (

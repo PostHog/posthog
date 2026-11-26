@@ -2,7 +2,8 @@
 name: building-on-capture-v1
 description: >
   How to build on capture v1, PostHog's batch event intake API (`/i/v1/analytics/events`, `/i/v1/ai/events`).
-  Use when sending events to capture from PostHog code, changing `rust/capture/src/v1/`, adding a per-event option
+  Use when sending events to capture from PostHog code, changing any capture code under `rust/capture/` (legacy or v1)
+  or the `capture_internal` helpers, adding a per-event option
   (`event.options`) or a property that capture or ingestion must read, changing how Node ingestion or livestream
   applies capture `options`, changing the v1 request, batch, header or event schema, or checking whether an SDK or
   internal service uses capture v1 or legacy capture (`/batch`, `/e`, `/capture`, `$process_person_profile` or
@@ -39,6 +40,7 @@ Sources of truth, in the order to read them:
 - For events sent on a customer's behalf, set `"capture_internal": true` on the batch, not in `properties`. Capture then records `127.0.0.1` instead of the PostHog server's IP. Capture v1 ignores a `capture_internal` property, which is where legacy capture reads it.
 - Send `$ai_*` events to `/i/v1/ai/events` and every other event to `/i/v1/analytics/events`.
   Capture still routes `$ai_*` events from the analytics endpoint to the AI topic, but only for now. Do not rely on it.
+  The AI endpoint, and an SDK's AI capture call, drop every event that is not `$ai_*` with `misrouted_event`. That includes `$mcp_*` events: send them to the analytics endpoint.
 - Give every event its own UUID. On a retry, resend only the events with result `retry`, with the same uuid, `PostHog-Request-Id` and `created_at`, `PostHog-Attempt` plus one, and a new `PostHog-Request-Timestamp`.
 - Set `PostHog-Sdk-Info` to `<sender>/<version>`. Ingestion uses it as `$lib` and `$lib_version` only when the event has no `$lib`.
 
@@ -64,6 +66,16 @@ Options are costly to add.
 Capture tracks known keys in an 8-bit set (`OptionKeys` in [`analytics/types.rs`](../../../rust/capture/src/v1/analytics/types.rs)), every consumer of the Kafka `options` keeps its own list of keys, and an option name is public API.
 Do not add one without agreement from the ingestion team and the SDK owners.
 
+## How an option reaches the stored event
+
+Every step is required. A consumer that skips its step loses the setting, and nothing fails.
+
+1. **The sender sets the option.** The v1 SDKs move the four legacy `$` properties into `options` before they send. Capture never copies a value from `properties` into an option.
+2. **Capture checks the type of each known option** (`RawOptions::validate`). It reads values leniently, and a value it cannot read drops that event with `invalid_options`. Capture does not publish a key it does not know.
+3. **Capture publishes the options** in the outer Kafka message, beside the event, on every v1 endpoint. `/i/v1/analytics/events` and `/i/v1/ai/events` share one handler, so the AI lane carries options the same way. The legacy endpoints and the OTel endpoint publish no `options`, so a consumer must accept a message without them.
+4. **Every consumer of capture's output checks `options` on every message.** For an option that replaces a legacy property, it writes that property: `session_id`, `window_id`, `cookieless_mode`, `disable_skew_correction` (as `$ignore_sent_at`), `product_tour_id` and `process_person_profile`. Node ingestion does this in the shared parse step, `CAPTURE_OPTION_OVERRIDES`, which the analytics and AI pipelines both run. Livestream does it in `applyCaptureOptions`.
+5. **A new option is either visible or internal.** When a product or a query must see it, ingestion writes it into `properties`. When only capture and ingestion use it, for routing or as a marker, the consumer reads it from `options` and never writes it into `properties`, so it does not reach ClickHouse.
+
 ## Add an option
 
 Change all of these in one PR, or in an ordered stack where consumers ship before capture sends the key:
@@ -75,6 +87,49 @@ Change all of these in one PR, or in an ordered stack where consumers ship befor
 4. Internal senders: `_OPTIONS_TO_LEGACY_PROPERTY` and the docstring table in [`posthog/api/capture.py`](../../../posthog/api/capture.py) (test: `posthog/api/test/test_capture_internal.py`), and `OPTIONS_TO_LEGACY_PROPERTY` in [`push-capture.ts`](../../../nodejs/src/messaging/push-subscriptions/push-capture.ts). Only a key that replaces a legacy property needs an entry.
 5. Docs and specs: the `invalid_options` entry in [`resolving-ingestion-warnings`](../../../products/ingestion/skills/resolving-ingestion-warnings/SKILL.md), the options table in the v1 README, the sdk-specs `capture` spec, and the public capture v1 API docs.
    SDKs change only when an SDK sets the option itself or has a typed options class, such as posthog-kmp's `PostHogEventOptions`. SDK behavior changes need the capture v1 suites in the SDK test harness.
+
+## Keep capture out of event properties
+
+Capture works with `event.options` and leaves `event.properties` alone.
+This applies to the legacy handlers and to the v1 handlers.
+
+- Capture request handlers and processing code must not deserialize `event.properties`, read a value from it or write a value into it.
+- The v1 endpoints (`/i/v1/*`) must not gain a new use of `event.properties`. A value capture must read, act on or change is an option: see [Choose an option or a property](#choose-an-option-or-a-property).
+- Only the ingestion processors that consume the events capture publishes read or change `event.properties`.
+- The uses that capture has today are being removed, such as the legacy handlers that read `$` option properties and the v1 legacy property splice. Do not copy them or add to them.
+
+## Rules for every capture change
+
+These apply to the legacy handlers and to the v1 handlers.
+
+- **No panic on a request path.** No `unwrap()`, `expect()` or unchecked index on request data: a panic loses the whole batch and the sender gets no result.
+- **No new store or external system.** Capture depends on Kafka and Redis, and on S3 for AI blobs and the fallback sink. Anything more needs the ingestion team's agreement in `#team-ingestion` before the code merges.
+- **A new call on the request path has a timeout** and a stated choice between failing open and failing closed.
+- **An endpoint that builds events itself applies every limit the main pipelines apply:** quota, overflow, event restrictions and the AI byte limit.
+- **The AI lane is the `$ai_` event name prefix** (`is_ai_event`). The analytics endpoint sends those events to the AI topic, and the AI endpoint drops any other name as `misrouted_event`. A new route by event name changes both endpoints, the quota check, the README and the public docs together.
+- **Metric labels have a small, fixed set of values.** Never a token, a team id, a distinct id or an event name.
+
+## Model a v1 endpoint on the analytics endpoint
+
+`/i/v1/analytics/events` ([`analytics/handler.rs`](../../../rust/capture/src/v1/analytics/handler.rs)) is the reference for a v1 endpoint.
+An endpoint that is added to v1 or moved to v1 later, such as AI or replay, meets the same requirements. Its payload can differ where its data differs.
+The legacy endpoints and the OTel endpoint are not models for a v1 endpoint.
+
+What the analytics endpoint has that legacy analytics capture does not. The [v1 README](../../../rust/capture/src/v1/README.md) has the full contract:
+
+- **Required headers.** `Authorization: Bearer`, `PostHog-Sdk-Info`, `PostHog-Attempt`, `PostHog-Request-Id`, `PostHog-Request-Timestamp`, `Content-Type: application/json` and `User-Agent`. Legacy capture reads the token from the body and requires none of them.
+- **Standard compression only.** `Content-Encoding` is `gzip`, `deflate`, `br` or `zstd`. Legacy capture also accepts lz-string and base64 bodies.
+- **One batch shape with strict event fields.** `event`, `uuid`, `distinct_id` and `timestamp` are JSON strings. Legacy capture treats `uuid` and `timestamp` as optional and accepts any JSON value as `distinct_id`.
+- **Settings in `options`,** with a type check on each one capture knows.
+- **One result for each event:** `ok`, `drop`, `warning` or `retry`, with a public `details` reason. A sender resends only the `retry` events.
+- **Status codes with one meaning each:** 400, 401, 402, 404, 413 and 415 for the request, 408 and 5xx with `Retry-After`, and never 429.
+
+**The v1 endpoint rejects input that legacy capture accepts.** Keep these checks, and tell senders that move from legacy about them:
+
+- The whole request fails with 400 for a missing required header, a body that is not valid JSON, an empty or invalid batch, or an invalid `uuid`. It fails with 415 for another `Content-Type` or `Content-Encoding`.
+- One event drops for a missing or too long `event` name, a missing or too large `distinct_id` (legacy capture cuts it to 200 characters), a bad `timestamp`, `properties` that is not an object, or an option value capture cannot read (`invalid_options`).
+- A later copy of a uuid in the same batch is dropped and counted in `duplicates_dropped`.
+- An event that is not `$ai_*` drops on the AI endpoint with `misrouted_event`.
 
 ## Change capture v1 code
 

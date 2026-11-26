@@ -157,7 +157,7 @@ export interface accountNotebooksLogicActions {
             | undefined
     ) => {
         id: string
-        silent?: boolean | undefined
+        silent?: boolean
     } // notebookPanelLogic
     applyViewState: (
         viewState: AccountNotesViewState,

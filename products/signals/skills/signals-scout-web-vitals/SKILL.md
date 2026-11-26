@@ -1,5 +1,6 @@
 ---
 name: signals-scout-web-vitals
+disable-model-invocation: true
 scout-display-name: Web vitals
 description: >
   Signals scout for Core Web Vitals (`$web_vitals`). Watches each page's p75 LCP / INP / CLS /
@@ -419,6 +420,8 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
   goes through edit on the live report — fresh report only if that report closed and the
   page later re-crosses."_ One stable key per host+path+metric — update it in place,
   don't mint a dated variant.
+  Set `expires_at` about 30 days past the last read that confirmed it: a page back
+  under the threshold that long that re-crosses is a new episode.
 - key `report:web_vitals:checkout-inp` — _"Report `019f0a96-…` covers the `/checkout`
   INP finding. Edit it (`append_evidence` with the fresh p75 + sample count) while the page stays
   slow and the report is still live and not scope-frozen; if it closed (or shipped its

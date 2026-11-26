@@ -289,6 +289,8 @@ CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 FAILURE_STREAK_KEY = "failure_streak"
 FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
+# Set by a manual sync so its run skips the gap. The next failed run rewrites the streak without it.
+FAILURE_STREAK_MANUAL_RUN_KEY = "manual_run_requested"
 
 
 # Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
@@ -333,6 +335,9 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     )
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
+    # Start of the last successful run, including one that found no new rows. `last_synced_at` stays
+    # put on such a run because it is also the signals watermark, so staleness reads this instead.
+    last_checked_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
     # User-managed vendor API version override for this schema. NULL (the norm) means the schema
     # syncs on its source's pinned version; a value here wins over the source pin. Deliberately
@@ -573,6 +578,11 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             return None
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
+    @property
+    def manual_run_requested(self) -> bool:
+        """Whether someone asked for a sync since the streak's last failed run."""
+        return self._failure_streak.get(FAILURE_STREAK_MANUAL_RUN_KEY) is True
+
     def note_failed_run(self, failed_at: datetime) -> None:
         """Add one failed run to the streak, in memory.
 
@@ -682,13 +692,24 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
     @property
     def last_run_at(self) -> datetime | None:
-        """When a sync last ran, whether or not it moved any rows.
+        """Roughly when a sync last ran, whether or not it moved any rows, for staleness checks.
 
-        A run that extracts nothing advances only `last_full_run_at`, because `last_synced_at` is
-        also the signals watermark. A fast return does the reverse, so neither stamp is enough alone.
+        `last_checked_at` covers every successful run. The older stamps cover rows whose last run
+        predates that column.
         """
-        stamps = [stamp for stamp in (self.last_synced_at, self.last_full_run) if stamp is not None]
+        stamps = [
+            stamp for stamp in (self.last_checked_at, self.last_synced_at, self.last_full_run) if stamp is not None
+        ]
         return max(stamps) if stamps else None
+
+    @property
+    def last_check_started_at(self) -> datetime | None:
+        """Start of the last successful run, the value readers see as `last_checked_at`.
+
+        Falls back to `last_synced_at`, a start time too, and never to `last_full_run_at`: that one
+        is a completion time, so it would make a run that loaded rows look like a later empty one.
+        """
+        return self.last_checked_at or self.last_synced_at
 
     @property
     def incremental_field_lookback_seconds(self) -> int | None:
@@ -2037,6 +2058,26 @@ def update_sync_type_config_keys(
         return config
 
 
+def request_manual_runs(schema_ids: Iterable[str | uuid.UUID], team_id: int) -> None:
+    """Let the next run of each failing schema go ahead instead of standing down.
+
+    A run of a schema that keeps failing stands down until its gap has passed. Someone asking for a sync has
+    usually just changed what made it fail, and a run that stands down creates no job, so their sync would
+    show as Running with nothing behind it.
+    """
+    failing_ids = ExternalDataSchema.objects.filter(
+        id__in=list(schema_ids), team_id=team_id, sync_type_config__has_key=FAILURE_STREAK_KEY
+    ).values_list("id", flat=True)
+
+    def _mark(config: dict[str, Any]) -> None:
+        streak = config.get(FAILURE_STREAK_KEY)
+        if isinstance(streak, dict):
+            streak[FAILURE_STREAK_MANUAL_RUN_KEY] = True
+
+    for schema_id in failing_ids:
+        update_sync_type_config_keys(schema_id, team_id, mutate=_mark)
+
+
 def persist_schema_metadata(
     schema: "ExternalDataSchema",
     *,
@@ -2454,6 +2495,16 @@ def get_undeleted_schemas_with_tables(source_id: str | uuid.UUID, team_id: int) 
     """A source's schemas that are not deleted, with their linked table loaded in the same query."""
     return list(
         ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, deleted=False).select_related("table")
+    )
+
+
+def source_has_column_restricted_schemas(source_id: str | uuid.UUID, team_id: int) -> bool:
+    """Whether the column picker hides columns on any table of this source."""
+    # `deleted` is nullable and the live catalog treats NULL as active, so exclude only True.
+    return (
+        ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, enabled_columns__isnull=False)
+        .exclude(deleted=True)
+        .exists()
     )
 
 

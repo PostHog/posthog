@@ -1,5 +1,6 @@
 import json
 import uuid
+import ipaddress
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
@@ -55,8 +56,6 @@ from posthog.auth import (
     ProjectSecretAPIKeyAuthentication,
     ProjectSecretAPIKeyUser,
     SessionAuthentication,
-    TeamSecretTokenAuthentication,
-    TeamSecretTokenUser,
     WidgetAuthentication,
     _extract_phs_token,
     mint_export_renderer_token,
@@ -83,6 +82,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
 from posthog.workos_radar import RadarAttempt, RadarVerdict
 from posthog.workos_radar_signal_handlers import RADAR_LOGIN_ATTEMPT_CACHE_ALIAS
@@ -830,6 +830,98 @@ class TestLoginRadar(APIBaseTest):
         assert codes == ["suspicious_attempt_blocked", "too_many_failed_attempts", "too_many_failed_attempts"]
         assert mock_call_api.call_count == 2
 
+    @override_settings(CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123")
+    @patch("posthog.turnstile.OPEN_CHALLENGE_LIMIT", 2)
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.CHALLENGE))
+    def test_unsolved_challenges_block_the_address_without_counting_toward_the_lockout(self, _mock_call_api):
+        credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+        # A fresh IP, because the open challenge count lives in the shared Redis for the whole window
+        ip = str(ipaddress.IPv6Address(uuid.uuid4().int))
+
+        with (
+            self.settings(AXES_ENABLED=True, AXES_FAILURE_LIMIT=2),
+            override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"),
+        ):
+            codes = [self.client.post("/api/login", credentials, REMOTE_ADDR=ip).json()["code"] for _ in range(3)]
+            other_address_code = self.client.post(
+                "/api/login", {**credentials, "email": "colleague@example.com"}, REMOTE_ADDR=ip
+            ).json()["code"]
+
+        assert codes == ["challenge_required", "challenge_required", "suspicious_attempt_blocked"]
+        assert other_address_code == "challenge_required"
+
+    @override_settings(CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123")
+    @patch("posthog.workos_radar.workos_radar_check")
+    def test_a_turnstile_token_in_shadow_mode_does_not_skip_radar(self, mock_check):
+        mock_check.return_value.status_code = 200
+        mock_check.return_value.json.return_value = {"verdict": "allow", "attempt_id": "radar_att_01ABC"}
+
+        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):
+            response = self.client.post(
+                "/api/login",
+                {
+                    "email": self.CONFIG_EMAIL,
+                    "password": self.CONFIG_PASSWORD,
+                    "turnstile_token": "turnstile_abc",
+                    "challenge_nonce": "challenge:abc:uuid",
+                },
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c[0][0] for c in mock_check.call_args_list] == ["https://api.workos.com/radar/attempts"]
+
+    @override_settings(CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123")
+    @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
+    @patch("posthog.workos_radar.workos_radar_report")
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.CHALLENGE, attempt_id="radar_att_01ABC"),
+    )
+    def test_an_enforced_challenge_signs_in_once_turnstile_is_solved(
+        self, mock_call_api, mock_put, mock_verify_turnstile
+    ):
+        mock_put.return_value.status_code = 200
+        credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+
+        with (
+            override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            challenged = self.client.post("/api/login", credentials)
+            assert self.client.get("/api/users/@me/").status_code == status.HTTP_401_UNAUTHORIZED
+            solved = self.client.post(
+                "/api/login",
+                {
+                    **credentials,
+                    "turnstile_token": "turnstile_abc",
+                    "challenge_nonce": challenged.json()["extra"]["challenge_nonce"],
+                },
+            )
+
+        assert challenged.status_code == status.HTTP_428_PRECONDITION_REQUIRED
+        assert challenged.json()["extra"]["turnstile_site_key"] == "site_key_123"
+        assert solved.status_code == status.HTTP_200_OK
+        assert self.client.get("/api/users/@me/").status_code == status.HTTP_200_OK
+        assert mock_call_api.call_count == 1
+        assert mock_verify_turnstile.call_args[0][0] == "turnstile_abc"
+        assert [(c[0][0], c[1]["json"]) for c in mock_put.call_args_list] == [
+            (self.RADAR_ATTEMPT_URL, {"attempt_status": "success", "challenge_status": "success"})
+        ]
+
+    @parameterized.expand([("shadow", "shadow", "site_key_123"), ("enforce_without_a_site_key", "enforce", "")])
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.CHALLENGE, attempt_id="radar_att_01ABC"),
+    )
+    def test_a_challenge_verdict_signs_in_when_the_login_cannot_show_it(self, _name, mode, site_key, _mock_call_api):
+        with (
+            override_settings(CLOUDFLARE_TURNSTILE_SITE_KEY=site_key),
+            override_instance_config("WORKOS_RADAR_LOGIN_MODE", mode),
+        ):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        assert response.status_code == status.HTTP_200_OK
+
     @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.ALLOW))
     def test_radar_gets_the_stored_address_when_the_typed_one_is_a_variant(self, mock_call_api):
         with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):
@@ -851,7 +943,7 @@ class TestLoginRadar(APIBaseTest):
             return self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
 
     @parameterized.expand([("correct_password", True, 1), ("wrong_password", False, 0)])
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch(
         "posthog.workos_radar._call_radar_api",
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
@@ -876,7 +968,7 @@ class TestLoginRadar(APIBaseTest):
             ("with_2fa_while_the_cache_is_down_signs_in_without_a_report", True, True, 0),
         ]
     )
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch(
         "posthog.workos_radar._call_radar_api",
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
@@ -908,7 +1000,7 @@ class TestLoginRadar(APIBaseTest):
 
     @parameterized.expand([("without_a_resend", None, 20), ("after_a_resend", 25, 50)])
     @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch(
         "posthog.workos_radar._call_radar_api",
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
@@ -937,7 +1029,7 @@ class TestLoginRadar(APIBaseTest):
         assert response.status_code == 200
         assert [c[0][0] for c in mock_put.call_args_list] == [self.RADAR_ATTEMPT_URL]
 
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch(
         "posthog.workos_radar._call_radar_api",
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
@@ -2758,6 +2850,8 @@ class TestTimeSensitivePermissions(APIBaseTest):
                 "post",
                 "/api/projects/@current/workload_trust_policy_requests/00000000-0000-0000-0000-000000000001/approve/",
             ),
+            ("cli_authorize", "post", "/api/cli-auth/authorize/"),
+            ("oauth_device_approve", "post", "/api/oauth_device/approve/"),
         ]
     )
     def test_credential_writes_require_recent_authentication(self, _name, method, url):
@@ -2778,6 +2872,8 @@ class TestTimeSensitivePermissions(APIBaseTest):
                 "delete",
                 "/api/users/@me/integrations/github/install_requests/00000000-0000-0000-0000-000000000001/",
             ),
+            ("oauth_device_lookup", "post", "/api/oauth_device/lookup/"),
+            ("oauth_device_deny", "post", "/api/oauth_device/deny/"),
         ]
     )
     def test_credential_reads_do_not_require_recent_authentication(self, _name, method, url):
@@ -2817,139 +2913,6 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.json()["code"] == "sensitive_action_required_reauth"
 
 
-class TestTeamSecretTokenAuthentication(APIBaseTest):
-    def setUp(self):
-        super().setUp()  # Call the setup from APIBaseTest
-        self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-        self.team.save()
-        self.factory = APIRequestFactory()  # Use APIRequestFactory instead of RequestFactory
-
-    @covers_authentication(TeamSecretTokenAuthentication)
-    def test_authenticate_with_valid_secret_api_key_in_header(self):
-        # Simulate a request with a valid team secret token
-        wsgi_request = self.factory.get(
-            "/",
-            data=None,
-            secure=False,
-            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
-        )
-        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-        assert result is not None
-        user, _ = result
-
-        self.assertIsNotNone(user)
-        self.assertIsInstance(user, TeamSecretTokenUser)
-        self.assertEqual(user.team, self.team)
-
-    def test_authenticate_tags_queries_with_team_secret_token_access_method(self):
-        wsgi_request = self.factory.get("/", headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"})
-        request = Request(wsgi_request)
-        authenticator = TeamSecretTokenAuthentication()
-        with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
-            authenticator.authenticate(request)
-        mock_tag_authentication.assert_called_once_with(
-            user_id=None,
-            team_id=self.team.id,
-            access_method=AccessMethod.TEAM_SECRET_TOKEN,
-        )
-
-    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_authenticate_returns_none_when_legacy_tokens_switched_off(self) -> None:
-        wsgi_request = self.factory.get(
-            "/",
-            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
-        )
-        result = TeamSecretTokenAuthentication().authenticate(Request(wsgi_request))
-
-        self.assertIsNone(result)
-
-    def test_authenticate_with_valid_secret_api_key_in_body_not_supported(self):
-        # Body tokens were removed after the audit in #66176: even a valid token must not authenticate.
-        wsgi_request = self.factory.post(
-            "/",
-            data=f'{{"secret_api_key": "{self.team.secret_api_token}"}}',
-            content_type="application/json",
-        )
-        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
-        request.parsers = [JSONParser()]  # Explicitly set JSONParser
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        self.assertIsNone(result)
-
-    def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
-        # Query string authentication should not be supported for security reasons
-        wsgi_request = self.factory.get(f"/?secret_api_key={self.team.secret_api_token}")
-        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        self.assertIsNone(result)
-
-    def test_authenticate_with_invalid_secret_api_key(self):
-        # Simulate a request with an invalid team secret token
-        wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer phs_NOT_A_VALID_KEY")
-        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        self.assertIsNone(result)
-
-    def test_authenticate_without_secret_api_key(self):
-        # Simulate a request without a team secret token
-        wsgi_request = self.factory.get("/")
-        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        self.assertIsNone(result)
-
-    def test_authenticate_with_matching_project_api_key_in_body(self):
-        # Test that when project token in body matches the secret key's team, it passes
-        wsgi_request = self.factory.post(
-            "/",
-            data=f'{{"project_api_key": "{self.team.api_token}"}}',
-            content_type="application/json",
-            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
-        )
-        request = Request(wsgi_request)
-        request.parsers = [JSONParser()]
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        assert result is not None
-        user, _ = result
-        self.assertIsInstance(user, TeamSecretTokenUser)
-        self.assertEqual(user.team, self.team)
-
-    def test_authenticate_with_no_project_api_key_in_body_passes(self):
-        # Test that when there's no project token in body, it still works normally
-        wsgi_request = self.factory.post(
-            "/",
-            data='{"some_other_field": "value"}',
-            content_type="application/json",
-            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
-        )
-        request = Request(wsgi_request)
-        request.parsers = [JSONParser()]
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        assert result is not None
-        user, _ = result
-        self.assertIsInstance(user, TeamSecretTokenUser)
-        self.assertEqual(user.team, self.team)
-
-
 class TestWidgetAuthentication(SimpleTestCase):
     @parameterized.expand([(Team.DoesNotExist,), (Team.MultipleObjectsReturned,)])
     def test_invalid_token_fails_authentication(self, lookup_error: type[Exception]) -> None:
@@ -2969,36 +2932,32 @@ class TestSyntheticUser(SimpleTestCase):
         with self.assertRaises(TypeError):
             SyntheticUser(self._team())  # type: ignore[call-arg]
 
-    def test_team_secret_token_user_distinct_id_includes_team_id(self):
-        user = TeamSecretTokenUser(self._team(team_id=42))
-        self.assertEqual(user.distinct_id, "team-secret-token-42")
-        self.assertEqual(user.current_team_id, 42)
-        self.assertTrue(user.is_authenticated)
-        self.assertIsNone(user.id)
-
-    def test_project_secret_api_key_user_carries_psak_and_distinct_id(self):
-        team = self._team(team_id=7)
-        fake_psak = type(
+    def _fake_psak(self, team):
+        return type(
             "FakePSAK",
             (),
             {"team": team, "team_id": team.id, "id": 99, "scopes": ["endpoint:read"]},
         )()
+
+    def test_project_secret_api_key_user_carries_psak_and_distinct_id(self):
+        team = self._team(team_id=7)
+        fake_psak = self._fake_psak(team)
         user = ProjectSecretAPIKeyUser(fake_psak)
         self.assertEqual(user.distinct_id, "psak-7-99")
         self.assertIs(user.project_secret_api_key, fake_psak)
+        self.assertEqual(user.current_team_id, 7)
+        self.assertTrue(user.is_authenticated)
         self.assertIsNone(user.id)
 
-    def test_isinstance_check_recognises_both_subclasses(self):
+    def test_isinstance_check_recognises_subclass(self):
         from posthog.synthetic_user import SyntheticUser
 
         team = self._team()
-        fake_psak = type("FakePSAK", (), {"team": team, "team_id": team.id, "id": 1, "scopes": []})()
-        self.assertIsInstance(TeamSecretTokenUser(team), SyntheticUser)
-        self.assertIsInstance(ProjectSecretAPIKeyUser(fake_psak), SyntheticUser)
+        self.assertIsInstance(ProjectSecretAPIKeyUser(self._fake_psak(team)), SyntheticUser)
 
     def test_mutable_attrs_are_isolated_per_instance(self):
-        a = TeamSecretTokenUser(self._team(team_id=1))
-        b = TeamSecretTokenUser(self._team(team_id=2))
+        a = ProjectSecretAPIKeyUser(self._fake_psak(self._team(team_id=1)))
+        b = ProjectSecretAPIKeyUser(self._fake_psak(self._team(team_id=2)))
 
         a.groups.append("x")
         a.user_permissions.append("y")
@@ -3770,7 +3729,7 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
         )
         org.members.add(user)
         team = Team.objects.create(organization=org, name="Test Team")
-        team.rotate_secret_token_and_save(user=user, is_impersonated_session=False)
+        _, secret_token = create_project_secret_api_key(team)
         FeatureFlag.objects.create(
             team=team,
             key="rc-async-test",
@@ -3782,9 +3741,9 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
             },
             is_remote_configuration=True,
         )
-        return team
+        return team, secret_token
 
-    team = await setup_team_and_flag()
+    team, secret_token = await setup_team_and_flag()
 
     asgi_app = get_asgi_application()
     # httpx ASGITransport's `app` type spec is stricter than Django's ASGIHandler signature; the
@@ -3792,7 +3751,7 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
     async with AsyncClient(transport=ASGITransport(app=asgi_app), base_url="http://testserver") as ac:  # type: ignore[arg-type]
         response = await ac.get(
             f"/api/projects/{team.id}/feature_flags/rc-async-test/remote_config",
-            headers={"authorization": f"Bearer {team.secret_api_token}"},
+            headers={"authorization": f"Bearer {secret_token}"},
         )
 
     assert response.status_code == status.HTTP_200_OK, response.text

@@ -71,6 +71,10 @@
     "./product-engineer-prompt": {
       "types": "./dist/product-engineer-prompt.d.ts",
       "import": "./dist/product-engineer-prompt.js"
+    },
+    "./scout-names": {
+      "types": "./dist/scout-names.d.ts",
+      "import": "./dist/scout-names.js"
     }
   },
   "scripts": {

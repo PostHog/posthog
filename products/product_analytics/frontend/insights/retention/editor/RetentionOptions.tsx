@@ -3,10 +3,10 @@ import { useValues } from 'kea'
 import { Link } from '@posthog/lemon-ui'
 import { Button, cn } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { pluralize } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 

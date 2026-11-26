@@ -4,7 +4,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
@@ -621,6 +621,11 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 @csrf_exempt
 def early_access_features(request: Request):
     token = get_token(None, request)
+
+    # CORS preflights carry no token, so answer them before the token check
+    if request.method == "OPTIONS":
+        return cors_response(request, HttpResponse(""))
+
     stages = request.GET.getlist("stage", [EarlyAccessFeature.Stage.BETA])
 
     if not token:

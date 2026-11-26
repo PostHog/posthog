@@ -87,10 +87,12 @@ WHITELISTED_PREFIXES = [
     "/login/google-oauth2",
     "/login/github",
     "/login/gitlab",
+    "/login/chatgpt",
     "/login/saml",
     "/complete/google-oauth2",
     "/complete/github",
     "/complete/gitlab",
+    "/complete/chatgpt",
     "/complete/saml",
     "/api/saml/metadata",
 ]
@@ -288,6 +290,14 @@ def is_backup_code_attempt(token: object) -> bool:
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
 
+# IdP approvals bind the code to the chosen mailbox in addition to the account.
+CODE_BASED_VERIFICATION_TARGET_SESSION_KEY = "code_based_verification_target"
+CODE_BASED_VERIFICATION_IDENTITY_SESSION_KEY = "code_based_verification_identity"
+
+# Set when a login through an identity provider stopped here. The verification endpoint reads it to
+# start the session on the provider's backend and to record the proof for that issuer.
+CODE_BASED_VERIFICATION_SSO_SESSION_KEY = "code_based_verification_sso"
+
 
 class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
     """Derive a short numeric login-verification code from the same secret-keyed,
@@ -295,35 +305,36 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
     the login attempt's issuance time, valid for CODE_TTL_SECONDS, and rotates
     automatically on login, password change, email change, or deactivation."""
 
-    def make_code(self, user: AbstractBaseUser, issued_at: int, target: str = "") -> str:
+    def make_code(self, user: AbstractBaseUser, issued_at: int, target: str = "", identity: str = "") -> str:
         """Deterministic CODE_LENGTH-digit code for this user and issuance time.
 
         `target` binds the code to the address it authorizes. Without it, two sends for the same
-        user in the same second derive the same code. A code mailed to one address could then
-        verify another. Login and signup have no target and use the default.
+        user in the same second derive the same code. Identity binding also keeps subjects
+        asserting the same mailbox from sharing codes. Password login and signup use the defaults.
         """
         digest = salted_hmac(
             self.key_salt,
-            self._make_hash_value(user, issued_at, target),
+            self._make_hash_value(user, issued_at, target, identity),
             secret=self.secret,
             algorithm=self.algorithm,
         ).hexdigest()
         return f"{int(digest, 16) % (10**CODE_LENGTH):0{CODE_LENGTH}d}"
 
-    def check_code(self, user: AbstractBaseUser, code: str, issued_at: int, target: str = "") -> bool:
+    def check_code(
+        self, user: AbstractBaseUser, code: str, issued_at: int, target: str = "", identity: str = ""
+    ) -> bool:
         """Constant-time compare against the expected code, rejecting expired codes.
 
-        Brute-force resistance does not come from the code's entropy (6 digits is
-        guessable) but from the caller gating this behind a password-authenticated
-        pending session plus a hard attempt cap.
+        Six digits need bounded attempts: password logins require a password first, while
+        IdP challenges have identity-scoped attempts and an account-wide issuance ceiling.
         """
         if not (user and code and issued_at):
             return False
         if int(time.time()) - issued_at > CODE_TTL_SECONDS:
             return False
-        return constant_time_compare(self.make_code(user, issued_at, target), code)
+        return constant_time_compare(self.make_code(user, issued_at, target, identity), code)
 
-    def _make_hash_value(self, user: AbstractBaseUser, timestamp: int, target: str = "") -> str:
+    def _make_hash_value(self, user: AbstractBaseUser, timestamp: int, target: str = "", identity: str = "") -> str:
         """Include last_login and is_active to invalidate tokens after use or deactivation.
 
         `target` is the address an email change code authorizes, so a code cannot verify a
@@ -333,7 +344,8 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
 
         usable_user: User = User.objects.get(pk=user.pk)
         login_timestamp = "" if user.last_login is None else user.last_login.replace(microsecond=0, tzinfo=None)
-        return f"{usable_user.pk}{usable_user.email}{usable_user.password}{usable_user.is_active}{login_timestamp}{timestamp}{target}"
+        value = f"{usable_user.pk}{usable_user.email}{usable_user.password}{usable_user.is_active}{login_timestamp}{timestamp}{target}"
+        return f"{value}\x00{identity}" if identity else value
 
 
 code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()
@@ -342,7 +354,99 @@ code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()
 NO_EMAIL_HTTP_SERVICE = "no_email_http_service"
 
 
+_RESERVE_CODE_ATTEMPT_LUA = """
+local count = redis.call('INCR', KEYS[1])
+if ARGV[2] == '1' or redis.call('TTL', KEYS[1]) == -1 then
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+end
+return count
+"""
+
+
 class CodeBasedVerifier:
+    def _recent_idp_code_key(self, user: User, target_email: str, identity: str, asserted_email: str) -> str:
+        context = code_based_verification_token_generator._make_hash_value(user, 0, target_email, identity)
+        context = f"{context}\x00{asserted_email}"
+        signature = salted_hmac(
+            "posthog.auth.recent_idp_code",
+            context,
+            secret=code_based_verification_token_generator.secret,
+            algorithm=code_based_verification_token_generator.algorithm,
+        ).hexdigest()
+        return f"idp_login_recent_code:{signature}"
+
+    def reuse_recent_idp_code(
+        self,
+        request: HttpRequest,
+        user: User,
+        target_email: str,
+        identity: str,
+        asserted_email: str,
+        *,
+        linked: bool = False,
+    ) -> bool:
+        """Fresh callbacks can lose the session while an emailed code is still valid for the same mailbox."""
+        try:
+            issued_at = get_client().get(self._recent_idp_code_key(user, target_email, identity, asserted_email))
+            if issued_at is None:
+                return False
+            issued_at = int(issued_at)
+            if not 0 <= time.time() - issued_at < CODE_TTL_SECONDS:
+                return False
+            if not self.reserve_idp_challenge(user, identity, linked=linked):
+                return False
+            self.clear_pending(request)
+            self._set_pending_code(request, user, issued_at, target_email, identity)
+            return True
+        except Exception:
+            mfa_logger.exception("idp_recent_code_unavailable", user_id=user.pk)
+            return False
+
+    def _remember_recent_idp_code(self, key: str, issued_at: int, user: User) -> None:
+        try:
+            get_client().set(key, issued_at, ex=CODE_TTL_SECONDS)
+        except Exception:
+            mfa_logger.exception("idp_recent_code_unavailable", user_id=user.pk)
+
+    def _set_pending_code(
+        self, request: HttpRequest, user: User, issued_at: int, target_email: str | None, identity: str | None
+    ) -> None:
+        request.session["code_based_verification_pending_user_id"] = user.pk
+        request.session["code_based_verification_issued_at"] = issued_at
+        request.session[CODE_BASED_VERIFICATION_TARGET_SESSION_KEY] = target_email
+        request.session[CODE_BASED_VERIFICATION_IDENTITY_SESSION_KEY] = identity
+
+    def reserve_idp_challenge(self, user: User, identity: str, *, linked: bool = False) -> bool:
+        """Reserve one account-wide slot for this identity for the code lifetime.
+
+        Replays and resends share the grant so one unproven subject cannot spend the
+        account's entire issuance quota or invalidate another subject's allocated budget.
+        """
+        from posthog.token_bucket import BucketDecision, Budget, consume
+
+        grant_key = f"idp_login_identity_grant:{user.pk}:{identity}"
+        try:
+            client = get_client()
+            attempts = client.get(self._attempts_redis_key(f"idp:{identity}"))
+            if attempts is not None and int(attempts) >= CODE_MAX_ATTEMPTS:
+                return False
+            grant = client.get(grant_key)
+            if grant is not None:
+                return grant in ("granted", b"granted")
+            if not client.set(grant_key, "pending", nx=True, ex=10):
+                return False
+            quota_key = f"idp_login_identity_quota:{user.pk}" + (f":linked:{identity}" if linked else "")
+            decision = consume(quota_key, Budget(burst=5, per_hour=6))
+            if not isinstance(decision, BucketDecision):
+                mfa_logger.warning("idp_identity_budget_unavailable", user_id=user.pk)
+                return False
+            granted = decision.allowed
+            client.set(grant_key, "granted" if granted else "denied", ex=CODE_TTL_SECONDS if granted else 60)
+            return granted
+        except Exception:
+            mfa_logger.exception("idp_identity_budget_unavailable", user_id=user.pk)
+            return False
+
     def _capture_no_http_service_bypass_event(self, user: User) -> None:
         try:
             posthoganalytics.capture(
@@ -388,25 +492,50 @@ class CodeBasedVerifier:
         return True
 
     def create_and_send_code_based_verification(
-        self, request: HttpRequest, user: User, *, is_resend: bool = False
+        self,
+        request: HttpRequest,
+        user: User,
+        *,
+        is_resend: bool = False,
+        target_email: str | None = None,
+        identity: str | None = None,
+        asserted_email: str | None = None,
     ) -> bool:
-        """Raises EmailRecipientUndeliverableError when the address cannot receive the code."""
+        """Raises EmailRecipientUndeliverableError when the address cannot receive the code.
+
+        The account mailbox authorizes an IdP identity, so codes and budgets must not be
+        transferable to another identity asserting the same address.
+        """
         from posthog.tasks import email
 
-        if not self.should_send_code_based_verification(user):
+        if not is_resend:
+            self.clear_pending(request)
+
+        if target_email is not None:
+            if not is_email_available(with_absolute_urls=True):
+                return False
+        elif not self.should_send_code_based_verification(user):
             return False
 
         try:
             issued_at = int(time.time())
-            code = code_based_verification_token_generator.make_code(user, issued_at)
-            email.send_code_based_verification(user.pk, code)
-            request.session["code_based_verification_pending_user_id"] = user.pk
-            request.session["code_based_verification_issued_at"] = issued_at
-            # Resends must not reset the failed-attempt counter, otherwise the attempt cap could be
-            # sidestepped by guessing up to the limit, resending, and repeating - letting the 6-digit
-            # code be brute-forced in batches. The attempt budget is per pending login, not per code,
-            # so only a fresh initial send (not a resend) clears it.
-            if not is_resend:
+            recent_key = (
+                self._recent_idp_code_key(user, target_email, identity, asserted_email)
+                if target_email is not None and identity is not None and asserted_email is not None
+                else None
+            )
+            code = code_based_verification_token_generator.make_code(
+                user, issued_at, target_email or "", identity or ""
+            )
+            email.send_code_based_verification(user.pk, code, to_email=target_email)
+            self._set_pending_code(request, user, issued_at, target_email, identity)
+            if recent_key is not None:
+                self._remember_recent_idp_code(recent_key, issued_at, user)
+            if is_resend and (sso := request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)):
+                sso["issued_at"] = issued_at
+                request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = sso
+            # Neither a resend nor a new partial may replenish an unproven identity's guess budget.
+            if not is_resend and identity is None:
                 self._reset_attempts(user.pk)
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="resent" if is_resend else "sent").inc()
             mfa_logger.info(
@@ -439,14 +568,31 @@ class CodeBasedVerifier:
     def get_pending_code_based_verification_issued_at(self, request: HttpRequest) -> int | None:
         return request.session.get("code_based_verification_issued_at")
 
+    def get_pending_code_based_verification_target(self, request: HttpRequest) -> str | None:
+        target: str | None = request.session.get(CODE_BASED_VERIFICATION_TARGET_SESSION_KEY)
+        return target
+
+    def get_pending_identity(self, request: HttpRequest) -> str | None:
+        return request.session.get(CODE_BASED_VERIFICATION_IDENTITY_SESSION_KEY)
+
+    def get_pending_budget_identity(self, request: HttpRequest) -> str | None:
+        user_id = self.get_pending_code_based_verification_user_id(request)
+        if user_id is None:
+            return None
+        identity = self.get_pending_identity(request)
+        return f"idp:{identity}" if identity else str(user_id)
+
     def check_code(self, request: HttpRequest, user: User, code: str) -> bool:
         issued_at = self.get_pending_code_based_verification_issued_at(request)
         if not issued_at:
             return False
-        return code_based_verification_token_generator.check_code(user, code, issued_at)
+        target = self.get_pending_code_based_verification_target(request) or ""
+        return code_based_verification_token_generator.check_code(
+            user, code, issued_at, target, self.get_pending_identity(request) or ""
+        )
 
     @staticmethod
-    def _attempts_redis_key(user_id: int) -> str:
+    def _attempts_redis_key(user_id: int | str) -> str:
         return f"{CODE_ATTEMPTS_REDIS_KEY_PREFIX}:{user_id}"
 
     def _reset_attempts(self, user_id: int) -> None:
@@ -458,34 +604,48 @@ class CodeBasedVerifier:
     def reserve_attempt(self, request: HttpRequest) -> int:
         """Atomically count this verification attempt against the pending login's budget.
 
-        Returns the running attempt total (including this one) so the caller can reject once it
-        exceeds CODE_MAX_ATTEMPTS. Backed by a Redis INCR keyed on the pending user id, so parallel
-        guesses can't all read the same pre-increment value and slip past the cap. Fails open on a
-        Redis error (returns 0) to keep login working - the per-user verify throttle is the backstop.
+        Unproven IdP subjects need separate, non-renewable budgets so they cannot lock out
+        another identity or a password login. They fail closed on Redis errors; password
+        logins retain their existing throttle backstop.
         """
         user_id = self.get_pending_code_based_verification_user_id(request)
         if not user_id:
             return 0
         try:
             client = get_client()
-            count = int(client.incr(self._attempts_redis_key(user_id)))
-            client.expire(self._attempts_redis_key(user_id), CODE_TTL_SECONDS)
-            return count
+            budget_identity = self.get_pending_budget_identity(request) or str(user_id)
+            key = self._attempts_redis_key(budget_identity)
+            return int(
+                client.eval(
+                    _RESERVE_CODE_ATTEMPT_LUA,
+                    1,
+                    key,
+                    CODE_TTL_SECONDS,
+                    int(self.get_pending_identity(request) is None),
+                )
+            )
         except Exception:
             mfa_logger.exception(
-                "Failed to reserve code-based verification attempt; allowing (throttle still applies)",
+                "Failed to reserve code-based verification attempt",
                 user_id=user_id,
             )
-            return 0
+            return CODE_MAX_ATTEMPTS + 1 if self.get_pending_identity(request) else 0
 
     def clear_pending(self, request: HttpRequest) -> None:
         user_id = self.get_pending_code_based_verification_user_id(request)
-        if user_id:
+        if (
+            user_id
+            and self.get_pending_identity(request) is None
+            and CODE_BASED_VERIFICATION_SSO_SESSION_KEY not in request.session
+        ):
             self._reset_attempts(user_id)
         for key in (
             "code_based_verification_pending_user_id",
             "code_based_verification_issued_at",
             "code_based_verification_attempts",
+            CODE_BASED_VERIFICATION_TARGET_SESSION_KEY,
+            CODE_BASED_VERIFICATION_IDENTITY_SESSION_KEY,
+            CODE_BASED_VERIFICATION_SSO_SESSION_KEY,
         ):
             request.session.pop(key, None)
 

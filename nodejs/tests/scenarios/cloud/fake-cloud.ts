@@ -4,8 +4,10 @@ import { parse } from 'yaml'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import type { PairRole } from '../runner/pair'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { Aws, AwsError } from './aws'
+import { PROFILE } from './fixtures'
 import type { RunManifest } from './lease'
 
 type Schedule = { expression: string; target: { Arn: string; RoleArn: string; Input: string } }
@@ -48,6 +50,8 @@ type Card = {
     exitCode: number
     reportsDone: boolean
     stopTimeoutMs: number
+    paired: boolean
+    controlRunId?: string
 }
 
 export type ReaderMinute = { minute: number; max?: number; avg?: number }
@@ -92,7 +96,7 @@ const FAILOVER_CARD = 'cyclotron-failover-under-load'
 const FAILOVER_AFTER_MS = 15 * MINUTE_MS
 const STATUSES = ['passed', 'failed', 'invalid', 'passed']
 const DEFAULT_READER_ACU: ReaderMinute[] = [
-    ...[-3, -2, -1].map((minute) => ({ minute, max: 1, avg: 1 })),
+    ...[-5, -4, -3, -2, -1].map((minute) => ({ minute, max: 1, avg: 1 })),
     { minute: 0, max: 2, avg: 1.5 },
     ...[1, 2, 3].map((minute) => ({ minute, max: 6, avg: 5 })),
 ]
@@ -120,13 +124,21 @@ export type FakeCloudOptions = {
         uploadFails?: boolean
         diesAfterMs?: number
         runnerStatus?: string
+        runnerStatusReason?: unknown
         journalsIntent?: boolean
+        pairRoles?: (PairRole | undefined)[]
+        controlStatus?: string
+        controlEndedAt?: string
+        strayControlRunId?: boolean
     }
     probe?: 'lost' | 'timedOut'
     agent?: 'offline'
     readerAcu?: ReaderMinute[]
     averageStatuses?: string[]
-    liveReaderAcu?: { maxima: (number | null)[]; lagMinutes?: number }
+    shortValuesOf?: 'Maximum' | 'Average'
+    unknownTimestampOf?: 'Maximum' | 'Average'
+    omitsCapacityStatus?: boolean
+    liveReaderAcu?: { maxima: (number | null)[]; averages?: number[]; lagMinutes?: number }
     failover?: { takesMs?: number; showsAfterMs?: number }
 }
 
@@ -258,7 +270,19 @@ export class FakeCloud implements Aws {
             }))
         )
         const expiresAt = new Date(this.options.now().getTime() + RUN_LEASE_MS).toISOString()
-        return { cluster, writer, reader, manifest: { runId, account: this.account, expiresAt, stackName: cluster } }
+        return {
+            cluster,
+            writer,
+            reader,
+            manifest: {
+                runId,
+                account: this.account,
+                expiresAt,
+                stackName: cluster,
+                readerIdleMaxAcu: PROFILE.readerAcu.idleMax,
+                readerMinAcu: PROFILE.readerAcu.min,
+            },
+        }
     }
 
     writerOf(clusterId: string): string | undefined {
@@ -485,10 +509,24 @@ export class FakeCloud implements Aws {
         }
         const uploaded = !this.options.card?.uploadFails
         if (uploaded) {
-            const runnerRunId = randomUUID()
-            const files = {
-                'card.log': `exit ${exitCode}\n`,
-                [`run/${runnerRunId}/scorecard.json`]: this.runnerScorecard(card, runnerRunId, exitCode),
+            const roles: (PairRole | undefined)[] = card.paired
+                ? (this.options.card?.pairRoles ?? ['control', 'faulted'])
+                : [undefined]
+            const files: Record<string, string> = { 'card.log': `exit ${exitCode}\n` }
+            for (const role of roles) {
+                const runnerRunId =
+                    role === 'faulted'
+                        ? card.runId
+                        : role === 'control' && !this.options.card?.strayControlRunId
+                          ? card.controlRunId!
+                          : randomUUID()
+                files[`run/${runnerRunId}/scorecard.json`] = this.runnerScorecard(
+                    card,
+                    runnerRunId,
+                    exitCode,
+                    role,
+                    roles
+                )
             }
             const sums = Object.keys(files)
                 .map((file) => `${'0'.repeat(64)}  ./${file}`)
@@ -501,9 +539,22 @@ export class FakeCloud implements Aws {
         this.objects.set(`runs/${card.runId}/host/done`, JSON.stringify({ exitCode, uploaded }))
     }
 
-    private runnerScorecard(card: Card, runnerRunId: string, exitCode: number): string {
-        const status = this.options.card?.runnerStatus ?? STATUSES[exitCode] ?? 'invalid'
-        const statusReason = status === 'passed' ? '' : `the card ended ${status}`
+    private runnerScorecard(
+        card: Card,
+        runnerRunId: string,
+        exitCode: number,
+        role?: PairRole,
+        roles: (PairRole | undefined)[] = []
+    ): string {
+        const controlStatus = this.options.card?.controlStatus ?? 'passed'
+        const faultedStatus = this.options.card?.runnerStatus ?? STATUSES[exitCode] ?? 'invalid'
+        const status = role === 'control' ? controlStatus : faultedStatus
+        const statusReason =
+            this.options.card && 'runnerStatusReason' in this.options.card
+                ? this.options.card.runnerStatusReason
+                : status === 'passed'
+                  ? ''
+                  : `the card ended ${status}`
         const failoverAt = this.failovers.get(card.runId)
         const timeline: ValveTimelineEntry[] =
             failoverAt === undefined
@@ -519,8 +570,24 @@ export class FakeCloud implements Aws {
                           appliedAt: new Date(failoverAt + 5_000).toISOString(),
                       },
                   ]
-        const startedAt = new Date(card.startedAt).toISOString()
-        const endedAt = this.options.now().toISOString()
+        const midway = card.startedAt + (this.options.now().getTime() - card.startedAt) / 2
+        const startedAt = new Date(role === 'faulted' ? midway : card.startedAt).toISOString()
+        const endedAt =
+            role === 'control'
+                ? (this.options.card?.controlEndedAt ?? new Date(midway).toISOString())
+                : this.options.now().toISOString()
+        const ranFaulted = roles.includes('faulted')
+        const attribution =
+            controlStatus === 'invalid' || !ranFaulted
+                ? 'unjudged'
+                : controlStatus === 'failed'
+                  ? 'open'
+                  : faultedStatus === 'failed'
+                    ? 'fault'
+                    : 'none'
+        const pairReason = ranFaulted
+            ? `the control ${controlStatus}, the faulted run ${faultedStatus}`
+            : 'the faulted run did not run: Restart the runner, then run the card again.'
         return JSON.stringify({
             runId: runnerRunId,
             status,
@@ -542,6 +609,7 @@ export class FakeCloud implements Aws {
                 m_writer_recovery_s: 42,
                 valve_timeline: timeline,
                 evidence_dir: `/opt/scenario/cache/posthog-scenarios/${runnerRunId}`,
+                ...(role && { pair_role: role, pair_attribution: attribution, pair_reason: pairReason }),
             },
         })
     }
@@ -550,7 +618,8 @@ export class FakeCloud implements Aws {
         { Id, MetricStat: { Metric, Period, Stat } }: MetricQuery,
         from: number,
         to: number,
-        averageStatus: string
+        averageStatus: string,
+        ascending: boolean
     ) {
         if (Id === 'avg' && averageStatus !== 'Complete') {
             return {
@@ -577,13 +646,16 @@ export class FakeCloud implements Aws {
                           value: { Maximum: max, Average: avg, SampleCount: 60 }[Stat],
                       })
                   )
-        const points = recorded.filter(({ at, value }) => at >= from && at < to && value !== undefined)
+        const inWindow = recorded.filter(({ at, value }) => at >= from && at < to && value !== undefined)
+        const points = ascending ? inWindow : inWindow.reverse()
+        const values = points.map(({ value }) => value)
+        const timestamps = points.map(({ at }) => new Date(at).toISOString())
         return {
             Id,
             Label: Id,
-            Timestamps: points.map(({ at }) => new Date(at).toISOString()),
-            Values: points.map(({ value }) => value),
-            StatusCode: 'Complete',
+            Timestamps: Stat === this.options.unknownTimestampOf ? ['unknown', ...timestamps.slice(1)] : timestamps,
+            Values: Stat === this.options.shortValuesOf ? values.slice(0, -1) : values,
+            ...(this.options.omitsCapacityStatus ? {} : { StatusCode: 'Complete' }),
         }
     }
 
@@ -600,12 +672,12 @@ export class FakeCloud implements Aws {
     }
 
     private liveCapacity(Stat: string): { at: number; value: number | undefined }[] {
-        const { maxima, lagMinutes = 0 } = this.options.liveReaderAcu!
+        const { maxima, averages, lagMinutes = 0 } = this.options.liveReaderAcu!
         const now = this.options.now().getTime()
         const newest = now - (now % MINUTE_MS) - (1 + lagMinutes) * MINUTE_MS
         return maxima.map((max, i) => ({
             at: newest - (maxima.length - 1 - i) * MINUTE_MS,
-            value: max === null ? undefined : { Maximum: max, Average: max, SampleCount: 60 }[Stat],
+            value: max === null ? undefined : { Maximum: max, Average: averages?.[i] ?? max, SampleCount: 60 }[Stat],
         }))
     }
 
@@ -626,7 +698,11 @@ export class FakeCloud implements Aws {
         const timeoutMs = Number(executionTimeout[0]) * 1000
         const runId = /SCENARIO_RUN_ID='?([\w-]+)/.exec(script)?.[1]
         const manifest = runId ? this.objects.get(`runs/${runId}/input/manifest.json`) : undefined
-        const cardId = manifest ? String((parseJSON(manifest) as { card?: unknown }).card ?? '') : ''
+        const {
+            card: cardId = '',
+            pair: paired = false,
+            controlRunId,
+        } = manifest ? (parseJSON(manifest) as { card?: string; pair?: boolean; controlRunId?: string }) : {}
         const command: Command = {
             id: randomUUID(),
             instanceId,
@@ -668,6 +744,8 @@ export class FakeCloud implements Aws {
                           exitCode,
                           reportsDone: true,
                           stopTimeoutMs,
+                          paired,
+                          controlRunId,
                       }
                     : {
                           id: cardId,
@@ -678,6 +756,8 @@ export class FakeCloud implements Aws {
                           exitCode: EXIT_INVALID,
                           reportsDone: false,
                           stopTimeoutMs,
+                          paired,
+                          controlRunId,
                       }
         } else if (script.includes('systemctl is-active')) {
             command.settlesAt = this.options.probe === 'lost' ? Infinity : command.settlesAt
@@ -1052,11 +1132,14 @@ export class FakeCloud implements Aws {
                     ? (parseJSON(flags.get('metric-data-queries')!) as MetricQuery[])
                     : []
                 const [from, to] = ['start-time', 'end-time'].map((flag) => Date.parse(flags.get(flag) ?? ''))
-                const averageStatus = flags.has('scan-by')
+                const averageStatus = queries.some(({ Id }) => Id === 'avg')
                     ? (this.options.averageStatuses?.[this.metricReads++] ?? 'Complete')
                     : 'Complete'
+                const ascending = flags.get('scan-by') === 'TimestampAscending'
                 return {
-                    MetricDataResults: queries.map((query) => this.readerCapacity(query, from, to, averageStatus)),
+                    MetricDataResults: queries.map((query) =>
+                        this.readerCapacity(query, from, to, averageStatus, ascending)
+                    ),
                 }
             }
             case 'resourcegroupstaggingapi get-resources': {
@@ -1079,6 +1162,13 @@ export class FakeCloud implements Aws {
                 return { Parameter: { Name: flags.get('name'), Value: value } }
             }
             case 's3api put-object':
+                if (flags.get('if-none-match') === '*' && this.objects.has(flags.get('key')!)) {
+                    throw serviceError(
+                        operation,
+                        'PreconditionFailed',
+                        'At least one of the pre-conditions you specified did not hold'
+                    )
+                }
                 this.objects.set(flags.get('key')!, readFileSync(flags.get('body')!, 'utf8'))
                 return { ETag: '"etag"' }
             case 's3api get-object': {

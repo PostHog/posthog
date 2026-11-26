@@ -20,7 +20,7 @@ operations = [
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.writable_metrics4_names "
         "ADD COLUMN IF NOT EXISTS metric_types SimpleAggregateFunction(groupUniqArrayArray, Array(String))",
-        node_roles=[NodeRole.APM],
+        node_roles=[NodeRole.INGESTION_APM],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
@@ -37,7 +37,7 @@ SELECT
 FROM {DB}.metrics4_input AS input
 WHERE has_labels
 GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name""",
-        node_roles=[NodeRole.APM],
+        node_roles=[NodeRole.INGESTION_APM],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

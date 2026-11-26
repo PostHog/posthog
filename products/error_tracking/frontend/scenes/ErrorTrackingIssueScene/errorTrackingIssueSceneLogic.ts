@@ -99,7 +99,7 @@ export interface errorTrackingIssueSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     eventsQuery: EventsQuery
     eventsQueryKey: string
-    firstSeen: Dayjs | null
+    firstSeen: dayjs.Dayjs | null
     initialEvent: ErrorEventType | null
     initialEventLoading: boolean
     initialEventTimestamp: string | null
@@ -173,10 +173,10 @@ export interface errorTrackingIssueSceneLogicActions {
     } // issueActionsLogic
     updateIssueStatus: (
         id: string,
-        status: import('~/queries/schema').ErrorTrackingIssueStatus
+        status: ErrorTrackingIssueStatus
     ) => {
         id: string
-        status: import('~/queries/schema').ErrorTrackingIssueStatus
+        status: ErrorTrackingIssueStatus
     } // issueActionsLogic
     setDateRange: (
         dateRange: DateRange,
@@ -221,15 +221,15 @@ export interface errorTrackingIssueSceneLogicActions {
     createExternalReferenceSuccess: (
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
             external_issues: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null,
         payload?: {
             config: Record<string, string>
@@ -239,15 +239,15 @@ export interface errorTrackingIssueSceneLogicActions {
     ) => {
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
             external_issues: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null
         payload?: {
             config: Record<string, string>
@@ -272,15 +272,15 @@ export interface errorTrackingIssueSceneLogicActions {
     linkExternalReferenceSuccess: (
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
             external_issues: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null,
         payload?: {
             externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
@@ -289,15 +289,15 @@ export interface errorTrackingIssueSceneLogicActions {
     ) => {
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
             external_issues: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null
         payload?: {
             externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
@@ -446,15 +446,15 @@ export interface errorTrackingIssueSceneLogicActions {
     updateAssigneeSuccess: (
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
-            external_issues?: ErrorTrackingExternalReference[] | undefined
+            external_issues?: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null,
         payload?: {
             assignee: ErrorTrackingIssueAssignee | null
@@ -462,15 +462,15 @@ export interface errorTrackingIssueSceneLogicActions {
     ) => {
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
-            external_issues?: ErrorTrackingExternalReference[] | undefined
+            external_issues?: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null
         payload?: {
             assignee: ErrorTrackingIssueAssignee | null
@@ -489,15 +489,15 @@ export interface errorTrackingIssueSceneLogicActions {
     updateDescriptionSuccess: (
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string
-            external_issues?: ErrorTrackingExternalReference[] | undefined
+            external_issues?: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null,
         payload?: {
             description: string
@@ -505,15 +505,15 @@ export interface errorTrackingIssueSceneLogicActions {
     ) => {
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string
-            external_issues?: ErrorTrackingExternalReference[] | undefined
+            external_issues?: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null
         payload?: {
             description: string
@@ -532,15 +532,15 @@ export interface errorTrackingIssueSceneLogicActions {
     updateNameSuccess: (
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
-            external_issues?: ErrorTrackingExternalReference[] | undefined
+            external_issues?: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null,
         payload?: {
             name: string
@@ -548,15 +548,15 @@ export interface errorTrackingIssueSceneLogicActions {
     ) => {
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
-            external_issues?: ErrorTrackingExternalReference[] | undefined
+            external_issues?: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null
         payload?: {
             name: string
@@ -575,15 +575,15 @@ export interface errorTrackingIssueSceneLogicActions {
     updateSeveritySuccess: (
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
-            external_issues?: ErrorTrackingExternalReference[] | undefined
+            external_issues?: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
             severity: ErrorTrackingQueryIssueSeverity | null
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null,
         payload?: {
             severity: ErrorTrackingQueryIssueSeverity | null
@@ -591,22 +591,22 @@ export interface errorTrackingIssueSceneLogicActions {
     ) => {
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
-            external_issues?: ErrorTrackingExternalReference[] | undefined
+            external_issues?: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
             severity: ErrorTrackingQueryIssueSeverity | null
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null
         payload?: {
             severity: ErrorTrackingQueryIssueSeverity | null
         }
     }
     updateStatus: (status: ErrorTrackingIssue['status']) => {
-        status: ErrorTrackingIssueStatus
+        status: import('~/queries/schema').ErrorTrackingIssueStatus
     }
     updateStatusFailure: (
         error: string,
@@ -618,34 +618,34 @@ export interface errorTrackingIssueSceneLogicActions {
     updateStatusSuccess: (
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
-            external_issues?: ErrorTrackingExternalReference[] | undefined
+            external_issues?: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null,
         payload?: {
-            status: ErrorTrackingIssueStatus
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
         }
     ) => {
         issue: {
             assignee: ErrorTrackingIssueAssignee | null
-            cohort?: ErrorTrackingIssueCohort | undefined
+            cohort?: ErrorTrackingIssueCohort
             description: string | null
-            external_issues?: ErrorTrackingExternalReference[] | undefined
+            external_issues?: ErrorTrackingExternalReference[]
             first_seen: string
             id: string
             name: string | null
-            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
-            status: ErrorTrackingIssueStatus
-            tags?: ErrorTrackingIssueTag[] | null | undefined
+            severity?: ErrorTrackingQueryIssueSeverity | null
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
+            tags?: ErrorTrackingIssueTag[] | null
         } | null
         payload?: {
-            status: ErrorTrackingIssueStatus
+            status: import('~/queries/schema').ErrorTrackingIssueStatus
         }
     }
 }
@@ -665,7 +665,7 @@ export interface errorTrackingIssueSceneLogicMeta {
         sidePanelContext: (id: string) => SidePanelSceneContext
         issueId: (id: string) => string
         issueIdValid: (id: string) => boolean
-        firstSeen: (issue: ErrorTrackingRelationalIssue | null) => Dayjs | null
+        firstSeen: (issue: ErrorTrackingRelationalIssue | null) => dayjs.Dayjs | null
         aggregations: (summary: ErrorTrackingIssueSummary | null) => ErrorTrackingIssueAggregations | undefined
         eventsQuery: (
             issueId: string,

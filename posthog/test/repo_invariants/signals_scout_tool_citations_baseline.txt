@@ -46,6 +46,7 @@ scout-check-record-result
 scout-config-precheck-test
 scout-edit-report
 scout-emit-report
+scout-emit-signal
 scout-lighthouse-audit
 scout-record-output
 scout-run-now

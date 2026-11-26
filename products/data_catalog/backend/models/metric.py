@@ -89,6 +89,11 @@ class Metric(
         related_name="+",
     )
     approved_at = models.DateTimeField(null=True, blank=True)
+    proposed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the metric last went back to review after leaving it. Null means it has waited since created_at.",
+    )
 
     source_insight_short_id = models.CharField(
         max_length=12,

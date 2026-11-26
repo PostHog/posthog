@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
 from django.core.exceptions import PermissionDenied
-from django.db.models import Model, Q
+from django.db.models import Model
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -200,8 +200,19 @@ def _search_teams(query: str) -> list[Team]:
     by_token = list(teams.filter(api_token=query)[:1])
     if by_token:
         return by_token
-    matches = teams.filter(Q(name__icontains=query) | Q(organization__name__icontains=query))
-    return list(matches.order_by("-id")[:SEARCH_LIMIT])
+    # Team names and organization names are searched in two queries, so each one can use the trigram index on its
+    # own table. One query with an OR across the join cannot use either index and scans every team.
+    by_team_name = Team.objects.filter(name__icontains=query)
+    by_organization_name = Team.objects.filter(
+        organization_id__in=Organization.objects.filter(name__icontains=query).values("id")
+    )
+    team_ids = {
+        *by_team_name.order_by("-id").values_list("id", flat=True)[:SEARCH_LIMIT],
+        *by_organization_name.order_by("-id").values_list("id", flat=True)[:SEARCH_LIMIT],
+    }
+    newest_ids = sorted(team_ids, reverse=True)[:SEARCH_LIMIT]
+    found = teams.in_bulk(newest_ids)
+    return [found[team_id] for team_id in newest_ids if team_id in found]
 
 
 def _with_kept_query(url: str, request: HttpRequest, names: tuple[str, ...]) -> str:
@@ -291,12 +302,12 @@ def _record_context(record_type: RecordType, obj: Model) -> dict[str, object]:
     }
 
 
-def _gate(operation: Operation | ToolOperation, owner: Owner) -> Gate | None:
+def _gate(operation: Operation | ToolOperation, owner: Owner | None) -> Gate | None:
     return operation.gate.resolve(owner) if operation.gate is not None else None
 
 
 def _rendered_operation(
-    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner, url: str
+    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner | None, url: str
 ) -> RenderedOperation:
     gate = _gate(operation, owner)
     return RenderedOperation(operation=operation, url=url, gate=gate, allowed=gate is None or gate.allows(request))
@@ -315,9 +326,13 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
                     request,
                     operation,
                     panel.owner,
-                    reverse(
-                        record_type.operation_url_name,
-                        kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
+                    _with_kept_query(
+                        reverse(
+                            record_type.operation_url_name,
+                            kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
+                        ),
+                        request,
+                        (SUPPORT_TICKET_PARAM,),
                     ),
                 )
                 for operation in _offered_operations(panel, obj)
@@ -330,14 +345,7 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
         "admin_console/record.html",
         {
             **_record_context(record_type, obj),
-            "record_links": [
-                RecordLink(
-                    label=link.label,
-                    href=_with_kept_query(link.href, request, link.keep_query),
-                    title=link.title,
-                )
-                for link in record_type.links(obj)
-            ],
+            "record_links": record_type.links(obj),
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
@@ -373,7 +381,7 @@ def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
 
 
 def _require_gate(
-    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner, audit: structlog.BoundLogger
+    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner | None, audit: structlog.BoundLogger
 ) -> None:
     # The page only disables the button. This check is the one that keeps a hand-built request out.
     gate = _gate(operation, owner)
@@ -517,13 +525,17 @@ def operation_result(request: HttpRequest, result_id: str) -> HttpResponse:
 def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
     # A link preselects a choice, so an old URL that names one of several documents opens the form on it.
     # Text fields stay empty: a reason taken from a URL would reach the audit log without staff writing it.
+    # The one exception is an operation that opts in to a reason naming the support ticket it was opened from.
     if operation.form_class is None:
         return None
-    preselected = {
+    preselected: dict[str, object] = {
         name: request.GET[name]
         for name, field in operation.form_class.base_fields.items()
         if isinstance(field, forms.ChoiceField) and name in request.GET
     }
+    ticket = request.GET.get(SUPPORT_TICKET_PARAM, "").strip()
+    if operation.reason_from_ticket and ticket:
+        preselected["reason"] = f"For ticket {ticket}"
     if not preselected:
         return operation.form_initial
     return {**(operation.form_initial or {}), **preselected}
@@ -595,10 +607,13 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         if form is not None and _is_offered(panel, obj, operation.key):
             return render(request, "admin_console/operation.html", context, status=response.status_code)
         if QueuedMessages.error_count(request) == 0:
+            next_step = "Try again."
+            if panel.owner is not None:
+                next_step = f"Try again, or ask the {panel.owner.name} team if it keeps failing."
             messages.error(
                 request,
                 f"{operation.label} failed with status {response.status_code}. The page below shows the current "
-                f"state. Try again, or ask the {panel.owner.name} team if it keeps failing.",
+                f"state. {next_step}",
             )
         return redirect(record_url)
     return response
@@ -624,6 +639,10 @@ def _with_query(url: str, request: HttpRequest) -> str:
 @require_safe
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
+    RecentTools.remember(request, tool)
+    app_response = tool.app_page(request)
+    if app_response is not None:
+        return app_response
     offered = tool.operations(request)
     operations = [
         _rendered_operation(
@@ -638,7 +657,6 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
         for operation in offered
         if operation.listed
     ]
-    RecentTools.remember(request, tool)
     return render(
         request,
         "admin_console/tool.html",

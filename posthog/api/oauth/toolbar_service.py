@@ -5,9 +5,13 @@ Non-obvious behavior documented here:
 - We keep one OAuth app per organization (not global, not per team).
 - The redirect URI is derived from settings.SITE_URL (one per deployment).
 - OAuth state is both signed and one-time-use (cache-backed) to prevent replay.
+- The app's scope ceiling is the toolbar's own scope list, so a request for more
+  scopes than the toolbar asks for (including `*`) resolves to that list.
 """
 
 import re
+import hmac
+import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,21 +30,84 @@ from posthog.api.utils import canonicalize_encoded_url, strip_url_userinfo, unpa
 from posthog.models import Team, User
 from posthog.models.oauth import (
     OIDC_SIGNING_KEY_MISSING_MESSAGE,
+    OAuthAccessToken,
     OAuthApplication,
+    OAuthGrant,
     is_loopback_host,
+    oauth_scope_tokens_expression,
     oidc_signing_key_configured,
+    revoke_application_sessions,
 )
 from posthog.models.organization import Organization
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES
 
 logger = structlog.get_logger(__name__)
 
 STATE_SIGNER_SALT = "toolbar-oauth-state-v1"
 STATE_VERSION = 1
 CALLBACK_PATH = "/toolbar_oauth/callback"
+WILDCARD_SCOPE = "*"
 
 
 def _get_redirect_uri() -> str:
     return f"{settings.SITE_URL}{CALLBACK_PATH}"
+
+
+def _get_scope_ceiling() -> list[str]:
+    return [scope for scope in settings.TOOLBAR_OAUTH_SCOPES if scope not in ALWAYS_ALLOWED_SCOPES]
+
+
+def _toolbar_application_fields() -> dict[str, str | bool]:
+    # The name alone does not identify the toolbar app, because another client can take the same name.
+    # Only staff can mark an app first-party, and every toolbar app is created first-party.
+    return {
+        "name": settings.TOOLBAR_OAUTH_APPLICATION_NAME,
+        "client_type": OAuthApplication.CLIENT_PUBLIC,
+        "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        "is_first_party": True,
+    }
+
+
+def _is_toolbar_application(application: OAuthApplication) -> bool:
+    if application.organization_id is None:
+        return False
+
+    return all(getattr(application, field) == value for field, value in _toolbar_application_fields().items())
+
+
+def _sync_scope_ceiling(application: OAuthApplication) -> bool:
+    """Returns whether the sync revoked every session of the app."""
+    scope_ceiling = _get_scope_ceiling()
+    if application.scopes != scope_ceiling or application.optional_scopes:
+        application.scopes = scope_ceiling
+        application.optional_scopes = []
+        application.save(update_fields=["scopes", "optional_scopes"])
+        logger.info("toolbar_oauth_scope_ceiling_updated", organization_id=application.organization_id)
+
+    # A refresh keeps a `*` token as `*` even under an explicit ceiling, and a code
+    # exchange mints the scopes its grant already holds, so the ceiling alone does not
+    # end either. The toolbar never asks for `*`, so these come only from a request
+    # made outside the toolbar flow. Revoking every session and grant of the app makes
+    # the toolbar sign in again under the ceiling. The check runs on every launch, not
+    # only when the ceiling changes, because an authorize request that read the app
+    # before the ceiling was saved can still store a `*` grant after it.
+    if not _has_wildcard_tokens_or_grants(application):
+        return False
+
+    revoke_application_sessions(application)
+    logger.info("toolbar_oauth_wildcard_sessions_revoked", organization_id=application.organization_id)
+    return True
+
+
+def _has_wildcard_tokens_or_grants(application: OAuthApplication) -> bool:
+    if OAuthAccessToken.with_scope(WILDCARD_SCOPE).filter(application=application).exists():
+        return True
+
+    return (
+        OAuthGrant.objects.alias(scope_tokens=oauth_scope_tokens_expression())
+        .filter(application=application, scope_tokens__contains=[WILDCARD_SCOPE])
+        .exists()
+    )
 
 
 class ToolbarOAuthStateCache:
@@ -63,9 +130,9 @@ class ToolbarOAuthStateCache:
     def mark_pending(self, nonce: str) -> None:
         cache.set(self._key(self._pending_prefix, nonce), True, timeout=self._timeout)
 
-    def claim_or_raise(self, nonce: str) -> None:
+    def claim_or_raise(self, nonce: str, code: str = "") -> None:
         """
-        Claim the nonce for one-time use.
+        Claim the nonce for one-time use, recording a digest of the authorization code that claimed it.
         Raises ToolbarOAuthError if already used (replay) or not found/expired.
         Uses the same external error for all failure modes to avoid leaking
         whether a nonce exists or was already consumed.
@@ -77,9 +144,17 @@ class ToolbarOAuthStateCache:
         if not cache.get(pending_key):
             raise ToolbarOAuthError("state_not_found", "OAuth state nonce not found or expired", 400)
         # cache.add is atomic: only one concurrent request can claim this nonce
-        if not cache.add(used_key, True, timeout=self._timeout):
+        if not cache.add(used_key, _code_digest(code), timeout=self._timeout):
             raise ToolbarOAuthError("state_replay", "OAuth state nonce already used", 400)
         cache.delete(pending_key)
+
+    def was_claimed_with(self, nonce: str, code: str) -> bool:
+        claimed_digest = cache.get(self._key(self._used_prefix, nonce))
+        return isinstance(claimed_digest, str) and hmac.compare_digest(claimed_digest, _code_digest(code))
+
+
+def _code_digest(code: str) -> str:
+    return hashlib.sha256(code.encode()).hexdigest()
 
 
 toolbar_oauth_state_cache = ToolbarOAuthStateCache()
@@ -91,6 +166,10 @@ class ToolbarOAuthError(Exception):
         self.detail = detail
         self.status_code = status_code
         super().__init__(detail)
+
+
+class ToolbarOAuthStateReplayError(ToolbarOAuthError):
+    """An earlier callback already claimed this state with the same code, so it may have handed the code over."""
 
 
 @dataclass
@@ -171,10 +250,7 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
         Organization.objects.select_for_update().get(pk=user.organization.pk)
 
         existing = OAuthApplication.objects.filter(
-            organization=user.organization,
-            name=app_name,
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            organization=user.organization, **_toolbar_application_fields()
         ).first()
 
         if existing:
@@ -187,6 +263,8 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
                     organization_id=user.organization.pk,
                     redirect_uri=redirect_uri,
                 )
+
+            _sync_scope_ceiling(existing)
             return existing
 
         _require_oidc_signing_key()
@@ -199,6 +277,7 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
             redirect_uris=redirect_uri,
             algorithm="RS256",
             is_first_party=True,
+            scopes=_get_scope_ceiling(),
         )
         logger.info(
             "toolbar_oauth_application_created",
@@ -206,6 +285,23 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
             redirect_uri=redirect_uri,
         )
         return app
+
+
+def sync_toolbar_scope_ceiling_on_refresh(application: OAuthApplication) -> bool:
+    """Apply the toolbar scope ceiling to the app of a refresh token, if it is the toolbar app.
+
+    A launch syncs the ceiling, but a toolbar that keeps a stored token only refreshes, and a
+    refresh token also works at `/oauth/token/` without the toolbar. Without this sync, an app
+    created before the ceiling existed keeps no ceiling, and its `*` tokens keep refreshing as `*`.
+
+    Returns whether the sync revoked every session of the app, which includes the refresh token
+    being presented.
+    """
+    if not _is_toolbar_application(application):
+        return False
+
+    with transaction.atomic():
+        return _sync_scope_ceiling(application)
 
 
 def build_toolbar_oauth_state(state: ToolbarOAuthState) -> tuple[str, datetime]:
@@ -241,6 +337,7 @@ def validate_and_consume_toolbar_oauth_state(
     signed_state: str,
     request_user: User,
     request_team: Team,
+    code: str,
 ) -> dict[str, Any]:
     """
     Verify state integrity and consume nonce to prevent replay.
@@ -268,12 +365,8 @@ def validate_and_consume_toolbar_oauth_state(
         logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason="missing_nonce")
         raise ToolbarOAuthError("invalid_state", "OAuth state is missing nonce", 400)
 
-    try:
-        toolbar_oauth_state_cache.claim_or_raise(nonce)
-    except ToolbarOAuthError as exc:
-        logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason=exc.code)
-        raise ToolbarOAuthError("invalid_state", "OAuth state is invalid", 400) from exc
-
+    # Check the binding before the nonce is claimed. A state of another user or team then cannot use up the
+    # owner's nonce, and it never reaches the replay error, which tells the callback to keep the grant.
     if payload.get("user_id") != request_user.pk:
         logger.warning("toolbar_oauth_state_validation_failed", code="state_user_mismatch")
         raise ToolbarOAuthError("state_user_mismatch", "OAuth state user mismatch", 400)
@@ -281,6 +374,14 @@ def validate_and_consume_toolbar_oauth_state(
     if payload.get("team_id") != request_team.pk:
         logger.warning("toolbar_oauth_state_validation_failed", code="state_team_mismatch")
         raise ToolbarOAuthError("state_team_mismatch", "OAuth state team mismatch", 400)
+
+    try:
+        toolbar_oauth_state_cache.claim_or_raise(nonce, code)
+    except ToolbarOAuthError as exc:
+        logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason=exc.code)
+        replays_claimed_code = exc.code == "state_replay" and toolbar_oauth_state_cache.was_claimed_with(nonce, code)
+        error_class = ToolbarOAuthStateReplayError if replays_claimed_code else ToolbarOAuthError
+        raise error_class("invalid_state", "OAuth state is invalid", 400) from exc
 
     app_url = payload.get("app_url")
     if not app_url:

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, router, transaction
 from django.db.models import (
     CharField,
     Count,
@@ -30,7 +30,6 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
-    TextChoices,
     UUIDField,
     Value,
 )
@@ -66,6 +65,7 @@ from posthog.api.openapi_parameters import make_filters_override_param, make_var
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.query_access_check import denied_query_resources
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.query import PlannedQuery
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import (
     check_can_add_insight_to_dashboard,
@@ -82,8 +82,6 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX, AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers import create_dashboard_from_template
-from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -107,6 +105,7 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import dashboard_v2_enabled
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -131,21 +130,8 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
+from products.ai_observability.backend.facade import api as ai_observability_api
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
-from products.dashboards.backend.constants import (
-    DASHBOARD_GRID_COLUMN_COUNT,
-    MAX_CACHED_TILES_BATCH_SIZE,
-    MAX_GROUP_KEY_LENGTH,
-    MAX_GROUP_TITLE_LENGTH,
-    MAX_GROUPS,
-    MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
-    MAX_WIDGETS_BATCH_SIZE,
-    RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
-    RUN_INSIGHTS_MAX_TOTAL_CHARS,
-    RUN_INSIGHTS_MIN_TILE_CHARS,
-)
 from products.dashboards.backend.customization import (
     normalize_dashboard_customization,
     normalized_group_key,
@@ -156,35 +142,74 @@ from products.dashboards.backend.customization import (
     validated_group_keys,
     without_default_settings,
 )
+from products.dashboards.backend.facade.access import (
+    dashboard_access_method,
+    record_dashboard_access,
+    record_dashboard_view,
+)
 from products.dashboards.backend.facade.api import (
+    CachedTileStatus,
     CannotAddToDashboard,
     add_insight_to_dashboard,
-    dashboard_v2_enabled,
+    apply_dashboard_template,
+    apply_dashboard_template_json,
+    board_stream_cached_event,
+    create_unlisted_dashboard,
+    read_cached_tiles,
     shared_tile_work,
     tile_ids_prefetch,
 )
+from products.dashboards.backend.facade.enums import (
+    DASHBOARD_GRID_COLUMN_COUNT,
+    DASHBOARD_GRID_COMPACTION_MODES,
+    DASHBOARD_GRID_SPACING_GAPS,
+    DASHBOARD_TILE_GROUP_DEFAULTS,
+    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+    MAX_GROUP_KEY_LENGTH,
+    MAX_GROUP_TITLE_LENGTH,
+    MAX_GROUPS,
+    MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+    MAX_WIDGETS_BATCH_SIZE,
+    DashboardAccessMethod,
+    DashboardTileBadge,
+    ResultFormat,
+)
 from products.dashboards.backend.facade.query_sharing import (
+    MAX_CACHED_TILES_BATCH_SIZE,
     DashboardQuerySharingStream,
     DashboardQuerySharingStreamEvent,
 )
-from products.dashboards.backend.models.dashboard import (
-    DASHBOARD_GRID_COMPACTION_MODES,
-    DASHBOARD_GRID_SPACING_GAPS,
-    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
-    Dashboard,
-)
-from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, DashboardTileBadge, Text
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.presentation.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
+from products.dashboards.backend.presentation.frames import (
+    FrameSerializer,
+    FramesRenderer,
+    cached_tile_format,
+    requires_parsed_result,
+)
 from products.dashboards.backend.presentation.query_sharing import (
     DashboardQuerySharingParamsSerializer,
     DashboardSharingDebugSerializer,
+    DashboardSharingRefreshType,
+)
+from products.dashboards.backend.presentation.run_insights_output import (
+    RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
+    RUN_INSIGHTS_MAX_TOTAL_CHARS,
+    RUN_INSIGHTS_MIN_TILE_CHARS,
+    bound_formatted_result,
+    parse_max_result_chars,
+    parse_tile_ids,
+    render_unsupported_result,
+    tile_budget,
+    tile_fits_response_budget,
+    unrun_tile_results,
 )
 from products.dashboards.backend.presentation.serializers import DashboardTileBasicSerializer
 from products.dashboards.backend.presentation.widget_openapi_serializers import (
-    DASHBOARD_TILE_GROUP_DEFAULTS,
     GROUP_TITLES_HELP_TEXT,
     GROUPS_HELP_TEXT,
     WIDGET_BATCH_ADD_OPENAPI_HELP,
@@ -196,15 +221,7 @@ from products.dashboards.backend.presentation.widget_openapi_serializers import 
     UpdateDashboardWidgetRequestOpenApi,
     WidgetCatalogResponseSerializer,
 )
-from products.dashboards.backend.run_insights_output import (
-    bound_formatted_result,
-    parse_max_result_chars,
-    parse_tile_ids,
-    render_unsupported_result,
-    tile_budget,
-    tile_fits_response_budget,
-    unrun_tile_results,
-)
+from products.dashboards.backend.presentation.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
@@ -214,7 +231,6 @@ from products.dashboards.backend.widget_availability import get_widget_feature_e
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
 from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
-from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
@@ -224,7 +240,7 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
-from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
+from products.mcp_analytics.backend.facade import api as mcp_analytics_api
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -242,6 +258,7 @@ from products.product_analytics.backend.presentation.insight import (
     InsightViewSet,
     get_insight_type,
     log_and_report_insight_activity,
+    memoize_last_call,
     viewable_insight_or_404,
 )
 from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions
@@ -373,6 +390,15 @@ DASHBOARD_SHARED_FIELDS = [
 
 VARIABLES_OVERRIDE_PARAM = make_variables_override_param(subject_label="dashboard", tool_name="dashboard-get")
 FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
+OMIT_TILE_RESULTS_PARAM = OpenApiParameter(
+    "omit_tile_results",
+    OpenApiTypes.BOOL,
+    description=(
+        "When true, return the layout and tile metadata without each insight tile's result, "
+        "to be read separately through stream_query_results with cached_first. Only honored where dashboard-v2 "
+        "is on. Elsewhere, and by default, tiles carry their cached results."
+    ),
+)
 
 
 tracer = trace.get_tracer(__name__)
@@ -1255,12 +1281,6 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
         return representation
 
 
-class DashboardQuerySharingEventSerializer(serializers.Serializer):
-    type = serializers.CharField(help_text="SSE event type: tile, complete, or error.")
-    tile = DashboardTileSerializer(required=False, help_text="Independently completed dashboard tile.")
-    debug = DashboardSharingDebugSerializer(required=False, help_text="Present only when debug is requested.")
-
-
 class InsightResultSerializer(InsightSerializer):
     """InsightSerializer restricted to identifiers, the result, and the warnings about that result."""
 
@@ -1332,13 +1352,6 @@ class RunInsightsResponseSerializer(serializers.Serializer):
     )
 
 
-class CachedTileStatus(TextChoices):
-    HIT = "hit", "Hit"
-    MISS = "miss", "Miss"
-    FORBIDDEN = "forbidden", "Forbidden"
-    NOT_FOUND = "not_found", "Not found"
-
-
 class CachedTileInsightResultSerializer(InsightSerializer):
     """The result fields of an insight tile, without the insight's own metadata.
 
@@ -1364,17 +1377,36 @@ class CachedTileInsightResultSerializer(InsightSerializer):
             "resolved_compare_date_range",
             "action_names",
             "warnings",
+            "query_scan",
+            "query",
         ]
         read_only_fields = fields
 
     def to_representation(self, instance: Insight) -> dict[str, Any]:
-        # InsightSerializer.to_representation rebuilds the insight's `query` and reads fields this serializer
-        # drops. The view checks insight access before any tile reaches this serializer.
+        # InsightSerializer.to_representation reads fields this serializer drops.
+        # The view checks insight access before any tile reaches this serializer.
         # The per-tile endpoint's `query` field maps stale variable IDs to current ones in place before the
-        # result is computed. This serializer has no `query` field, so it maps them here to read the same entry.
+        # result is computed. Here `query` renders after `result`, so map them first to read the same entry.
         if isinstance(instance.query, dict):
             self._query_variables_mapping(instance.query)
-        return serializers.ModelSerializer.to_representation(self, instance)
+        representation = serializers.ModelSerializer.to_representation(self, instance)
+        # The query the result was computed with, so a client that swaps in this result renders it with the same filters.
+        representation["query"] = self.effective_query(instance)
+        return representation
+
+    def plan_tile_query(self, insight: Insight) -> PlannedQuery | None:
+        """The query `to_representation` runs for the tile in context, planned with the same variable mapping."""
+        if isinstance(insight.query, dict):
+            self._query_variables_mapping(insight.query)
+        return self.plan_query(insight)
+
+    @memoize_last_call
+    def insight_result(self, insight: Insight) -> InsightResult:
+        tile = self.context.get("dashboard_tile")
+        planned = self.context.get("planned_queries", {}).get(tile.id) if tile is not None else None
+        if planned is None:
+            return super().insight_result(insight)
+        return self.planned_insight_result(insight, planned)
 
 
 class CachedTileResultSerializer(serializers.Serializer):
@@ -1391,10 +1423,43 @@ class CachedTileResultSerializer(serializers.Serializer):
     insight = CachedTileInsightResultSerializer(
         required=False, help_text="The cached result. Present only when status is 'hit'."
     )
+    format = serializers.ChoiceField(
+        choices=ResultFormat.choices,
+        required=False,
+        help_text=(
+            "Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces "
+            "`insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged."
+        ),
+    )
+    frames = FrameSerializer(
+        many=True, required=False, help_text="Chart-ready frames, one per series. Present when format is 'frames'."
+    )
 
 
 class CachedTilesResponseSerializer(serializers.Serializer):
     results = CachedTileResultSerializer(many=True, help_text="One entry per requested tile ID, in request order.")
+
+
+class DashboardStreamCachedTileSerializer(CachedTileResultSerializer):
+    stale = serializers.BooleanField(
+        required=False, help_text="Present on hits: whether the cached result is past its target age."
+    )
+
+
+class DashboardQuerySharingEventSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="SSE event type: cached, tile, complete, or error.")
+    tiles = DashboardStreamCachedTileSerializer(
+        many=True,
+        required=False,
+        help_text="On the cached event: every requested tile's cached result, in request order.",
+    )
+    pending = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="On the cached event: the tiles that will each get a tile event, in compute order.",
+    )
+    tile = DashboardTileSerializer(required=False, help_text="Independently completed dashboard tile.")
+    debug = DashboardSharingDebugSerializer(required=False, help_text="Present only when debug is requested.")
 
 
 class DashboardWidgetRunResultSerializer(serializers.Serializer):
@@ -2170,10 +2235,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
             if use_template:
                 try:
-                    create_dashboard_from_template(
-                        use_template,
-                        dashboard,
-                        cast(User, request.user),
+                    apply_dashboard_template(
+                        team_id=team_id,
+                        dashboard_id=dashboard.id,
+                        template_key=use_template,
+                        user_id=cast(User, request.user).id,
                         user_access_control=user_access_control,
                     )
                 except (AttributeError, ValueError) as error:
@@ -2185,6 +2251,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         exc_info=True,
                     )
                     raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                # The replica cannot see the row this transaction inserted.
+                dashboard.refresh_from_db(using=router.db_for_write(Dashboard))
                 # Group settings in the request apply on top of the template's groups, so they wait for the merge.
                 if has_groups or has_group_titles:
                     dashboard.customization = with_requested_groups(
@@ -3122,11 +3190,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Use the specified layout size to get the correct order for the current viewport
         sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
 
+        request_user = getattr(self.context.get("request"), "user", None)
         with (
             task_chain_context() if chained_tile_refresh_enabled else nullcontext(),
-            shared_tile_work(
-                team, str(getattr(getattr(self.context.get("request"), "user", None), "distinct_id", None) or team.uuid)
-            ),
+            shared_tile_work(team, request_user if isinstance(request_user, User) else None),
         ):
             # Handle case where there are no tiles
             if not sorted_tiles:
@@ -3136,7 +3203,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             # deep-copies every declared field of the tile + nested insight serializers, which
             # dominates CPU on large dashboards. Per-tile state is passed via the shared context.
             # (dashboard, insight) is unique per dashboard, so the per-instance insight_result
-            # lru_cache never leaks a result from one tile to another.
+            # cache never leaks a result from one tile to another.
             tile_context = {**self.context, **tile_insights_context(sorted_tiles)}
             reused_serializer = DashboardTileSerializer(context=tile_context)
             for order, tile in enumerate(sorted_tiles):
@@ -3195,6 +3262,33 @@ class DashboardActivitySummarySerializer(serializers.Serializer):
         help_text=f"Number of people, including the requesting user, who opened the dashboard in the app "
         f"in the last {ACTIVITY_SUMMARY_RECENT_VIEW_DAYS} days."
     )
+
+
+def _sql_tile_bucket(data: Any) -> str:
+    """Bucket the board's SQL-backed tile count so it can label a metric without unbounded cardinality."""
+
+    def as_dict(value: Any) -> dict:
+        # Error-fallback tiles keep whatever malformed query was saved, so any level may be a non-dict.
+        return value if isinstance(value, dict) else {}
+
+    count = 0
+    tiles = as_dict(data).get("tiles")
+    for tile in tiles if isinstance(tiles, list) else []:
+        query = as_dict(as_dict(as_dict(tile).get("insight")).get("query"))
+        if query.get("kind") == "HogQLQuery" or as_dict(query.get("source")).get("kind") == "HogQLQuery":
+            count += 1
+    if count == 0:
+        return "0"
+    if count <= 20:
+        return "1-20"
+    return "21-50" if count <= 50 else ">50"
+
+
+def _record_dashboard_view(dashboard: Dashboard, access_method: DashboardAccessMethod) -> None:
+    # The facade stamps its own copy of the row, so copy the stamp onto this instance before it is serialized.
+    last_accessed_at = record_dashboard_view(dashboard_id=dashboard.id, access_method=access_method)
+    if last_accessed_at is not None:
+        dashboard.last_accessed_at = last_accessed_at
 
 
 @extend_schema_view(
@@ -3275,8 +3369,8 @@ class DashboardsViewSet(
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     TEMPLATE_MAP = {
-        "llm-analytics": get_ai_observability_default_template,
-        "mcp-analytics": get_mcp_analytics_default_template,
+        "llm-analytics": ai_observability_api.default_dashboard_template,
+        "mcp-analytics": mcp_analytics_api.default_dashboard_template,
     }
 
     @validated_request(
@@ -3501,7 +3595,7 @@ class DashboardsViewSet(
 
         return queryset
 
-    @extend_schema(parameters=[VARIABLES_OVERRIDE_PARAM, FILTERS_OVERRIDE_PARAM])
+    @extend_schema(parameters=[VARIABLES_OVERRIDE_PARAM, FILTERS_OVERRIDE_PARAM, OMIT_TILE_RESULTS_PARAM])
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
@@ -3510,11 +3604,22 @@ class DashboardsViewSet(
         # Views during staff impersonation aren't the team's own activity - skip the write
         # so support sessions don't bump the team-facing "Last accessed" (it also feeds cache warming).
         if not is_impersonated(request):
-            record_dashboard_view(dashboard, access_method)
+            _record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
+        v2_enabled = self._dashboard_v2_enabled(request)
+        omit_results = str_to_bool(request.query_params.get("omit_tile_results")) and v2_enabled
+        if omit_results:
+            serializer_context["omit_insight_results"] = True
         serializer = DashboardSerializer(dashboard, context=serializer_context)
         data = serializer.data
+        # The middleware reads this off the underlying Django request, not the DRF wrapper.
+        request._request._pg_queries_labels = {  # type: ignore[attr-defined]
+            # The gate alone switches on batched tile work, so it is labelled apart from result omission.
+            "dashboard_v2": "true" if v2_enabled else "false",
+            "omit_results": "true" if omit_results else "false",
+            "sql_tiles": _sql_tile_bucket(data),
+        }
 
         response = Response(data)
 
@@ -3558,7 +3663,7 @@ class DashboardsViewSet(
         access_method = dashboard_access_method(request)
         # Skip the "Last accessed" bump during staff impersonation (see retrieve)
         if not is_impersonated(request):
-            record_dashboard_view(dashboard, access_method)
+            _record_dashboard_view(dashboard, access_method)
 
         context = self.get_serializer_context()
 
@@ -3683,7 +3788,8 @@ class DashboardsViewSet(
     # Tile events carry full insight payloads, so the metadata scopes apply on top of running queries.
     @action(methods=["GET"], detail=True, required_scopes=["dashboard:read", "insight:read", "query:read"])
     def stream_query_results(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
-        if request.user.is_anonymous or not is_query_sharing_enabled(self.team):
+        share_queries = not request.user.is_anonymous and is_query_sharing_enabled(self.team)
+        if not share_queries and not self._dashboard_v2_enabled(request):
             raise exceptions.PermissionDenied("Dashboard query sharing is not enabled.")
         params = DashboardQuerySharingParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -3718,19 +3824,32 @@ class DashboardsViewSet(
         )
         context.update(tile_insights_context(tiles))
         by_id = {tile.id: tile for tile in tiles}
+        initial_events: list[DashboardQuerySharingStreamEvent] = []
+        compute_ids = tile_ids
+        if params.validated_data["cached_first"]:
+            cached = board_stream_cached_event(
+                self._read_cached_tiles(request, dashboard, tile_ids),
+                force=params.validated_data["refresh"] == DashboardSharingRefreshType.FORCE_BLOCKING,
+            )
+            compute_ids = cached["pending"]
+            initial_events.append(cached)
+        order_of = {tile_id: order for order, tile_id in enumerate(tile_ids)}
         jobs: list[Callable[[], DashboardQuerySharingStreamEvent]] = []
-        for order, tile_id in enumerate(tile_ids):
+        for tile_id in compute_ids:
             tile = by_id[tile_id]
             level = access_by_team[tile.insight.team_id].get_user_access_level(tile.insight)
             if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
                 jobs.append(partial(_shared_tile_access_denied, tile_id))
             else:
-                jobs.append(partial(_serialize_shared_tile, tile, order, context))
+                jobs.append(partial(_serialize_shared_tile, tile, order_of[tile_id], context))
         stream = DashboardQuerySharingStream(
             jobs=jobs,
             team_id=self.team.pk,
             query_id=str(params.validated_data["client_query_id"]),
-            debug_tile_ids=tile_ids if params.validated_data["debug"] else (),
+            debug_tile_ids=compute_ids if params.validated_data["debug"] else (),
+            initial_events=initial_events,
+            share_queries=share_queries,
+            kind="board" if initial_events else "sharing",
         )
         return sse_streaming_response(
             stream.astream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else stream.stream(),
@@ -4343,7 +4462,13 @@ class DashboardsViewSet(
             if output_format == "optimized" and not tile_fits_response_budget(used_chars):
                 # Budget markers carry the insight name, so restricted tiles stay out of them.
                 tile_results.extend(
-                    unrun_tile_results([t for t in insight_tiles[index:] if t[1].id not in restricted_levels])
+                    unrun_tile_results(
+                        [
+                            (unrun_order, unrun_tile.id, unrun_insight)
+                            for unrun_order, unrun_tile, unrun_insight in insight_tiles[index:]
+                            if unrun_tile.id not in restricted_levels
+                        ]
+                    )
                 )
                 break
 
@@ -4406,6 +4531,15 @@ class DashboardsViewSet(
             ),
             VARIABLES_OVERRIDE_PARAM,
             FILTERS_OVERRIDE_PARAM,
+            OpenApiParameter(
+                "format",
+                OpenApiTypes.STR,
+                enum=["json", "frames"],
+                description=(
+                    "'frames' returns chart-ready frames instead of `insight.result` for trends line, area and "
+                    "bar tiles and for metrics tiles. Other tiles keep their result, with `format` 'result'."
+                ),
+            ),
         ],
         responses={200: CachedTilesResponseSerializer},
     )
@@ -4414,13 +4548,18 @@ class DashboardsViewSet(
         detail=True,
         url_path="cached_tiles",
         required_scopes=["dashboard:read", "insight:read"],
-        renderer_classes=[SafeJSONRenderer],
+        renderer_classes=[SafeJSONRenderer, FramesRenderer],
     )
     def cached_tiles(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Read the cached results of several insight tiles in one request. Never runs a query: a tile with
         nothing cached comes back as a miss, to be loaded through the insight endpoint."""
-        if not dashboard_v2_enabled(self.team, str(cast(User, request.user).distinct_id)):
+        if not self._dashboard_v2_enabled(request):
             raise exceptions.NotFound()
+        tile_ids = self._requested_tile_ids(request)
+        return Response({"results": self._read_cached_tiles(request, self.get_object(), tile_ids)})
+
+    @staticmethod
+    def _requested_tile_ids(request: Request) -> builtins.list[int]:
         # Covers the body as well as the query string: `resolve_execution_mode` honors either.
         if refresh_param_present(request):
             raise exceptions.ValidationError({"refresh": "This endpoint only reads cached results."})
@@ -4431,8 +4570,14 @@ class DashboardsViewSet(
             raise exceptions.ValidationError(
                 {"tile_ids": f"Request at most {MAX_CACHED_TILES_BATCH_SIZE} tiles at a time."}
             )
+        return tile_ids
 
-        dashboard = self.get_object()
+    def _dashboard_v2_enabled(self, request: Request) -> bool:
+        return dashboard_v2_enabled(self.team, request.user)
+
+    def _read_cached_tiles(
+        self, request: Request, dashboard: Dashboard, tile_ids: builtins.list[int]
+    ) -> builtins.list[dict[str, Any]]:
         tiles_by_id = {
             tile.id: (tile, insight)
             for tile in DashboardTile.dashboard_queryset(dashboard.tiles.filter(id__in=tile_ids))
@@ -4444,27 +4589,44 @@ class DashboardsViewSet(
         context["dashboard"] = dashboard
         context["dashboard_access_method"] = dashboard_access_method(request)
         context["compute_surface"] = ComputeSurface.DASHBOARD_CACHED_TILES
+        wants_frames = request.query_params.get("format") == FramesRenderer.format
         # Built once: a serializer per tile deep-copies every declared insight field each time.
         insight_serializer = CachedTileInsightResultSerializer(context=context)
 
-        results: list[dict[str, Any]] = []
-        for tile_id in tile_ids:
-            tile_and_insight = tiles_by_id.get(tile_id)
-            if tile_and_insight is None:
-                results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
-                continue
-            tile, insight = tile_and_insight
-            if tile_id in restricted_levels:
-                results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
-                continue
+        def tile_insight(tile_id: int) -> Insight:
+            tile, insight = tiles_by_id[tile_id]
             context["dashboard_tile"] = tile
-            insight_data = insight_serializer.to_representation(insight)
-            if not insight_data.get("is_cached"):
-                results.append({"id": tile_id, "status": CachedTileStatus.MISS})
-                continue
-            results.append({"id": tile_id, "status": CachedTileStatus.HIT, "insight": insight_data})
+            # Frames are built from the parsed result, not the raw cached bytes.
+            context["require_parsed_results"] = wants_frames and requires_parsed_result(insight.query)
+            return insight
 
-        return Response({"results": results})
+        tile_formats: dict[int, dict[str, Any]] = {}
+
+        def serialize_tile(tile_id: int) -> dict[str, Any]:
+            insight = tile_insight(tile_id)
+            insight_data = insight_serializer.to_representation(insight)
+            if wants_frames and insight_data.get("is_cached"):
+                # Built here, while the serializer still holds this tile's result from the batched cache read.
+                tile_formats[tile_id] = cached_tile_format(
+                    insight_data,
+                    insight_serializer.effective_query(insight),
+                    insight_serializer.insight_result(insight),
+                )
+            return insight_data
+
+        results = read_cached_tiles(
+            team=self.team,
+            user=cast(User, request.user),
+            tile_ids=tile_ids,
+            found_tile_ids=tiles_by_id.keys(),
+            forbidden_tile_ids=restricted_levels.keys(),
+            plan_tile=lambda tile_id: insight_serializer.plan_tile_query(tile_insight(tile_id)),
+            serialize_tile=serialize_tile,
+            context=context,
+        )
+        for result in results:
+            result |= tile_formats.get(result["id"], {})
+        return results
 
     @extend_schema(
         parameters=[
@@ -4826,14 +4988,15 @@ class DashboardsViewSet(
         )
 
         try:
-            dashboard_template = dashboard_template_from_creation_payload(template_body)
             creation_context = request.data.get("creation_context")
-            create_from_template(
-                dashboard,
-                dashboard_template,
-                cast(User, request.user),
+            apply_dashboard_template_json(
+                team_id=self.team_id,
+                dashboard_id=dashboard.id,
+                template=template_body,
+                user_id=cast(User, request.user).id,
                 user_access_control=UserAccessControl(user=cast(User, request.user), team=self.team),
             )
+            dashboard.refresh_from_db(using=router.db_for_write(Dashboard))
 
             raw_scope = template_body.get("scope")
             if raw_scope is None or raw_scope == "":
@@ -4847,7 +5010,7 @@ class DashboardsViewSet(
                 {
                     **dashboard.get_analytics_metadata(),
                     "from_template": True,
-                    "template_key": dashboard_template.template_name,
+                    "template_key": template_body["template_name"],
                     **template_scope_props,
                     "duplicated": False,
                     "creation_context": creation_context,
@@ -4889,7 +5052,10 @@ class DashboardsViewSet(
         with transaction.atomic():
             Team.objects.select_for_update().filter(id=self.team_id).first()
 
-            existing = Dashboard.objects.filter(
+            # Read from the writer: a replica cannot see a dashboard that a concurrent request just
+            # committed, which breaks this uniqueness check, or the row created below in this transaction.
+            writer_dashboards = Dashboard.objects.using(router.db_for_write(Dashboard))
+            existing = writer_dashboards.filter(
                 team=self.team,
                 deleted=False,
                 creation_mode="unlisted",
@@ -4902,22 +5068,10 @@ class DashboardsViewSet(
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            template = self.TEMPLATE_MAP[tag]()
-            dashboard = Dashboard.objects.create(
-                team_id=self.team_id,
-                name=template.template_name,
-                description=template.dashboard_description or "",
-                filters={**(template.dashboard_filters or {}), "__template_version": 1},
-                created_by=cast(User, request.user),
-                creation_mode="unlisted",
+            created = create_unlisted_dashboard(
+                team=self.team, user=cast(User, request.user), template=self.TEMPLATE_MAP[tag]()
             )
-
-            create_from_template(
-                dashboard,
-                template,
-                cast(User, request.user),
-                user_access_control=UserAccessControl(user=cast(User, request.user), team=self.team),
-            )
+            dashboard = writer_dashboards.get(team_id=self.team_id, pk=created.id)
 
             return Response(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,

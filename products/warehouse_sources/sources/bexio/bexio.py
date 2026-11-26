@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from dateutil import parser
 from requests import Request
@@ -13,13 +13,17 @@ from products.warehouse_sources.sources.bexio.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    ClientConfig,
     Endpoint,
     EndpointResource,
     OffsetPaginator,
     PageNumberPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -34,6 +38,11 @@ INCREMENTAL_ORDER_BY = "updated_at,id"
 class BexioResumeConfig:
     offset: Optional[int] = None
     page: Optional[int] = None
+    # Fan-out endpoints resume by parent: the child paths already read, the one in progress and its
+    # paginator state. See `_make_paginate_dependent_resource` in the shared REST framework.
+    completed: Optional[list[str]] = None
+    current: Optional[str] = None
+    child_state: Optional[dict[str, Any]] = None
 
 
 def format_bexio_datetime(value: Any) -> str:
@@ -65,8 +74,10 @@ class BexioSearchPaginator(OffsetPaginator):
 
 
 def _paginator(config: BexioEndpointConfig) -> BasePaginator:
+    if config.pagination == "single":
+        return SinglePagePaginator()
     if config.pagination == "page":
-        return PageNumberPaginator(base_page=1, page_param="page", total_path="paging.page_count")
+        return PageNumberPaginator(base_page=1, page_param="page", total_path=config.page_count_path)
     return OffsetPaginator(limit=OFFSET_PAGE_SIZE, offset_param="offset", limit_param="limit", total_path=None)
 
 
@@ -77,7 +88,7 @@ def get_resource(
 ) -> EndpointResource:
     params: dict[str, Any] = {}
     if config.pagination == "page":
-        params["limit"] = PAGE_NUMBER_PAGE_SIZE
+        params[config.page_size_param] = PAGE_NUMBER_PAGE_SIZE
 
     endpoint: Endpoint = {"path": config.path, "params": params, "paginator": _paginator(config)}
     if config.data_selector:
@@ -106,31 +117,90 @@ def get_resource(
     return {
         "name": config.name,
         "table_name": config.name,
-        "primary_key": ["id"],
+        "primary_key": list(config.primary_keys),
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if is_incremental else "replace",
         "endpoint": endpoint,
         "table_format": "delta",
     }
 
 
-def bexio_source(
+def _client_config(api_token: str) -> ClientConfig:
+    return {
+        "base_url": BEXIO_BASE_URL,
+        "auth": {"type": "bearer", "token": api_token},
+        "headers": {"Accept": "application/json"},
+    }
+
+
+def _endpoint_extra(config: BexioEndpointConfig) -> Endpoint:
+    extra: Endpoint = {"paginator": _paginator(config)}
+    if config.data_selector:
+        extra["data_selector"] = config.data_selector
+    return extra
+
+
+def _fanout_resource(
+    config: BexioEndpointConfig,
     api_token: str,
-    endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BexioResumeConfig],
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Optional[Any],
-) -> SourceResponse:
-    config = BEXIO_ENDPOINTS[endpoint]
-    is_incremental = should_use_incremental_field and config.search_path is not None
+) -> Resource:
+    assert config.fanout is not None
+    parent_config = BEXIO_ENDPOINTS[config.fanout.parent_name]
 
+    initial_state: Optional[dict[str, Any]] = None
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and (resume.completed or resume.current):
+        initial_state = {
+            "completed": resume.completed or [],
+            "current": resume.current,
+            "child_state": resume.child_state,
+        }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(
+                BexioResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    # The helper returns the child `Resource` but declares a plain iterable.
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=BEXIO_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(api_token),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra=_endpoint_extra(parent_config),
+            child_endpoint_extra=_endpoint_extra(config),
+            # A single-page child takes no page-size parameter. An offset parent sets its own `limit`.
+            page_size_param=None if config.pagination == "single" else "limit",
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        ),
+    )
+
+
+def _top_level_resource(
+    config: BexioEndpointConfig,
+    api_token: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BexioResumeConfig],
+    is_incremental: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> Resource:
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": BEXIO_BASE_URL,
-            "auth": {"type": "bearer", "token": api_token},
-            "headers": {"Accept": "application/json"},
-        },
+        "client": _client_config(api_token),
         "resource_defaults": {},
         "resources": [get_resource(config, is_incremental, db_incremental_field_last_value)],
     }
@@ -149,7 +219,7 @@ def bexio_source(
         elif state.get("offset") is not None:
             resumable_source_manager.save_state(BexioResumeConfig(offset=int(state["offset"])))
 
-    resource = rest_api_resource(
+    return rest_api_resource(
         rest_config,
         team_id,
         job_id,
@@ -158,10 +228,36 @@ def bexio_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+
+def bexio_source(
+    api_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BexioResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> SourceResponse:
+    config = BEXIO_ENDPOINTS[endpoint]
+    is_incremental = should_use_incremental_field and config.search_path is not None
+
+    if config.fanout is not None:
+        resource = _fanout_resource(config, api_token, team_id, job_id, resumable_source_manager)
+    else:
+        resource = _top_level_resource(
+            config,
+            api_token,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            is_incremental,
+            db_incremental_field_last_value,
+        )
+
     return SourceResponse(
         name=config.name,
         items=lambda: resource,
-        primary_keys=["id"],
+        primary_keys=list(config.primary_keys),
         column_hints=resource.column_hints,
         # Only the incremental path sorts on `updated_at`, through an explicit `order_by`.
         sort_mode="asc" if is_incremental else None,

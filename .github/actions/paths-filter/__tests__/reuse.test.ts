@@ -18,6 +18,7 @@ import {
 jest.mock('@actions/core')
 jest.mock('@actions/github', () => ({context: {repo: {owner: 'PostHog', repo: 'posthog'}}, getOctokit: jest.fn()}))
 
+const CURRENT_HEAD = 'c'.repeat(40)
 const PREVIOUS_HEAD = 'a'.repeat(40)
 const EARLIER_HEAD = 'd'.repeat(40)
 const BASE = 'b'.repeat(40)
@@ -67,6 +68,7 @@ function pullRequest(overrides: Record<string, unknown> = {}): PullRequest {
   return {
     number: 7,
     draft: false,
+    created_at: '2026-11-10T10:00:00Z',
     labels: [],
     head: {sha: 'c'.repeat(40), ref: 'feature', repo: {full_name: 'PostHog/posthog'}},
     base: {sha: BASE, ref: 'master', repo: {full_name: 'PostHog/posthog'}},
@@ -94,7 +96,8 @@ function api(overrides: Partial<ReuseApi> = {}): () => ReuseApi {
     filesAt: async () => files(appFile),
     checkRuns: async () => [green],
     modes: async (_, paths) => new Map(paths.map(path => [path, 33188])),
-    pullCommits: async () => [EARLIER_HEAD, PREVIOUS_HEAD],
+    branchHeads: async () => [CURRENT_HEAD, PREVIOUS_HEAD, EARLIER_HEAD],
+    blobs: async (shas, paths) => new Map(shas.map(sha => [sha, paths.map(() => 'blob')])),
     pullsWithCommit: async () => [7],
     timeline: async () => ({readyForReviewAt: READY_AT, baseChangedAt: null}),
     changedOnBranchSince: async () => false,
@@ -152,23 +155,23 @@ describe('reuse of an earlier passing result', () => {
       'previous-not-green'
     ],
     [
-      'the previous gate is still running',
+      'no head finished the suite',
       {},
       {checkRuns: async () => [{...green, status: 'in_progress', conclusion: null}]},
-      'previous-not-green'
+      'no-proven-run'
     ],
     [
-      'one of several previous gate runs was cancelled',
+      'one of several gate runs was cancelled on every head',
       {},
       {checkRuns: async () => [green, {...green, conclusion: 'cancelled'}]},
-      'previous-not-green'
+      'no-proven-run'
     ],
-    ['the previous head has no gate run', {}, {checkRuns: async () => []}, 'previous-not-green'],
+    ['no head has a gate run', {}, {checkRuns: async () => []}, 'no-proven-run'],
     [
       'the only green gate came from another App',
       {},
       {checkRuns: async () => [{...green, app: 'some-other-app'}]},
-      'previous-not-green'
+      'no-proven-run'
     ],
     [
       'a scoped input lost its executable bit',
@@ -202,11 +205,24 @@ describe('reuse of an earlier passing result', () => {
       'previous-not-green'
     ],
     [
+      'a newer head with other inputs failed after the earlier green head',
+      {},
+      {
+        filesAt: async (_base, sha) =>
+          sha === PREVIOUS_HEAD ? files({...appFile, sha: 'app-broken'}) : files(appFile),
+        checkRuns: runsByHead({
+          [PREVIOUS_HEAD]: {[GATE]: [{...green, conclusion: 'failure'}]},
+          [EARLIER_HEAD]: {[GATE]: [green], [PROOF]: [green]}
+        })
+      },
+      'previous-not-green'
+    ],
+    [
       'no earlier head ran the suite',
       {},
       {
         checkRuns: runsByHead({[PREVIOUS_HEAD]: {[GATE]: [green], [PROOF]: [skipped]}}),
-        pullCommits: async () => [PREVIOUS_HEAD]
+        branchHeads: async () => [CURRENT_HEAD, PREVIOUS_HEAD]
       },
       'no-proven-run'
     ],
@@ -220,7 +236,7 @@ describe('reuse of an earlier passing result', () => {
         }),
         filesAt: async (_, sha) => (sha === EARLIER_HEAD ? files({...appFile, sha: 'app-v0'}) : files(appFile))
       },
-      'inputs-changed'
+      'no-proven-run'
     ],
     [
       'the pull request changed the filters',
@@ -241,6 +257,12 @@ describe('reuse of an earlier passing result', () => {
       'base-changed'
     ],
     ['another pull request shares the head that ran', {}, {pullsWithCommit: async () => [7, 8]}, 'shared-head'],
+    [
+      'the head ran before the pull request was opened',
+      {pr: pullRequest({created_at: '2026-11-10T13:30:00Z'})},
+      {},
+      'shared-head'
+    ],
     ['the run is more than a day old', {now: NOW + 2 * 24 * 60 * 60 * 1000}, {}, 'previous-too-old'],
     ['the workflow is re-run', {runAttempt: 2}, {}, 're-run'],
     ['the file that defines the filters is unknown', {config: {...config, filterSource: null}}, {}, 'error'],
@@ -326,6 +348,133 @@ describe('reuse of an earlier passing result', () => {
     expect(decision).toMatchObject({reuse: true, previousSha: EARLIER_HEAD})
   })
 
+  test('a push that restores the inputs of an earlier green head reuses it when the previous head passed with other inputs', async () => {
+    const decision = await evaluate(
+      input(),
+      api({
+        filesAt: async (_base, sha) => (sha === PREVIOUS_HEAD ? files({...appFile, sha: 'app-v2'}) : files(appFile)),
+        checkRuns: runsByHead({
+          [PREVIOUS_HEAD]: {[GATE]: [green], [PROOF]: [green]},
+          [EARLIER_HEAD]: {[GATE]: [green], [PROOF]: [green]}
+        })
+      })
+    )
+
+    expect(decision).toMatchObject({reuse: true, previousSha: EARLIER_HEAD, headsBehind: 1})
+  })
+
+  test('an earlier head that cannot be compared stops the search before an older green head', async () => {
+    const OLDEST_HEAD = 'e'.repeat(40)
+
+    const decision = await evaluate(
+      input(),
+      api({
+        branchHeads: async () => [CURRENT_HEAD, PREVIOUS_HEAD, EARLIER_HEAD, OLDEST_HEAD],
+        filesAt: async (_base, sha) => {
+          if (sha === PREVIOUS_HEAD) {
+            return files({...appFile, sha: 'app-broken'})
+          }
+          return sha === EARLIER_HEAD ? null : files(appFile)
+        },
+        checkRuns: runsByHead({
+          [EARLIER_HEAD]: {[GATE]: [{...green, conclusion: 'failure'}]},
+          [OLDEST_HEAD]: {[GATE]: [green], [PROOF]: [green]}
+        })
+      })
+    )
+
+    expect(decision).toMatchObject({reuse: false, reason: 'file-list-truncated', detail: EARLIER_HEAD})
+  })
+
+  test('a superseded previous head does not stop the search for the head that ran', async () => {
+    const decision = await evaluate(
+      input(),
+      api({
+        checkRuns: runsByHead({
+          [PREVIOUS_HEAD]: {[GATE]: [{...green, conclusion: 'cancelled'}]},
+          [EARLIER_HEAD]: {[GATE]: [green], [PROOF]: [green]}
+        })
+      })
+    )
+
+    expect(decision).toMatchObject({reuse: true, previousSha: EARLIER_HEAD})
+  })
+
+  test('a failed head stops the search before it reads the gates of much older heads', async () => {
+    const olderHeads = Array.from({length: 20}, (_, index) => index.toString(16).padStart(40, 'f'))
+    const matchingHead = olderHeads[olderHeads.length - 1]
+    const headsRead = new Set<string>()
+
+    const decision = await evaluate(
+      input(),
+      api({
+        branchHeads: async () => [CURRENT_HEAD, PREVIOUS_HEAD, ...olderHeads],
+        filesAt: async (_base, sha) => (sha === matchingHead ? files(appFile) : files({...appFile, sha: 'app-other'})),
+        blobs: async (shas, paths) =>
+          new Map(shas.map(sha => [sha, paths.map(() => (sha === PREVIOUS_HEAD ? 'other' : 'blob'))])),
+        checkRuns: async (sha, name) => {
+          headsRead.add(sha)
+          return sha === PREVIOUS_HEAD && name === GATE ? [{...green, conclusion: 'failure'}] : [green]
+        }
+      })
+    )
+
+    expect(decision).toMatchObject({reuse: false, reason: 'previous-not-green'})
+    expect(headsRead.size).toBeLessThan(olderHeads.length / 2)
+  })
+
+  test.each<[string, Partial<ReuseApi>]>([
+    [
+      'their sampled blobs differ',
+      {
+        blobs: async (shas, paths) =>
+          new Map(shas.map(sha => [sha, paths.map(() => (sha === CURRENT_HEAD ? 'v2' : 'v1'))]))
+      }
+    ],
+    ['an input outside the sampled blobs differs', {}]
+  ])('a push that changes an input reads no check runs from heads where %s', async (_, overrides) => {
+    const headsRead: string[] = []
+
+    const decision = await evaluate(
+      input({files: files({...appFile, sha: 'app-v2'})}),
+      api({
+        ...overrides,
+        checkRuns: async sha => {
+          headsRead.push(sha)
+          return [green]
+        }
+      })
+    )
+
+    expect(decision).toMatchObject({reuse: false, reason: 'inputs-changed', detail: 'frontend/src/app.ts'})
+    expect(headsRead).toEqual([])
+  })
+
+  test.each<[string, Partial<ReuseApi>, number | null]>([
+    [
+      'the branch activity cannot be listed',
+      {
+        branchHeads: async () => {
+          throw new Error('403')
+        }
+      },
+      null
+    ],
+    [
+      'the contents of earlier heads cannot be read',
+      {
+        blobs: async () => {
+          throw new Error('502')
+        }
+      },
+      2
+    ]
+  ])('the previous head is still reused when %s', async (_, overrides, earlierHeads) => {
+    const decision = await evaluate(input(), api(overrides))
+
+    expect(decision).toMatchObject({reuse: true, previousSha: PREVIOUS_HEAD, earlierHeads})
+  })
+
   test('a draft reuses a gate that ran before any ready-for-review event', async () => {
     const decision = await evaluate(
       input({pr: pullRequest({draft: true})}),
@@ -373,7 +522,11 @@ describe('reuse of an earlier passing result', () => {
                 sha: `s${i}`
               }))
             }),
-            listCommits: record('commits', [{sha: 'x'}])
+            listCommits: record('commits', [{sha: 'x'}]),
+            listActivities: record('activity', [
+              {after: PREVIOUS_HEAD, activity_type: 'force_push'},
+              {after: EARLIER_HEAD, activity_type: 'push'}
+            ])
           },
           checks: {
             listForRef: record('checks', {
@@ -382,17 +535,14 @@ describe('reuse of an earlier passing result', () => {
               ]
             }),
             listSuitesForRef: 'listSuitesForRef'
-          },
-          pulls: {listCommits: 'listCommits'}
+          }
         },
         paginate: async (method: string, params: Record<string, unknown>) => {
           requests[method] = params
-          return method === 'listSuitesForRef'
-            ? [
-                {id: 1, created_at: '2026-11-10T12:00:00Z'},
-                {id: 2, created_at: '2026-11-10T13:00:00Z'}
-              ]
-            : [{sha: EARLIER_HEAD}, {sha: PREVIOUS_HEAD}]
+          return [
+            {id: 1, created_at: '2026-11-10T12:00:00Z'},
+            {id: 2, created_at: '2026-11-10T13:00:00Z'}
+          ]
         },
         graphql: async (query: string, variables: Record<string, unknown>) => {
           requests.graphql = variables
@@ -401,7 +551,11 @@ describe('reuse of an earlier passing result', () => {
             : {
                 repository: {
                   t0: {entries: [{name: 'ci-wait', mode: 33261}]},
-                  t1: {entries: [{name: 'package.json', mode: 33188}]}
+                  t1: {entries: [{name: 'package.json', mode: 33188}]},
+                  b0_0: {oid: 'app-v2'},
+                  b0_1: null,
+                  b1_0: {oid: 'app-v1'},
+                  b1_1: {oid: 'old-v1'}
                 }
               }
         }
@@ -433,6 +587,26 @@ describe('reuse of an earlier passing result', () => {
           ['bin/ci-wait', 33261],
           ['package.json', 33188],
           ['bin/gone', null]
+        ])
+      )
+    })
+
+    test('lists the heads the branch had in the last day, force pushes included', async () => {
+      expect(await adapter(0).branchHeads('feature')).toEqual([PREVIOUS_HEAD, EARLIER_HEAD])
+      expect(requests.activity).toMatchObject({ref: 'refs/heads/feature', time_period: 'day'})
+    })
+
+    test('reads the blob of each path on each head, and null where the path is absent', async () => {
+      const blobs = await adapter(0).blobs([CURRENT_HEAD, PREVIOUS_HEAD], ['frontend/src/app.ts', 'frontend/old.ts'])
+
+      expect(requests.graphql).toMatchObject({
+        e0_1: `${CURRENT_HEAD}:frontend/old.ts`,
+        e1_0: `${PREVIOUS_HEAD}:frontend/src/app.ts`
+      })
+      expect(blobs).toEqual(
+        new Map([
+          [CURRENT_HEAD, ['app-v2', null]],
+          [PREVIOUS_HEAD, ['app-v1', 'old-v1']]
         ])
       )
     })

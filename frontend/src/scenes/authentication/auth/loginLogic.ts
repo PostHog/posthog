@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
+import { isSocialProviderHeldBack } from 'lib/components/SocialLoginButton/socialProviderRollout'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -19,6 +20,7 @@ import { redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { type InboxProvider, parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
+import { radarSignalsFields, startRadarSignalsFor } from 'scenes/authentication/shared/radarSignalsLoader'
 import {
     clearPendingVerificationEmail,
     normalizeVerificationCode,
@@ -88,49 +90,33 @@ function precheckFallback(email: string): PrecheckResponseType {
 // Matches the backend's CodeBasedVerificationResendThrottle (1/minute), which also counts the first send
 export const CODE_RESEND_COOLDOWN_MS = 60_000
 
-// The longest a login waits for the Radar token, chunk download included, before it goes without one
-const RADAR_SIGNALS_WAIT_MS = 3000
-
-// Loaded only when precheck asks for it, so the login page downloads nothing extra while Radar is off
-function startRadarSignalsFor(precheckResponse: PrecheckResponseType): void {
-    const clientId = precheckResponse.radar_client_id
-    if (!clientId) {
-        return
-    }
-    void import('scenes/authentication/shared/radarSignals')
-        .then(({ startRadarSignals }) => startRadarSignals(clientId))
-        .catch(() => undefined)
+interface LoginChallenge {
+    nonce: string
+    siteKey: string
 }
 
-async function radarSignalsIdFor(precheckResponse: PrecheckResponseType): Promise<string> {
-    if (!precheckResponse.radar_client_id) {
-        return ''
-    }
-    const radarSignals = import('scenes/authentication/shared/radarSignals')
-    const lookup = radarSignals.then(({ getRadarSignalsId }) => getRadarSignalsId()).catch(() => '')
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const deadline = new Promise<string>((resolve) => {
-        timer = setTimeout(() => resolve(''), RADAR_SIGNALS_WAIT_MS)
-    })
-    try {
-        const radarSignalsId = await Promise.race([lookup, deadline])
-        if (radarSignalsId) {
-            // Marked only when the token goes out, so a token that arrives after the deadline is still sent with the next attempt
-            const { markRadarSignalsIdSent } = await radarSignals
-            markRadarSignalsIdSent(radarSignalsId)
-        }
-        return radarSignalsId
-    } finally {
-        clearTimeout(timer)
-    }
+interface SolvedLoginChallenge {
+    nonce: string
+    token: string
 }
 
 async function loginRequestBody(
     login: LoginForm,
-    precheckResponse: PrecheckResponseType
+    precheckResponse: PrecheckResponseType,
+    solvedChallenge: SolvedLoginChallenge | null
 ): Promise<Record<string, string>> {
-    const radarSignalsId = await radarSignalsIdFor(precheckResponse)
-    return radarSignalsId ? { ...login, radar_signals_id: radarSignalsId } : { ...login }
+    return {
+        ...login,
+        ...(await radarSignalsFields(precheckResponse.radar_client_id)),
+        ...(solvedChallenge ? { turnstile_token: solvedChallenge.token, challenge_nonce: solvedChallenge.nonce } : {}),
+    }
+}
+
+function challengeRequiredBy(error: unknown): LoginChallenge | null {
+    const { code, data } = error as ApiError
+    const nonce = data?.extra?.challenge_nonce
+    const siteKey = data?.extra?.turnstile_site_key
+    return code === 'challenge_required' && nonce && siteKey ? { nonce, siteKey } : null
 }
 
 function resendFailureMessage(code: string | undefined, detail: string | undefined): string {
@@ -190,12 +176,14 @@ export interface loginLogicValues {
     isPasswordLoginUnavailable: boolean
     login: LoginForm
     loginAllErrors: Record<string, any>
+    loginChallenge: LoginChallenge | null
     loginChanged: boolean
     loginErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     loginHasErrors: boolean
     loginManualErrors: Record<string, any>
     loginTouched: boolean
     loginTouches: Record<string, boolean>
+    loginTurnstileToken: string | null
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     passkeyPromptedForEmail: string | null
     precheckResponse: PrecheckResponseType
@@ -210,6 +198,7 @@ export interface loginLogicValues {
     setPasswordLinkSentToLoading: boolean
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
+    solvedLoginChallenge: SolvedLoginChallenge | null
     wasSignedOutForSessionRisk: boolean
 }
 
@@ -281,6 +270,9 @@ export interface loginLogicActions {
     resetLogin: (values?: LoginForm) => {
         values?: LoginForm
     }
+    resetLoginChallenge: () => {
+        value: true
+    }
     sendSetPasswordLink: (email: string) => string
     sendSetPasswordLinkFailure: (
         error: string,
@@ -324,8 +316,18 @@ export interface loginLogicActions {
         code: string
         detail: string
     }
+    setLoginChallenge: (
+        nonce: string,
+        siteKey: string
+    ) => {
+        nonce: string
+        siteKey: string
+    }
     setLoginManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
+    }
+    setLoginTurnstileToken: (token: string) => {
+        token: string
     }
     setLoginValue: (
         key: FieldName,
@@ -387,6 +389,10 @@ export interface loginLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        solvedLoginChallenge: (
+            loginChallenge: LoginChallenge | null,
+            loginTurnstileToken: string | null
+        ) => SolvedLoginChallenge | null
         codeResendAvailableAt: (codeSentAt: number | null) => number | null
         isPasswordLoginUnavailable: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
         availableLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
@@ -399,7 +405,7 @@ export interface loginLogicMeta {
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
-        instanceSocialProviders: (preflight: PreflightStatus | null) => SSOProvider[]
+        instanceSocialProviders: (preflight: PreflightStatus | null, featureFlags: FeatureFlagsSet) => SSOProvider[]
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
     }
 }
@@ -433,8 +439,26 @@ export const loginLogic = kea<loginLogicType>([
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
         markPasskeyPrompted: (email: string) => ({ email }),
+        setLoginChallenge: (nonce: string, siteKey: string) => ({ nonce, siteKey }),
+        setLoginTurnstileToken: (token: string) => ({ token }),
+        resetLoginChallenge: true,
     }),
     reducers({
+        loginChallenge: [
+            null as LoginChallenge | null,
+            {
+                setLoginChallenge: (_, challenge) => challenge,
+                resetLoginChallenge: () => null,
+            },
+        ],
+        loginTurnstileToken: [
+            null as string | null,
+            {
+                setLoginTurnstileToken: (_, { token }) => token,
+                setLoginChallenge: () => null,
+                resetLoginChallenge: () => null,
+            },
+        ],
         // This is separate from the login form, so that the form can be submitted even if a general error is present
         generalError: [
             null as { code: string; detail: string } | null,
@@ -625,10 +649,21 @@ export const loginLogic = kea<loginLogicType>([
                 // Clear any previous passkey errors when submitting with password
                 actions.clearGeneralError()
                 try {
-                    const body = await loginRequestBody({ email, password }, values.precheckResponse)
+                    const body = await loginRequestBody(
+                        { email, password },
+                        values.precheckResponse,
+                        values.solvedLoginChallenge
+                    )
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login', body)
                 } catch (e) {
+                    const challenge = challengeRequiredBy(e)
+                    if (challenge) {
+                        actions.setLoginChallenge(challenge.nonce, challenge.siteKey)
+                        throw e
+                    }
+                    // The server used the nonce up, so the next submit gets a new verdict
+                    actions.resetLoginChallenge()
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
                         const next: string | undefined = router.values.searchParams.next
@@ -682,7 +717,6 @@ export const loginLogic = kea<loginLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login/code-based-verification', {
                         code: normalizeVerificationCode(code),
-                        email: values.login.email,
                     })
                 } catch (e) {
                     const { detail } = e as Record<string, any>
@@ -695,6 +729,13 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     selectors(() => ({
+        solvedLoginChallenge: [
+            (s) => [s.loginChallenge, s.loginTurnstileToken],
+            (loginChallenge: LoginChallenge | null, loginTurnstileToken: string | null): SolvedLoginChallenge | null =>
+                loginChallenge && loginTurnstileToken
+                    ? { nonce: loginChallenge.nonce, token: loginTurnstileToken }
+                    : null,
+        ],
         codeResendAvailableAt: [
             (s) => [s.codeSentAt],
             (codeSentAt: number | null): number | null =>
@@ -762,13 +803,14 @@ export const loginLogic = kea<loginLogicType>([
                     : null,
         ],
         instanceSocialProviders: [
-            (s) => [s.preflight],
-            (preflight: PreflightStatus | null): SSOProvider[] => {
+            (s) => [s.preflight, s.featureFlags],
+            (preflight: PreflightStatus | null, featureFlags: FeatureFlagsSet): SSOProvider[] => {
                 const order = Object.keys(SSO_PROVIDER_NAMES)
                 return (
                     (Object.entries(preflight?.available_social_auth_providers ?? {}) as [SSOProvider, boolean][])
                         // SAML and OIDC are domain-configured and never render as a social button.
                         .filter(([provider, available]) => available && provider !== 'saml' && provider !== 'oidc')
+                        .filter(([provider]) => !isSocialProviderHeldBack(provider, featureFlags))
                         .map(([provider]) => provider)
                         .sort((a, b) => order.indexOf(a) - order.indexOf(b))
                 )
@@ -788,6 +830,11 @@ export const loginLogic = kea<loginLogicType>([
             const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
             passkeyLogic.findMounted()?.actions.cancelPasskeyLogin()
         },
+        setLoginTurnstileToken: ({ token }) => {
+            if (token && values.loginChallenge) {
+                actions.submitLogin()
+            }
+        },
         submitLoginSuccess: () => {
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
@@ -806,6 +853,8 @@ export const loginLogic = kea<loginLogicType>([
             if (name !== 'email') {
                 return
             }
+            // The server ties a challenge to the address that got it
+            actions.resetLoginChallenge()
             await breakpoint(PRECHECK_IDLE_DELAY_MS)
             const { email } = values.login
             if (isEmail(email, { requireTLD: true })) {
@@ -821,7 +870,7 @@ export const loginLogic = kea<loginLogicType>([
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
-            startRadarSignalsFor(precheckResponse)
+            startRadarSignalsFor(precheckResponse.radar_client_id)
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
             if (
@@ -869,7 +918,13 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/login': (_, { error_code, error_detail, message }) => {
+        '/login': (_, { error_code, error_detail, message, code_verification_pending, email }) => {
+            if (code_verification_pending) {
+                // The IdP round trip returns here with a code already emailed; continue that login.
+                actions.setCodeVerificationRequired(typeof email === 'string' ? email : '', null)
+                return
+            }
+
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})

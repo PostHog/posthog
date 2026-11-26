@@ -18,11 +18,8 @@ from posthog.integrations import IntegrationManager, IntegrationPatch
 from posthog.integrations.backend import DjangoBackend, configured_backend, service_backend, use_backend
 from posthog.integrations.backend.fake_backend import FakeBackend
 from posthog.integrations.backend.protocol import KindScope, RowFilter, RowScope, SourceRows
-from posthog.integrations.backend.service_backend import (
-    IntegrationServiceError,
-    IntegrationServiceUnavailable,
-    ServiceBackend,
-)
+from posthog.integrations.backend.service_backend import ServiceBackend
+from posthog.integrations.backend.service_transport import IntegrationServiceError, IntegrationServiceUnavailable
 from posthog.integrations.contracts import (
     CrossTeamFilter,
     IntegrationConflict,

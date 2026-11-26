@@ -20,7 +20,12 @@ export function healthColumns<T extends { status: HealthStatusEnumApi; health: H
             render: (_, row) => <HealthStatusTag status={row.status} />,
         },
         {
-            title: `Requests (${rateUnit})`,
+            title: (
+                <span className="inline-block whitespace-normal leading-tight">
+                    Requests
+                    <br />({rateUnit})
+                </span>
+            ),
             key: 'request_rate',
             align: 'right',
             sorter: (a, b) => compareNullable(a.health.request_rate, b.health.request_rate),

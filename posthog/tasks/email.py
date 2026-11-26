@@ -28,6 +28,7 @@ from posthog.email import (
     get_email_team_and_org_context,
     is_email_available,
     is_http_email_service_available,
+    raise_if_delivery_rejected,
     single_line,
 )
 from posthog.event_usage import groups
@@ -172,7 +173,7 @@ def get_members_to_notify_for_pipeline_error(
 def get_project_api_key_admins_to_notify(team: Team) -> list[OrganizationMembership]:
     memberships_to_email = get_members_to_notify(team, NotificationSetting.PROJECT_API_KEY_EXPOSED.value)
     # Filter to admins since they can manage keys
-    return [m for m in memberships_to_email if m.level >= OrganizationMembership.Level.ADMIN]
+    return [m for m in memberships_to_email if m.effective_level >= OrganizationMembership.Level.ADMIN]
 
 
 _DIGEST_PROJECT_SETTING_KEYS: dict[str, str] = {
@@ -604,8 +605,11 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_code_based_verification(user_id: int, code: str) -> None:
-    """Send the 6-digit login verification code."""
+def send_code_based_verification(user_id: int, code: str, to_email: str | None = None) -> None:
+    """Send the 6-digit login verification code.
+
+    `to_email` pins IdP approval to the account mailbox so an asserted address cannot
+    redirect its proof. Password logins leave it None."""
     user: User = User.objects.get(pk=user_id)
 
     message = EmailMessage(
@@ -620,9 +624,11 @@ def send_code_based_verification(user_id: int, code: str) -> None:
             "site_url": settings.SITE_URL,
         },
     )
-    message.add_user_recipient(user)
-    if message.send(send_async=False):
+    message.add_user_recipient(user, email_override=to_email)
+    if message.send(send_async=False, retry=to_email is None):
         raise EmailRecipientUndeliverableError("the login code email was refused as undeliverable")
+    if to_email is not None:
+        raise_if_delivery_rejected(message.campaign_key, to_email)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",
@@ -2174,7 +2180,13 @@ def send_personal_api_keys_changed_by_org_admin(
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, more_info: str) -> None:
+def send_feature_flags_secure_api_key_exposed(
+    team_id: int,
+    mask_value: str,
+    more_info: str,
+    signing_secret_replaced: bool = False,
+    grace_window_ended: bool = False,
+) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -2186,15 +2198,17 @@ def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, mor
     message = EmailMessage(
         use_http=True,
         campaign_key=f"feature-flags-secure-api-key-exposed-{team.uuid}-{timezone.now().timestamp()}",
-        subject=f"Feature Flags Secure API key has been exposed for {team.name}",
+        subject=f"Legacy feature flags secret key has been revoked for {team.name}",
         template_name="feature_flags_secure_api_key_exposed",
         template_context={
-            # "preheader": "Project secret API key has been exposed",
-            "preheader": "Feature Flags Secure API key has been exposed",
+            "preheader": "Legacy feature flags secret key has been revoked",
             "project_name": team.name,
             "more_info": more_info,
             "mask_value": mask_value,
-            "url": f"{settings.SITE_URL}/project/{team.pk}/settings/project-feature-flags",
+            "url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-secret-api-keys",
+            "conversations_settings_url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-conversations",
+            "signing_secret_replaced": signing_secret_replaced,
+            "grace_window_ended": grace_window_ended,
             **get_email_team_and_org_context(team=team),
         },
     )
@@ -2704,7 +2718,8 @@ def send_integration_access_request(team_id: int, requesting_user_id: int, kind:
     # Org admins/owners always have access to every project, so the org-level filter is the access check.
     memberships = (
         OrganizationMembership.objects.select_related("user")
-        .filter(organization_id=team.organization_id, level__gte=OrganizationMembership.Level.ADMIN)
+        .with_effective_level()
+        .filter(organization_id=team.organization_id, resolved_level__gte=OrganizationMembership.Level.ADMIN)
         .exclude(user_id=requesting_user_id)
     )
     recipients = [membership.user for membership in memberships if membership.user.email]
@@ -2768,7 +2783,8 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
     # Org admins/owners can enable PostHog AI, so they're the recipients of the request.
     memberships = (
         OrganizationMembership.objects.select_related("user")
-        .filter(organization_id=organization.id, level__gte=OrganizationMembership.Level.ADMIN)
+        .with_effective_level()
+        .filter(organization_id=organization.id, resolved_level__gte=OrganizationMembership.Level.ADMIN)
         .exclude(user_id=requesting_user_id)
     )
     recipients = [membership.user for membership in memberships if membership.user.email]
@@ -2825,10 +2841,14 @@ def send_workload_trust_policy_changed(
         context={"task": "send_workload_trust_policy_changed", "field": "policy_name", **log_context},
     )
 
-    memberships = OrganizationMembership.objects.select_related("user").filter(
-        organization_id=team.organization_id,
-        level__gte=OrganizationMembership.Level.ADMIN,
-        user__is_active=True,
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .with_effective_level()
+        .filter(
+            organization_id=team.organization_id,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
+            user__is_active=True,
+        )
     )
     recipients = [membership.user for membership in memberships if membership.user.email]
     if not recipients:

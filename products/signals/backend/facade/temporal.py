@@ -22,6 +22,7 @@ from products.signals.backend.temporal.emit_eval_signal import (
     emit_eval_signal_activity,
 )
 from products.signals.backend.temporal.grouping_record_cleanup import create_signal_grouping_record_cleanup_schedule
+from products.signals.backend.temporal.spend_cleanup import create_signal_spend_cleanup_schedule
 
 __all__ = [
     "ACTIVITIES",
@@ -40,6 +41,7 @@ __all__ = [
     "create_personal_inbox_ranking_tick_schedule",
     "create_scout_suggestions_coordinator_schedule",
     "create_signal_grouping_record_cleanup_schedule",
+    "create_signal_spend_cleanup_schedule",
     "create_signals_scout_coordinator_schedule",
     "emit_eval_signal_activity",
 ]
@@ -61,6 +63,7 @@ TEMPORAL = TemporalRegistration(
         create_conversations_signals_coordinator_schedule,
         create_signals_scout_coordinator_schedule,
         create_signal_grouping_record_cleanup_schedule,
+        create_signal_spend_cleanup_schedule,
         create_inbox_ranking_scoring_schedule,
         create_activity_summary_tick_schedule,
         create_personal_inbox_ranking_tick_schedule,

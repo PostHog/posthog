@@ -235,6 +235,7 @@ export interface workflowsOnboardingWizardLogicActions {
         entry:
             | 'automation_banner'
             | 'automation_empty_state'
+            | 'broadcast_audience_suggestions'
             | 'broadcasts_empty_state'
             | 'messaging_setup_guide'
             | 'path_choice'

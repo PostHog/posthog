@@ -32,6 +32,9 @@ MAX_TICKERS = 500
 # Macroeconomic indicators fan out over countries the same way, and Finnworlds covers 196 of them.
 MAX_COUNTRIES = 200
 
+# Exchange rates fan out over base currencies the same way.
+MAX_CURRENCIES = 200
+
 
 class FinnworldsRetryableError(Exception):
     """A transient API error (429 / 5xx) worth retrying."""
@@ -41,28 +44,36 @@ class FinnworldsAuthError(Exception):
     """A permanent authentication/authorization failure — surfaced via get_non_retryable_errors."""
 
 
-def parse_tickers(raw: str | None) -> list[str]:
-    """Split the user's free-text ticker list into a clean, de-duplicated, upper-cased list.
+def _parse_symbols(raw: str | None, limit: int, label: str) -> list[str]:
+    """Split a free-text list into clean, de-duplicated, upper-cased symbols.
 
-    Accepts commas, whitespace, and newlines as separators so users can paste a watchlist in any
-    common shape. Order is preserved (first occurrence wins) for stable, predictable sync output.
+    Accepts commas, whitespace, and newlines as separators so users can paste a list in any common
+    shape. Order is preserved (first occurrence wins) for stable, predictable sync output.
 
-    Raises ``ValueError`` when more than ``MAX_TICKERS`` distinct symbols are supplied so an oversized
-    config is rejected before the pipeline starts scheduling a request per ticker per table.
+    Raises ``ValueError`` when more than ``limit`` distinct symbols are supplied so an oversized
+    config is rejected before the pipeline starts scheduling a request per symbol per table.
     """
     if not raw:
         return []
     tokens = raw.replace(",", " ").split()
     seen: set[str] = set()
-    tickers: list[str] = []
+    symbols: list[str] = []
     for token in tokens:
         symbol = token.strip().upper()
         if symbol and symbol not in seen:
             seen.add(symbol)
-            tickers.append(symbol)
-    if len(tickers) > MAX_TICKERS:
-        raise ValueError(f"Too many tickers: at most {MAX_TICKERS} are allowed per source.")
-    return tickers
+            symbols.append(symbol)
+    if len(symbols) > limit:
+        raise ValueError(f"Too many {label}: at most {limit} are allowed per source.")
+    return symbols
+
+
+def parse_tickers(raw: str | None) -> list[str]:
+    return _parse_symbols(raw, MAX_TICKERS, "tickers")
+
+
+def parse_currencies(raw: str | None) -> list[str]:
+    return _parse_symbols(raw, MAX_CURRENCIES, "currencies")
 
 
 def parse_countries(raw: str | None) -> list[str]:
@@ -269,7 +280,7 @@ def _fetch_endpoint_rows(
 ) -> list[dict[str, Any]]:
     params: dict[str, str] = {"key": api_key}
     if identifier is not None:
-        params[config.fanout.value] = identifier
+        params[config.fanout.value] = identifier.lower() if config.lowercase_fanout_param else identifier
     url = _build_url(config.path, params)
 
     payload = _fetch(session, url, logger)
@@ -306,6 +317,7 @@ def get_rows(
     endpoint: str,
     tickers: list[str],
     countries: list[str],
+    currencies: list[str],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     config = FINNWORLDS_ENDPOINTS[endpoint]
@@ -319,7 +331,11 @@ def get_rows(
             yield rows
         return
 
-    identifiers = tickers if config.fanout == FanoutDimension.TICKER else countries
+    identifiers = {
+        FanoutDimension.TICKER: tickers,
+        FanoutDimension.COUNTRY: countries,
+        FanoutDimension.CURRENCY: currencies,
+    }[config.fanout]
     if not identifiers:
         logger.warning(f"Finnworlds {config.name}: no {config.fanout.value} configured, so nothing to sync")
 
@@ -365,13 +381,21 @@ def finnworlds_source(
     endpoint: str,
     tickers: list[str],
     countries: list[str],
+    currencies: list[str],
     logger: FilteringBoundLogger,
 ) -> SourceResponse:
     config = FINNWORLDS_ENDPOINTS[endpoint]
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(api_key=api_key, endpoint=endpoint, tickers=tickers, countries=countries, logger=logger),
+        items=lambda: get_rows(
+            api_key=api_key,
+            endpoint=endpoint,
+            tickers=tickers,
+            countries=countries,
+            currencies=currencies,
+            logger=logger,
+        ),
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

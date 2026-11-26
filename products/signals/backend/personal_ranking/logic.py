@@ -112,7 +112,7 @@ BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
 PrecheckOutcome = Literal["hit", "miss", "agreed", "disagreed"]
 PRECHECK_OUTCOMES: tuple[PrecheckOutcome, ...] = ("hit", "miss", "agreed", "disagreed")
 # What started a build, on the build event and the trace, so cost can be split by it.
-BuildTrigger = Literal["on_demand", "tick", "first_summary"]
+BuildTrigger = Literal["on_demand", "tick", "first_summary", "inbox_load"]
 
 _MODEL_ORDER_REASON = "Kept in inbox order."
 _NEEDS_YOU_REASONS = {
@@ -500,7 +500,6 @@ def _client(
     service_tier: ServiceTier | None,
 ) -> OpenAI:
     client = build_openai_client(
-        "signals",
         ai_product=AI_PRODUCT,
         trace_id=trace_id_from_seed(f"{AI_PRODUCT}:{team.id}:{user.id}:{now.isoformat()}"),
         properties={

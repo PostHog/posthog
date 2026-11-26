@@ -11,8 +11,10 @@ import { Client } from 'pg'
 import { setTimeout as nextTimers } from 'timers/promises'
 import { promisify } from 'util'
 
+import { getDefaultCdpConfig } from '~/cdp/config'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
-import { defaultConfig } from '~/common/config/config'
+import { PluginServerMode } from '~/common/config'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
@@ -21,6 +23,7 @@ import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
 import { Environment, createEnvironment } from './environment'
+import { startProbeProcess } from './probe-process'
 import * as processes from './processes'
 import {
     ProcEntry,
@@ -32,12 +35,21 @@ import {
     strangerConflict,
     terminate,
 } from './processes'
-import { ROLE_PORTS, Role, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from './roles'
+import {
+    MODES_WITHOUT_A_ROLE,
+    ROLE_PORTS,
+    Role,
+    configHashOf,
+    consumerGroupsOf,
+    fetchRetriesOf,
+    intakeTopicsOf,
+    roleSpecs,
+    secretsOf,
+} from './roles'
 import {
     RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
     STACK,
-    downServices,
     forgetSesBucket,
     lagOf,
     membersOf,
@@ -46,6 +58,7 @@ import {
     scratchSchema,
     seekFailures,
     terminateRoleConnections,
+    topicCreateFailures,
     withPostgres,
 } from './stack'
 import { createSupervisor } from './supervisor'
@@ -419,6 +432,32 @@ describe('scenario environment', () => {
             )
         })
 
+        it('configures sealed state and the intake dead-letter check, as production does', () => {
+            const cdpApi = overrideConfigWithEnv(
+                getDefaultCdpConfig(),
+                specs.find(({ role }) => role === 'cdp-api')!.env
+            )
+
+            expect({
+                sealed: Boolean(cdpApi.CDP_SEALED_STATE_KEYS),
+                parksUnreadableRuns: specs
+                    .filter(({ role }) => role.startsWith('cdp-intake-'))
+                    .map(({ env }) => overrideConfigWithEnv(getDefaultCdpConfig(), env).CDP_DLQ_ENABLED),
+            }).toEqual({ sealed: true, parksUnreadableRuns: [true, true] })
+        })
+
+        it('runs a role for every CDP plugin server mode, or names why the scenarios leave it out', () => {
+            const cdpModes: string[] = Object.values(PluginServerMode).filter((mode) => mode.startsWith('cdp-'))
+            const roles: string[] = [...CdpRole.options]
+            const excluded = Object.keys(MODES_WITHOUT_A_ROLE)
+
+            expect({
+                unscenarioed: cdpModes.filter((mode) => !roles.includes(mode) && !excluded.includes(mode)),
+                excludedYetRun: excluded.filter((mode) => roles.includes(mode)),
+                rolesWithoutAMode: roles.filter((role) => !cdpModes.includes(role)),
+            }).toEqual({ unscenarioed: [], excludedYetRun: [], rolesWithoutAMode: [] })
+        })
+
         it('gives every role its own port, cdp-api the one Django calls', () => {
             const ports = Object.fromEntries(specs.map((spec) => [spec.role, spec.env.HTTP_SERVER_PORT]))
 
@@ -488,7 +527,7 @@ describe('scenario environment', () => {
             )
             const shares = poolers.map((url) => split.filter(({ env }) => env.CYCLOTRON_NODE_DATABASE_URL === url))
 
-            expect(shares.map((share) => share.length)).toEqual([4, 3])
+            expect(shares.map((share) => share.length)).toEqual([5, 4])
             expect(
                 shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
             ).toEqual([1, 1])
@@ -555,15 +594,41 @@ describe('scenario environment', () => {
             })
         })
 
-        it('drops an inherited consumer group id, so the events role joins the group a reset moves', () => {
-            const specs = roleSpecs(
-                { KAFKA_CONSUMER_GROUP_ID: 'dev-group' },
-                { url: 'http://edge' },
-                secretsOf({}),
-                STATE_DIR
-            )
+        it.each([
+            ['KAFKA_CONSUMER_GROUP_ID', 'so the events role joins the group a reset moves', 'dev-group'],
+            [
+                'CDP_RATE_LIMITER_REFILL_RATE',
+                "since a setting the loader's rate check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CDP_SES_RATE_LIMIT_REFILL_PER_SECOND',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CDP_SES_RATE_LIMIT_CAPACITY',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '1000',
+            ],
+            [
+                'CONSUMER_BATCH_SIZE',
+                "since a setting the loader's SES check reads comes from the profile or the server default only",
+                '10',
+            ],
+            ...[
+                'CDP_INTAKE_DLQ_DRAIN',
+                'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC',
+                'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC',
+            ].map((name): [string, string, string] => [
+                name,
+                "since the loader's intake check refuses it in a profile, and convergence cannot judge it",
+                'true',
+            ]),
+        ])('drops an inherited %s, %s', (name, _reason, value) => {
+            const specs = roleSpecs({ [name]: value }, { url: 'http://edge' }, secretsOf({}), STATE_DIR)
 
-            expect(specs.filter(({ env }) => 'KAFKA_CONSUMER_GROUP_ID' in env)).toEqual([])
+            expect(specs.filter(({ env }) => name in env)).toEqual([])
         })
 
         it("shares the runner's secrets with the roles", () => {
@@ -578,6 +643,131 @@ describe('scenario environment', () => {
                 ENCRYPTION_SALT_KEYS: 'run-key',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt',
             })
+        })
+
+        const MACHINE = { PATH: '/usr/bin', HOME: '/home/a' }
+        const hashOf = (machine: Record<string, string>, stateDir: string, settings = {}): string =>
+            configHashOf(roleSpecs(machine, EDGE, secretsOf({}), stateDir, settings))
+        const withSetting = (settings: Record<string, string>): string => hashOf(MACHINE, STATE_DIR, settings)
+
+        it('hashes the server config the roles start with, apart from the machine around them', () => {
+            const here = hashOf(MACHINE, STATE_DIR)
+            const database = withSetting({ DATABASE_URL: 'postgres://posthog:one@cluster-a:5432/posthog' })
+
+            expect({
+                elsewhere: hashOf({ PATH: '/opt/bin', HOME: '/home/b' }, '/other-state'),
+                settings: withSetting({ CDP_WATCHER_HOG_COST_TIMING: '7' }),
+                inherited: hashOf({ ...MACHINE, CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '9' }, STATE_DIR),
+                processEnv: hashOf({ ...MACHINE, HOG_BYTECODE_CACHE_REWRITE: '1' }, STATE_DIR),
+                databaseEmptied: withSetting({ DATABASE_URL: '' }),
+                certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'bm90LWEta2V5' }),
+                sealingOff: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
+                sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: ',,' }, STATE_DIR),
+                commaPassword: withSetting({ POSTHOG_DB_PASSWORD: ',' }),
+                certificateCheckOff: withSetting({
+                    KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'false',
+                }),
+                otherHost: withSetting({ CDP_REDIS_HOST: 'redis-b' }),
+                otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/b' }, STATE_DIR),
+            }).toEqual({
+                elsewhere: here,
+                settings: expect.not.stringMatching(here),
+                inherited: expect.not.stringMatching(here),
+                processEnv: expect.not.stringMatching(here),
+                databaseEmptied: expect.not.stringMatching(database),
+                certificate: withSetting({ KAFKA_CLIENT_CERT_KEY_B64: 'YW5vdGhlci1rZXk=' }),
+                sealingOff: expect.not.stringMatching(here),
+                sealingCommas: hashOf({ ...MACHINE, CDP_SEALED_STATE_KEYS: '' }, STATE_DIR),
+                commaPassword: expect.not.stringMatching(withSetting({ POSTHOG_DB_PASSWORD: '' })),
+                certificateCheckOff: expect.not.stringMatching(
+                    withSetting({ KAFKA_WAREHOUSE_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: 'true' })
+                ),
+                otherHost: withSetting({ CDP_REDIS_HOST: 'redis-a' }),
+                otherBaseDir: hashOf({ ...MACHINE, BASE_DIR: '/srv/a' }, STATE_DIR),
+            })
+            expect(here).toMatch(/^[0-9a-f]{64}$/)
+        })
+
+        it.each<[string, string, string, string]>([
+            [
+                'URL whose userinfo holds a slash',
+                'DATABASE_URL',
+                'postgres://posthog:o/ne@cluster-b:5432/posthog',
+                'postgres://reader:t/wo@cluster-c:6432/other',
+            ],
+            [
+                'URL whose userinfo holds a comma',
+                'DATABASE_URL',
+                'postgres://posthog:o,ne@cluster-b:5432/posthog',
+                'postgres://reader:t,wo@cluster-c:6432/other',
+            ],
+            [
+                'URL whose userinfo holds an at sign',
+                'DATABASE_URL',
+                'postgres://posthog:o@ne@cluster-b/posthog',
+                'postgres://reader:t@wo@cluster-c/other',
+            ],
+            [
+                'URL whose userinfo is percent-encoded',
+                'DATABASE_URL',
+                'postgres://posthog:o%2Fn%40e@cluster-b/posthog',
+                'postgres://reader:t%2Cwo@cluster-c/other',
+            ],
+            [
+                'value holding several URLs',
+                'DATABASE_URL',
+                'postgres://a:one@h1/db,postgres://b:two@h2/db',
+                'redis://c:three@h3/0,redis://d:four@h4/1',
+            ],
+            [
+                'URL with a password in its query',
+                'DATABASE_URL',
+                'postgres://cluster-a/posthog?password=one&sslrootcert=/srv/a/ca.pem',
+                'postgres://cluster-b/other?password=two',
+            ],
+            ['bare password setting', 'POSTHOG_DB_PASSWORD', 'one', 'two'],
+            [
+                'keyword-form connection string',
+                'DATABASE_URL',
+                'host=cluster-a user=posthog password=one dbname=posthog',
+                'host=cluster-b user=reader password=two dbname=other',
+            ],
+            [
+                'keyword-form password under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'host=cluster-a password=one',
+                'host=cluster-b PASSWORD = two',
+            ],
+            ['URL setting without a scheme', 'POSTHOG_HOST_URL', 'cluster-a:8000/one', 'cluster-b:9000/two'],
+            ['broker list', 'KAFKA_HOSTS', 'kafka-a:9092,kafka-b:9092', 'kafka-c:9093'],
+            [
+                'broker list named as a list',
+                'KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST',
+                'kafka-a:9092',
+                'kafka-b:9093',
+            ],
+            [
+                'URL under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'https://user:one@host-a/x',
+                'https://other:two@host-b/y',
+            ],
+            [
+                'credentials without a scheme under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'user:one@host-a',
+                'other:two@host-b',
+            ],
+            ['SASL user name', 'KAFKA_WAREHOUSE_PRODUCER_SASL_USERNAME', 'reader-a', 'reader-b'],
+            ['bare address', 'PERSONHOG_LEADER_ADDR', 'router-a:50051', 'router-b:50052'],
+            [
+                'host and port under a setting not named as one',
+                'CDP_WATCHER_HOG_COST_TIMING',
+                'router-a:50051',
+                'router-b:50052',
+            ],
+        ])('keeps every part of a %s out of the config hash', (_class, key, value, other) => {
+            expect(withSetting({ [key]: value })).toEqual(withSetting({ [key]: other }))
         })
     })
 
@@ -601,6 +791,18 @@ describe('scenario environment', () => {
             0,
         ],
         ['output it cannot read', 'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n', null, null],
+        [
+            'a group whose coordinator answered an error',
+            'GROUP        cdp-intake-transactional-email-consumer\nCOORDINATOR  0\nSTATE        \nBALANCER     \nMEMBERS      0\nTOTAL-LAG    0\nERROR        COORDINATOR_LOAD_IN_PROGRESS\n',
+            0,
+            null,
+        ],
+        [
+            'a group with a partition whose offsets rpk could not read',
+            'GROUP        cdp-intake-transactional-email-consumer\nCOORDINATOR  0\nSTATE        Stable\nBALANCER     range\nMEMBERS      1\nTOTAL-LAG    0\n\nTOPIC                           PARTITION  CURRENT-OFFSET  LOG-START-OFFSET  LOG-END-OFFSET  LAG  MEMBER-ID  CLIENT-ID  HOST  ERROR\ncdp_intake_transactional_email  0          -               -                 -               -    m-1        intake     host  NOT_LEADER_FOR_PARTITION\n',
+            1,
+            null,
+        ],
     ])('reads the members and lag of %s from rpk', (_name, output, members, lag) => {
         expect(membersOf(output)).toBe(members)
         expect(lagOf(output)).toBe(lag)
@@ -614,6 +816,8 @@ describe('scenario environment', () => {
             [
                 { group: 'cdp-processed-events-consumer', topics: ['clickhouse_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+                { group: 'cdp-intake-transactional-email-consumer', topics: ['cdp_intake_transactional_email'] },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['cdp_intake_workflow_webhook'] },
             ],
         ],
         [
@@ -623,6 +827,8 @@ describe('scenario environment', () => {
             [
                 { group: 'scenario-events', topics: ['clickhouse_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+                { group: 'cdp-intake-transactional-email-consumer', topics: ['cdp_intake_transactional_email'] },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['cdp_intake_workflow_webhook'] },
             ],
         ],
         [
@@ -632,6 +838,11 @@ describe('scenario environment', () => {
             [
                 { group: 'cdp-processed-events-consumer', topics: ['scenario_clickhouse_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['scenario_cdp_ses_webhooks'] },
+                {
+                    group: 'cdp-intake-transactional-email-consumer',
+                    topics: ['scenario_cdp_intake_transactional_email'],
+                },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['scenario_cdp_intake_workflow_webhook'] },
             ],
         ],
         [
@@ -641,12 +852,63 @@ describe('scenario environment', () => {
             [
                 { group: 'scenario-events', topics: ['scenario_events_json'] },
                 { group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+                { group: 'cdp-intake-transactional-email-consumer', topics: ['cdp_intake_transactional_email'] },
+                { group: 'cdp-intake-workflow-webhook-consumer', topics: ['cdp_intake_workflow_webhook'] },
             ],
         ],
     ])('moves %s', (_name, env, settings, groups) => {
         expect(consumerGroupsOf(roleSpecs(env, { url: 'http://edge' }, secretsOf({}), STATE_DIR, settings))).toEqual(
             groups
         )
+    })
+
+    it.each<[string, NodeJS.ProcessEnv, Record<string, string>, string[]]>([
+        [
+            'their configured names',
+            {},
+            {},
+            ['cdp_intake_transactional_email', 'cdp_intake_workflow_webhook', 'cdp_intake_dlq'],
+        ],
+        [
+            'the Kafka prefix the roles inherit',
+            { KAFKA_PREFIX: 'scenario_' },
+            {},
+            [
+                'scenario_cdp_intake_transactional_email',
+                'scenario_cdp_intake_workflow_webhook',
+                'scenario_cdp_intake_dlq',
+            ],
+        ],
+        [
+            'the dead-letter topic a profile sets',
+            {},
+            { CDP_INTAKE_DLQ_TOPIC: 'scenario_intake_dlq' },
+            ['cdp_intake_transactional_email', 'cdp_intake_workflow_webhook', 'scenario_intake_dlq'],
+        ],
+    ])('creates the intake topics and their dead-letter topic under %s', (_name, env, settings, topics) => {
+        expect(intakeTopicsOf(roleSpecs(env, { url: 'http://edge' }, secretsOf({}), STATE_DIR, settings))).toEqual(
+            topics
+        )
+    })
+
+    it.each<[string, string, string[]]>([
+        [
+            'topics it created and topics that were there',
+            'TOPIC                   STATUS\ncdp_intake_dlq          OK\ncdp_intake_transactional_email  TOPIC_ALREADY_EXISTS: The topic has already been created\n',
+            [],
+        ],
+        [
+            'a topic the broker refused',
+            'TOPIC           STATUS\ncdp_intake_dlq  POLICY_VIOLATION: Unsupported configuration\n',
+            ['cdp_intake_dlq: POLICY_VIOLATION: Unsupported configuration'],
+        ],
+        [
+            'a create rpk could not run',
+            'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n',
+            ['unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused'],
+        ],
+    ])('reads the failures of a topic create from rpk: %s', (_name, output, failures) => {
+        expect(topicCreateFailures(output)).toEqual(failures)
     })
 
     it.each<[string, string, string[]]>([
@@ -687,23 +949,20 @@ describe('scenario environment', () => {
         }
     }, 4_000)
 
-    it('reports a running Kafka as up when the probes run under tsx like the CLI', async () => {
-        const args: Parameters<typeof downServices> = [
-            undefined,
-            'postgres://127.0.0.1:1/none',
-            { host: '127.0.0.1', port: 1 },
-        ]
-        const probe = `import('./tests/scenarios/environment/stack').then(({ downServices }) => downServices(...${JSON.stringify(args)})).then((down) => console.log(JSON.stringify(down)))`
-        const { stdout } = await promisify(childProcess.execFile)(
-            path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx'),
-            ['-e', probe],
-            { cwd: NODEJS_DIR }
-        )
-        const down: string[] = parseJSON(stdout.trim().split('\n').pop() ?? '[]')
-        expect({ postgres: down.includes('postgres'), kafka: down.includes('kafka') }).toEqual({
-            postgres: true,
-            kafka: false,
+    it('reports a running Kafka as up from the probe process under tsx', async () => {
+        const probes = startProbeProcess({
+            edgeUrl: undefined,
+            postgresUrl: 'postgres://127.0.0.1:1/none',
+            sesValkey: { host: '127.0.0.1', port: 1 },
+            only: ['postgres', 'kafka'],
         })
+        try {
+            const down = (await probes.check()).map(({ name }) => name)
+
+            expect(down).toEqual(['postgres'])
+        } finally {
+            probes.close()
+        }
     }, 30_000)
 
     describe('run lock', () => {
@@ -978,7 +1237,9 @@ describe('scenario environment', () => {
                 await missing.start([spec])
 
                 await waitForExpect(() => expect(missing.exits().length).toBeGreaterThanOrEqual(2), 5000, 20)
-                expect(missing.exits()[0]).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
+                const [first] = missing.exits()
+                expect(first).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
+                expect(first.relaunchedAt).toBeUndefined()
             } finally {
                 await missing.stop()
             }
@@ -1038,6 +1299,14 @@ describe('scenario environment', () => {
             "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
+        const deadLetterCheck = (topicsFile: string): string => `
+            const created = require('fs').existsSync(${JSON.stringify(topicsFile)}) ? JSON.parse(require('fs').readFileSync(${JSON.stringify(topicsFile)}, 'utf8')) : []
+            const deadLetter = process.env.CDP_INTAKE_DLQ_TOPIC || 'cdp_intake_dlq'
+            if (process.env.CDP_DLQ_ENABLED === 'true' && !created.includes(deadLetter)) {
+                console.error('the dead-letter topic ' + deadLetter + ' is not reachable')
+                process.exit(1)
+            }
+        `
         const stubRoleNeverAnswering =
             "require('http').createServer(() => undefined).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
@@ -1176,6 +1445,20 @@ describe('scenario environment', () => {
             const args = process.argv.slice(2)
             const [exec, container, rpk, noun, verb, group] = args
             const [, , , , , , to, position, topicsFlag, topic, allowNew] = args
+            if ([exec, container, rpk, noun, verb, args[5]].join(' ') === 'exec posthog-kafka-1 rpk topic create --') {
+                const created = path.join(__dirname, 'topics.json')
+                const topics = fs.existsSync(created) ? JSON.parse(fs.readFileSync(created, 'utf8')) : []
+                const asked = args.slice(6)
+                const present = asked.filter((topic) => topics.includes(topic))
+                fs.writeFileSync(created, JSON.stringify([...new Set([...topics, ...asked])]))
+                process.stdout.write(
+                    'TOPIC  STATUS\\n' +
+                        asked
+                            .map((topic) => topic + '  ' + (present.includes(topic) ? 'TOPIC_ALREADY_EXISTS: The topic has already been created' : 'OK') + '\\n')
+                            .join('')
+                )
+                process.exit(present.length > 0 ? 1 : 0)
+            }
             const describes = args.length === 6 && verb === 'describe'
             const seeks =
                 args.length === 11 &&
@@ -1247,6 +1530,10 @@ describe('scenario environment', () => {
                     ({ group, topics }) => [group, Object.fromEntries(topics.map((topic) => [topic, 'end']))]
                 )
             )
+        const topicsCreated = (): string[] =>
+            existsSync(path.join(fakes, 'topics.json'))
+                ? (parseJSON(readFileSync(path.join(fakes, 'topics.json'), 'utf8')) as string[]).sort()
+                : []
         const offsetsOf = (): Record<string, Record<string, string>> =>
             existsSync(path.join(fakes, 'offsets.json'))
                 ? parseJSON(readFileSync(path.join(fakes, 'offsets.json'), 'utf8'))
@@ -1395,7 +1682,11 @@ describe('scenario environment', () => {
                             ? stubRoleNeverAnswering
                             : stubRole
                 const groupAtStart = `if (require('fs').existsSync(${JSON.stringify(path.join(fakes, 'dead-member-held'))})) console.log(${JSON.stringify(STARTED_WHILE_HELD)})\n`
-                const role = realSpawn(process.execPath, ['-e', groupAtStart + script], options)
+                const role = realSpawn(
+                    process.execPath,
+                    ['-e', groupAtStart + deadLetterCheck(path.join(fakes, 'topics.json')) + script],
+                    options
+                )
                 if (mode === losesItsPort) {
                     void holdPort(ROLE_PORTS[losesItsPort!], once(role, 'exit'))
                     losesItsPort = undefined
@@ -1584,7 +1875,9 @@ describe('scenario environment', () => {
                 expect(answer.status).toBe(200)
                 expect(Number(await answer.text())).not.toBe(killed)
             }, 15_000)
-            expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: false })])
+            expect(environment.exits()).toEqual([
+                expect.objectContaining({ role, signal: 'SIGKILL', byValve: false, relaunchedAt: expect.any(String) }),
+            ])
         }, 30_000)
 
         it('kills a role on a valve, sees the old process gone, records the exit as the valve and starts it again', async () => {
@@ -1791,7 +2084,7 @@ describe('scenario environment', () => {
             expect({
                 health: Object.fromEntries(health),
                 edge,
-                rolesDown: down.filter((name) => name in ROLE_PORTS),
+                rolesDown: down.filter(({ name }) => name in ROLE_PORTS),
             }).toEqual({
                 health: Object.fromEntries(CdpRole.options.map((role) => [role, 200])),
                 edge: 200,
@@ -1919,6 +2212,28 @@ describe('scenario environment', () => {
             30_000
         )
 
+        it("starts every consumer group past the records an interrupted run left, before the first card's reset", async () => {
+            environment = environmentOf()
+
+            await environment.up(NEVER_ABORTED)
+
+            expect(offsetsOf()).toEqual(everyGroupAtEnd())
+        })
+
+        it('creates the intake topics a profile names when the card starts', async () => {
+            environment = environmentOf()
+            await environment.up(NEVER_ABORTED)
+
+            await environment.reset({ CDP_INTAKE_DLQ_TOPIC: 'scenario_intake_dlq' })
+
+            expect(topicsCreated()).toEqual([
+                'cdp_intake_dlq',
+                'cdp_intake_transactional_email',
+                'cdp_intake_workflow_webhook',
+                'scenario_intake_dlq',
+            ])
+        })
+
         it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog, keeping the resident backlog", async () => {
             const { limiter, close } = sesLimiterOn(testRedis)
             const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
@@ -2012,9 +2327,9 @@ describe('scenario environment', () => {
         ])(
             'moves the events group past %s only when rpk reports no failed partition',
             async (_name, rpkSeek, failure) => {
-                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(rpkSeek))
                 environment = environmentOf()
                 await environment.up(NEVER_ABORTED)
+                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(rpkSeek))
 
                 const outcome = await environment
                     .reset({

@@ -1,13 +1,14 @@
 """The Content Security Policy PostHog serves, and the middleware that attaches it.
 
-The policy lives apart from the other middleware so that team-security owns the file in
-`.github/CODEOWNERS` and reviews every change to it.
+The policy lives apart from the other middleware so that the `master` branch ruleset can
+require a team-security review for every change to this file.
 """
 
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
+from django.http import HttpResponse
 
 from posthog.cloud_utils import get_api_host, is_cloud, is_hobby
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
@@ -60,6 +61,20 @@ def object_storage_upload_source() -> str:
     return f"{scheme}://{parts.netloc}/{bucket}"
 
 
+# Admin pages that mount a React app. Each one widens the admin policy, so adding a page here goes through review
+# of this file. A page also has to mark its response with `admit_admin_bundle`.
+ADMIN_BUNDLE_PATHS = frozenset({"/admin/console/tools/agent-release-pipeline/"})
+
+
+def admit_admin_bundle(response: HttpResponse) -> HttpResponse:
+    """Let this staff page load the frontend bundle from `JS_URL`, for an admin page in `ADMIN_BUNDLE_PATHS`.
+
+    The JSON responses on the same URL stay unmarked, so only the HTML shell gets the wider policy.
+    """
+    response.admits_admin_bundle = True  # type: ignore[attr-defined]
+    return response
+
+
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
 # prefix match would also hand the app document this policy and stop it from starting.
 REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
@@ -81,6 +96,12 @@ EMBEDDABLE_PATH_PREFIXES = (
 EMBEDDABLE_PATHS = frozenset({"/render_query", "/exporter"})
 
 
+# The cloud hosts a local app signs in against. Keep in sync with `OAUTH_REGIONS` in
+# `frontend/src/lib/utils/oauthClient.ts`, which exchanges the code at the region's `/oauth/token/`
+# and then sends every API call to that host.
+CLOUD_OAUTH_REGION_HOSTS = ("https://us.posthog.com", "https://eu.posthog.com")
+
+
 def is_embeddable_document(path: str) -> bool:
     return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
 
@@ -100,8 +121,8 @@ def is_embeddable_document(path: str) -> bool:
 # The hosted survey view sets its own policy, so the app policy reaches `/external_surveys/` only on
 # a response that the view did not build. No report shows how such a response behaves under an
 # enforced policy.
-# The auth page serves password login on both paths without a reload
-RADAR_SIGNALS_DOCUMENT_PATHS = frozenset({"/login", "/login/", "/signup", "/signup/"})
+# The auth page serves password login on both paths without a reload, and an invite link opens /signup/<invite id>
+RADAR_SIGNALS_DOCUMENT_PATHS = re.compile(r"/(?:login|signup)/?|/signup/[0-9a-fA-F-]{36}/?")
 
 REPORT_ONLY_ROUTES = re.compile(r"/exporter|/external_surveys/[^/]+/?")
 
@@ -160,6 +181,23 @@ def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]
             part = " ".join([name, *kept])
         narrowed.append(part)
     return narrowed
+
+
+def dev_connect_sources() -> list[str]:
+    """The `connect-src` sources that only a local or test run needs."""
+    sources = []
+    if settings.DEBUG or settings.TEST:
+        sources.append("ws://localhost:8234")
+    if settings.DEBUG and settings.DEV_CODE_INSPECTOR:
+        # Port 5678 is the opt-in code-inspector-plugin server in frontend/vite.config.mts. The
+        # click-to-source request goes to it, and the policy refuses that request without this source.
+        sources.append("http://localhost:5678")
+    if settings.DEBUG:
+        # "Sign in with PostHog cloud" runs only under DEBUG (see `login_required` in
+        # posthog/views.py), and its token request and API calls go to the cloud region from
+        # the browser. Cloud pages already admit these hosts through `https://*.posthog.com`.
+        sources.extend(CLOUD_OAUTH_REGION_HOSTS)
+    return sources
 
 
 def app_bundle_origin() -> str:
@@ -239,16 +277,15 @@ class CSPMiddleware:
         # connect-src, so the app's own analytics and feature flag requests are refused.
         is_admin_view = getattr(settings, "ADMIN_PORTAL_ENABLED", False) and request.path.startswith("/admin/")
         if is_admin_view:
-            django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
             admin_bundle_origin = ""
-            if request.path == "/admin/tasks/task/infrastructure/":
+            if request.path in ADMIN_BUNDLE_PATHS and getattr(response, "admits_admin_bundle", False):
                 bundle_url = urlsplit(settings.JS_URL)
                 if bundle_url.scheme in ("http", "https") and bundle_url.netloc:
                     admin_bundle_origin = f"{bundle_url.scheme}://{bundle_url.netloc}"
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {admin_bundle_origin}".rstrip(),
-                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}' {admin_bundle_origin}".rstrip(),
+                f"script-src 'self' 'nonce-{nonce}' {admin_bundle_origin}".rstrip(),
                 "font-src data: https://fonts.gstatic.com",
                 # Without this the directive falls back to `default-src 'self'`, which drops the
                 # `data:` icons Django admin and our own admin pages render, and the `blob:` images
@@ -307,11 +344,7 @@ class CSPMiddleware:
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
 
-            connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
-            if settings.DEBUG and settings.DEV_CODE_INSPECTOR:
-                # Port 5678 is the opt-in code-inspector-plugin server in frontend/vite.config.mts. The
-                # click-to-source request goes to it, and the policy refuses that request without this source.
-                connect_debug_url += " http://localhost:5678"
+            connect_debug_url = " ".join(dev_connect_sources())
             object_storage_source = object_storage_upload_source()
             # The image exporter renders replay exports in the bare /exporter document, and a frame of
             # that render calls eval. 'report-sample' puts the first 40 characters of the evaluated
@@ -321,7 +354,7 @@ class CSPMiddleware:
             report_sample = " 'report-sample'" if request.path == "/exporter" else ""
             # Only the auth documents run the WorkOS Radar signals script, which posts to the WorkOS
             # API from our page. WorkOS serves the script itself, so no other document trusts it.
-            is_radar_document = request.path in RADAR_SIGNALS_DOCUMENT_PATHS
+            is_radar_document = bool(RADAR_SIGNALS_DOCUMENT_PATHS.fullmatch(request.path))
             radar_script_src = " https://js.workos.com/radar/" if is_radar_document else ""
             radar_connect_src = " https://api.workos.com" if is_radar_document else ""
             csp_parts = [

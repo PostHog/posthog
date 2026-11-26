@@ -37,6 +37,7 @@ from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.capture import CaptureInternalError, capture_internal
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -1815,7 +1816,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         parameters=[PersonMessageAssetsRequestSerializer],
         responses=MessageAssetSerializer(many=True),
     )
-    @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["person:read"],
+        pagination_class=None,
+        filter_backends=[],
+        permission_classes=[CDPPropertyAccessPermission],
+    )
     def emails(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         return self._message_assets_response(request, kind="email")
 
@@ -1823,7 +1831,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         parameters=[PersonMessageAssetsRequestSerializer],
         responses=MessageAssetSerializer(many=True),
     )
-    @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["person:read"],
+        pagination_class=None,
+        filter_backends=[],
+        permission_classes=[CDPPropertyAccessPermission],
+    )
     def push_notifications(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         return self._message_assets_response(request, kind="push")
 

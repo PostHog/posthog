@@ -111,6 +111,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 
 ### Components (`@posthog/quill`)
 
+- Credenza (Trigger, Content, Header, Title, Description, Body, Footer, Close)
 - DataTable (`selectable` for the checkbox variant)
 - DatePicker, DateTimePicker (quickRanges, CUSTOM_RANGE)
 - useCalendar
@@ -183,7 +184,8 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Icon-only: `size="icon"` (or `icon-xs` / `icon-sm` / `icon-lg`), `aria-label` required, and `tooltip` with the same string
   - Size: buttons and select or picker triggers use the default size (`size="icon"` when icon-only). Use `sm` or `xs` only for a special case, such as a dense table cell, or when the design asks for it
   - In-flight action: `loading`, not a separate spinner
-  - Disabled: say why with `disabledReason`, not `disabled`. It disables the control and shows the reason in a tooltip. `Button`, every menu item, `Checkbox` and `Switch` take it. Never hand-wrap a disabled control in a Tooltip
+  - Disabled: say why with `disabledReason`, not `disabled`. It disables the control and shows the reason in a tooltip. `Button`, every menu item, `ComboboxItem`, `Checkbox`, `Switch`, `RadioGroupItem`, `ToggleGroupItem`, `SelectTrigger`, `SelectItem`, `NumberFieldRoot`, `Slider`, `ComboboxInput`, `ComboboxChips`, `Input`, `InputGroupInput` and `Textarea` take it. Never hand-wrap a disabled control in a Tooltip
+    - A `Checkbox`, `Switch` or `RadioGroupItem` that can be disabled takes its label as `children`, so hovering the label shows the reason too. A sibling `FieldLabel` stays outside the tooltip. For a choice card, put `disabledReason` on the card's `FieldLabel`, not the control inside
   - Leading icon: the first child, before the label. Trailing icon: the last child
   - Indicator dot (unread, pending tasks): the Button `indicator` prop (`"default"`, or `"warning"` / `"destructive"` for a problem), never a hand-placed `span`. It sits on the top-right corner, outside the icon. Off the app background, set `--quill-button-indicator-ring` to the surface behind the button. Say what the dot means in the `aria-label`
   - Split button (main action plus a menu of variants): `ButtonGroup` holding the Button and an icon-only `DropdownMenuTrigger` with `IconChevronDown`
@@ -211,6 +213,11 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
     - That gutter comes from Quill, so use the item as it is (`DropdownMenuRadioItem`, `DropdownMenuCheckboxItem`, `SelectItem`, `ComboboxItem`, `ItemRadio`, `ItemCheckbox`), and never add a check by hand. An option's label lines up with the other options, whether it is chosen or not. If the mark touches the label, fix the item in Quill, not at the call site
     - Before handoff, open every list you touched with a value chosen and look at it. A list with nothing chosen hides this bug
   - Icon-only menu trigger: `aria-label` and a tooltip with the same string, as for any icon-only button
+  - A trigger that only shows on hover (a row's "More" button, revealed with `group-hover:opacity-100`) stays visible while its menu or popover is open. Otherwise the pointer moves into the menu, the row loses hover, and the trigger vanishes, leaving the menu anchored to nothing
+    - On the trigger itself, add `data-[popup-open]:opacity-100`. When a wrapper does the hiding, add `has-[[data-popup-open]]:opacity-100` to the wrapper. Base UI sets `data-popup-open` on every trigger while its popup is open
+    - Add `focus-visible:opacity-100` (or `focus-within:opacity-100` on a wrapper) too, so keyboard users can reach the trigger
+    - Precedent: `products/release/frontend/ReleaseMetricTileMenu.tsx`, the Table `group-hover/row` story in `packages/quill/packages/primitives/src/table.stories.tsx`
+    - Before handoff, open the menu and move the pointer into it. The trigger must still show
 - A list of clickable rows (tickets, programs, recent items) → `CardGroup` of `Card size="sm"`, each holding one full-width `<button>` or `<a>`. Item has no clickable variant. `Item tone` is for callouts only, such as a warning or an incident notice
 - Switching views: Tabs (sections of one page; `variant="line"` for page-level) | ToggleGroup (2–4 display modes) | Select (many views, low priority)
 - Filtering a list, anywhere (a scene, a sidebar pane, a side panel, a picker inside a menu):
@@ -245,7 +252,11 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
     - Add a local `<TooltipProvider>` only to change `delay`/`timeout` for a group (e.g. a toolbar); don't nest one per tooltip
   - Popover: non-modal, click-triggered, interactive content anchored to a trigger
   - PreviewCard: hover/focus preview of a link destination
-  - Dialog: focused task that blocks the page
+  - Credenza: the default for a focused task that blocks the page. A Dialog at 768px and wider, a bottom Drawer below that, from one set of parts
+    - Put the content in `CredenzaBody`, which scrolls between the header and the footer
+    - Footer: max 2 buttons; Cancel first, CTA last, variant `primary`, default size. The dialog puts the CTA on the right, and the drawer puts it on top
+    - Before handoff, check it at both viewports (see §9)
+  - Dialog: only when the surface must stay a dialog on a phone, such as `size="wide"` content or a nested dialog
     - Footer: max 2 buttons; CTA last (right on desktop), variant `primary`, default size; Cancel before it
   - AlertDialog: confirm a destructive or irreversible action
     - Footer: max 2 buttons; CTA last, variant `destructive-outline` if destructive, else `primary`; default size
@@ -358,6 +369,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   | `disabledReason`, `tooltip`            | the same props on `Button`                                                                                   |
   | `sideAction` with a dropdown           | `ButtonGroup` (see §3 Buttons)                                                                               |
   | `LemonMenu`                            | `DropdownMenu`; nested items → `DropdownMenuSub`                                                             |
+  | `LemonModal`                           | `Credenza`                                                                                                   |
   | `LemonTag`                             | `Badge`                                                                                                      |
   | `LemonSelect`                          | `Select`                                                                                                     |
   | `LemonSegmentedButton`                 | `ToggleGroup`                                                                                                |
@@ -387,3 +399,4 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 ## 9. Review before handoff
 
 - Render in light and dark; check narrow widths; run lint and types; fix and repeat
+- For every `Credenza` you touched, open it at 1280px and at 390px with content long enough to overflow. Check that `CredenzaBody` scrolls with the header and footer in view, in both the dialog and the drawer

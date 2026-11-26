@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect, LemonSelectOptionLeaf, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { UNIQUE_USERS, getHogQLValue, hogQLToFilterValue } from 'scenes/insights/filters/aggregationTarget'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

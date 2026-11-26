@@ -4,7 +4,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 const KEY_PLACEHOLDER = '<your project secret API key>'
 
-function agentMcpConfig(key: string = KEY_PLACEHOLDER): string {
+export function agentMcpConfig(key: string = KEY_PLACEHOLDER): string {
     return JSON.stringify(
         {
             mcpServers: {
@@ -19,6 +19,11 @@ function agentMcpConfig(key: string = KEY_PLACEHOLDER): string {
     )
 }
 
+export function onAgentConfigCopied(): void {
+    // pinned: analytics event name. Renaming it breaks insights built on it.
+    posthog.capture('business knowledge agent config copied')
+}
+
 export function AgentConfigSnippet({ apiKey }: { apiKey?: string }): JSX.Element {
     return (
         <CodeSnippet
@@ -27,8 +32,7 @@ export function AgentConfigSnippet({ apiKey }: { apiKey?: string }): JSX.Element
             wrap
             // Keeps a newly created key out of session recordings.
             className="ph-no-capture"
-            // pinned: analytics event name. Renaming it breaks insights built on it.
-            onCopy={() => posthog.capture('business knowledge agent config copied')}
+            onCopy={onAgentConfigCopied}
         >
             {agentMcpConfig(apiKey)}
         </CodeSnippet>

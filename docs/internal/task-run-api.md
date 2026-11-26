@@ -29,6 +29,8 @@ Warm-up requires AI data processing approval.
 Warm-up waits for the saved task settings to load.
 Attaching a repository releases an unused warm run and stops composer warm-up, including after typing.
 An empty draft releases its unused warm run five seconds after the input loses focus.
+After that release, focus alone does not start warm-up again in the same composer.
+Typing still starts warm-up, and a successful submission lets focus start it again.
 
 Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.
 

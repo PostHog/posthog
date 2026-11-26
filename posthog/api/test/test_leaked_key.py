@@ -36,6 +36,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.rate_limit import LeakedKeyReportThrottle
 from posthog.test.api_keys import create_project_secret_api_key
 
+from products.conversations.backend.models import SigningSecret
+
 
 class TestPublicLeakedKeyReport(APIBaseTest):
     # Every case must exercise the anonymous path this endpoint exists to serve. With the
@@ -221,6 +223,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         setattr(self.team, token_field, token)
         self.team.save()
         row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
+        signing_secret = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=token)
 
         response = self._post(token)
 
@@ -232,8 +235,45 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         )
         self.team.refresh_from_db()
         self.assertEqual(getattr(self.team, token_field), token)
+        # The widget signing secret mirrored the leaked value; it must stop verifying it.
+        signing_secret.refresh_from_db()
+        self.assertNotEqual(signing_secret.secret, token)
+        self.assertTrue(signing_secret.rotated_independently)
         mock_psak_exposed.assert_not_called()
         mock_ff_exposed.assert_called_once()
+        self.assertIs(mock_ff_exposed.call_args.kwargs["signing_secret_replaced"], True)
+        self.assertIs(mock_ff_exposed.call_args.kwargs["grace_window_ended"], False)
+
+    @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
+    def test_leaked_token_lingering_as_previous_signing_secret_ends_the_grace_window(
+        self, mock_psak_exposed, mock_ff_exposed
+    ) -> None:
+        # The team rotated the widget secret, so the leaked token only survives as the
+        # grace-window previous secret. Retirement must wipe it and the email must say
+        # the grace window ended rather than that the active secret changed.
+        token = "phs_legacy_team_secret_token_still_in_grace_window"
+        self.team.secret_api_token = token
+        self.team.save()
+        create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
+        signing_secret = SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret="phs_rotated_fresh_secret",
+            previous_secret=token,
+            previous_secret_rotated_at=timezone.now(),
+            rotated_independently=True,
+        )
+
+        response = self._post(token)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        signing_secret.refresh_from_db()
+        self.assertEqual(signing_secret.secret, "phs_rotated_fresh_secret")
+        self.assertIsNone(signing_secret.previous_secret)
+        mock_psak_exposed.assert_not_called()
+        mock_ff_exposed.assert_called_once()
+        self.assertIs(mock_ff_exposed.call_args.kwargs["signing_secret_replaced"], False)
+        self.assertIs(mock_ff_exposed.call_args.kwargs["grace_window_ended"], True)
 
     def test_expired_oauth_access_token_still_revokes_the_paired_refresh_token(self) -> None:
         # An expired access token can't authenticate on its own, but revoking still

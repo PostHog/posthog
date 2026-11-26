@@ -5,7 +5,11 @@ import {
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationDetectedChange,
     MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsConversionSource,
+    MarketingAnalyticsRecommendationsDataGap,
+    MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsSource,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
@@ -182,8 +186,18 @@ export function reconcileResolutionOverrides(
     )
 }
 
+export const DETECTED_CHANGE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationDetectedChange, string> = {
+    negative_keyword: 'Google Ads lists this search as a negative keyword.',
+    brand_negative: 'Google Ads lists your brand as a negative keyword.',
+    keyword_added: 'Google Ads lists this search as a keyword in an active Search campaign.',
+}
+
+export function isResolved(recommendation: MarketingAnalyticsRecommendation): boolean {
+    return !!recommendation.resolution || !!recommendation.detectedChange
+}
+
 export function unresolved(recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] {
-    return recommendations.filter((recommendation) => !recommendation.resolution)
+    return recommendations.filter((recommendation) => !isResolved(recommendation))
 }
 
 export interface RecommendationsLoadStatus {
@@ -350,6 +364,51 @@ export function recommendationDataGaps(source: ExternalDataSource): Recommendati
     }))
 }
 
+export type DataGapNavigation = 'edit_conversion_goals' | 'open_utm_audit'
+
+const SERVER_DATA_GAP_ACTIONS: Record<
+    MarketingAnalyticsRecommendationsDataGapKind,
+    'manage_source' | DataGapNavigation | null
+> = {
+    conversion_action_tables_not_synced: 'manage_source',
+    performance_max_search_terms_count_primary_conversions: null,
+    posthog_conversions_not_ready: null,
+    posthog_conversion_goals_unusable: 'edit_conversion_goals',
+    // It also covers a truncated result, which no goal edit fixes.
+    posthog_conversions_failed: null,
+    posthog_campaigns_unmatched: 'open_utm_audit',
+}
+
+export type ServerDataGap = { kind: MarketingAnalyticsRecommendationsDataGapKind; message: string } & (
+    | { action: 'manage_source'; sourceId: string; sourceName: string }
+    | { action: DataGapNavigation | null; sourceName: string | null }
+)
+
+export function serverDataGaps(
+    gaps: MarketingAnalyticsRecommendationsDataGap[],
+    selectedSources: ExternalDataSource[],
+    utmAuditEnabled: boolean
+): ServerDataGap[] {
+    return gaps.map((gap) => {
+        const source = gap.campaignTable
+            ? selectedSources.find((source) => recommendationsSource(source)?.campaignTable === gap.campaignTable)
+            : undefined
+        const sourceName = source ? marketingSourceName(source) : null
+        const action = SERVER_DATA_GAP_ACTIONS[gap.kind]
+        if (action === 'manage_source' && source && sourceName) {
+            return { kind: gap.kind, message: gap.message, action, sourceId: source.id, sourceName }
+        }
+        const reachable = action === 'edit_conversion_goals' || (action === 'open_utm_audit' && utmAuditEnabled)
+        return { kind: gap.kind, message: gap.message, action: reachable ? action : null, sourceName }
+    })
+}
+
+export function conversionSourceLabel(source: MarketingAnalyticsRecommendationsConversionSource): string {
+    return source.kind === 'posthog'
+        ? `CPAs from your PostHog goals: ${source.goalNames.join(', ')}`
+        : 'CPAs from Google Ads conversions'
+}
+
 export function recommendationsSource(source: ExternalDataSource): MarketingAnalyticsRecommendationsSource | null {
     if (source.source_type === 'GoogleAds') {
         const campaignTable = syncedTable(source, 'campaign')
@@ -367,6 +426,7 @@ export function recommendationsSource(source: ExternalDataSource): MarketingAnal
             searchTermKeywordTable: syncedTable(source, 'search_term_keyword_stats'),
             performanceMaxSearchTermTable: syncedTable(source, 'performance_max_search_term_stats'),
             adTable: syncedTable(source, 'ad'),
+            keywordTable: syncedTable(source, 'keyword'),
         }
     }
     if (source.source_type === 'GoogleSearchConsole') {

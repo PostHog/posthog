@@ -8,6 +8,7 @@ ENDPOINTS = {
     "videos": "/me/videos",
     "folders": "/me/projects",
     "showcases": "/me/albums",
+    "followers": "/me/followers",
 }
 
 
@@ -57,6 +58,27 @@ FANOUT_ENDPOINTS = {
         parent_uri_column="video_uri",
         primary_keys=["video_uri", "uri"],
         params={"sort": "date", "direction": "asc"},
+    ),
+}
+
+
+@frozen
+class VimeoNestedList:
+    # Rows are a list field of each parent row, read in the parent's own listing.
+    parent: str
+    field: str
+    parent_uri_column: str
+    primary_keys: list[str]
+
+
+# The video object carries the same tag objects as `GET /videos/{video_id}/tags`, so one walk of the
+# video list replaces one tags request for each video.
+NESTED_ENDPOINTS = {
+    "video_tags": VimeoNestedList(
+        parent="videos",
+        field="tags",
+        parent_uri_column="video_uri",
+        primary_keys=["video_uri", "uri"],
     ),
 }
 
