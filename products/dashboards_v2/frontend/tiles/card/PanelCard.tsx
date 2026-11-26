@@ -1,4 +1,4 @@
-import './WidgetCard.css'
+import './PanelCard.css'
 
 import clsx from 'clsx'
 import { type CSSProperties, useMemo } from 'react'
@@ -15,30 +15,30 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import type { SavedWidget } from '../../dashboard/document/dashboardTypes'
+import type { SavedPanel } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
+import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
+import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
+import { type TileCustomization, findPanel } from '../../panels/core/panelSpec'
+import { PanelView } from '../../panels/core/PanelView'
 import { NO_BACKGROUND, showsBorder, tileBackgroundColor } from '../../presentation/tileAppearance'
 import { isPartShown } from '../../presentation/tileParts'
-import { type WidgetType, widgetSlots } from '../../widgets/core/widgetDefinition'
-import { WidgetErrorBoundary } from '../../widgets/core/WidgetErrorBoundary'
-import { type TileCustomization, findWidget } from '../../widgets/core/widgetSpec'
-import { WidgetView } from '../../widgets/core/WidgetView'
 import { TileActions } from '../menu/TileActions'
 import { TileContextMenu, hasTileMenu } from '../menu/TileContextMenu'
 
 const NO_ACTIONS: MenuAction[] = []
 
 function cardLook(
-    widget: SavedWidget,
+    panel: SavedPanel,
     customizations: TileCustomization[]
 ): { className: string; style: CSSProperties | undefined } {
-    const color = tileBackgroundColor(widget, customizations)
+    const color = tileBackgroundColor(panel, customizations)
     const tint = color === NO_BACKGROUND ? null : color
     return {
         className: clsx(
-            color === NO_BACKGROUND && 'dash-WidgetCard--no-background',
-            !showsBorder(widget) && 'dash-WidgetCard--no-border',
-            tint && 'dash-WidgetCard--tinted'
+            color === NO_BACKGROUND && 'dash-PanelCard--no-background',
+            !showsBorder(panel) && 'dash-PanelCard--no-border',
+            tint && 'dash-PanelCard--tinted'
         ),
         // A saved color can be any CSS color, so no class can carry it.
         style: tint ? ({ '--dv2-tile-background-color': tint } as CSSProperties) : undefined,
@@ -46,33 +46,33 @@ function cardLook(
 }
 
 /**
- * One widget in its card: header, body and footer. It reads no dashboard, so a page can render a single widget on
- * its own, the way a panel stands alone. Inside a dashboard, `ContentTile` passes both kinds of actions.
+ * One panel in its card: header, body and footer. It reads no dashboard, so a page can render a single panel on
+ * its own. Inside a dashboard, `ContentTile` passes both kinds of actions.
  */
-export function WidgetCard({
-    widget,
-    widgets,
+export function PanelCard({
+    panel,
+    panels,
     actions = NO_ACTIONS,
     placementActions = NO_ACTIONS,
     editable = false,
     setConfig,
 }: {
-    widget: SavedWidget
-    /** The widget types the page can show. The card renders the one that `widget.type` names. */
-    widgets: WidgetType[]
+    panel: SavedPanel
+    /** The panel types the page can show. The card renders the one that `panel.type` names. */
+    panels: PanelType[]
     /** What a person can do to the tile itself, such as change its chart type. Shown on right-click. */
     actions?: MenuAction[]
     /** What a person can do to where the tile sits, such as move or remove it. Left out on a tile outside a dashboard. */
     placementActions?: MenuAction[]
     editable?: boolean
-    /** Lets a widget that edits in place, such as text, save its config. Left out, the widget is read-only. */
+    /** Lets a panel that edits in place, such as text, save its config. Left out, the panel is read-only. */
     setConfig?: (config: unknown) => void
 }): JSX.Element {
-    const definition = findWidget(widgets, widget.type)
-    const slots = widgetSlots(definition)
-    const showHeader = isPartShown(widget, 'header', slots)
-    const showFooter = isPartShown(widget, 'footer', slots)
-    const look = cardLook(widget, definition?.allowedCustomizations ?? [])
+    const definition = findPanel(panels, panel.type)
+    const slots = panelSlots(definition)
+    const showHeader = isPartShown(panel, 'header', slots)
+    const showFooter = isPartShown(panel, 'footer', slots)
+    const look = cardLook(panel, definition?.allowedCustomizations ?? [])
     const HeaderExtra = definition?.HeaderExtra
     const Footer = definition?.Footer
     // Placement goes first so the slideshow stays above the image download in the shared view group.
@@ -84,52 +84,52 @@ export function WidgetCard({
             <Card
                 size="sm"
                 // A tile without a header has no title bar, so the whole tile is what it is dragged by.
-                className={clsx('dash-WidgetCard', look.className, editable && !showHeader && 'TileGrid__handle')}
+                className={clsx('dash-PanelCard', look.className, editable && !showHeader && 'TileGrid__handle')}
                 style={look.style}
             >
                 {showHeader && (
                     <CardHeader className={clsx(editable && 'TileGrid__handle')}>
                         <CardTitle className="flex items-center gap-1 min-w-0">
-                            <span className="TileGrid__text truncate">{widget.title}</span>
-                            {widget.description && (
+                            <span className="TileGrid__text truncate">{panel.title}</span>
+                            {panel.description && (
                                 <Tooltip>
                                     <TooltipTrigger
                                         render={
                                             <span
                                                 tabIndex={0}
                                                 className="inline-flex shrink-0 text-muted-foreground"
-                                                aria-label={widget.description}
+                                                aria-label={panel.description}
                                             />
                                         }
                                     >
                                         <IconInfo />
                                     </TooltipTrigger>
-                                    <TooltipContent className="max-w-80">{widget.description}</TooltipContent>
+                                    <TooltipContent className="max-w-80">{panel.description}</TooltipContent>
                                 </Tooltip>
                             )}
                         </CardTitle>
                         {(HeaderExtra || hasMenu) && (
                             <TileActions menu={hasMenu}>
                                 {HeaderExtra && (
-                                    <WidgetErrorBoundary widget={widget} fallback={null}>
-                                        <HeaderExtra widget={widget} />
-                                    </WidgetErrorBoundary>
+                                    <PanelErrorBoundary panel={panel} fallback={null}>
+                                        <HeaderExtra panel={panel} />
+                                    </PanelErrorBoundary>
                                 )}
                             </TileActions>
                         )}
                     </CardHeader>
                 )}
-                {!showHeader && hasMenu && <TileActions menu className="dash-WidgetCard__float-toolbar" />}
+                {!showHeader && hasMenu && <TileActions menu className="dash-PanelCard__float-toolbar" />}
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                    <WidgetView widget={widget} definition={definition} setConfig={setConfig} />
+                    <PanelView panel={panel} definition={definition} setConfig={setConfig} />
                 </CardContent>
                 {showFooter && (
                     // The grid's drag cancel selector lists this class, so a tile dragged by its body never starts a drag here.
-                    <CardFooter className="dash-WidgetCard__footer flex shrink-0 items-center gap-2 min-w-0 text-xs text-secondary">
+                    <CardFooter className="dash-PanelCard__footer flex shrink-0 items-center gap-2 min-w-0 text-xs text-secondary">
                         {Footer && (
-                            <WidgetErrorBoundary widget={widget} fallback={null}>
-                                <Footer widget={widget} />
-                            </WidgetErrorBoundary>
+                            <PanelErrorBoundary panel={panel} fallback={null}>
+                                <Footer panel={panel} />
+                            </PanelErrorBoundary>
                         )}
                     </CardFooter>
                 )}

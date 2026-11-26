@@ -1,14 +1,14 @@
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import type { ContentWidget } from '../../dashboard/document/dashboardTypes'
+import type { ContentPanel } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
 import type { RunQuery } from '../../query/queryTypes'
-import { type WidgetType, type WidgetMenuContext, defineWidget } from '../core/widgetDefinition'
-import { WidgetLoading } from '../core/WidgetView'
+import { type PanelType, type PanelMenuContext, definePanel } from '../core/panelDefinition'
+import { PanelLoading } from '../core/PanelView'
 import { chartMenuActions } from './chartMenuActions'
+import { ChartPanel } from './ChartPanel'
 import { ChartSampleData } from './ChartSampleData'
 import { type ChartConfig, chartSpec } from './chartSpec'
-import { ChartWidget } from './ChartWidget'
 import { BarLoading } from './viz/bar/BarLoading'
 import { barSpec } from './viz/bar/barSpec'
 import { LineLoading } from './viz/line/LineLoading'
@@ -22,7 +22,7 @@ const StatViz = lazyWithRetry(() => import('./viz/stat/StatViz').then((module) =
 const LineViz = lazyWithRetry(() => import('./viz/line/LineViz').then((module) => ({ default: module.LineViz })))
 const BarViz = lazyWithRetry(() => import('./viz/bar/BarViz').then((module) => ({ default: module.BarViz })))
 
-/** The kinds of chart that ship with dashboards v2, in add menu order. Every chart widget can draw them. */
+/** The kinds of chart that ship with dashboards v2, in add menu order. Every chart panel can draw them. */
 export const DEFAULT_VIZ_TYPES: VizDefinition[] = [
     defineViz({ ...statSpec, Component: StatViz, Loading: StatLoading }),
     defineViz({ ...lineSpec, Component: LineViz, Loading: LineLoading }),
@@ -38,14 +38,14 @@ function withExtraVizTypes(extra: VizDefinition[], states: ChartStates | undefin
 }
 
 /**
- * The chart widget type. It can draw every built-in kind of chart, so a dashboard saved by another host still renders.
+ * The chart panel type. It can draw every built-in kind of chart, so a dashboard saved by another host still renders.
  * - `extraVizTypes` adds a host's own kinds of chart, or replaces a built-in kind of the same type.
  * - `runQuery` runs each chart's query. The host supplies it, so the dashboard never fetches data itself.
  * - `states` sets the loading, empty, error and sample data states for every chart, unless one of the host's own kinds sets its own.
  * - `menuActions` gets every chart's menu, with the chart's own entries added, so the host can add entries such as
  *   "Open in traces" or remove ones it does not want.
  */
-export function createChartWidget({
+export function createChartPanel({
     extraVizTypes = [],
     runQuery,
     states,
@@ -54,22 +54,22 @@ export function createChartWidget({
     extraVizTypes?: VizDefinition[]
     runQuery?: RunQuery
     states?: ChartStates
-    menuActions?: (actions: MenuAction[], context: WidgetMenuContext<ChartConfig>) => MenuAction[]
-} = {}): WidgetType {
+    menuActions?: (actions: MenuAction[], context: PanelMenuContext<ChartConfig>) => MenuAction[]
+} = {}): PanelType {
     const vizTypes = withExtraVizTypes(extraVizTypes, states)
-    function Chart({ widget }: { widget: ContentWidget<ChartConfig> }): JSX.Element {
-        return <ChartWidget widget={widget} vizTypes={vizTypes} runQuery={runQuery} states={states} />
+    function Chart({ panel }: { panel: ContentPanel<ChartConfig> }): JSX.Element {
+        return <ChartPanel panel={panel} vizTypes={vizTypes} runQuery={runQuery} states={states} />
     }
     // Shaped like the chart's own kind, so a tile waiting to mount or load already looks like its chart.
-    function ChartLoading({ widget }: { widget: ContentWidget<ChartConfig> }): JSX.Element {
-        const viz = vizTypes.find((candidate) => candidate.type === widget.config.viz.type)
-        const options = viz?.optionsSchema.safeParse(widget.config.viz.options ?? {})
+    function ChartLoading({ panel }: { panel: ContentPanel<ChartConfig> }): JSX.Element {
+        const viz = vizTypes.find((candidate) => candidate.type === panel.config.viz.type)
+        const options = viz?.optionsSchema.safeParse(panel.config.viz.options ?? {})
         const Loading = viz?.Loading ?? states?.Loading
-        return Loading && options?.success ? <Loading options={options.data} /> : <WidgetLoading />
+        return Loading && options?.success ? <Loading options={options.data} /> : <PanelLoading />
     }
-    function ChartSample({ widget }: { widget: ContentWidget<ChartConfig> }): JSX.Element | null {
-        const viz = vizTypes.find((candidate) => candidate.type === widget.config.viz.type)
-        const options = viz?.optionsSchema.safeParse(widget.config.viz.options ?? {})
+    function ChartSample({ panel }: { panel: ContentPanel<ChartConfig> }): JSX.Element | null {
+        const viz = vizTypes.find((candidate) => candidate.type === panel.config.viz.type)
+        const options = viz?.optionsSchema.safeParse(panel.config.viz.options ?? {})
         if (!viz || !options?.success) {
             return null
         }
@@ -77,17 +77,17 @@ export function createChartWidget({
         if (SampleData) {
             return <SampleData options={options.data} />
         }
-        const Loading = viz.Loading ?? states?.Loading ?? WidgetLoading
+        const Loading = viz.Loading ?? states?.Loading ?? PanelLoading
         return <ChartSampleData viz={viz} options={options.data} Loading={Loading} />
     }
     const firstType = vizTypes.find((viz) => viz.type === 'line')?.type ?? vizTypes[0]?.type ?? 'line'
-    return defineWidget<ChartConfig, 'chart'>({
+    return definePanel<ChartConfig, 'chart'>({
         ...chartSpec(vizTypes),
         addTileOptions: [
             {
                 label: 'Chart',
                 // TODO(2026-11-23): Replace this hardcoded query with one the person picks when they add the tile.
-                // The query is temporary. It gives the add menu a widget to insert before a query picker exists.
+                // The query is temporary. It gives the add menu a panel to insert before a query picker exists.
                 create: () => ({
                     type: 'chart',
                     title: 'New chart',
