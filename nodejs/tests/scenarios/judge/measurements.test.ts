@@ -7,6 +7,7 @@ import type { TruthRecord } from '../provider-edge'
 import type { ValveTimelineEntry } from '../valves/valves'
 import type { JournalEntry } from './judge'
 import {
+    DriveWindow,
     HostSample,
     MeasureEvidence,
     Measurement,
@@ -633,7 +634,7 @@ describe('measurements', () => {
         expect(janitorResetsOf({ samples, sampledFrom: FROM })).toBe(resets)
     })
 
-    it.each<[string, ValveTimelineEntry[], ReturnType<typeof phasesOf>]>([
+    it.each<[string, ValveTimelineEntry[], ReturnType<typeof phasesOf>, DriveWindow?]>([
         [
             'spans the valve phase from the earliest applied valve to the last release, whatever the timeline order',
             [
@@ -674,8 +675,30 @@ describe('measurements', () => {
             [{ ...VALVE, intentAt: isoAt(1600), releasedAt: isoAt(1700) }],
             { baseline: { from: atS(0), to: atS(1500) } },
         ],
-    ])('%s', (_story, timeline, phases) => {
-        expect(phasesOf(DRIVE, timeline)).toEqual(phases)
+        [
+            'starts the baseline once the drive has warmed up, and ends it at the valve intent',
+            [VALVE],
+            {
+                baseline: { from: atS(160), to: atS(700) },
+                valve: { from: atS(700), to: atS(1100) },
+                failback: { from: atS(1100), to: atS(1500) },
+            },
+            { ...DRIVE, warmedAt: atS(160) },
+        ],
+        [
+            'reads the drive after its warm-up as baseline when no valve applied, as in the paired control',
+            [],
+            { baseline: { from: atS(160), to: atS(1500) } },
+            { ...DRIVE, warmedAt: atS(160) },
+        ],
+        [
+            'reads no baseline when the drive ended before it warmed up',
+            [],
+            { baseline: { from: atS(1500), to: atS(1500) } },
+            { ...DRIVE, warmedAt: atS(1600) },
+        ],
+    ])('%s', (_story, timeline, phases, drive = DRIVE) => {
+        expect(phasesOf(drive, timeline)).toEqual(phases)
     })
 
     it('rates the baseline claims per queue, new jobs and host CPU up to the valve intent, and claims per step', () => {
