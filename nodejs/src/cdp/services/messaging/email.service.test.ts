@@ -18,7 +18,10 @@ import {
     StoredFile,
     attachmentFile,
     deliveredTo,
+    firstLookupGoesWhereNothingListens,
+    lookupAnswers,
     sesTransportFor,
+    stopAnsweringLookups,
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
 import { FakePostHog, startFakePostHog } from '~/cdp/_tests/fake-posthog'
@@ -2590,6 +2593,7 @@ describe('EmailService', () => {
                 send([pdf, logo])
             })
             afterEach(async () => {
+                stopAnsweringLookups()
                 await bucket.close()
                 await statusProducer.disconnect()
                 await new Promise((resolve, reject) =>
@@ -2618,11 +2622,14 @@ describe('EmailService', () => {
                     send([pdf, logo], 2)
                 }
                 const emailService = sender()
-                ses.failWith(firstTryFault === 'sesThrottles' ? sesThrottles : null)
+                if (firstTryFault === 'sesThrottles') {
+                    ses.failOnce(sesThrottles)
+                }
                 bucket.answer = firstTryFault === 'bucketRefuses' ? 'refuse' : 'pass'
 
                 let result = await emailService.executeSendEmail(invocation)
                 if (firstTryFault) {
+                    expect(ses.sent).toEqual([])
                     expect(result.finished).toBe(false)
                     expect(result.error).toBeUndefined()
                     expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
@@ -3337,6 +3344,12 @@ describe('EmailService', () => {
             const sesRefusesTheConnection = (emailService: EmailService): void => {
                 emailService.sesTransport = sesTransportFor({ endpoint: ENDPOINT_THAT_REFUSES_CONNECTIONS })
             }
+            const sesRefusesTheFirstConnection = (emailService: EmailService): void => {
+                const endpoint = new URL(ses.endpoint)
+                endpoint.hostname = 'ses-refuses-once.example.test'
+                lookupAnswers(endpoint.hostname, firstLookupGoesWhereNothingListens())
+                emailService.sesTransport = sesTransportFor({ endpoint: endpoint.origin })
+            }
 
             it.each([
                 [9, false, 'the bucket does not answer', 'retries once more', bucketRefuses, false, undefined, null],
@@ -3366,6 +3379,16 @@ describe('EmailService', () => {
                     'SES refuses the connection',
                     'fails as provider_error',
                     sesRefusesTheConnection,
+                    true,
+                    expect.stringMatching(/^SES could not be reached /),
+                    'provider_error',
+                ],
+                [
+                    10,
+                    false,
+                    'SES refuses the first connection and accepts the next',
+                    'fails as provider_error',
+                    sesRefusesTheFirstConnection,
                     true,
                     expect.stringMatching(/^SES could not be reached /),
                     'provider_error',

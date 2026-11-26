@@ -1,11 +1,17 @@
-import dns from 'node:dns'
-import { IncomingMessage, RequestListener, ServerResponse, createServer } from 'node:http'
-import { createServer as createTlsServer } from 'node:https'
+import http, { Agent, ClientRequest, IncomingMessage, RequestListener, ServerResponse, createServer } from 'node:http'
+import https, { createServer as createTlsServer } from 'node:https'
 import { AddressInfo, Server, Socket } from 'node:net'
 import tls from 'node:tls'
 import { register } from 'prom-client'
 
-import { ENDPOINT_THAT_REFUSES_CONNECTIONS, attachmentFile, sesTransportFor } from '~/cdp/_tests/email-delivery-fakes'
+import {
+    ENDPOINT_THAT_REFUSES_CONNECTIONS,
+    LookupAnswer,
+    attachmentFile,
+    lookupAnswers,
+    loopbackAddresses,
+    sesTransportFor,
+} from '~/cdp/_tests/email-delivery-fakes'
 
 import { SesTransport } from './ses-transport'
 
@@ -62,20 +68,6 @@ async function metricValue(name: string, labels: Record<string, string>): Promis
     return sample?.value ?? 0
 }
 
-type LookupAnswer = (options: dns.LookupOptions, callback: (...args: unknown[]) => void) => void
-
-const lookupAnswers = (answeredHost: string, answer: LookupAnswer): void => {
-    const lookup = dns.lookup as (...args: unknown[]) => void
-    jest.spyOn(dns, 'lookup').mockImplementation(((host: string, ...rest: unknown[]) => {
-        if (host !== answeredHost) {
-            return lookup(host, ...rest)
-        }
-        const callback = rest[rest.length - 1] as (...args: unknown[]) => void
-        const options = (typeof rest[0] === 'object' ? rest[0] : {}) as dns.LookupOptions
-        process.nextTick(() => answer(options, callback))
-    }) as typeof dns.lookup)
-}
-
 const notFound: LookupAnswer = (_options, callback) =>
     callback(
         Object.assign(new Error('getaddrinfo ENOTFOUND ses.invalid'), {
@@ -84,14 +76,6 @@ const notFound: LookupAnswer = (_options, callback) =>
             hostname: 'ses.invalid',
         })
     )
-
-const twoLoopbackAddresses: LookupAnswer = (options, callback) =>
-    options.all
-        ? callback(null, [
-              { address: '127.0.0.1', family: 4 },
-              { address: '127.0.0.2', family: 4 },
-          ])
-        : callback(null, '127.0.0.1', 4)
 
 type RetryToken = { getRetryCount: () => number; getRetryDelay: () => number }
 
@@ -107,6 +91,22 @@ const retriesTwice = {
 function retryToken(retryCount: number): RetryToken {
     return { getRetryCount: () => retryCount, getRetryDelay: () => 0 }
 }
+
+const watchRequests = (protocol: keyof typeof peerFor, onRequest: (request: ClientRequest) => void): void => {
+    const client = protocol === 'https' ? https : http
+    const request = client.request as (...args: unknown[]) => ClientRequest
+    jest.spyOn(client, 'request').mockImplementation(((...args: unknown[]) => {
+        const created = request(...args)
+        onRequest(created)
+        return created
+    }) as typeof client.request)
+}
+
+const queuedForASocket = (request: ClientRequest): number =>
+    Object.values((request as ClientRequest & { agent: Agent }).agent.requests).reduce(
+        (queued, queue) => queued + (queue?.length ?? 0),
+        0
+    )
 
 describe('SesTransport', () => {
     let transport: SesTransport | undefined
@@ -161,19 +161,28 @@ describe('SesTransport', () => {
                     held.forEach((answer, index) => answerAccepted(answer, `m-${index}`))
                 }
             })
+            const deadline = new AbortController()
+            let created = 0
+            let queued = 0
+            watchRequests(protocol, (request) => {
+                if (++created === inFlight) {
+                    queued = queuedForASocket(request)
+                    if (queued > 0) {
+                        setImmediate(() => deadline.abort())
+                    }
+                }
+            })
             transport = sesTransportFor({ endpoint: ses.endpoint })
-            const onlyIfAConnectionNeverOpens = AbortSignal.timeout(30000)
 
             const outcomes = await Promise.all(
-                Array.from({ length: inFlight }, () =>
-                    transport!.send({ email, files, deadline: onlyIfAConnectionNeverOpens })
-                )
+                Array.from({ length: inFlight }, () => transport!.send({ email, files, deadline: deadline.signal }))
             )
 
             expect({
+                queued,
                 accepted: outcomes.filter(({ kind }) => kind === 'accepted').length,
                 connections: ses.connections.size,
-            }).toEqual({ accepted: inFlight, connections: inFlight })
+            }).toEqual({ queued: 0, accepted: inFlight, connections: inFlight })
         }
     )
 
@@ -223,7 +232,7 @@ describe('SesTransport', () => {
         [
             'every address of the SES host refuses the connection',
             (): string => {
-                lookupAnswers('ses.example.test', twoLoopbackAddresses)
+                lookupAnswers('ses.example.test', loopbackAddresses('127.0.0.1', '127.0.0.2'))
                 return 'http://ses.example.test:1'
             },
         ],
