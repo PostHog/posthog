@@ -3853,6 +3853,16 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['Sources'],
     },
     {
+        path: 'Tags',
+        category: 'Schema',
+        iconType: 'tag',
+        href: urls.tagDefinitions(),
+        flag: FEATURE_FLAGS.TAG_MANAGEMENT,
+        requiresOrganizationAdmin: true,
+        searchKeywords: ['labels', 'merge', 'rename'],
+        sceneKeys: [],
+    },
+    {
         path: `Transformations`,
         category: 'CDP',
         type: 'hog_function/transformation',
