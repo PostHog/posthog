@@ -4086,6 +4086,16 @@ class TestCurrentAliasUsage(APIBaseTest):
         ]
         assert [(shadow["level"], shadow["source"], shadow["outcome"]) for shadow in shadows] == [expected]
 
+    def test_a_refused_request_leaves_the_selected_project_unset(self) -> None:
+        self.user.current_team = None
+        self.user.save(update_fields=["current_team"])
+
+        response = self.client.get("/api/feature_flag/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.user.refresh_from_db()
+        assert self.user.current_team_id is None
+
     def test_recording_failure_does_not_fail_the_request(self) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"])
