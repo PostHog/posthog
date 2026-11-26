@@ -138,7 +138,7 @@ class TestRelaySlackMessage(TestCase):
             ("answer_not_delivered", "relay-3", "Which license should I use?", None, False, False),
         ]
     )
-    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler._get_client")
+    @patch("products.slack_app.backend.slack_thread.SlackIntegration")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
@@ -153,7 +153,7 @@ class TestRelaySlackMessage(TestCase):
         mock_delete_progress,
         mock_post,
         mock_update,
-        mock_get_client,
+        mock_slack,
     ):
         mock_post.return_value = delivered
         relay_slack_message(
@@ -173,7 +173,7 @@ class TestRelaySlackMessage(TestCase):
             mock_update.assert_not_called()
         else:
             mock_update.assert_called_once_with(reaction_emoji)
-        reactions_remove = mock_get_client.return_value.reactions_remove
+        reactions_remove = mock_slack.return_value.client.reactions_remove
         if eyes_removed:
             reactions_remove.assert_called_once_with(channel="C123", timestamp="1234.5", name="eyes")
         else:

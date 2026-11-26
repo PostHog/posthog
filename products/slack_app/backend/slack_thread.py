@@ -10,6 +10,7 @@ from uuid import UUID
 import structlog
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationNotFound
@@ -103,6 +104,8 @@ _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_form
 # Slack closed the stream, so every later append and the stop call fail the same way.
 _STREAM_ENDED_ERROR_CODE = "message_not_in_streaming_state"
 _MESSAGE_NOT_FOUND_ERROR_CODE = "message_not_found"
+# The reaction or its message is already gone, so there is nothing left to remove.
+_ABSENT_REACTION_ERRORS = frozenset({"no_reaction", _MESSAGE_NOT_FOUND_ERROR_CODE})
 
 
 class ReplyKind(StrEnum):
@@ -554,14 +557,24 @@ class SlackThreadHandler:
             logger.warning("slack_update_reaction_failed", error=str(e))
 
     def clear_working_reaction(self) -> None:
-        """Remove the :eyes: from the message this turn answers, once the answer is in the thread."""
+        """Remove the :eyes: from the message this turn answers, once the answer is in the thread.
+
+        The activity that posts the answer does not run again for the same answer, so a rate-limited
+        removal retries here. It uses a client of its own, so that the posts of this handler keep
+        their own retry policy. Slack refuses a rate-limited request without acting on it, which makes
+        the retry safe.
+        """
         target_ts = self.turn_person_message_ts
         if not target_ts:
             return
         try:
-            self._get_client().reactions_remove(channel=self.context.channel, timestamp=target_ts, name="eyes")
-        except Exception:
-            pass
+            client = SlackIntegration(self._get_integration()).client
+            client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=1))
+            client.reactions_remove(channel=self.context.channel, timestamp=target_ts, name="eyes")
+        except Exception as e:
+            if isinstance(e, SlackApiError) and e.response.get("error") in _ABSENT_REACTION_ERRORS:
+                return
+            logger.warning("slack_clear_working_reaction_failed", error=str(e))
 
     def start_status_stream(
         self,

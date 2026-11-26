@@ -241,9 +241,9 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             record_slack_feature_used(
                 handler.team_id, context.integration_id, handler.actor_slack_user_id, SlackFeature.FILE_OUTPUTS
             )
+        # Last, so a file this answer delivered already counts as used when the tip is picked.
         if answer_delivered and input.answer_markdown is not None:
-            handler.clear_working_reaction()
-            # Last, so a file this answer delivered already counts as used when the tip is picked.
             handler.offer_feature_tip()
+            handler.clear_working_reaction()
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

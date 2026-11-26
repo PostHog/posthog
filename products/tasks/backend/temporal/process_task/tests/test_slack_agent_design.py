@@ -216,9 +216,9 @@ class TestSlackAgentDesignStream(TestCase):
     @parameterized.expand([("delivered", True), ("not_delivered", False)])
     @patch.object(SlackThreadHandler, "offer_feature_tip")
     @patch.object(SlackThreadHandler, "stop_status_stream")
-    @patch.object(SlackThreadHandler, "_get_client")
+    @patch("products.slack_app.backend.slack_thread.SlackIntegration")
     def test_a_delivered_answer_removes_the_eyes_from_the_message_it_answers(
-        self, _name, delivered, mock_get_client, mock_stop, _mock_tip
+        self, _name, delivered, mock_slack, mock_stop, _mock_tip
     ) -> None:
         mock_stop.return_value = delivered
         record_delivered_message(
@@ -246,7 +246,7 @@ class TestSlackAgentDesignStream(TestCase):
             )
         )
 
-        reactions_remove = mock_get_client.return_value.reactions_remove
+        reactions_remove = mock_slack.return_value.client.reactions_remove
         if delivered:
             reactions_remove.assert_called_once_with(channel="C1", timestamp="5.0", name="eyes")
         else:

@@ -349,11 +349,12 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
-    elif answer_delivered:
-        handler.clear_working_reaction()
 
     # Last, because the model call behind it is the slowest step and the answer must not wait for it.
     if answer_delivered and input.offer_reply_suggestions:
         handler.offer_reply_suggestions(text)
     if answer_delivered and input.offer_feature_tip:
         handler.offer_feature_tip()
+    # After the replies, because a rate-limited removal waits for Slack's Retry-After first.
+    if answer_delivered and input.reaction_emoji is None:
+        handler.clear_working_reaction()
