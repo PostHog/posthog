@@ -92,7 +92,11 @@ export function ReleaseConditionsTable(): JSX.Element {
                 return (
                     <div>
                         <div className="font-semibold">{`Set ${index + 1}`}</div>
-                        {item.description && <div className="text-muted text-xs">{item.description}</div>}
+                        {item.description && (
+                            <div className="text-muted text-xs whitespace-pre-wrap wrap-anywhere">
+                                {item.description}
+                            </div>
+                        )}
                     </div>
                 )
             },
