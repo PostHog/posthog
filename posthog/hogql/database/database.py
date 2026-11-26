@@ -832,7 +832,7 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
         view_query = catalog.view_queries.get(name)
         if isinstance(view_query, dict) and isinstance(view_query.get("query"), str):
             definitions.append(view_query["query"])
-    if _reads_tables_the_walk_cannot_name(definitions, catalog.looked_up_names, frozenset(gated_tables), team.pk):
+    if _reads_tables_the_walk_cannot_name(definitions, catalog.looked_up_names, frozenset(gated_tables), team):
         return gated
     if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team.pk):
         return gated
@@ -840,54 +840,92 @@ def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = Non
 
 
 def _reads_tables_the_walk_cannot_name(
-    definitions: Sequence[str], read_names: Collection[str], gated_tables: frozenset[str], team_id: int
+    definitions: Sequence[str], read_names: Collection[str], gated_tables: frozenset[str], team: Team
 ) -> bool:
-    """True when a definition may read a table that appears nowhere in its text, which the name walk misses.
+    """True when a definition may read a table through a field its text doesn't name, which the name walk misses.
 
-    A HogQLX tag in a table position expands to a query only at resolution. A warehouse join adds a lazy field
-    to the table it starts from, so a definition reading that field reads the joined table or view by no name.
+    Warehouse joins and saved expressions add fields to a table. A join reaches its target, and that target's own
+    joins, by no name; an expression with a subquery or query tag reads whatever it selects. Names match on their
+    last segment, case-insensitively, so every queryable form of a table (`posthog.events`, `models.x`) matches.
     """
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
-    from posthog.hogql.parser import parse_select  # noqa: PLC0415
+    from posthog.hogql.metadata import TableCollector  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
-    from products.data_tools.backend.facade.models import DataWarehouseJoin  # noqa: PLC0415
+    from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin  # noqa: PLC0415
 
-    class _TagTableFinder(TraversingVisitor):
+    def key(name: str) -> str:
+        return name.rsplit(".", 1)[-1].lower()
+
+    class _ReadFinder(TraversingVisitor):
         found = False
 
-        def visit_join_expr(self, node: ast.JoinExpr) -> None:
-            if isinstance(node.table, ast.HogQLXTag):
-                self.found = True
-            super().visit_join_expr(node)
+        def visit_select_query(self, node: ast.SelectQuery) -> None:
+            self.found = True
 
+        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+            self.found = True
+
+        def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+            self.found = True
+
+    names = {key(name) for name in read_names}
     for definition in definitions:
-        finder = _TagTableFinder()
+        collector = TableCollector()
         try:
-            finder.visit(parse_select(definition))
+            collector.visit(parse_select(definition))
         except BaseHogQLError:
             return True
-        if finder.found:
-            return True
+        names |= {key(name) for name in collector.table_names}
 
-    sources = set(read_names) | gated_tables
-    joined = set(
-        DataWarehouseJoin.objects.filter(team_id=team_id, source_table_name__in=sources)
+    joins: dict[str, set[str]] = defaultdict(set)
+    for source, target in (
+        DataWarehouseJoin.objects.filter(team_id=team.pk)
         .exclude(deleted=True)
-        .values_list("joining_table_name", flat=True)
-    )
+        .values_list("source_table_name", "joining_table_name")
+    ):
+        joins[key(source)].add(key(target))
+    reading_expressions: set[str] = set()
+    for table_name, expression in (
+        DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
+        .exclude(deleted=True)
+        .values_list("table_name", "expression")
+    ):
+        finder = _ReadFinder()
+        try:
+            finder.visit(parse_expr(expression))
+        except BaseHogQLError:
+            finder.found = True
+        if finder.found:
+            reading_expressions.add(key(table_name))
+    if not joins and not reading_expressions:
+        return False
+
+    gated = {key(name) for name in gated_tables}
+    reached: set[str] = set()
+    frontier = list(names)
+    while frontier:
+        name = frontier.pop()
+        if name in reached:
+            continue
+        reached.add(name)
+        if name in reading_expressions:
+            return True
+        for target in joins.get(name, ()):
+            if target in gated:
+                return True
+            frontier.append(target)
+    joined = reached - names
     if not joined:
         return False
-    if joined & (gated_tables | {name.removeprefix("posthog.") for name in gated_tables}):
-        return True
     # A joined view can read a gated table itself, so it fails closed instead of being walked too.
-    return (
-        DataWarehouseSavedQuery.objects.filter(
-            team_id=team_id, name__in=joined | {name.removeprefix("models.") for name in joined}
-        )
+    return any(
+        key(name) in joined
+        for name in DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
         .exclude(deleted=True)
-        .exists()
+        .values_list("name", flat=True)
     )
 
 

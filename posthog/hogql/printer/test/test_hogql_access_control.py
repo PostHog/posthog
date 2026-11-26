@@ -30,6 +30,7 @@ _CTE_SHADOWED_TRACE_READ = (
 )
 
 _TAG_TRACE_READ = "SELECT name FROM <HogQLQuery query='SELECT name FROM posthog.trace_spans' />"
+_SCALAR_TAG_TRACE_READ = "SELECT <HogQLQuery query='SELECT any(name) FROM posthog.trace_spans' /> AS name"
 
 
 class TestAccessControlSystemTables(BaseTest):
@@ -661,13 +662,49 @@ class TestDeniedTableError(BaseTest):
 
     @parameterized.expand(
         [
-            ("tracing_none", "none", "SELECT name FROM posthog.trace_spans", False, False, True),
-            ("tracing_viewer", "viewer", "SELECT name FROM posthog.trace_spans", False, False, False),
-            ("cte_shadows_trace_table", "none", _CTE_SHADOWED_TRACE_READ, False, False, True),
-            ("edited_after_build", "none", "SELECT '' AS name", True, False, True),
-            ("unedited_without_trace_read", "none", "SELECT '' AS name", False, False, False),
-            ("trace_read_in_a_query_tag", "none", _TAG_TRACE_READ, False, False, True),
-            ("trace_read_through_a_warehouse_join", "none", "SELECT event AS name FROM events", False, True, True),
+            ("tracing_none", "none", "SELECT name FROM posthog.trace_spans", False, [], None, True),
+            ("tracing_viewer", "viewer", "SELECT name FROM posthog.trace_spans", False, [], None, False),
+            ("cte_shadows_trace_table", "none", _CTE_SHADOWED_TRACE_READ, False, [], None, True),
+            ("edited_after_build", "none", "SELECT '' AS name", True, [], None, True),
+            ("unedited_without_trace_read", "none", "SELECT '' AS name", False, [], None, False),
+            ("trace_read_in_a_query_tag", "none", _TAG_TRACE_READ, False, [], None, True),
+            ("trace_read_in_a_scalar_query_tag", "none", _SCALAR_TAG_TRACE_READ, False, [], None, True),
+            (
+                "trace_read_through_a_warehouse_join",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("events", "posthog.trace_spans")],
+                None,
+                True,
+            ),
+            (
+                "join_source_stored_in_another_form",
+                "none",
+                "SELECT event AS name FROM posthog.events",
+                False,
+                [("events", "posthog.trace_spans")],
+                None,
+                True,
+            ),
+            (
+                "trace_read_through_chained_joins",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [("events", "span_links"), ("span_links", "posthog.trace_spans")],
+                None,
+                True,
+            ),
+            (
+                "trace_read_in_a_saved_expression",
+                "none",
+                "SELECT event AS name FROM events",
+                False,
+                [],
+                "(SELECT any(name) FROM posthog.trace_spans)",
+                True,
+            ),
         ]
     )
     def test_materialized_view_over_trace_tables_follows_tracing_access(
@@ -676,7 +713,8 @@ class TestDeniedTableError(BaseTest):
         access_level: str,
         view_sql: str,
         edited_after_build: bool,
-        join_events_to_spans: bool,
+        joins: list[tuple[str, str]],
+        events_expression: str | None,
         denied: bool,
     ) -> None:
         from posthog.hogql.database.database import read_posthog_table_scopes
@@ -685,10 +723,11 @@ class TestDeniedTableError(BaseTest):
         from posthog.hogql.resolver import resolve_types
 
         from posthog.constants import AvailableFeature
+        from posthog.models.scoping import team_scope
 
         from products.access_control.backend.models.access_control import AccessControl
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-        from products.data_tools.backend.facade.models import DataWarehouseJoin
+        from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin
         from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         self.organization.available_product_features = [
@@ -706,15 +745,20 @@ class TestDeniedTableError(BaseTest):
             url_pattern="https://bucket.example.com/slow_spans/*",
             columns={"name": "String"},
         )
-        if join_events_to_spans:
+        for source, target in joins:
             DataWarehouseJoin.objects.create(
                 team=self.team,
-                source_table_name="events",
+                source_table_name=source,
                 source_table_key="event",
-                joining_table_name="posthog.trace_spans",
+                joining_table_name=target,
                 joining_table_key="name",
-                field_name="spans",
+                field_name=f"{target.rsplit('.', 1)[-1]}_join",
             )
+        if events_expression is not None:
+            with team_scope(self.team.id, canonical=True):
+                DataWarehouseExpression.objects.create(
+                    team=self.team, table_name="events", field_name="span_name", expression=events_expression
+                )
         built_at = datetime.now(UTC)
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
