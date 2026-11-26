@@ -898,7 +898,6 @@ class InsightSerializer(InsightBasicSerializer):
         return value
 
     def _sql_insight_for_metrics_sql(self, value: dict[str, Any]) -> dict[str, Any] | None:
-        # The metrics path runs SQL only over the metrics tables, so SQL over other tables saves as a SQL insight.
         get_team = self.context.get("get_team")
         if get_team is None or value.get("kind") != "MetricsQuery" or value.get("language") != "sql":
             return None

@@ -21,7 +21,6 @@ from posthog.models import Team
 
 from common.hogvm.python.utils import HogVMException
 
-# A metrics insight defaults to the last 24 hours.
 DEFAULT_DATE_FROM = "-24h"
 
 _DISPLAY: dict[str, ChartDisplayType] = {
@@ -39,8 +38,7 @@ _DATE_PLACEHOLDERS = {
     re.compile(r"\{\s*date_from\s*\}"): "{filters.dateRange.from}",
     re.compile(r"\{\s*date_to\s*\}"): "{filters.dateRange.to}",
 }
-# A dashboard variable reference. A dashboard can fill one in at render time, also inside quotes, so any one keeps
-# the query on the metrics path. `properties.$browser` is a field, not a reference.
+# A dashboard can fill in a variable at render time, also inside quotes. `properties.$browser` is a field.
 _VARIABLE_REFERENCE = re.compile(r"(?<![\w.])\$\{?[A-Za-z_]")
 
 
