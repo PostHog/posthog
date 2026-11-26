@@ -1,11 +1,14 @@
 from collections.abc import Mapping
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from typing import Any
 
 from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
 from django.utils import timezone
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.api.cohort import CohortSerializer
+from posthog.api.tagged_item import replace_tags_on_object
 from posthog.models import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -14,7 +17,12 @@ from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.facade.contracts import ExperimentListFilters, ExperimentNotFound, ListAccess
+from products.experiments.backend.facade.contracts import (
+    ExperimentListFilters,
+    ExperimentNotFound,
+    ExperimentUpdate,
+    ListAccess,
+)
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     resolve_default_exposure_event,
@@ -122,16 +130,18 @@ def get_handle(*, team: Team, experiment_id: int) -> Experiment | None:
     )
 
 
-def get_for_action(*, team: Team, experiment_id: int) -> Experiment:
-    """The live experiment of the project with the id, with the joins and prefetches of the experiment viewset's
-    queryset, which the `ExperimentService` methods of its detail actions read.
+def get_for_action(*, team: Team, experiment_id: int, include_deleted: bool = False) -> Experiment:
+    """The experiment of the project with the id, with the joins and prefetches of the experiment viewset's queryset,
+    which the `ExperimentService` methods of its detail actions read. A deleted experiment counts only with
+    `include_deleted`.
 
-    Raises ExperimentNotFound when the project has no live experiment with the id.
+    Raises ExperimentNotFound when the project has no such experiment.
     """
+    queryset = Experiment.objects.filter(team__project_id=team.project_id, pk=experiment_id)
+    if not include_deleted:
+        queryset = queryset.exclude(deleted=True)
     experiment = (
-        Experiment.objects.filter(team__project_id=team.project_id, pk=experiment_id)
-        .exclude(deleted=True)
-        .select_related("team", "feature_flag", "created_by", "exposure_cohort", "holdout__created_by")
+        queryset.select_related("team", "feature_flag", "created_by", "exposure_cohort", "holdout__created_by")
         .prefetch_related(
             Prefetch(
                 "feature_flag__flag_evaluation_contexts",
@@ -167,6 +177,56 @@ def create_exposure_cohort(
     return CohortSerializer(
         cohort, context={"request": serializer_context["request"], "team": serializer_context["team"]}
     ).data
+
+
+def tag_created_experiment(*, experiment_id: int, tags: list[str] | None) -> Experiment:
+    """The experiment with the id, which the caller has just created, with its tags set to `tags` unless they are
+    None."""
+    experiment = Experiment.objects.get(id=experiment_id)
+    if tags is not None:
+        replace_tags_on_object(tags, experiment)
+    return experiment
+
+
+# The update data of `ExperimentService.update_experiment` names these fields by the sources of the fields of the
+# experiment serializer.
+_UPDATE_DATA_KEYS = {"feature_flag_key": "get_feature_flag_key", "create_in_folder": "_create_in_folder"}
+# The service takes these as arguments, or the update applies them itself, so they are not update data.
+_NOT_UPDATE_DATA = frozenset(
+    {"allow_unknown_events", "feature_flag_config", "tags", "feature_flag_rule_id", "deprecated_flag_config_changed"}
+)
+
+
+def apply_update(
+    *,
+    team: Team,
+    user: User,
+    experiment_id: int,
+    update: ExperimentUpdate,
+    include_deleted: bool,
+    serializer_context: dict[str, Any],
+) -> Experiment:
+    experiment = get_for_action(team=team, experiment_id=experiment_id, include_deleted=include_deleted)
+    # The rule is chosen on create. A client that sends back what it read changes nothing.
+    if "feature_flag_rule_id" in update.fields_set and update.feature_flag_rule_id != experiment.feature_flag_rule_id:
+        raise ValidationError("feature_flag_rule_id cannot change after the experiment is created.")
+    # In the declaration order of the contract, which is the order of the validated data of the serializer.
+    update_data = {
+        _UPDATE_DATA_KEYS.get(field.name, field.name): getattr(update, field.name)
+        for field in fields(update)
+        if field.name in update.fields_set and field.name not in _NOT_UPDATE_DATA
+    }
+    updated = ExperimentService(team=team, user=user).update_experiment(
+        experiment,
+        update_data,
+        feature_flag_config=update.feature_flag_config,
+        serializer_context=serializer_context,
+        allow_unknown_events=update.allow_unknown_events,
+        deprecated_flag_config_changed=update.deprecated_flag_config_changed,
+    )
+    if update.tags is not None:
+        replace_tags_on_object(update.tags, updated)
+    return updated
 
 
 def list_page(

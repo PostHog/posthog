@@ -33,7 +33,7 @@ from products.feature_flags.backend.models.evaluation_context import EvaluationC
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 _API_KEYS = {"exposure_cohort_id": "exposure_cohort", "experiment_id": "experiment", "saved_metric_id": "saved_metric"}
-_CONTRACT_ONLY_KEYS = {"team_id", "created_by_id"}
+_CONTRACT_ONLY_KEYS = {"team_id", "created_by_id", "is_draft"}
 # The API adds the access level of the viewer, and `health` and `saved_metrics_ids`, which it always renders as null.
 _API_ONLY_KEYS = {"user_access_level", "health", "saved_metrics_ids"}
 

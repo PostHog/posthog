@@ -4694,9 +4694,15 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIn(active_experiment_id, experiment_ids)
         self.assertNotIn(experiment_id, experiment_ids)
 
-    def test_detail_endpoint_returns_404_for_deleted_experiment(self):
-        """Test that detail endpoint returns 404 for soft-deleted experiments"""
-
+    @parameterized.expand(
+        [
+            ("retrieve", None),
+            ("update", {"name": "Renamed"}),
+            # A null `deleted` restores nothing, so the update must not find the deleted experiment.
+            ("update_with_null_deleted", {"deleted": None, "name": "Renamed"}),
+        ]
+    )
+    def test_detail_endpoint_returns_404_for_deleted_experiment(self, _name, update_body):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -4717,9 +4723,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             format="json",
         )
 
-        # Try to get the deleted experiment
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        url = f"/api/projects/{self.team.id}/experiments/{experiment_id}/"
+        response = self.client.get(url) if update_body is None else self.client.patch(url, update_body, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Experiment.objects.get(id=experiment_id).name, "Test Experiment")
 
     def test_restore_allows_payload_with_additional_fields(self):
         create_response = self.client.post(
@@ -9997,8 +10004,8 @@ class TestExperimentTags(APILicensedTest):
         return response.json()
 
     def test_create_with_tags_persists_and_normalizes_them(self):
-        # Guards the expected_fields allowlist in ExperimentSerializer.create: if tags stops being
-        # popped before that check, every tagged create fails with "Can't create keys: tags".
+        # Guards the expected_fields allowlist in ExperimentSerializer.to_create: if tags stops being
+        # ignored by that check, every tagged create fails with "Can't create keys: tags".
         experiment = self._create_experiment("Tagged", "tags-create-flag", tags=["Growth", "checkout"])
         assert sorted(experiment["tags"]) == ["checkout", "growth"]
         detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment['id']}/").json()
@@ -10007,7 +10014,7 @@ class TestExperimentTags(APILicensedTest):
     def test_update_replaces_tags_and_untagged_update_preserves_them(self):
         experiment = self._create_experiment("Tagged", "tags-update-flag", tags=["one"])
 
-        # A PATCH that doesn't mention tags must not wipe them (tags=None no-op in update()).
+        # A PATCH that doesn't mention tags must not wipe them (tags=None no-op in apply_update()).
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
             {"description": "still tagged"},
@@ -10024,7 +10031,7 @@ class TestExperimentTags(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert sorted(response.json()["tags"]) == ["three", "two"]
 
-        # tags: [] clears (None preserves, [] clears — both ride the same pop in update())
+        # tags: [] clears (None preserves, [] clears — both ride the same check in apply_update())
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
             {"tags": []},

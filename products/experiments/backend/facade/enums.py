@@ -17,6 +17,20 @@ MAX_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.99")
 
 LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
 
+# Feature-flag config keys that historically lived on the deprecated `parameters` surface but
+# belong on the linked FeatureFlag (the source of truth). A legacy caller still sending them in
+# `parameters` input has them copied into the `feature_flag` config path (see
+# ExperimentSerializer._deprecated_parameters_as_feature_flag_config) and stripped from the
+# stored column; reads still project the flag's current config back into `parameters` for
+# backward compatibility.
+FEATURE_FLAG_CONFIG_KEYS: tuple[str, ...] = (
+    "feature_flag_variants",
+    "rollout_percentage",
+    "aggregation_group_type_index",
+    "feature_flag_payloads",
+    "ensure_experience_continuity",
+)
+
 
 class ExposuresPath(StrEnum):
     """Where a metric query read the exposures. Tagged on the query as `experiment_exposures_path`, and stored with a

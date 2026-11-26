@@ -11,6 +11,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final, Generic, Literal, Optional, TypeVar
 
+from pydantic import JsonValue
+
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.dataclasses import frozen
@@ -1728,6 +1730,62 @@ class ExperimentDetail(ExperimentBasic):
     can_freeze_exposure: bool
     # The event that exposures are counted on when the experiment configures no custom exposure event.
     resolved_exposure_event: str
+    # True until the experiment is launched, whatever `status` the experiment stores.
+    is_draft: bool
+
+
+@frozen
+class ExperimentUpdate:
+    """The fields that one update of an experiment sets, as the experiment API validated them.
+
+    Only the fields named in `fields_set` are written. The others keep their stored values. The fields are
+    declared in the order of the fields of the experiment API, which is the order in which the update hands
+    them on.
+    """
+
+    fields_set: frozenset[str]
+    name: str = ""
+    description: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    feature_flag_key: str = ""
+    # The rule is chosen on create, so an update may only send the current one back.
+    feature_flag_rule_id: "UUID | None" = None
+    holdout_id: int | None = None
+    # Without the flag config keys, which the update sends as `feature_flag_config`.
+    parameters: JsonValue = None
+    running_time_calculation: JsonValue = None
+    excluded_variants: list[str] | None = None
+    secondary_metrics: JsonValue = None
+    saved_metrics_ids: list[JsonValue] | None = None
+    filters: JsonValue = None
+    archived: bool = False
+    deleted: bool | None = None
+    type: str | None = None
+    exposure_criteria: dict[str, JsonValue] | None = None
+    metrics: list[JsonValue] | None = None
+    metrics_secondary: list[JsonValue] | None = None
+    stats_config: JsonValue = None
+    scheduling_config: JsonValue = None
+    allow_unknown_events: bool = False
+    create_in_folder: str = ""
+    conclusion: str | None = None
+    conclusion_comment: str | None = None
+    repository: str | None = None
+    primary_metrics_ordered_uuids: list[str] | None = None
+    secondary_metrics_ordered_uuids: list[str] | None = None
+    only_count_matured_users: bool = False
+    update_feature_flag_params: bool = False
+    # The version the client last read, and the experiment as it read it, to merge or refuse a stale update.
+    version: int | None = None
+    original_experiment: dict[str, JsonValue] | None = None
+    # Replace the experiment's tags. None keeps them.
+    tags: list[str] | None = None
+    # The flag config to write onto the experiment's flag, in the flag's own write shape
+    # (`{filters, ensure_experience_continuity}`), or None to leave the flag config as it is.
+    feature_flag_config: dict[str, JsonValue] | None = None
+    # True when `feature_flag_config` came from the deprecated flag config keys of `parameters` and changes the flag.
+    deprecated_flag_config_changed: bool = False
 
 
 @frozen

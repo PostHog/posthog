@@ -71,7 +71,7 @@ from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentVersionConflict
-from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
+from products.experiments.backend.facade.enums import FEATURE_FLAG_CONFIG_KEYS, LEGACY_METRIC_KINDS
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.flag_ownership import assert_experiment_deletable, assert_experiment_restorable
@@ -967,19 +967,7 @@ class ExperimentService:
             return stats_config
         return {**(stats_config or {}), "baseline_variant_key": baseline}
 
-    # Feature-flag config keys that historically lived on the deprecated `parameters` surface but
-    # belong on the linked FeatureFlag (the source of truth). A legacy caller still sending them in
-    # `parameters` input has them copied into the `feature_flag` config path (see
-    # ExperimentSerializer._deprecated_parameters_as_feature_flag_config) and stripped from the
-    # stored column; reads still project the flag's current config back into `parameters` for
-    # backward compatibility.
-    FEATURE_FLAG_CONFIG_KEYS = (
-        "feature_flag_variants",
-        "rollout_percentage",
-        "aggregation_group_type_index",
-        "feature_flag_payloads",
-        "ensure_experience_continuity",
-    )
+    FEATURE_FLAG_CONFIG_KEYS = FEATURE_FLAG_CONFIG_KEYS
 
     @classmethod
     def _strip_feature_flag_config(cls, parameters: dict | None) -> dict | None:
