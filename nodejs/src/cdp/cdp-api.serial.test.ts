@@ -5791,7 +5791,6 @@ describe('CDP API', () => {
                             Authorization: `Bearer ${mintToken(absentTeamId, hogFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
                         })
                         .send(batchOf(recipient('ed@example.com')))
-                        .then((answer) => answer)
                 }
                 afterEach(async () => {
                     await Promise.all(

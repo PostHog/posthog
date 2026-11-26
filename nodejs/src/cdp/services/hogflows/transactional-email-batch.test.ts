@@ -18,13 +18,13 @@ describe('transactional email batch', () => {
             const release = capacity.admit('org-a')
 
             expect(release).not.toBeNull()
-            expect(capacity.isFull()).toBe(true)
+            expect(capacity.beginLookup()).toBeNull()
             expect(capacity.admit('org-b')).toBeNull()
 
             release!()
             release!()
 
-            expect(capacity.isFull()).toBe(false)
+            expect(capacity.beginLookup()).not.toBeNull()
             expect(capacity.admit('org-b')).not.toBeNull()
             expect(capacity.admit('org-a')).toBeNull()
         })
@@ -60,6 +60,21 @@ describe('transactional email batch', () => {
             expect(capacity.admit('org-b')).toBeNull()
             expect(Array.from({ length: reserve }, (_, i) => capacity.admit(`fresh-${i}`))).not.toContain(null)
             expect(capacity.admit('fresh-last')).toBeNull()
+        })
+
+        it('bounds pending lookups at the cap without taking a batch slot', () => {
+            const capacity = new BatchCapacity(2)
+            const lookups = [capacity.beginLookup(), capacity.beginLookup()]
+
+            expect(lookups).not.toContain(null)
+            expect(capacity.beginLookup()).toBeNull()
+            expect(capacity.admit('org-a')).not.toBeNull()
+
+            lookups[0]!()
+            lookups[0]!()
+
+            expect(capacity.beginLookup()).not.toBeNull()
+            expect(capacity.beginLookup()).toBeNull()
         })
     })
 

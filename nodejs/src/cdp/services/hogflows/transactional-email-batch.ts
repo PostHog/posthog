@@ -145,6 +145,7 @@ export const transactionalEmailBatchRequestsTotal = new Counter({
 
 export class BatchCapacity {
     private admitted = 0
+    private lookingUp = 0
     private readonly admittedByOrganization = new Map<string, number>()
     private readonly maxRequestsPerOrganization: number
     private readonly reserved: number
@@ -154,14 +155,24 @@ export class BatchCapacity {
         this.reserved = Math.max(1, Math.floor(maxRequests / 4))
     }
 
-    isFull(): boolean {
-        return this.admitted >= this.maxRequests
+    beginLookup(): (() => void) | null {
+        if (this.admitted >= this.maxRequests || this.lookingUp >= this.maxRequests) {
+            return null
+        }
+        this.lookingUp++
+        let ended = false
+        return () => {
+            if (!ended) {
+                ended = true
+                this.lookingUp--
+            }
+        }
     }
 
     admit(organizationId: string): (() => void) | null {
         const held = this.admittedByOrganization.get(organizationId) ?? 0
         if (
-            this.isFull() ||
+            this.admitted >= this.maxRequests ||
             held >= this.maxRequestsPerOrganization ||
             (held > 0 && this.admitted >= this.maxRequests - this.reserved)
         ) {

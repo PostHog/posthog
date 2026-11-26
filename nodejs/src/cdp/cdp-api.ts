@@ -1647,12 +1647,13 @@ export class CdpApi {
                     transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
                     return
                 }
-                if (this.transactionalEmailBatchCapacity.isFull()) {
+                const endLookup = this.transactionalEmailBatchCapacity.beginLookup()
+                if (!endLookup) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
                 stages.start('load')
                 const teamId = parseInt(req.params.team_id)
-                const team = await this.deps.teamManager.getTeam(teamId)
+                const team = await this.deps.teamManager.getTeam(teamId).finally(endLookup)
                 if (!team) {
                     return refuse('not_found', 404, { error: 'Team not found' })
                 }
