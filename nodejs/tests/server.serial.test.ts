@@ -3,9 +3,8 @@ import path from 'path'
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
-import { EMAIL_QUEUE_CONSUMERS } from '../src/cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CyclotronV2Manager } from '../src/cdp/services/cyclotron-v2/manager'
-import { CYCLOTRON_QUEUE_ROLES } from '../src/cdp/types'
+import { CYCLOTRON_QUEUE_ROLES, EMAIL_QUEUES } from '../src/cdp/types'
 import { defaultConfig } from '../src/common/config/config'
 import { StallingValkeyProxy } from '../src/common/redis/_tests/stalling-valkey-proxy'
 import { PluginServer } from '../src/server'
@@ -61,7 +60,7 @@ describe('server', () => {
         expect(process.exit).not.toHaveBeenCalledWith(1)
     })
 
-    it.each(Object.keys(EMAIL_QUEUE_CONSUMERS))('starts a worker that claims jobs on the %s queue', async (queue) => {
+    it.each(EMAIL_QUEUES)('starts a worker that claims jobs on the %s queue', async (queue) => {
         const dbUrl = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
         const manager = new CyclotronV2Manager({
             pool: { dbUrl },
@@ -88,7 +87,7 @@ describe('server', () => {
 
             await waitForExpect(async () => {
                 const { rows } = await pool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
-                expect(rows).toEqual([{ status: expect.stringMatching(/^(running|completed|failed)$/) }])
+                expect(rows).toEqual([{ status: expect.stringMatching(/^(completed|failed)$/) }])
             }, 15_000)
         } finally {
             try {
