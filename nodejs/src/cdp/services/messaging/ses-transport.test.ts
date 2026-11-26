@@ -176,29 +176,35 @@ describe('SesTransport', () => {
         }
     )
 
-    it('sends an email with files once, also when the caller passes a retry strategy', async () => {
-        let requests = 0
-        const port = await listen(
-            createServer((request) => {
-                request.resume()
-                request.on('end', () => {
-                    requests++
-                    request.socket.destroy()
+    it.each([
+        ['closes the connection', (socket: Socket): void => void socket.destroy()],
+        ['resets the connection', (socket: Socket): void => void socket.resetAndDestroy()],
+    ])(
+        'when SES reads the request and %s, sends an email with files once and counts it as possibly sent, also when the caller passes a retry strategy',
+        async (_name, endTheConnection) => {
+            let requests = 0
+            const port = await listen(
+                createServer((request) => {
+                    request.resume()
+                    request.on('end', () => {
+                        requests++
+                        endTheConnection(request.socket)
+                    })
                 })
-            })
-        )
-        const options = {
-            region: 'us-east-1',
-            endpoint: `http://127.0.0.1:${port}`,
-            credentials: { accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' },
-            retryStrategy: retriesTwice,
+            )
+            const options = {
+                region: 'us-east-1',
+                endpoint: `http://127.0.0.1:${port}`,
+                credentials: { accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' },
+                retryStrategy: retriesTwice,
+            }
+            transport = new SesTransport(options)
+
+            const outcome = await transport.send(withFiles)
+
+            expect({ outcome: outcome.kind, requests }).toEqual({ outcome: 'unknown', requests: 1 })
         }
-        transport = new SesTransport(options)
-
-        const outcome = await transport.send(withFiles)
-
-        expect({ outcome: outcome.kind, requests }).toEqual({ outcome: 'unknown', requests: 1 })
-    })
+    )
 
     it.each([
         ['SES refuses the connection', (): string => ENDPOINT_THAT_REFUSES_CONNECTIONS, 'ECONNREFUSED'],
