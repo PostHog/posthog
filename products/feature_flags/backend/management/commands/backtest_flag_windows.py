@@ -6,13 +6,14 @@ reads ClickHouse once per day of edits and stores what it read in `--data` after
 """
 
 import json
-import pickle
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.utils import timezone
+
+from pydantic import ValidationError
 
 from posthog.models import Team
 
@@ -21,8 +22,10 @@ from products.feature_flags.backend.flag_windows.backtest import (
     BacktestData,
     Candidates,
     WindowResult,
+    dump_data,
     fetch_data,
     find_candidates,
+    load_data,
     run_backtest,
     summarize,
 )
@@ -38,7 +41,7 @@ class Command(BaseCommand):
         parser.add_argument("--end", type=datetime.fromisoformat, required=True, help="ISO date after the last edit")
         parser.add_argument("--output", type=Path, required=True, help="Path of the JSON report")
         parser.add_argument("--count-only", action="store_true", help="Count windows and rollbacks, no ClickHouse")
-        parser.add_argument("--data", type=Path, help="Path to store the query results in, or to read them from")
+        parser.add_argument("--data", type=Path, help="JSON file to store the query results in, or to read them from")
 
     def handle(self, *args: Any, **options: Any) -> None:
         team = Team.objects.filter(pk=options["team_id"]).first()
@@ -84,16 +87,19 @@ class Command(BaseCommand):
     def _data(self, team: Team, candidates: Candidates, path: Path | None) -> BacktestData:
         earlier = None
         if path is not None and path.exists():
-            # The file is one that an earlier run of this command wrote, not input from anyone else.
-            with path.open("rb") as file:
-                earlier = pickle.load(file)
-            if not isinstance(earlier, BacktestData) or earlier.team_id != team.pk:
-                raise CommandError(f"{path} doesn't hold backtest data of team {team.pk}")
+            try:
+                earlier = load_data(path.read_bytes())
+            except ValidationError as error:
+                raise CommandError(f"{path} doesn't hold backtest data: {error}") from error
+            if earlier.team_id != team.pk:
+                raise CommandError(f"{path} holds the backtest data of team {earlier.team_id}, not of team {team.pk}")
 
         def checkpoint(data: BacktestData) -> None:
             if path is not None:
-                with path.open("wb") as file:
-                    pickle.dump(data, file)
+                # A run that stops during the write keeps the previous checkpoint whole.
+                partial = path.with_name(f"{path.name}.partial")
+                partial.write_bytes(dump_data(data))
+                partial.replace(path)
 
         return fetch_data(
             team, candidates.windows, DEFAULT_PARAMETERS, timezone.now(), earlier=earlier, checkpoint=checkpoint

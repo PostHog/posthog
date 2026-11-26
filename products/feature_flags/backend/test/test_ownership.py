@@ -11,6 +11,7 @@ from products.feature_flags.backend.ownership import (
     FLAG_OWNER_SURVEY,
     assert_flag_available_for,
     flag_owner_kind,
+    owned_flag_ids,
     owner_kind_counts,
 )
 from products.product_tours.backend.models import ProductTour
@@ -73,6 +74,9 @@ class TestFlagOwnership(APIBaseTest):
 
         assert flag_owner_kind(flag) == expected
         assert owner_kind_counts(FeatureFlag.objects.filter(id=flag.id)) == {expected: 1}
+        assert owned_flag_ids(FeatureFlag.objects.filter(id=flag.id)) == (
+            frozenset({flag.id}) if expected else frozenset()
+        )
 
     def test_guard_rejects_a_flag_a_different_product_owns(self) -> None:
         flag = self._flag("taken")

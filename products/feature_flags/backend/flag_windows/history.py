@@ -13,9 +13,9 @@ from typing import Any
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.feature_flags.backend import ownership
 from products.feature_flags.backend.exposure_change import ExposureDirection, FlagExposureConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.ownership import flag_owner_kind
 from products.feature_flags.backend.rollback_reason import RollbackReason
 
 # The activity log fields of a flag save that `FlagExposureConfig` holds, by the name of its field.
@@ -74,8 +74,9 @@ def flag_histories(team_id: int, since: datetime) -> list[FlagHistory]:
 
 def owned_flag_ids(team_id: int, flag_ids: Iterable[int]) -> frozenset[int]:
     """The flags among `flag_ids` that another product, such as an experiment, owns."""
-    flags = FeatureFlag.objects_including_soft_deleted.filter(team_id=team_id, id__in=list(flag_ids))
-    return frozenset(flag.id for flag in flags if flag_owner_kind(flag) is not None)
+    return ownership.owned_flag_ids(
+        FeatureFlag.objects_including_soft_deleted.filter(team_id=team_id, id__in=list(flag_ids))
+    )
 
 
 def rebuild_history(flag_id: int, current: FlagExposureConfig, newest_first: Iterable[ActivityLog]) -> FlagHistory:

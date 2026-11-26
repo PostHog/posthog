@@ -15,18 +15,21 @@ from posthog.test.persons import create_person
 from products.feature_flags.backend.exposure_change import FlagExposureConfig, classify_exposure_change
 from products.feature_flags.backend.flag_windows.backtest import (
     DEFAULT_PARAMETERS,
+    ActorHours,
     BacktestData,
     BacktestWindow,
     Label,
     WindowData,
+    dump_data,
     fetch_data,
     find_candidates,
     label_window,
+    load_data,
     replay_window,
     run_backtest,
     summarize,
 )
-from products.feature_flags.backend.flag_windows.baseline import HOUR
+from products.feature_flags.backend.flag_windows.baseline import HOUR, BaselineHour, HourErrors
 from products.feature_flags.backend.flag_windows.errors import ErrorBucket, ErrorCounts
 from products.feature_flags.backend.flag_windows.exposure import ExposureBucket
 from products.feature_flags.backend.flag_windows.history import FlagHistory, FlagVersion, flag_histories
@@ -120,9 +123,7 @@ def _data(
     return BacktestData(
         team_id=1,
         windows={"entry-1": WindowData(exposure=tuple(exposure), errors=tuple(errors), last_values=None)},
-        hours={},
-        baseline={},
-        days=frozenset(),
+        actors=(),
         until=EDITED_AT + until,
     )
 
@@ -163,14 +164,26 @@ class TestFindCandidates(SimpleTestCase):
         ] == [("entry-1", _flag(0), "entry-3"), ("entry-2", _flag(0), "entry-3")]
         assert candidates.misses == ()
 
-    def test_a_ramp_down_in_steps_is_no_trigger_miss(self) -> None:
+    @parameterized.expand(
+        [
+            param("from_the_start", steps=[_flag(100), _flag(50), _flag(0)], misses=[]),
+            param(
+                "after_an_edit_that_kept_exposure",
+                steps=[_flag(100), _flag(100, payloads={"true": "{}"}), _flag(50), _flag(0)],
+                misses=["entry-2"],
+            ),
+        ]
+    )
+    def test_a_ramp_down_in_steps_misses_at_most_its_first_step(
+        self, _: str, steps: list[FlagExposureConfig], misses: list[str]
+    ) -> None:
         history = _history(
-            (None, _flag(100), None),
-            (timedelta(0), _flag(50), None),
-            (timedelta(hours=2), _flag(0), None),
+            (None, steps[0], None), *((timedelta(hours=index), step, None) for index, step in enumerate(steps[1:]))
         )
 
-        assert find_candidates([history], EDITED_AT, EDITED_AT + timedelta(days=1), DEFAULT_PARAMETERS).misses == ()
+        candidates = find_candidates([history], EDITED_AT, EDITED_AT + timedelta(days=1), DEFAULT_PARAMETERS)
+
+        assert [miss.activity_log_id for miss in candidates.misses] == misses
 
     def test_a_rollback_after_an_edit_that_kept_exposure_is_a_trigger_miss(self) -> None:
         history = _history(
@@ -305,6 +318,24 @@ class TestLabelWindow(SimpleTestCase):
         )
 
 
+class TestDataFile(SimpleTestCase):
+    def test_the_data_reads_back_as_it_was_written(self) -> None:
+        data = dataclasses.replace(
+            _data(errors_from_hour=3),
+            actors=tuple(
+                ActorHours(
+                    group_type_index=kind,
+                    hours={EDITED_AT: HourErrors(active=10, with_errors=1)},
+                    baseline={EDITED_AT: BaselineHour(start=EDITED_AT, weeks=(HourErrors(active=9, with_errors=0),))},
+                    days=frozenset({EDITED_AT.replace(hour=0)}),
+                )
+                for kind in (None, 0)
+            ),
+        )
+
+        assert load_data(dump_data(data)) == data
+
+
 class TestWatchedEdit(SimpleTestCase):
     @parameterized.expand(
         [
@@ -313,8 +344,8 @@ class TestWatchedEdit(SimpleTestCase):
                 before=_flag(100, 10),
                 after=_flag(100, 50),
                 enables=False,
-                positions=[2],
-                earlier=[1],
+                positions=[1],
+                earlier=[0],
             ),
             param("enabling", before=_flag(100, 10, active=False), after=_flag(100, 10), enables=True, positions=[]),
             param(
@@ -352,8 +383,8 @@ class TestWatchedEdit(SimpleTestCase):
         assert edit.conditions == tuple(
             WatchedCondition(
                 position=position,
-                properties=tuple(groups[position - 1]["properties"]),
-                earlier_at_full_rollout=tuple(tuple(groups[index - 1]["properties"]) for index in earlier or ()),
+                properties=tuple(groups[position]["properties"]),
+                earlier_at_full_rollout=tuple(tuple(groups[index]["properties"]) for index in earlier or ()),
             )
             for position in positions
         )
@@ -425,5 +456,29 @@ class TestFetchData(ClickhouseTestMixin, BaseTest):
             (EDITED_AT + HOUR, 1),
         ]
         assert [(bucket.start, bucket.in_bucket.with_errors) for bucket in window.errors] == [(EDITED_AT + HOUR, 1)]
-        assert data.hours[None][EDITED_AT + HOUR].with_errors == 1
+        assert data.actor(None).hours[EDITED_AT + HOUR].with_errors == 1
         assert data.until == EDITED_AT + timedelta(days=3)
+
+    def test_a_rerun_reads_what_the_earlier_data_lacks(self) -> None:
+        create_person(team=self.team, distinct_ids=["person"])
+        _create_event(
+            team=self.team,
+            event="$exception",
+            distinct_id="person",
+            timestamp=EDITED_AT + timedelta(minutes=90),
+            properties={"$feature/new-checkout": True},
+        )
+        flush_persons_and_events()
+        now = EDITED_AT + timedelta(days=3)
+        data = fetch_data(self.team, [_window()], DEFAULT_PARAMETERS, now=now)
+        # The days that groups hold say nothing of the persons, and a last value query that failed runs again.
+        earlier = dataclasses.replace(
+            data,
+            windows={"entry-1": dataclasses.replace(data.windows["entry-1"], last_values=None)},
+            actors=(ActorHours(group_type_index=0, hours={}, baseline={}, days=data.actor(None).days),),
+        )
+
+        again = fetch_data(self.team, [_window()], DEFAULT_PARAMETERS, now=now, earlier=earlier)
+
+        assert again.windows["entry-1"].last_values is not None
+        assert again.actor(None).hours[EDITED_AT + HOUR].with_errors == 1

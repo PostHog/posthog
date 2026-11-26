@@ -29,6 +29,8 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
@@ -279,16 +281,20 @@ def _watched(moment: datetime, windows: Sequence[BacktestWindow], parameters: Ba
 def _follows_edit(
     history: FlagHistory, index: int, directions: Mapping[int, ExposureDirection], within: timedelta
 ) -> bool:
-    """Whether an edit that didn't lower exposure came at most `within` before the version at `index`, or the person
-    said that errors drove it. A ramp down in steps is planned, so a lowering after a lowering doesn't count."""
+    """Whether the version before the one at `index` came at most `within` before it and didn't lower exposure, or the
+    person said that errors drove it. A ramp down in steps is planned, so a lowering right after a lowering doesn't
+    count."""
     version = history.versions[index]
     if version.rollback_reason == RollbackReason.ERRORS:
         return True
+    if index == 0:
+        return False
+    previous = history.versions[index - 1]
     assert version.since is not None
-    return any(
-        (other.since is not None and version.since - within <= other.since < version.since)
-        and directions.get(earlier) != ExposureDirection.LOWERS
-        for earlier, other in enumerate(history.versions[:index])
+    return (
+        previous.since is not None
+        and version.since - within <= previous.since
+        and directions.get(index - 1) != ExposureDirection.LOWERS
     )
 
 
@@ -301,16 +307,42 @@ class WindowData:
 
 
 @frozen
+class ActorHours:
+    """The errors of the team for one kind of actor, by the start of each UTC hour."""
+
+    # None for persons, or the group type index.
+    group_type_index: int | None
+    hours: Mapping[datetime, HourErrors]
+    baseline: Mapping[datetime, BaselineHour]
+    # The UTC days whose hours and baseline this holds.
+    days: frozenset[datetime]
+
+
+@frozen
 class BacktestData:
     team_id: int
     windows: Mapping[str, WindowData]
-    # By kind of actor: None for persons, or the group type index. Then by the start of each UTC hour.
-    hours: Mapping[int | None, Mapping[datetime, HourErrors]]
-    baseline: Mapping[int | None, Mapping[datetime, BaselineHour]]
-    # The UTC days whose hours and baseline the data holds.
-    days: frozenset[datetime]
+    actors: tuple[ActorHours, ...]
     # The data holds nothing from this time on.
     until: datetime
+
+    def actor(self, group_type_index: int | None) -> ActorHours:
+        for actor in self.actors:
+            if actor.group_type_index == group_type_index:
+                return actor
+        return ActorHours(group_type_index=group_type_index, hours={}, baseline={}, days=frozenset())
+
+
+_DATA_ADAPTER = TypeAdapter(BacktestData)
+
+
+def dump_data(data: BacktestData) -> bytes:
+    return _DATA_ADAPTER.dump_json(data)
+
+
+def load_data(raw: bytes) -> BacktestData:
+    """The data that `dump_data` wrote. It builds only the declared types, so a changed file can't run code."""
+    return _DATA_ADAPTER.validate_json(raw)
 
 
 def fetch_data(
@@ -327,27 +359,25 @@ def fetch_data(
         raise ValueError(f"The data of team {earlier.team_id} can't serve team {team.pk}")
     until = earlier.until if earlier is not None else _hour(now)
     span = max(parameters.window.max_duration, parameters.rollback_within + parameters.label_span) + HOUR
-    actor_kinds = sorted(
-        {window.edit.group_type_index for window in windows}, key=lambda kind: -1 if kind is None else kind
-    )
+    known = {actor.group_type_index: actor for actor in earlier.actors} if earlier is not None else {}
+    kinds = sorted({window.edit.group_type_index for window in windows} | set(known), key=_kind_order)
     data: dict[str, WindowData] = dict(earlier.windows) if earlier is not None else {}
-    hours: dict[int | None, dict[datetime, HourErrors]] = {kind: {} for kind in actor_kinds}
-    baseline: dict[int | None, dict[datetime, BaselineHour]] = {kind: {} for kind in actor_kinds}
-    days: set[datetime] = set()
-    if earlier is not None:
-        for kind in actor_kinds:
-            hours[kind] |= earlier.hours.get(kind, {})
-            baseline[kind] |= earlier.baseline.get(kind, {})
-        days |= earlier.days
+    hours = {kind: dict(known[kind].hours) if kind in known else {} for kind in kinds}
+    baseline = {kind: dict(known[kind].baseline) if kind in known else {} for kind in kinds}
+    days = {kind: set(known[kind].days) if kind in known else set() for kind in kinds}
 
     def snapshot() -> BacktestData:
-        return BacktestData(
-            team_id=team.pk, windows=data, hours=hours, baseline=baseline, days=frozenset(days), until=until
+        actors = tuple(
+            ActorHours(group_type_index=kind, hours=hours[kind], baseline=baseline[kind], days=frozenset(days[kind]))
+            for kind in kinds
         )
+        return BacktestData(team_id=team.pk, windows=data, actors=actors, until=until)
 
     by_day: dict[datetime, list[WatchedEdit]] = {}
     for window in windows:
-        if window.edit.id not in data:
+        cached = data.get(window.edit.id)
+        # The query of the counts by last value can run out of time on one run and fit on the next.
+        if cached is None or cached.last_values is None:
             by_day.setdefault(_day(window.edit.edited_at), []).append(window.edit)
     with query_limits(BACKTEST_LIMITS):
         for day, edits in sorted(by_day.items()):
@@ -368,19 +398,37 @@ def fetch_data(
             if checkpoint is not None:
                 checkpoint(snapshot())
 
-        edit_days = {_day(window.edit.edited_at) for window in windows}
-        needed = {day + offset * DAY for day in edit_days for offset in range(math.ceil(span / DAY) + 1)}
-        for day in sorted(needed - days):
+        for day, missing in sorted(_missing_days(windows, days, span).items()):
             if day >= until:
                 break
-            for kind, by_hour in errors_by_hour(team, actor_kinds, day.date()).items():
+            for kind, by_hour in errors_by_hour(team, missing, day.date()).items():
                 hours[kind] |= {day + hour * HOUR: counts for hour, counts in enumerate(by_hour)}
-            for kind, baseline_hours in error_baseline(team, actor_kinds, day.date()).items():
+            for kind, baseline_hours in error_baseline(team, missing, day.date()).items():
                 baseline[kind] |= {hour.start: hour for hour in baseline_hours}
-            days.add(day)
+            for kind in missing:
+                days[kind].add(day)
             if checkpoint is not None:
                 checkpoint(snapshot())
     return snapshot()
+
+
+def _missing_days(
+    windows: Sequence[BacktestWindow], days: Mapping[int | None, set[datetime]], span: timedelta
+) -> dict[datetime, list[int | None]]:
+    """The kinds of actor that lack the hours and baseline of each day that a window reads."""
+    missing: dict[datetime, set[int | None]] = {}
+    for window in windows:
+        kind = window.edit.group_type_index
+        first = _day(window.edit.edited_at)
+        for offset in range(math.ceil(span / DAY) + 1):
+            day = first + offset * DAY
+            if day not in days[kind]:
+                missing.setdefault(day, set()).add(kind)
+    return {day: sorted(kinds, key=_kind_order) for day, kinds in missing.items()}
+
+
+def _kind_order(kind: int | None) -> int:
+    return -1 if kind is None else kind
 
 
 @frozen
@@ -402,9 +450,13 @@ def replay_window(
     the data ends."""
     edit = window.edit
     window_data = data.windows[edit.id]
-    hours = data.hours.get(edit.group_type_index, {})
-    baseline = data.baseline.get(edit.group_type_index, {})
+    actor = data.actor(edit.group_type_index)
     first_hour = _hour(edit.edited_at)
+    last_tick = min(edit.edited_at + parameters.max_duration + HOUR, data.until)
+    hours = {start: counts for start, counts in actor.hours.items() if first_hour <= start < last_tick}
+    baseline = sorted(
+        (hour for start, hour in actor.baseline.items() if first_hour <= start < last_tick), key=lambda hour: hour.start
+    )
     observed = window.window
     if condition_match is None and edit.conditions:
         # The score compares the people in the watched conditions only when it has a way to find them, so with no
@@ -413,7 +465,6 @@ def replay_window(
     suspicious_at: datetime | None = None
     max_score = 0.0
     tick = first_hour + HOUR
-    last_tick = min(edit.edited_at + parameters.max_duration + HOUR, data.until)
     while tick <= last_tick:
         flag = history.config_at(tick)
         if flag is None:
@@ -424,8 +475,8 @@ def replay_window(
             now=tick,
             exposure=_before(window_data.exposure, tick),
             errors_since_edit=_errors_since_edit(window_data.errors, tick),
-            hours={start: counts for start, counts in hours.items() if first_hour <= start and start + HOUR <= tick},
-            baseline=[hour for start, hour in sorted(baseline.items()) if first_hour <= start and start + HOUR <= tick],
+            hours={start: counts for start, counts in hours.items() if start + HOUR <= tick},
+            baseline=[hour for hour in baseline if hour.start + HOUR <= tick],
             last_values=_before(window_data.last_values, tick) if window_data.last_values is not None else None,
             parameters=parameters,
             condition_match=condition_match,
@@ -484,7 +535,7 @@ def label_window(
     errors = data.windows[window.edit.id].errors
     new_before = sum(b.in_bucket.with_new_errors for b in errors if before_start <= b.start < rollback_hour)
     new_after = sum(b.in_bucket.with_new_errors for b in errors if after_start <= b.start < after_end)
-    hours = data.hours.get(window.edit.group_type_index, {})
+    hours = data.actor(window.edit.group_type_index).hours
     before = [counts for start, counts in hours.items() if before_start <= start < rollback_hour]
     after = [counts for start, counts in hours.items() if after_start <= start < after_end]
     evidence = _evidence(int(span / HOUR), new_before, new_after, before, after)

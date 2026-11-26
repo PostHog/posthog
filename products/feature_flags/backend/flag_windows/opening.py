@@ -73,7 +73,7 @@ def _moved_conditions(before: FlagExposureConfig, after: FlagExposureConfig) -> 
             continue
         watched.append(
             WatchedCondition(
-                position=index + 1,
+                position=index,
                 properties=_properties(groups[index]),
                 earlier_at_full_rollout=tuple(
                     _properties(groups[earlier]) for earlier in range(index) if new[earlier].rollout >= 100
