@@ -25,6 +25,7 @@ from posthog.schema import (
     AttributeBreakdownRow,
     CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansTreeQueryResponse,
+    DashboardFilter,
     HogQLQueryModifiers,
     IntervalType,
     PropertyGroupsMode,
@@ -58,6 +59,7 @@ from .facade.contracts import TRACING_QUERY_STATUS_LABEL
 from .logic import (
     _ROW_LIMIT,
     TIME_BUCKET_DATE_RANGE_WHERE,
+    apply_dashboard_date_range,
     assert_tracing_viewer,
     span_filter_exprs,
     split_span_filters,
@@ -97,6 +99,9 @@ class _SpanAggregationMixin:
 
     def _extract_filters(self) -> None:
         self.filters = split_span_filters(self.query.filterGroup)
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
+        apply_dashboard_date_range(self.query, dashboard_filter)
 
     def validate_query_runner_access(self, user: "User") -> bool:
         return assert_tracing_viewer(user, self.team, self.user_access_control if self.user == user else None)

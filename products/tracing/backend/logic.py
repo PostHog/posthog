@@ -18,6 +18,7 @@ from posthog.schema import (
     CachedTraceSpansQueryResponse,
     CachedTraceSpansTreeQueryResponse,
     CompareFilter,
+    DashboardFilter,
     DateRange,
     HogQLQueryModifiers,
     IntervalType,
@@ -28,6 +29,7 @@ from posthog.schema import (
     SpanPropertyFilterType,
     TraceSpansAggregationQuery,
     TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQuery,
     TraceSpansQuery,
     TraceSpansQueryResponse,
     TraceSpansTreeQuery,
@@ -399,6 +401,20 @@ def span_filter_exprs(
     return exprs
 
 
+def apply_dashboard_date_range(
+    query: TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery,
+    dashboard_filter: DashboardFilter,
+) -> None:
+    # Dashboard property filters target event and person properties, and spans have neither, so only the
+    # dashboard date range applies. The base runner reports a span query, which has no `properties`, as unsupported.
+    if dashboard_filter.date_from or dashboard_filter.date_to:
+        query.dateRange = DateRange(
+            date_from=dashboard_filter.date_from,
+            date_to=dashboard_filter.date_to,
+            explicitDate=bool(dashboard_filter.explicitDate),
+        )
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -415,6 +431,9 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
         self.filters = split_span_filters(self.query.filterGroup)
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
+        apply_dashboard_date_range(self.query, dashboard_filter)
 
     @property
     def _unbounded_trace_lookup(self) -> bool:
