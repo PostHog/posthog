@@ -6,6 +6,7 @@ import { LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/l
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { VisionAlertsMessageRow } from 'scenes/messaging-cta-prototype/VisionAlertsMessageRow'
 
 import type { VisionAlertConfigurationApi } from '../../generated/api.schemas'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
@@ -143,6 +144,7 @@ function ScannerAlertsTabContent({ scannerId }: { scannerId: string }): JSX.Elem
 
     return (
         <div className="flex flex-col gap-2">
+            {scanner ? <VisionAlertsMessageRow scanner={scanner} /> : null}
             <LemonTable
                 columns={columns}
                 dataSource={alerts}

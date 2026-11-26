@@ -9,6 +9,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { MessagingCtaPrototypeSwitcher } from 'scenes/messaging-cta-prototype/MessagingCtaPrototypeSwitcher'
+import { VisionScannerMessageAction } from 'scenes/messaging-cta-prototype/VisionScannerMessageAction'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -100,6 +102,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         </>
                     ) : (
                         <>
+                            <VisionScannerMessageAction scanner={scanner} />
                             <LemonButton
                                 type="primary"
                                 size="small"
@@ -176,6 +179,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     content: <Suspense fallback={<Spinner className="m-4" />}>{tab.content}</Suspense>,
                 }))}
             />
+            <MessagingCtaPrototypeSwitcher area="vision" />
         </SceneContent>
     )
 }

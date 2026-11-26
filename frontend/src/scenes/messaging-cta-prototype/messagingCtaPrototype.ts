@@ -7,18 +7,19 @@ import { router } from 'kea-router'
 
 import type { FeatureFlagType } from '~/types'
 
-export type MessagingCtaArea = 'flags' | 'cohorts' | 'insights' | 'replay'
+export type MessagingCtaArea = 'flags' | 'cohorts' | 'insights' | 'replay' | 'vision'
 
-export type MessagingCtaVariant = 'today' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H'
+export type MessagingCtaVariant = 'today' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J'
 
 export const MESSAGING_CTA_VARIANTS_BY_AREA: Record<MessagingCtaArea, MessagingCtaVariant[]> = {
     flags: ['today', 'A', 'B', 'C'],
     cohorts: ['today', 'D', 'E'],
     insights: ['today', 'F'],
     replay: ['today', 'G', 'H'],
+    vision: ['today', 'I', 'J'],
 }
 
-const MESSAGING_CTA_VARIANTS: MessagingCtaVariant[] = ['today', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+const MESSAGING_CTA_VARIANTS: MessagingCtaVariant[] = ['today', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
 
 export const MESSAGING_CTA_VARIANT_LABELS: Record<MessagingCtaVariant, string> = {
     today: 'Today',
@@ -30,6 +31,8 @@ export const MESSAGING_CTA_VARIANT_LABELS: Record<MessagingCtaVariant, string> =
     F: 'F (People modal: footer, broadcast)',
     G: "G (Player: next to the URL, send your app's emails)",
     H: "H (List: top row, send your app's emails)",
+    I: 'I (Scanner header: email people it flags, automate)',
+    J: 'J (Alerts tab: email the person in each match, automate)',
 }
 
 export const MESSAGING_CTA_TODAY_HINTS: Record<MessagingCtaArea, string> = {
@@ -37,6 +40,7 @@ export const MESSAGING_CTA_TODAY_HINTS: Record<MessagingCtaArea, string> = {
     cohorts: 'Master: "Email this cohort" sits in the side panel, and the toast after saving a new cohort offers it.',
     insights: 'Master: "Save as cohort" ends in a toast that offers "Email this cohort".',
     replay: 'Master: Replay has no call to action for email.',
+    vision: 'Master: Replay Vision has no call to action for email. Alerts notify your team only.',
 }
 
 export const MESSAGING_CTA_VARIANT_HINTS: Record<Exclude<MessagingCtaVariant, 'today'>, string> = {
@@ -48,6 +52,8 @@ export const MESSAGING_CTA_VARIANT_HINTS: Record<Exclude<MessagingCtaVariant, 't
     F: 'Click a funnel step or a point on a trend to open its people. The button sits in the footer.',
     G: 'Open a recording. The chip sits in the player bar, after the URL.',
     H: 'The row sits at the top of the recordings list.',
+    I: 'The button sits in the scanner header, left of Edit scanner.',
+    J: 'Open the Alerts tab. The row sits above the alerts table.',
 }
 
 export const PROTOTYPE_SOURCES = {
@@ -59,6 +65,8 @@ export const PROTOTYPE_SOURCES = {
     peopleModal: 'persons_modal_prototype',
     replayPlayer: 'replay_player_prototype',
     replayList: 'replay_list_prototype',
+    visionHeader: 'vision_scanner_header_prototype',
+    visionAlerts: 'vision_alerts_prototype',
 } as const
 
 const STORAGE_KEY = 'prototype-messaging-cta-variant'
