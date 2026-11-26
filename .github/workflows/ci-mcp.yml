@@ -397,6 +397,8 @@ jobs:
                       .github/actions/feature-flags-binary-key
                       .github/actions/find-feature-flags-binary
                       .github/actions/setup-protoc
+                      /.cargo/
+                      /rust-toolchain*
                   sparse-checkout-cone-mode: false
 
             - name: Compute feature-flags binary key

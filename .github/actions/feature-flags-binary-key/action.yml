@@ -8,8 +8,8 @@ description: |
     the Cargo.toml files and the symlinks in that set, so a sparse checkout of rust/ and
     proto/ is enough.
     The output is empty when the inputs cannot be hashed faithfully (a crate path outside
-    the repo or through a symlink, an untracked crate, a symlink leaving the hashed set),
-    and callers then build from source.
+    the repo or through a symlink, an untracked crate, a symlink leaving the hashed set, a
+    build script or include macro that reads outside it), and callers then build from source.
 
 inputs:
     toolchain:
@@ -112,9 +112,13 @@ runs:
               crates = sorted(seen)
               print("Crates in the key:", *crates, sep="\n", file=sys.stderr)
               # usage-ingestion-proto's build.rs compiles protos from the repo-root proto/ tree.
+              # Cargo also reads .cargo/ in every ancestor of rust/, and rustup honours a
+              # toolchain file in rust/ or the root, so those are hashed whether or not they exist.
               # GIT_LITERAL_PATHSPECS (set on this step): no glob or `:(exclude)` magic can drop files.
               hashed = crates + [
                   "rust/Cargo.toml", "rust/Cargo.lock", "rust/.cargo", "proto",
+                  ".cargo", "rust-toolchain", "rust-toolchain.toml",
+                  "rust/rust-toolchain", "rust/rust-toolchain.toml",
                   ".github/actions/setup-protoc", ".github/actions/feature-flags-binary-key",
               ]
               entries = subprocess.run(["git", "ls-files", "-s", "--", *hashed], check=True, capture_output=True).stdout
@@ -123,6 +127,28 @@ runs:
               # symlink is only hashed faithfully when it resolves into the hashed set.
               def inside_hashed(path):
                   return any(path == h or path.startswith(h + "/") for h in hashed)
+
+              # Build scripts and include macros can read files outside their crate. Each such
+              # path literal must land in the hashed set; anything else refuses the key.
+              # Build scripts run with the crate directory as their working directory, and
+              # include macros resolve against the directory of the file that uses them.
+              include_re = re.compile(r'(?:include(?:_bytes|_str)?!\s*\(|#\[path\s*=)\s*"([^"]+)"')
+              escape_re = re.compile(r'"(\.\.(?:/[^"]*)?|/[A-Za-z][^"]*)"')
+              for crate in crates:
+                  build = load(f"{crate}/Cargo.toml").get("package", {}).get("build", "build.rs")
+                  build = build if isinstance(build, str) else "build.rs"
+                  for path, mode in index.items():
+                      if not (path.startswith(crate + "/") and path.endswith(".rs")) or mode == "120000":
+                          continue
+                      with open(path, encoding="utf-8", errors="replace") as f:
+                          text = f.read()
+                      reads = [os.path.join(os.path.dirname(path), lit) for lit in include_re.findall(text)]
+                      if path == f"{crate}/{build}":
+                          reads += [os.path.join(crate, lit) for lit in escape_re.findall(text)]
+                      for read in reads:
+                          resolved = os.path.normpath(read)
+                          if os.path.isabs(resolved) or resolved.startswith("..") or not inside_hashed(resolved):
+                              refuse(f"{path} reads {resolved!r}, which is outside the hashed sources")
 
               for entry in subprocess.run(["git", "ls-files", "-s", "-z", "--", *hashed], check=True, capture_output=True).stdout.split(b"\0"):
                   if not entry:
