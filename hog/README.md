@@ -328,7 +328,7 @@ hog sends usage events to PostHog, so the team can see who uses which commands a
 - `$exception` when a command fails, with the error code, message, hint and HTTP status. A message can name a file, or quote part of a query or an API answer.
 - `error_tracking_cli_sourcemaps_upload_started`, `_finished` and `_endpoint_fallback`, as in posthog-cli.
 - `cli notice shown`, once for each notice hog shows, with its ID and level, where it came from and whether it was a GitHub Actions annotation.
-- `hog setup started`, with your answer to what you want to use PostHog for, the products picked and the region, `hog setup step completed` with the step, and `hog setup completed`. The question says that hog sends the answer. With telemetry off, hog keeps it on your machine only.
+- `hog setup started`, with what the project uses PostHog for, the products picked and the region, `hog setup step completed` with the step, and `hog setup completed`. An agent writes the reason from the conversation and the code, and a person types it at the prompt, which says that hog sends it. With telemetry off, hog keeps it on your machine only.
 
 With a PostHog Cloud key, events belong to your PostHog user, organization and project, the same ones the web app uses.
 hog looks them up once per key with `/api/users/@me/` and `/api/projects/<id>/`, and keeps the answer in `~/.posthog/hog-telemetry-identity.json` for 30 days.
