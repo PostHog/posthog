@@ -76730,7 +76730,7 @@ export namespace Schemas {
     }
 
     export interface ModelCatalogueResponse {
-      /** Every model a PostHog Code run may use, read from the PostHog model catalog. */
+      /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
       models: ModelChoice[];
     }
 

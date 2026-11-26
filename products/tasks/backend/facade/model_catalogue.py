@@ -1,7 +1,8 @@
 """Facade re-exports for the live model catalogue a run picker offers.
 
 Kept separate from `facade/run_config.py` because that one is deliberately
-framework-free — pure enums and parse helpers — while this reads the product token pins. Cross-product callers (the Slack app's App Home
+framework-free — pure enums and parse helpers — while this reaches the LLM gateway over
+the network and caches through Django. Cross-product callers (the Slack app's App Home
 picker and model-override classifier) import from here rather than reaching into
 `logic/services/`.
 """
@@ -16,6 +17,7 @@ from products.tasks.backend.logic.services.model_catalogue import (
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     TASK_RUN_GATEWAY_PRODUCT,
+    GatewayModel,
     ModelChoice,
     RuntimeGroup,
     available_model_choices,
@@ -43,6 +45,7 @@ __all__ = [
     "REASONING_EFFORT_DISPLAY_NAMES",
     "RUNTIME_ADAPTER_DISPLAY_NAMES",
     "TASK_RUN_GATEWAY_PRODUCT",
+    "GatewayModel",
     "ModelChoice",
     "RuntimeGroup",
     "available_model_choices",
