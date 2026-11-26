@@ -12,6 +12,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import ConnectionErrorRetryHandler
+from slack_sdk.web import SlackResponse
 
 from posthog.models.integration import Integration
 from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
@@ -249,6 +250,34 @@ class TestSlackTransport(APIBaseTest):
 
         assert isinstance(refused.value, DestinationMisconfigured) is misconfigured
         assert isinstance(refused.value, DestinationRefused) is misconfigured
+        assert refused.value.reason == reason
+
+    @parameterized.expand(
+        [
+            ("rate limited", 429, "rate_limited"),
+            ("unavailable", 503, "provider_error"),
+            ("bad request", 400, "provider_refused"),
+        ]
+    )
+    def test_a_slack_answer_that_is_not_json_is_classified_by_its_status(
+        self, _name: str, status: int, reason: str
+    ) -> None:
+        # The SDK fills `error` with text made from the body, so no Slack code matches it.
+        response = SlackResponse(
+            client=None,
+            http_verb="POST",
+            api_url="https://slack.com/api/chat.postMessage",
+            req_args={},
+            data={"ok": False, "error": "Received a response in a non-JSON format: <html>Error</html>"},
+            headers={},
+            status_code=status,
+        )
+        with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client.chat_postMessage.side_effect = SlackApiError("failed", response)
+            with pytest.raises(DeliveryError) as refused:
+                SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
+
+        assert not isinstance(refused.value, DestinationMisconfigured)
         assert refused.value.reason == reason
 
     @parameterized.expand(

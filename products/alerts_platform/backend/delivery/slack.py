@@ -227,15 +227,24 @@ _TRANSIENT_ERRORS: Final[dict[str, FailureReason]] = {
 }
 
 
-def _slack_refusal(code: Any, refused: str) -> DeliveryError:
+def _slack_refusal(error: SlackApiError, refused: str) -> DeliveryError:
     """The code stays in the text, so a refusal can be searched for in the worker's logs."""
+    code = error.response.get("error")
     misconfigured = _MISCONFIGURED_ERRORS.get(code)
     if misconfigured is None:
-        return DeliveryError(
-            f"Slack refused the {refused}: {code}", reason=_TRANSIENT_ERRORS.get(code, "provider_refused")
-        )
+        return DeliveryError(f"Slack refused the {refused}: {code}", reason=_unrefused_reason(error, code))
     explanation, remedy = misconfigured
     return DestinationRefused(f"Slack refused the {refused}: {code}. {explanation}", remedy=remedy)
+
+
+def _unrefused_reason(error: SlackApiError, code: Any) -> FailureReason:
+    # A response that is not JSON carries no Slack code, only text the SDK makes from the body.
+    status = getattr(error.response, "status_code", None)
+    if status == 429:
+        return "rate_limited"
+    if status is not None and status >= 500:
+        return "provider_error"
+    return _TRANSIENT_ERRORS.get(code, "provider_refused")
 
 
 def _maybe_posted(error: OSError | HTTPException) -> bool:
@@ -350,7 +359,7 @@ class SlackTransport:
                 content = _without_image_content(content)
                 response = post(content)
         except SlackApiError as error:
-            raise _slack_refusal(error.response.get("error"), "message") from error
+            raise _slack_refusal(error, "message") from error
         except (OSError, HTTPException) as error:
             if not _maybe_posted(error):
                 raise DeliveryError(
@@ -473,7 +482,7 @@ class SlackTransport:
                     raise
                 update(_without_image_content(content))
         except SlackApiError as error:
-            raise _slack_refusal(error.response.get("error"), "edit") from error
+            raise _slack_refusal(error, "edit") from error
 
     def _integration(self, *, team_id: int, workspace_id: int) -> IntegrationRecord:
         # Scoped by team as well as by id. The destination names an integration, and nothing
