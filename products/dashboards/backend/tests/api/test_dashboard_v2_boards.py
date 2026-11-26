@@ -129,6 +129,7 @@ class TestDashboardV2Boards(APIBaseTest):
             ("newer_schema_than_this_server", {**_board(), "version": CURRENT_SCHEMA_VERSION + 1}),
             ("no_schema_version", {"title": "x", "tabs": []}),
             ("too_large", _board(description="x" * MAX_BOARD_SPEC_BYTES)),
+            ("nul_character", {**_board(), "tabs": [{"id": "t", "tiles": [{"id": "a\x00b"}]}]}),
         ]
     )
     def test_rejects_a_document_that_is_not_a_version_2_board(self, _name: str, spec: Any) -> None:
@@ -166,12 +167,10 @@ class TestDashboardV2Boards(APIBaseTest):
     def test_an_object_rule_of_none_hides_a_board_from_other_members(self) -> None:
         shown = self._create(_board("Shown")).json()
         hidden = self._create(_board("Hidden")).json()
-        member = self._member()
-        restricted = self.client.put(
-            f"{self._url(hidden['uid'])}access_controls/", {"access_level": "none"}, format="json"
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=hidden["id"], access_level="none"
         )
-        assert restricted.status_code == status.HTTP_200_OK, restricted.json()
-        self.client.force_login(member)
+        self.client.force_login(self._member())
 
         assert [row["uid"] for row in self.client.get(self._url()).json()["results"]] == [shown["uid"]]
         assert self.client.get(self._url(hidden["uid"])).status_code in (403, 404)

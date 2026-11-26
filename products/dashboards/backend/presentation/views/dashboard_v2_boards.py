@@ -13,7 +13,6 @@ from posthog.models.user import User
 from posthog.permissions import dashboard_v2_enabled, is_service_auth
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.dashboards.backend.facade import api
 from products.dashboards.backend.facade.contracts import (
     MAX_BOARD_SPEC_BYTES,
@@ -101,7 +100,7 @@ _INVALID = OpenApiResponse(description="The document's schema version is unknown
 _READ_ONLY = OpenApiResponse(description="The board is built in or managed from code, so it cannot change here.")
 
 
-class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Saved `dashboard-v2` boards. Each board is one JSON document."""
 
     # Boards share the `dashboard` resource: resource-level access to dashboards covers boards too, and an object

@@ -83,6 +83,22 @@ def check_size(spec: dict[str, Any]) -> None:
         raise BoardSpecInvalid(f"The board document is {size} bytes. The limit is {MAX_BOARD_SPEC_BYTES} bytes.")
 
 
+def _has_nul(value: Any) -> bool:
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(_has_nul(key) or _has_nul(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_has_nul(item) for item in value)
+    return False
+
+
+def check_storable(spec: dict[str, Any]) -> None:
+    # Postgres refuses a NUL character anywhere in a jsonb value, so the save would fail with a 500.
+    if _has_nul(spec):
+        raise BoardSpecInvalid("The board document contains a NUL character (\\u0000), which cannot be saved.")
+
+
 def title_of(spec: dict[str, Any]) -> str:
     title = spec.get("title")
     name = title.strip() if isinstance(title, str) else ""
