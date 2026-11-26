@@ -122,6 +122,7 @@ describe('load', () => {
             undefined,
             'unpaired: a card that runs paired names no reason to run unpaired',
         ],
+        ['a blank reason the card runs unpaired', { ...card, unpaired: ' ' }, undefined, 'unpaired: '],
         [
             'an unknown traffic kind',
             { ...card, drive: { ...card.drive, traffic: [{ name: 'event_sms' }] } },

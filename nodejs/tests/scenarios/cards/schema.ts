@@ -107,7 +107,7 @@ export const Card = z
         bars: z.array(Named).default([]),
         gates: z.record(z.string(), z.number()).default({}),
         pair: z.boolean().optional(),
-        unpaired: z.string().min(1).optional(),
+        unpaired: z.string().trim().min(1).optional(),
     })
     .strict()
     .refine(({ pair, unpaired }) => !pair || unpaired === undefined, {
