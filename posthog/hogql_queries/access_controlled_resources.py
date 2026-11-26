@@ -388,15 +388,30 @@ def queried_access_controlled_resources(
     # Structured queries can reference warehouse tables without a HogQLQuery in their tree.
     if not _references_data_warehouse(query):
         return set()
+    table_names = set(_data_warehouse_table_names(query))
     # Its scope is kept even when bypassed on warehouse objects, as for tables a HogQL query names.
-    table_scopes = {
-        scope
-        for table_name in _data_warehouse_table_names(query)
-        if (scope := access_controlled_posthog_tables().get(table_name)) is not None
+    table_scopes: set[str] = {
+        scope for name in table_names if (scope := access_controlled_posthog_tables().get(name)) is not None
     }
-    return _with_fallback_parents({"warehouse_table", "warehouse_view"} | table_scopes, bypassed_scopes) - (
-        bypassed_scopes - table_scopes
-    )
+    # A cache hit skips resolving a saved view, so the tables its definition reads must key the cache too.
+    view_scopes: set[str] = set()
+    for view_name, view_query in catalog.get_views(table_names):
+        if view_name in catalog.walked_views:
+            continue
+        catalog.walked_views.add(view_name)
+        view_sql = view_query.get("query") if isinstance(view_query, dict) else None
+        if not isinstance(view_sql, str):
+            return None
+        nested = queried_access_controlled_resources(
+            HogQLQuery(query=view_sql), team, bypassed_scopes=bypassed_scopes, _catalog=catalog
+        )
+        if nested is None:
+            return None
+        view_scopes |= nested
+        table_scopes |= nested & bypassed_scopes
+    return _with_fallback_parents(
+        {"warehouse_table", "warehouse_view"} | table_scopes | view_scopes, bypassed_scopes
+    ) - (bypassed_scopes - table_scopes)
 
 
 def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) -> set[str]:

@@ -194,9 +194,13 @@ class TestQueriedAccessControlledResources(BaseTest):
         [
             ("warehouse_table", "some_dw_table", set()),
             ("trace_spans", "posthog.trace_spans", {"tracing"}),
+            ("view_over_trace_spans", "span_view", {"tracing"}),
         ]
     )
     def test_structured_query_with_data_warehouse_series(self, _name, table_name, extra_scopes):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="span_view", query={"kind": "HogQLQuery", "query": "select * from posthog.trace_spans"}
+        )
         node = self._dw_node().model_copy(update={"table_name": table_name})
         query = TrendsQuery(series=[EventsNode(event="$pageview"), node])
         assert queried_access_controlled_resources(query, self.team) == {

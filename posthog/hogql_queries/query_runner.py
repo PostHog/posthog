@@ -3991,7 +3991,9 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # cached result. `queried_resources` already leaves out the scopes they bypass.
         if not isinstance(user, User):
             if queried_resources is None:
-                return ["*"]
+                # The tables are unknown, so key on every scope the principal can't read; a bare "*" would
+                # let principals with different scopes share one entry.
+                return ["*", *sorted(set(API_SCOPE_OBJECTS) - user.readable_system_table_access_scopes())]
             restricted = queried_resources - user.readable_system_table_access_scopes()
             return sorted(restricted) or None
 

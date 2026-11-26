@@ -2184,6 +2184,21 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         assert key_denied != userless_runner.get_cache_key()
 
+    def test_unknown_table_query_partitions_project_keys_by_scope(self) -> None:
+        from posthog.auth import ProjectSecretAPIKeyUser
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        query = {"kind": "HogQLQuery", "query": "select * from {table}"}
+        keys = []
+        for scopes in (["query:read"], ["query:read", "tracing:read"]):
+            key = ProjectSecretAPIKey.objects.create(
+                team=self.team, label=scopes[-1], secure_value="sha256$" + scopes[-1][0] * 64, scopes=scopes
+            )
+            principal = cast(User, ProjectSecretAPIKeyUser(key))
+            keys.append(HogQLQueryRunner(query=query, team=self.team, user=principal).get_cache_key())
+
+        assert keys[0] != keys[1]
+
     def test_default_denied_resource_partitions_cache_without_access_control(self):
         self.organization.available_product_features = []
         self.organization.save()
