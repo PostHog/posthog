@@ -1,3 +1,4 @@
+import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
@@ -49,14 +50,17 @@ export function RecommendationCpa({
                     {summary.cpa}
                 </span>
             )}
-            <Tooltip title={summary.tooltip}>
-                <span className="cursor-help underline decoration-dotted underline-offset-2">
+            <span className="inline-flex items-center gap-1">
+                <span>
                     <span className="tabular-nums" translate="no">
                         {summary.benchmark}
                     </span>
                     <span>{summary.source}</span>
                 </span>
-            </Tooltip>
+                <Tooltip title={summary.tooltip}>
+                    <IconInfo className="shrink-0 text-sm" />
+                </Tooltip>
+            </span>
         </span>
     )
 }

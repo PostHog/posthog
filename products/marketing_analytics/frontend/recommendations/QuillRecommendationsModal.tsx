@@ -59,6 +59,7 @@ export function QuillRecommendationsModal({
 }): JSX.Element {
     const {
         showResolved,
+        showingResolved,
         selectedRule,
         activeRecommendations,
         resolvedRecommendations,
@@ -72,7 +73,6 @@ export function QuillRecommendationsModal({
         conversionSource,
         disclaimer,
     } = useValues(recommendationsLogic)
-    const showingResolved = showResolved && resolvedCount > 0
     const { reportRecommendationsActionClicked, closeRecommendations } = useActions(recommendationsLogic)
     // The header's first tabbable controls open tooltips on focus, so the dialog opens with focus on its title.
     const titleRef = useRef<HTMLHeadingElement>(null)
@@ -136,7 +136,7 @@ export function QuillRecommendationsModal({
                                                         {RECOMMENDATION_RULE_LABELS[group.rule]}
                                                     </span>
                                                     <QuillRecommendationCountBadge
-                                                        count={group.activeCount}
+                                                        count={group.recommendations.length}
                                                         maxDigits={2}
                                                         showZero
                                                         variant={selected ? 'info' : 'default'}

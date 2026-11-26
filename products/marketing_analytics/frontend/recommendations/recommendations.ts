@@ -137,10 +137,9 @@ export interface RecommendationTotal {
 export interface RecommendationGroup {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendation['level']
-    // The rows the table shows: the unresolved ones, plus the resolved ones while they are on show.
+    // The unresolved rows. Resolved ones have a table of their own.
     recommendations: MarketingAnalyticsRecommendation[]
-    activeCount: number
-    // Every row of the rule is minor, resolved ones included, so resolving or showing rows never moves the rule to another section.
+    // Every row of the rule is minor, resolved ones included, so resolving rows never moves the rule to another section.
     minor: boolean
     // Every row of the rule says to keep spending, resolved ones included, for the same reason as `minor`.
     keepOnly: boolean
@@ -296,7 +295,6 @@ export function summarizeImpact(recommendations: MarketingAnalyticsRecommendatio
 
 export function groupRecommendations(
     recommendations: MarketingAnalyticsRecommendation[],
-    showResolved: boolean,
     // Kept in the list with no rows, so resolving the last row of the open rule does not switch to another rule.
     keepRule: MarketingAnalyticsRecommendationRule | null
 ): RecommendationGroup[] {
@@ -304,17 +302,13 @@ export function groupRecommendations(
     for (const recommendation of recommendations) {
         byRule.set(recommendation.rule, [...(byRule.get(recommendation.rule) ?? []), recommendation])
     }
-    const groups = [...byRule.entries()].map(([rule, rows]) => {
-        const active = unresolved(rows)
-        return {
-            rule,
-            level: rows[0].level,
-            recommendations: showResolved ? rows : active,
-            activeCount: active.length,
-            minor: rows.every((row) => row.minor),
-            keepOnly: rows.every((row) => row.impactDirection === 'keep'),
-        }
-    })
+    const groups = [...byRule.entries()].map(([rule, rows]) => ({
+        rule,
+        level: rows[0].level,
+        recommendations: unresolved(rows),
+        minor: rows.every((row) => row.minor),
+        keepOnly: rows.every((row) => row.impactDirection === 'keep'),
+    }))
     // The backend already orders rules by impact. Groups that only say "keep" need no action, so they go last.
     return [...groups.filter((group) => !group.keepOnly), ...groups.filter((group) => group.keepOnly)].filter(
         (group) => group.recommendations.length > 0 || group.rule === keepRule
