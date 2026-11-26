@@ -37,6 +37,7 @@ import { GENERATED_TOOLS as feature_flags } from './feature_flags'
 import { GENERATED_TOOLS as field_notes } from './field_notes'
 import { GENERATED_TOOLS as groups } from './groups'
 import { GENERATED_TOOLS as health_issues } from './health_issues'
+import { GENERATED_TOOLS as hogs } from './hogs'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as managed_migrations } from './managed_migrations'
@@ -114,6 +115,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...field_notes,
     ...groups,
     ...health_issues,
+    ...hogs,
     ...integrations,
     ...logs,
     ...managed_migrations,

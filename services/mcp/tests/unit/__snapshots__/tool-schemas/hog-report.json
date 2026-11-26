@@ -1,0 +1,78 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "evidence": {
+            "description": "Specific records a person can check.",
+            "items": {
+                "properties": {
+                    "description": {
+                        "description": "What this piece of evidence shows.",
+                        "maxLength": 500,
+                        "type": "string"
+                    },
+                    "kind": {
+                        "default": "other",
+                        "description": "What kind of record the source is.\n\n* `insight` - Insight\n* `event` - Event\n* `error` - Error\n* `replay` - Replay\n* `flag` - Flag\n* `experiment` - Experiment\n* `survey` - Survey\n* `log` - Log\n* `ticket` - Ticket\n* `message` - Message\n* `code` - Code\n* `other` - Other",
+                        "enum": [
+                            "insight",
+                            "event",
+                            "error",
+                            "replay",
+                            "flag",
+                            "experiment",
+                            "survey",
+                            "log",
+                            "ticket",
+                            "message",
+                            "code",
+                            "other"
+                        ],
+                        "type": "string"
+                    },
+                    "source": {
+                        "description": "A link or an identifier a person can check, such as an insight URL or an issue ID.",
+                        "maxLength": 1000,
+                        "type": "string"
+                    }
+                },
+                "required": ["description", "source"],
+                "type": "object"
+            },
+            "maxItems": 20,
+            "type": "array"
+        },
+        "id": {
+            "pattern": "^[0-9a-f-]{36}$",
+            "type": "string"
+        },
+        "impact": {
+            "default": "",
+            "description": "One sentence that starts with the number that matters.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "priority": {
+            "description": "p0 broken for many now, p1 hurts users today, p2 fix this week, p3 when there is time, p4 worth knowing.\n\n* `p0` - P0\n* `p1` - P1\n* `p2` - P2\n* `p3` - P3\n* `p4` - P4",
+            "enum": ["p0", "p1", "p2", "p3", "p4"],
+            "type": "string"
+        },
+        "proposal": {
+            "default": "",
+            "description": "What you would do, concretely enough to act on.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "summary": {
+            "description": "The first paragraph is the lead: what is happening, to whom, since when.",
+            "maxLength": 8000,
+            "type": "string"
+        },
+        "title": {
+            "description": "The outcome to change, not the observation.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["id", "title", "summary", "priority"],
+    "type": "object"
+}

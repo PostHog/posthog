@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "pattern": "^[0-9a-f-]{36}$",
+            "type": "string"
+        },
+        "schedule_id": {
+            "description": "ID of the schedule to delete.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "schedule_id"],
+    "type": "object"
+}

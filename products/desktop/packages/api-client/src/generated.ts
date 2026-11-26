@@ -17312,6 +17312,7 @@ export namespace Schemas {
     /**
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `hogs` - Hogs
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -17343,6 +17344,7 @@ export namespace Schemas {
     export type TaskOriginProductEnum =
         | "onboarding"
         | "account_audit"
+        | "hogs"
         | "error_tracking"
         | "eval_clusters"
         | "user_created"
@@ -20825,6 +20827,7 @@ export namespace Endpoints {
                 exclude_origin_product:
                     | "onboarding"
                     | "account_audit"
+                    | "hogs"
                     | "error_tracking"
                     | "eval_clusters"
                     | "user_created"
@@ -20872,6 +20875,7 @@ export namespace Endpoints {
                     | "experiments"
                     | "feature_flags"
                     | "hogdesk"
+                    | "hogs"
                     | "image_builder"
                     | "knowledge_writer"
                     | "loop"

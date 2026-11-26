@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "draft": {
+            "default": "",
+            "description": "Exactly what you would send or change. The owner may edit it before approving.",
+            "maxLength": 8000,
+            "type": "string"
+        },
+        "id": {
+            "pattern": "^[0-9a-f-]{36}$",
+            "type": "string"
+        },
+        "kind": {
+            "description": "A short, stable name for the class of side effect, such as slack-message, github-pr or email-send. The owner's rules match on it, so reuse the same kind for the same sort of action.",
+            "maxLength": 60,
+            "pattern": "^[-a-zA-Z0-9_]+$",
+            "type": "string"
+        },
+        "label": {
+            "description": "One line saying what you would do and to whom.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["id", "kind", "label"],
+    "type": "object"
+}
