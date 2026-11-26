@@ -135,6 +135,15 @@ class RoutingRunOrdering(LabeledStrEnum):
 # module level, so it lives in this light module.
 ROUTING_ACTIONS = frozenset({"opened", "ready_for_review"})
 
+# The pull_request actions that can change what a human request's card shows: the head, the final
+# state, or who GitHub asks to review. A base retarget counts too, and the consumer checks it apart.
+HUMAN_REQUEST_PR_ACTIONS = frozenset(
+    {"synchronize", "closed", "reopened", "review_requested", "review_request_removed"}
+)
+# The pull_request_review actions that can add or withdraw a person's approval. A submitted review
+# that only comments leaves an approval standing, so the consumer drops it.
+HUMAN_REQUEST_REVIEW_ACTIONS = frozenset({"submitted", "dismissed"})
+
 
 class ReviewRunStatus(StrEnum):
     QUEUED = "queued"

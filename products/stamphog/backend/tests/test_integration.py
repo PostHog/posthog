@@ -63,7 +63,10 @@ from products.stamphog.backend.models import (
     StamphogRepoConfig,
 )
 from products.stamphog.backend.tasks.digest import send_daily_digests
-from products.stamphog.backend.tasks.human_requests import refresh_human_request
+from products.stamphog.backend.tasks.human_requests import (
+    refresh_human_request,
+    refresh_human_requests_for_pull_request,
+)
 from products.stamphog.backend.tasks.tasks import (
     pending_attestation_checks,
     process_inbox_pr_review,
@@ -4597,3 +4600,49 @@ def test_a_card_follows_the_pull_request_after_it_is_posted(team, stamphog_chain
     assert request.status == HumanRequestStatus.MERGED
     assert "Merged." in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
     assert len(_cards()) == 1
+
+
+@pytest.mark.parametrize(
+    "installation_id, expected",
+    [
+        # The PostHog App's review delivery names no stamphog installation, so every project holding the pull request
+        # hears about it.
+        pytest.param("", {"own", "other_project"}, id="posthog_app_review"),
+        pytest.param(INSTALLATION_ID, {"own"}, id="stamphog_app_pull_request"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_github_delivery_refreshes_every_active_human_request_of_its_pull_request(
+    team, installation_id: str, expected: set[str]
+) -> None:
+    other_team = Team.objects.create(organization=team.organization, name="Other project")
+    other_config = _repo_config(other_team.id)
+    other_config.installation_id = "3003"
+    other_config.save()
+    own_config = _repo_config(team.id)
+
+    def _request(repo_config: StamphogRepoConfig, pr_number: int, status: HumanRequestStatus) -> tuple[int, str]:
+        pull_request, _ = PullRequest.objects.for_team(repo_config.team_id).get_or_create(
+            team_id=repo_config.team_id, repo_config=repo_config, pr_number=pr_number
+        )
+        request = HumanRequest.objects.for_team(repo_config.team_id).create(
+            team_id=repo_config.team_id,
+            pull_request=pull_request,
+            status=status,
+            head_sha="sha173a",
+            requested_via=HumanRequestSource.API,
+        )
+        return repo_config.team_id, str(request.id)
+
+    labels = {
+        _request(own_config, 173, HumanRequestStatus.APPROVED): "own",
+        _request(own_config, 173, HumanRequestStatus.MERGED): "own_final",
+        _request(own_config, 174, HumanRequestStatus.OPEN): "own_other_pull_request",
+        _request(other_config, 173, HumanRequestStatus.PENDING): "other_project",
+    }
+
+    with patch.object(refresh_human_request, "delay") as refresh_delay:
+        refresh_human_requests_for_pull_request(repository=REPO, pr_number=173, installation_id=installation_id)
+
+    queued = [labels[(c.kwargs["team_id"], c.kwargs["human_request_id"])] for c in refresh_delay.call_args_list]
+    assert sorted(queued) == sorted(expected)

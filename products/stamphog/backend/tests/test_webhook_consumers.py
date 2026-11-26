@@ -18,6 +18,11 @@ WEBHOOK_PATH = "/webhooks/stamphog/github"
 PULL_REQUEST_DELAY = "products.stamphog.backend.facade.tasks.process_pull_request_event.delay"
 INSTALLATION_DELAY = "products.stamphog.backend.facade.tasks.process_installation_event.delay"
 ROUTING_DELAY = "products.stamphog.backend.facade.tasks.route_pull_request_reviewers.delay"
+HUMAN_REQUEST_DELAY = "products.stamphog.backend.facade.tasks.refresh_human_requests_for_pull_request.delay"
+
+POSTHOG_APP_SECRET = "test-posthog-app-secret"
+POSTHOG_APP_PATH = "/webhooks/github"
+PULL_REQUEST_FIELDS = {"repository": {"full_name": "acme/widgets"}, "pull_request": {"number": 7}}
 
 
 def _signature(body: bytes, secret: str) -> str:
@@ -143,3 +148,94 @@ class TestStamphogGitHubWebhook(SimpleTestCase):
 
         assert response.status_code == 500
         mock_delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("synchronize", {}, True),
+            ("closed", {}, True),
+            ("reopened", {}, True),
+            ("review_requested", {}, True),
+            ("edited", {"changes": {"base": {"ref": {"from": "main"}}}}, True),
+            ("edited", {"changes": {"title": {"from": "Old"}}}, False),
+            ("opened", {}, False),
+            ("labeled", {}, False),
+        ]
+    )
+    def test_a_pull_request_change_a_card_shows_refreshes_its_human_requests(
+        self, action: str, extra: dict, refreshes: bool
+    ) -> None:
+        payload = {"action": action, "installation": {"id": 42}, **PULL_REQUEST_FIELDS, **extra}
+        body = json.dumps(payload).encode("utf-8")
+
+        with (
+            patch(PULL_REQUEST_DELAY),
+            patch(ROUTING_DELAY),
+            patch(HUMAN_REQUEST_DELAY) as human_request_delay,
+        ):
+            assert self._post(body, signature=_signature(body, WEBHOOK_SECRET)).status_code == 202
+
+        if refreshes:
+            # Stamphog's own installation names the one repo config that owns the repository.
+            human_request_delay.assert_called_once_with(repository="acme/widgets", pr_number=7, installation_id="42")
+        else:
+            human_request_delay.assert_not_called()
+
+
+class TestPostHogAppReviewWebhook(SimpleTestCase):
+    def setUp(self) -> None:
+        reset_consumer_registry()
+        cache.clear()
+        self.addCleanup(reset_consumer_registry)
+        self.addCleanup(cache.clear)
+        # The other products' review consumers run on the same delivery and read their own tables.
+        for target, kwargs in (
+            (
+                "posthog.credentials_service.instance_settings.get_instance_setting",
+                {"return_value": POSTHOG_APP_SECRET},
+            ),
+            ("products.workflows.backend.facade.api.accept_github_event", {}),
+            ("products.tasks.backend.facade.api.accept_github_pull_request_review", {}),
+        ):
+            patcher = patch(target, **kwargs)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    @parameterized.expand(
+        [
+            ("approved", "submitted", "approved", "User", True),
+            ("changes_requested", "submitted", "changes_requested", "User", True),
+            ("dismissed", "dismissed", "dismissed", "User", True),
+            ("comment_only", "submitted", "commented", "User", False),
+            ("bot_review", "submitted", "approved", "Bot", False),
+            ("edited", "edited", "approved", "User", False),
+        ]
+    )
+    def test_a_review_that_can_move_an_approval_refreshes_the_human_requests(
+        self, _name: str, action: str, state: str, user_type: str, refreshes: bool
+    ) -> None:
+        payload = {
+            "action": action,
+            "installation": {"id": 99},
+            "review": {"state": state, "user": {"login": "maintainer", "type": user_type}},
+            **PULL_REQUEST_FIELDS,
+        }
+        body = json.dumps(payload).encode("utf-8")
+
+        with patch(HUMAN_REQUEST_DELAY) as human_request_delay:
+            response = self.client.post(
+                POSTHOG_APP_PATH,
+                data=body,
+                content_type="application/json",
+                headers={
+                    "X-GitHub-Event": "pull_request_review",
+                    "X-GitHub-Delivery": "delivery-review",
+                    "X-Hub-Signature-256": _signature(body, POSTHOG_APP_SECRET),
+                },
+            )
+
+        assert response.status_code == 202
+        if refreshes:
+            # The PostHog App's installation is not stamphog's, so it must not narrow the match.
+            human_request_delay.assert_called_once_with(repository="acme/widgets", pr_number=7, installation_id="")
+        else:
+            human_request_delay.assert_not_called()

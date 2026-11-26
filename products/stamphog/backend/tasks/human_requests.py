@@ -43,6 +43,26 @@ def queue_human_request_refresh(team_id: int, human_request_id: str) -> None:
         logger.exception("stamphog_human_request_refresh_queue_failed", human_request_id=human_request_id)
 
 
+@shared_task(ignore_result=True)
+def refresh_human_requests_for_pull_request(repository: str, pr_number: int, installation_id: str = "") -> None:
+    """Refresh every active human request of one pull request, in every team that has one.
+
+    A GitHub delivery only says that something changed, so each refresh reads the state from GitHub
+    itself. The PostHog App's installation is not stamphog's, so a delivery from it passes no
+    ``installation_id`` and matches on the repository and number alone.
+    """
+    requests = HumanRequest.objects.unscoped().using(router.db_for_write(HumanRequest))
+    requests = requests.filter(
+        pull_request__repo_config__repository=repository,
+        pull_request__pr_number=pr_number,
+        status__in=ACTIVE_HUMAN_REQUEST_STATUSES,
+    )
+    if installation_id:
+        requests = requests.filter(pull_request__repo_config__installation_id=installation_id)
+    for team_id, request_id in requests.values_list("team_id", "id"):
+        queue_human_request_refresh(team_id, str(request_id))
+
+
 def queue_human_request_refresh_after_verdict(run: ReviewRun, status: ReviewRunStatus) -> None:
     """Refresh the pull request's active human request once a run's outcome reached GitHub. Never raises.
 
