@@ -130,7 +130,7 @@ One `asyncio.Semaphore` on `EvalContext` bounds live sandboxes across every suit
 Two consequences worth internalizing:
 
 - The per-case timeout is an `asyncio.wait_for` **inside** the slot. Braintrust's own `timeout` would have wrapped the whole task invocation, including time queued on the semaphore, killing cases that never got a sandbox.
-- A second `team_setup_slots` semaphore covers the full demo-data clone plus optional case seeder. It has one permit on ordinary local machines and four when `CODER` or `CI` is set, so managed environments prepare cases faster without making setup concurrency follow Modal's unbounded sandbox capacity.
+- A second `team_setup_slots` semaphore covers the full demo-data clone plus optional case seeder. It defaults to one permit on ordinary local machines, two on Coder, and four on other CI machines. `--team-setup-concurrency` overrides it independently of the sandbox cap.
 - The agent timeout begins after team setup. Waiting for either semaphore never consumes it.
 - All turns share a monotonic poll deadline. The harness reserves up to 120 seconds, capped at one quarter of the case budget, for diagnostic recovery and cleanup before outer cancellation.
 - Poll timeouts retain their stage and log counts in case metadata and local artifacts. They follow the existing scored-timeout path.
@@ -141,16 +141,16 @@ The Temporal worker keeps its own loop on a daemon thread, and the two communica
 
 ## Provider differences
 
-|                     | docker                        | modal                     |
-| ------------------- | ----------------------------- | ------------------------- |
-| `SANDBOX_PROVIDER`  | `docker`                      | `MODAL_EVALS`             |
-| Service URLs        | `host.docker.internal:<port>` | Tailscale Funnel URLs     |
-| `start()`           | base-image freshness check    | Tailscale Funnel          |
-| Local skills        | bind-mounted                  | baked into the image      |
-| Default sandbox cap | 4                             | unbounded                 |
-| Sandbox TTL         | default                       | case timeout plus margin  |
-| Per-case safety net | container sweep               | task-tagged sandbox sweep |
-| End-of-run cleanup  | container sweep               | task-tagged sandbox sweep |
+|                     | docker                        | modal                            |
+| ------------------- | ----------------------------- | -------------------------------- |
+| `SANDBOX_PROVIDER`  | `docker`                      | `MODAL_EVALS`                    |
+| Service URLs        | `host.docker.internal:<port>` | Tailscale Funnel URLs            |
+| `start()`           | base-image freshness check    | Tailscale Funnel                 |
+| Local skills        | bind-mounted                  | baked into the image             |
+| Default sandbox cap | 4                             | 12 on Coder, otherwise unbounded |
+| Sandbox TTL         | default                       | case timeout plus margin         |
+| Per-case safety net | container sweep               | task-tagged sandbox sweep        |
+| End-of-run cleanup  | container sweep               | task-tagged sandbox sweep        |
 
 `MODAL_EVALS` is the same `ModalSandbox` class under the dedicated `posthog-sandbox-evals` app, so eval image builds do not share an image cache with production or local development sandboxes.
 
