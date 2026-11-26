@@ -11,10 +11,6 @@ from posthog.run_mode import run_mode
 # the same topics but via the warpstream_ingestion named collection. Each has its own
 # consumer group to avoid conflicts with the MSK tables.
 #
-# CLOUD-ONLY: outside cloud both named collections point at one broker, so both MVs would
-# consume every message into the same target table. 0396 drops what this created before
-# the guard existed.
-#
 # New tables:
 # - kafka_log_entries_ws + log_entries_ws_mv (INGESTION_SMALL)
 # - kafka_app_metrics2_ws + app_metrics2_ws_mv (INGESTION_MEDIUM)
