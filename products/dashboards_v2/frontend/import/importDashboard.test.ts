@@ -227,6 +227,13 @@ describe('importDashboard', () => {
         expect(validateDashboard(result.dashboard, DEFAULT_PANELS)).toEqual([])
     })
 
+    it('reads a bounded number of targets from a panel', () => {
+        const targets = Array.from({ length: 500 }, (_, i) => ({ refId: `q${i}`, expr: 'up' }))
+        const result = imported({ title: 'T', panels: [panelWith({ targets })] })
+        expect(result.report.queries.total).toBe(104)
+        expect(result.report.tiles[0].reasons).toContain('Only the first 104 of its 500 queries are read.')
+    })
+
     it('reads plugin identifiers from a v2alpha1 export', () => {
         const result = imported({
             elements: {
