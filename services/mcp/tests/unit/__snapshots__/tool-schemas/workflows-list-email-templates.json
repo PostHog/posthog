@@ -57,7 +57,7 @@
                     "type": "null"
                 }
             ],
-            "description": "List only templates of this type. Leave out to list every type.\n\n* `email` - email\n* `push` - push"
+            "description": "List only templates of this type. Leave out to list every type.\n\n* `email` - Email\n* `push` - Push"
         }
     },
     "type": "object"
