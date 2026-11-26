@@ -3,19 +3,14 @@ import { z } from 'zod'
 import { type FilterSpec, findFilterType, hasFilterOn } from '../../filters/filterSpec'
 import { type PanelTypeSpec, findPanel, sizeOfPanels } from '../../panels/core/panelSpec'
 import {
-    contentPanelPartsSchema,
     dashboardDocumentSchema,
-    dashboardFilterSchema,
     documentContentPanelSchema,
     gridTabSchema,
     linkTabSchema,
     ONE_GRID_TAB,
     sectionPanelSchema,
     sharedPanelSchema,
-    tileAppearanceSchema,
-    tilePlaceSchema,
     tileSchema,
-    timeRangeSchema,
     panelRefSchema,
 } from './dashboardSchema'
 import { type SavedPanel, type SavedFilter, GRID } from './dashboardTypes'
@@ -27,98 +22,17 @@ export type DashboardProblem = {
     /** Where the problem is, such as `tabs[0].tiles[2].panel.config.query`. */
     path: string
     message: string
-    /** A field this version doesn't know. The dashboard still loads and keeps the field, but it may be misspelled. */
-    warning?: true
 }
 
-/**
- * A field the schema doesn't know is a warning. A `misplaced` field is one the document uses elsewhere, such as a
- * `ref` on a full panel, so it is an error: loading would read it.
- */
-function unknownFields(
-    value: unknown,
-    schema: { shape: object },
-    path: string,
-    misplaced: Record<string, string> = {}
-): DashboardProblem[] {
-    if (typeof value !== 'object' || value === null) {
-        return []
-    }
-    return Object.keys(value)
-        .filter((key) => !Object.hasOwn(schema.shape, key))
-        .map((key): DashboardProblem => {
-            const at = path ? `${path}.${key}` : key
-            if (Object.hasOwn(misplaced, key)) {
-                return { path: at, message: misplaced[key] }
-            }
-            return {
-                path: at,
-                message: `Unknown field "${key}". It is kept, but this version of PostHog does not use it`,
-                warning: true,
-            }
-        })
-}
-
-const FULL_PANEL_REF = 'Only a tile that shows a shared panel has a ref, and it holds no other content'
 // Loading spreads a shared panel onto each of its tiles, so a `parts` saved here would show on every tile.
 const SHARED_PANEL_TILE_FIELD = 'A shared panel holds content only. Each tile sets its own parts and appearance'
-const ON_SHARED_PANEL = {
+const ON_SHARED_PANEL: Record<string, string> = {
     parts: SHARED_PANEL_TILE_FIELD,
     appearance: SHARED_PANEL_TILE_FIELD,
     ref: 'A shared panel has no ref of its own',
 }
-
-type Shape = { shape: object }
-type Json = Record<string, unknown>
-
-const isJson = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
-const each = (value: unknown): unknown[] => (Array.isArray(value) ? value : [])
-
-function unknownPanelFields(panel: Json, path: string, depth: number): DashboardProblem[] {
-    const content = 'type' in panel && panel.type !== 'section'
-    const schema: Shape =
-        panel.type === 'section' ? sectionPanelSchema : content ? documentContentPanelSchema : panelRefSchema
-    return [
-        ...unknownFields(panel, schema, path, content ? { ref: FULL_PANEL_REF } : {}),
-        ...unknownFields(panel.parts, contentPanelPartsSchema, `${path}.parts`),
-        ...unknownFields(panel.appearance, tileAppearanceSchema, `${path}.appearance`),
-        ...(panel.type === 'section' && depth < MAX_SECTION_DEPTH
-            ? unknownTileFields(panel.tiles, `${path}.tiles`, depth + 1)
-            : []),
-    ]
-}
-
-function unknownTileFields(tiles: unknown, path: string, depth: number): DashboardProblem[] {
-    return each(tiles).flatMap((tile, index) =>
-        isJson(tile)
-            ? [
-                  ...unknownFields(tile, tileSchema, `${path}[${index}]`),
-                  ...unknownFields(tile.place, tilePlaceSchema, `${path}[${index}].place`),
-                  ...(isJson(tile.panel) ? unknownPanelFields(tile.panel, `${path}[${index}].panel`, depth) : []),
-              ]
-            : []
-    )
-}
-
-/** Walks the document as given, because parsing drops the fields this version doesn't know. */
-function unknownDocumentFields(document: Json): DashboardProblem[] {
-    const shared = isJson(document.panels) ? Object.entries(document.panels) : []
-    return [
-        ...unknownFields(document, dashboardDocumentSchema, ''),
-        ...unknownFields(document.time, timeRangeSchema, 'time'),
-        ...each(document.filters).flatMap((filter, index) =>
-            unknownFields(filter, dashboardFilterSchema, `filters[${index}]`)
-        ),
-        ...shared.flatMap(([key, panel]) => unknownFields(panel, sharedPanelSchema, `panels.${key}`, ON_SHARED_PANEL)),
-        ...each(document.tabs).flatMap((tab, index) =>
-            isJson(tab)
-                ? [
-                      ...unknownFields(tab, 'tiles' in tab ? gridTabSchema : linkTabSchema, `tabs[${index}]`),
-                      ...unknownTileFields(tab.tiles, `tabs[${index}].tiles`, 0),
-                  ]
-                : []
-        ),
-    ]
+const ON_CONTENT_PANEL: Record<string, string> = {
+    ref: 'Only a tile that shows a shared panel has a ref, and it holds no other content',
 }
 
 // The document schemas, with each panel checked only for a `type` at first. A panel's fields depend on its type, so
@@ -147,7 +61,7 @@ function issuesAt(path: string, error: z.ZodError): DashboardProblem[] {
 /**
  * Checks a dashboard document before anything loads it, such as a JSON file in a repo, a document an MCP tool wrote,
  * or a saved dashboard from the API. `panels` are the types the host can show, and `filters` the kinds of filter it
- * supports. A result with no problems, or with warnings only, means it is valid.
+ * supports. An empty result means it is valid.
  * Overlaps and gaps are not problems, because loading the dashboard settles them.
  */
 export function validateDashboard(
@@ -159,11 +73,22 @@ export function validateDashboard(
     if (!parsed.success) {
         return issuesAt('', parsed.error)
     }
-    const problems: DashboardProblem[] = unknownDocumentFields(document as Json)
+    const problems: DashboardProblem[] = []
     const sizeOf = sizeOfPanels(panels)
     const seenIds = new Set<string>()
 
-    const checkContent = (panel: PanelHead, path: string, schema: z.ZodType<SavedPanel>): SavedPanel | null => {
+    // Parsing drops fields it doesn't know, so a field that belongs elsewhere in the document is checked by hand.
+    const checkContent = (
+        panel: PanelHead,
+        path: string,
+        schema: z.ZodType<SavedPanel>,
+        misplaced: Record<string, string>
+    ): SavedPanel | null => {
+        for (const [key, message] of Object.entries(misplaced)) {
+            if (key in panel) {
+                problems.push({ path: `${path}.${key}`, message })
+            }
+        }
         const spec = findPanel(panels, panel.type)
         if (!spec) {
             problems.push({
@@ -186,7 +111,7 @@ export function validateDashboard(
     const shared = new Map(
         Object.entries(parsed.data.panels ?? {}).map(([key, panel]) => [
             key,
-            checkContent(panel, `panels.${key}`, sharedPanelSchema),
+            checkContent(panel, `panels.${key}`, sharedPanelSchema, ON_SHARED_PANEL),
         ])
     )
 
@@ -244,7 +169,7 @@ export function validateDashboard(
                 return
             }
 
-            const panel = checkContent(tile.panel, `${tilePath}.panel`, documentContentPanelSchema)
+            const panel = checkContent(tile.panel, `${tilePath}.panel`, documentContentPanelSchema, ON_CONTENT_PANEL)
             checkSize(panel, tile, tilePath)
         })
     }

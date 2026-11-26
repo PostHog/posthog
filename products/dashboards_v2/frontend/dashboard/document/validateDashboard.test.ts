@@ -8,8 +8,6 @@ import { statSpec } from '../../panels/chart/viz/stat/statSpec'
 import { definePanelSpec } from '../../panels/core/panelSpec'
 import { markdownSpec } from '../../panels/markdown/markdownSpec'
 import { dashboardSchema } from './dashboardSchema'
-import type { DashboardDocument } from './dashboardTypes'
-import { loadDashboard, saveDashboard } from './sharedPanels'
 import type { DashboardProblem } from './validateDashboard'
 import { MAX_SECTION_DEPTH, validateDashboard } from './validateDashboard'
 
@@ -167,13 +165,6 @@ describe('validateDashboard', () => {
             ],
         },
         {
-            name: 'a misspelled panel field, as a warning',
-            document: withTiles([{ id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ...note, titel: 'x' } }]),
-            expected: [
-                { path: 'tabs[0].tiles[0].panel.titel', message: expect.stringContaining('titel'), warning: true },
-            ],
-        },
-        {
             name: 'a shared panel that carries its own parts',
             document: {
                 ...(withTiles([{ id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ref: 'note' } }]) as object),
@@ -276,7 +267,7 @@ describe('validateDashboard', () => {
         expect(validateDashboard(document, SPECS, FILTER_SPECS)).toEqual(expected)
     })
 
-    it('accepts fields a newer version added as warnings, and keeps them through a load and save', () => {
+    it('accepts fields a newer version added', () => {
         const document = {
             ...(withTiles([
                 { id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ...note, pinned: true }, locked: true },
@@ -286,12 +277,7 @@ describe('validateDashboard', () => {
             owner: 'someone',
         }
 
-        expect(saveDashboard(loadDashboard(document as unknown as DashboardDocument))).toEqual(document)
-        expect(validateDashboard(document, SPECS, FILTER_SPECS)).toEqual([
-            { path: 'owner', message: expect.any(String), warning: true },
-            { path: 'tabs[0].tiles[0].locked', message: expect.any(String), warning: true },
-            { path: 'tabs[0].tiles[0].panel.pinned', message: expect.any(String), warning: true },
-        ])
+        expect(validateDashboard(document, SPECS, FILTER_SPECS)).toEqual([])
     })
 
     it('keeps the section type out of content panels when the schema parses a document on its own', () => {
