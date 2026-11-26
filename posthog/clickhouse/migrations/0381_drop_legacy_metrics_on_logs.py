@@ -47,7 +47,7 @@ operations = (
     [
         run_sql_with_exceptions(
             f"DROP TABLE IF EXISTS {DB}.writable_metrics1",
-            node_roles=[NodeRole.APM],
+            node_roles=[NodeRole.INGESTION_APM],
         ),
         *[
             run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.{name}", node_roles=[NodeRole.LOGS])

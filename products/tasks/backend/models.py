@@ -148,6 +148,7 @@ TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
 PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
 TASK_RUN_TAGS_STATE_KEY = "task_tags"
 TASK_RUN_FINISH_REPORT_STATE_KEY = "finish_report_saved"
+ENDED_BY_STALE_SWEEP_STATE_KEY = "ended_by_stale_sweep"
 PRIOR_RUN_TAGS_STATE_KEY = "prior_run_tags"
 
 # Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
@@ -3018,6 +3019,7 @@ class TaskRun(models.Model):
         "sandbox_connect_token",
         "sandbox_backend",
         "failure_error_type",
+        ENDED_BY_STALE_SWEEP_STATE_KEY,
         "cancel_requested_at",
         # A resumed run's turns must be able to replace the previous execution's finish report.
         TASK_RUN_FINISH_REPORT_STATE_KEY,
@@ -3056,6 +3058,7 @@ class TaskRun(models.Model):
                 revoked_at=django_timezone.now(),
                 revoked_by="tasks-worker",
                 revocation_reason=reason,
+                git_read_grant=None,
             )
 
     def prepare_for_cloud_resume(self) -> None:
@@ -4138,6 +4141,8 @@ class AgentEgressRegistration(models.Model):
     revoked_at = models.DateTimeField(null=True)
     revoked_by = models.CharField(max_length=64, null=True)
     revocation_reason = models.CharField(max_length=64, null=True)
+    git_read_grant = EncryptedJSONStringField(null=True)
+    git_read_grant_version = models.UUIDField(null=True, editable=False)
 
     objects = EnvironmentScopedManager()
 

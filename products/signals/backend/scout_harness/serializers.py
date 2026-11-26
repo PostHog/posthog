@@ -44,7 +44,7 @@ from products.signals.backend.artefact_schemas import (
     Priority,
 )
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
-from products.signals.backend.enums import ReportLinkKind, ToolPreset
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_VALUES, ReportLinkKind, ToolPreset
 from products.signals.backend.models import (
     DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY,
     SignalReport,
@@ -1987,18 +1987,30 @@ QUALITY_HINTS_HELP_TEXT = (
 class EmitReportResponseSerializer(serializers.Serializer):
     report_id = serializers.CharField(
         allow_null=True,
-        help_text="The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.",
+        help_text=(
+            "The authored report's id (null only when a preflight gate skipped the call). Returned even when "
+            "suppressed, so you can edit/dedup against it. With `source_issue_already_reported`, the id of the "
+            "open report that already names the issue: edit that report."
+        ),
     )
     report_status = serializers.CharField(
         allow_null=True,
-        help_text="Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.",
+        help_text=(
+            "Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped. With "
+            "`source_issue_already_reported`, the current status of the open report."
+        ),
     )
     emitted = serializers.BooleanField(
         help_text="True when the report actually surfaced in the inbox (READY or PENDING_INPUT).",
     )
     skipped_reason = serializers.CharField(
         allow_null=True,
-        help_text="`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.",
+        help_text=(
+            "`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` "
+            "| `source_issue_already_reported` | null when a report was authored. "
+            "`source_issue_already_reported` means an open report already names one of your `source_issues`, so "
+            "no report was created: add your findings to the report in `report_id` with edit-report."
+        ),
     )
     safety_explanation = serializers.CharField(
         allow_null=True,
@@ -3454,6 +3466,19 @@ class SignalScoutConfigListQuerySerializer(serializers.Serializer):
             "identifier both find it. Omit for the whole fleet."
         ),
     )
+
+    source_product = serializers.CharField(
+        required=False,
+        help_text=(
+            "Returns only the scouts another product stood up for one of its own objects, e.g. `slack` for "
+            "Slack channel scouts or `replay_vision` for Replay Vision scanner scouts. Omit for the whole fleet."
+        ),
+    )
+
+    def validate_source_product(self, value: str) -> str:
+        if value not in SIGNAL_SOURCE_PRODUCT_VALUES:
+            raise serializers.ValidationError(f"`{value}` is not a source product.")
+        return value
 
     def validate_tags(self, value: str) -> list[str]:
         tags = sorted({slug for raw in value.split(",") if (slug := slugify_tag(raw))})

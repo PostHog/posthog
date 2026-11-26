@@ -313,6 +313,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             LeaderBackendConfig {
                 changelog: changelog.clone(),
                 timeout: config.backend_timeout(),
+                keepalive_interval: config.backend_keepalive_interval(),
+                keepalive_timeout: config.backend_keepalive_timeout(),
                 num_channels: config.leader_channels,
                 http2_windows: config.backend_http2_windows(),
             },

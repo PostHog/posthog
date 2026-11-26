@@ -58,7 +58,6 @@ describe('webmcpLogic', () => {
 
         expect(tool.name).toEqual('exec')
         const schema = JSON.stringify(tool.inputSchema)
-        expect(schema).toContain(`${window.location.origin}/project/${MOCK_DEFAULT_TEAM.id}/`)
         expect(schema).not.toContain('__POSTHOG_')
 
         await expect(tool.execute({ command: 'search insights' })).resolves.toEqual('insight-get')

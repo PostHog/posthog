@@ -6,16 +6,19 @@ import { hogFile, isInside } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 
 // A `script` install carries the receipt install.sh writes. A `standalone` one is a binary placed by hand.
-export type InstallKind =
-    | 'script'
-    | 'standalone'
-    | 'homebrew'
-    | 'npm-global'
-    | 'pnpm-global'
-    | 'bun-global'
-    | 'npx'
-    | 'project'
-    | 'source'
+export const INSTALL_KINDS = [
+    'script',
+    'standalone',
+    'homebrew',
+    'npm-global',
+    'pnpm-global',
+    'bun-global',
+    'npx',
+    'project',
+    'source',
+] as const
+
+export type InstallKind = (typeof INSTALL_KINDS)[number]
 
 export interface InstallMethod {
     kind: InstallKind

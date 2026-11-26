@@ -5,7 +5,6 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -14,7 +13,6 @@ from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCrit
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.utils import BayesianSettings, FrequentistSettings
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
@@ -25,7 +23,11 @@ from products.experiments.backend.metric_calculation.results import _recalc_fing
 from products.experiments.backend.metric_resolution import MetricRole, MetricSource
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.test.utils import patch_calculation_key_version
+from products.experiments.backend.test.utils import (
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    override_exposure_event_cutoff,
+    patch_calculation_key_version,
+)
 from products.experiments.stats.shared.enums import DifferenceType
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -356,18 +358,15 @@ class TestMetricCalculationConfig(BaseTest):
 
         assert (after.calculation_key() != before.calculation_key()) is key_changes
 
-    def test_the_key_does_not_depend_on_the_exposure_event_rollout_flag(self) -> None:
+    def test_the_key_does_not_depend_on_the_exposure_event_cutoff(self) -> None:
         experiment = self._experiment(start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1))
         self._add_metric(experiment, "mean", "inline")
         calculation_configs = {}
-        for flag_enabled in (False, True):
-            with patch(
-                "products.experiments.backend.hogql_queries.exposure_query_logic.posthoganalytics.feature_enabled",
-                return_value=flag_enabled,
-            ):
-                [calculation_configs[flag_enabled]] = build_calculation_configs(experiment)
+        for cutoff_set in (False, True):
+            with override_exposure_event_cutoff(enabled=cutoff_set):
+                [calculation_configs[cutoff_set]] = build_calculation_configs(experiment)
 
-        # The query runner still counts the event the flag picks.
+        # The query runner still counts the event the cutoff picks.
         assert [
             calculation_config.settings.exposure and calculation_config.settings.exposure.exposure_config
             for calculation_config in calculation_configs.values()

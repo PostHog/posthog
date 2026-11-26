@@ -193,8 +193,25 @@ interface ReleaseLogicActions {
 type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions, { id?: string }>
 
 export interface ReleaseUsageEvent {
-    event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked' | 'release owner changed'
+    event:
+        | 'release item linked'
+        | 'release item unlinked'
+        | 'release broadcasts auto linked'
+        | 'release owner changed'
+        | 'release metric added'
+        | 'release metric goal set'
     properties: Record<string, string | number>
+}
+
+interface ReleasePageOpen {
+    event: 'release view all opened' | 'release calendar opened' | 'release list opened' | 'release page opened'
+    pathname: string
+    area: boolean
+    properties?: Record<string, string>
+}
+
+function pageOpenAllowed(open: ReleasePageOpen, releasesEnabled: boolean, releasesAreaEnabled: boolean): boolean {
+    return open.area ? releasesAreaEnabled : releasesEnabled
 }
 
 function captureUsage(usageEvent: ReleaseUsageEvent | undefined): void {
@@ -864,6 +881,15 @@ export const releaseLogic = kea<releaseLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         setFeatureFlags: () => {
+            const pending: ReleasePageOpen | undefined = cache.pendingPageOpen
+            if (
+                pending &&
+                pageOpenAllowed(pending, values.releasesEnabled, values.releasesAreaEnabled) &&
+                router.values.location.pathname === pending.pathname
+            ) {
+                cache.pendingPageOpen = undefined
+                posthog.capture(pending.event, pending.properties)
+            }
             if (
                 values.releasesEnabled !== cache.releasesEnabled ||
                 values.releasesAreaEnabled !== cache.releasesAreaEnabled
@@ -1086,33 +1112,46 @@ export const releaseLogic = kea<releaseLogicType>([
             actions.loadFlags()
         },
     })),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values, cache }) => {
         const openedPage = (
             payload: { pathname: string; initial?: boolean },
             previousLocation: { pathname: string }
         ): boolean => !!payload.initial || payload.pathname !== previousLocation.pathname
+        const capturePageOpen = (open: ReleasePageOpen): void => {
+            cache.pendingPageOpen = undefined
+            if (pageOpenAllowed(open, values.releasesEnabled, values.releasesAreaEnabled)) {
+                posthog.capture(open.event, open.properties)
+            } else {
+                cache.pendingPageOpen = open
+            }
+        }
         return {
             [urls.releases()]: (_, __, ___, payload, previousLocation) => {
                 if (openedPage(payload, previousLocation)) {
-                    posthog.capture('release view all opened')
+                    capturePageOpen({ event: 'release view all opened', pathname: payload.pathname, area: true })
                     actions.reload()
                 }
             },
             [urls.releaseCalendar()]: (_, __, ___, payload, previousLocation) => {
                 if (openedPage(payload, previousLocation)) {
-                    posthog.capture('release calendar opened')
+                    capturePageOpen({ event: 'release calendar opened', pathname: payload.pathname, area: false })
                 }
                 actions.reload()
             },
             [urls.releaseList()]: (_, __, ___, payload, previousLocation) => {
                 if (openedPage(payload, previousLocation)) {
-                    posthog.capture('release list opened')
+                    capturePageOpen({ event: 'release list opened', pathname: payload.pathname, area: false })
                 }
                 actions.reload()
             },
             [urls.release(':id')]: ({ id }, __, ___, payload, previousLocation) => {
                 if (openedPage(payload, previousLocation)) {
-                    posthog.capture('release page opened', { release_id: id })
+                    capturePageOpen({
+                        event: 'release page opened',
+                        pathname: payload.pathname,
+                        area: false,
+                        properties: { release_id: String(id) },
+                    })
                 }
                 actions.reload()
             },

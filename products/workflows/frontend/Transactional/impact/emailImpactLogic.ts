@@ -381,6 +381,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     days: values.days,
                     has_untracked_sends: impact.untracked > 0,
                     shows_link_tracking_prompt: values.showsLinkTrackingPrompt,
+                    has_clicks_untracked_sends: (impact.clicks_untracked ?? 0) > 0,
                 })
             }
         },

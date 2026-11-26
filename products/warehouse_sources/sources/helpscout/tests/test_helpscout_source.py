@@ -44,7 +44,6 @@ class TestHelpScoutSource:
         [
             "401 Client Error: Unauthorized for url: https://api.helpscout.net/v2/conversations",
             "Integration not found: 456",
-            "Help Scout app not configured",
         ],
     )
     def test_non_retryable_errors_match_client_errors(self, observed_error):
@@ -56,6 +55,8 @@ class TestHelpScoutSource:
         [
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
             "500 Server Error for url: https://api.helpscout.net/v2/conversations",
+            # The worker has no Help Scout client credentials: a PostHog fault, so the schema must stay enabled.
+            "NotImplementedError: Help Scout app not configured",
         ],
     )
     def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):

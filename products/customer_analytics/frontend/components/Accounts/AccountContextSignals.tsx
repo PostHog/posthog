@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonSegmentedButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import type { AccountContextSignal } from './accountContextData'
 import { AccountContextDate } from './AccountContextDate'
@@ -10,6 +11,28 @@ import { accountContextLogic, type AccountContextLogicProps, type SignalState } 
 import { CONTEXT_WRITE_DISABLED_REASON } from './constants'
 
 const SIGNAL_PAGE_SIZE = 5
+
+function SignalContext({ signal }: { signal: AccountContextSignal }): JSX.Element {
+    if (!signal.reason && !signal.notes.length) {
+        return <span className="text-secondary">{signal.scheduled ? 'No note yet' : 'No reason or note yet'}</span>
+    }
+    return (
+        <>
+            {signal.reason ? (
+                <span className="text-secondary">
+                    <span className="font-medium">{signal.reason.likely ? 'Likely reason: ' : 'Reason: '}</span>
+                    <span>{signal.reason.text}</span>
+                </span>
+            ) : null}
+            {signal.notes.map((note) => (
+                <span key={note} className="text-secondary">
+                    <span className="font-medium">Note: </span>
+                    <span>{note}</span>
+                </span>
+            ))}
+        </>
+    )
+}
 
 export function AccountContextSignals({
     logicProps,
@@ -19,7 +42,7 @@ export function AccountContextSignals({
     embedded: boolean
 }): JSX.Element {
     const logic = accountContextLogic(logicProps)
-    const { visibleSignals, signalState } = useValues(logic)
+    const { visibleSignals, signalState, signalCounts } = useValues(logic)
     const { setSignalState } = useActions(logic)
 
     const columns: LemonTableColumns<AccountContextSignal> = [
@@ -29,26 +52,37 @@ export function AccountContextSignals({
             render: (_, signal) => (
                 <div className="flex flex-col gap-1 py-1">
                     <span className="font-medium">{signal.title}</span>
-                    {signal.reason ? (
-                        <span className="text-secondary">
-                            <span className="font-medium">{signal.reason.likely ? 'Likely reason: ' : 'Reason: '}</span>
-                            <span>{signal.reason.text}</span>
-                        </span>
-                    ) : (
-                        <span className="text-secondary">No known reason yet</span>
-                    )}
+                    <SignalContext signal={signal} />
                 </div>
             ),
         },
         {
-            title: signalState === 'open' ? 'Since' : 'Closed',
-            key: 'date',
+            title: 'Since',
+            key: 'onset',
             render: (_, signal) => (
                 <span className="whitespace-nowrap">
-                    <AccountContextDate date={signalState === 'open' ? signal.onset : signal.closedOn} />
+                    <AccountContextDate date={signal.onset} />
                 </span>
             ),
         },
+        ...(signalState === 'closed'
+            ? [
+                  {
+                      title: 'Closed',
+                      key: 'closedOn',
+                      render: (_: unknown, signal: AccountContextSignal) => (
+                          <div className="flex flex-col whitespace-nowrap">
+                              <AccountContextDate date={signal.closedOn} />
+                              {signal.openDays !== null ? (
+                                  <span className="text-xs text-secondary">
+                                      Open {pluralize(signal.openDays, 'day')}
+                                  </span>
+                              ) : null}
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
         {
             title: 'At stake',
             key: 'arrAtStake',
@@ -62,7 +96,7 @@ export function AccountContextSignals({
             key: 'actions',
             width: 0,
             render: (_, signal) =>
-                signal.open && !signal.reason ? (
+                signal.open ? (
                     <div className="whitespace-nowrap">
                         <LemonButton
                             size="xsmall"
@@ -70,7 +104,7 @@ export function AccountContextSignals({
                             disabledReason={CONTEXT_WRITE_DISABLED_REASON}
                             data-attr="account-context-add-reason"
                         >
-                            Add reason
+                            Add note
                         </LemonButton>
                     </div>
                 ) : null,
@@ -86,8 +120,8 @@ export function AccountContextSignals({
                     value={signalState}
                     onChange={setSignalState}
                     options={[
-                        { value: 'open', label: 'Open' },
-                        { value: 'closed', label: 'Recently closed' },
+                        { value: 'open', label: `Open (${signalCounts.open})` },
+                        { value: 'closed', label: `Recently closed (${signalCounts.closed})` },
                     ]}
                 />
             </div>

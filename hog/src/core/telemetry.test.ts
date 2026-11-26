@@ -63,6 +63,26 @@ describe('telemetry', () => {
     })
 
     test.each([
+        ['homebrew', '/opt/homebrew/Cellar/hog/1.0.0/bin/hog', 'Cellar'],
+        ['project', '/home/test/secret-customer-app/node_modules/@posthog/hog-linux-x64/bin/hog', 'secret-customer'],
+    ])('the usage event says hog came from %s and leaves out where it lives', async (kind, execPath, privatePart) => {
+        const result = await runHog(['commands'], {
+            ...ON,
+            env: AGENT,
+            execPath,
+            respond: () => ({ status: 200, body: {} }),
+        })
+
+        expect(events(result)).toEqual([
+            expect.objectContaining({
+                event: 'posthog cli command run',
+                properties: expect.objectContaining({ install_method: kind }),
+            }),
+        ])
+        expect(JSON.stringify(events(result))).not.toContain(privatePart)
+    })
+
+    test.each([
         ['with no identity cache', {}],
         // A broken cache must not fail the command.
         ['with a cache that is not an object', { '/home/test/.posthog/hog-telemetry-identity.json': 'null' }],

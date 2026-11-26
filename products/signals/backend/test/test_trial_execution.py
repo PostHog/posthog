@@ -58,7 +58,9 @@ class TestTrialExecution(BaseTest):
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
             new_callable=AsyncMock,
-            return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=123),
+            return_value=GatewayRequestCost(
+                model="example", provider="example", cost_microusd=123, standard_cost_microusd=123
+            ),
         ):
             process_pending_gateway_usage(team_id=self.team.id, run_id=run.id)
 

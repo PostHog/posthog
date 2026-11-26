@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { PostHogValidationError } from '@/lib/errors'
 import { type TraceDetail, compactTraceResponse } from '@/lib/trace-compaction'
 import { redactTraceResults } from '@/lib/trace-redaction'
 import {
@@ -16,6 +17,8 @@ import {
 // a response carries neither a credential nor enough volume to blow the caller's
 // context window.
 const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
+
+const TRACE_EVENTS_LIMIT = 1_000
 
 const TRACE_DETAIL_FIELD = 'detail'
 const DEFAULT_TRACE_DETAIL: TraceDetail = 'full'
@@ -195,6 +198,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const query: Record<string, unknown> = {
                 ...queryParams,
                 kind: config.kind,
+                ...(config.kind === 'TraceQuery' ? { eventsLimit: TRACE_EVENTS_LIMIT } : {}),
             }
             if (hasTestAccountFilterField(schema)) {
                 await applyProjectTestAccountDefault(context, query)
@@ -234,7 +238,21 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 }
             }
 
-            const data = await context.api.query({ projectId }).runQuery({ query })
+            const runQuery = (): ReturnType<ReturnType<Context['api']['query']>['runQuery']> =>
+                context.api.query({ projectId }).runQuery({ query })
+            const data = await runQuery().catch((error: unknown) => {
+                // A PostHog server that predates `eventsLimit`, such as an older self-hosted instance,
+                // rejects the field, so read the trace uncapped there.
+                if (
+                    !('eventsLimit' in query) ||
+                    !(error instanceof PostHogValidationError) ||
+                    !error.detail.includes('eventsLimit')
+                ) {
+                    throw error
+                }
+                delete query.eventsLimit
+                return runQuery()
+            })
             // The backend renders `formatted_results` from the unredacted results, and
             // some clients read that string in preference to the structured payload, so
             // a trace response never carries it.
@@ -255,6 +273,14 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 // Cursor-paginated queries (e.g. RecordingsQuery) need these for the caller to request the next page.
                 ...(typeof data.has_next === 'boolean'
                     ? { has_next: data.has_next, next_cursor: data.next_cursor ?? null }
+                    : {}),
+                ...(config.kind === 'TraceQuery' && data.hasMore === true
+                    ? {
+                          _eventsLimit: {
+                              limit: TRACE_EVENTS_LIMIT,
+                              note: `The trace has more than ${TRACE_EVENTS_LIMIT} matching events, so only the earliest ${TRACE_EVENTS_LIMIT} were read and \`_truncated.totalEvents\` counts only those. totalCost, totalLatency, and the token totals cover every matching event. To read later events, run execute-sql on posthog.ai_events filtered by trace_id with LIMIT 1 BY uuid, or on events filtered by properties.$ai_trace_id when ai_events has no rows for the trace.`,
+                          },
+                      }
                     : {}),
             }
             if (isTraceQuery) {

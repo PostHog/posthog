@@ -11,6 +11,8 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 from asgiref.sync import async_to_sync, sync_to_async
 from botocore.exceptions import ClientError
 from parameterized import parameterized
@@ -30,13 +32,14 @@ from products.replay.backend.temporal.export_recordings.activities import (
     ByteBudget,
     CustomerBucket,
     SessionRow,
+    ViewportReader,
     check_destination,
     destination_error,
     export_session,
     export_shard,
     fetch_blocks_in_order,
     list_shard_sessions,
-    load_session_metadata,
+    load_day_viewports,
     load_shard_session_ids,
     policy_statements,
     quote_storage_key,
@@ -51,7 +54,9 @@ from products.replay.backend.temporal.export_recordings.quote import (
 )
 from products.replay.backend.temporal.export_recordings.types import (
     CheckDestinationInput,
+    DayViewportsInput,
     ExportDestination,
+    ExportPoolInput,
     ExportShardInput,
     ExportTotals,
     WriteSummaryInput,
@@ -59,7 +64,7 @@ from products.replay.backend.temporal.export_recordings.types import (
 
 
 def _list(input: ExportShardInput) -> list[SessionRow]:
-    return list_shard_sessions(input, load_shard_session_ids(input))
+    return list_shard_sessions(input, load_shard_session_ids(input.session_ids_prefix, input.day, input.shard))
 
 
 ACTIVITIES = "products.replay.backend.temporal.export_recordings.activities"
@@ -174,7 +179,18 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             # A pool thread has its own connection and cannot see this test's uncommitted rows.
             patch(f"{ACTIVITIES}.database_sync_to_async_pool", sync_to_async),
         ):
+            async_to_sync(self._load_viewports)(self.quote)
             return async_to_sync(self._run_activity)(env, self._shard_input())
+
+    async def _load_viewports(self, quote: Quote) -> None:
+        input = DayViewportsInput(
+            team_id=self.team.pk,
+            run_id="run-1",
+            day=self.day.date().isoformat(),
+            shards_per_day=quote.shards_per_day,
+            session_ids_prefix=quote.session_ids_prefix,
+        )
+        await ActivityEnvironment().run(load_day_viewports, input)
 
     def _shard_input(self, day: datetime | None = None, quote: Quote | None = None, shard: int = 0) -> ExportShardInput:
         return ExportShardInput(
@@ -293,8 +309,8 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         assert magic == b"PHREC1"
         assert (header["session_id"], header["block_count"], header["distinct_id"]) == ("s1", 2, "d-s1")
         assert header["person"]["properties"] == {"email": "person@example.com"}
-        assert [(v["width"], v["height"], v["href"]) for v in header["viewports"]] == [
-            ("1280", "720", "https://example.com/a")
+        assert [(v["timestamp"], v["width"], v["height"], v["href"]) for v in header["viewports"]] == [
+            (int((self.day + timedelta(seconds=5)).timestamp() * 1000), "1280", "720", "https://example.com/a")
         ]
         # Blocks follow playback order, not the order of block_urls.
         assert blocks == EXPECTED_BLOCKS
@@ -345,7 +361,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
 
     def test_a_lost_shard_list_fails_the_shard_without_retrying(self) -> None:
         with pytest.raises(ApplicationError) as error:
-            load_shard_session_ids(self._shard_input(quote=dataclasses.replace(self.quote, session_ids_prefix="gone")))
+            load_shard_session_ids("gone", self.day.date().isoformat(), 0)
 
         assert error.value.non_retryable
 
@@ -528,21 +544,41 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             select_sessions(self.team.pk, next_day, next_day, None, 1, datetime.now(UTC), lambda *_: None).sessions == 1
         )
 
-    def test_viewport_batches_that_hit_the_row_limit_are_split(self) -> None:
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="d-s2",
-            timestamp=self.day + timedelta(seconds=5),
-            properties={"$session_id": "s2", "$viewport_width": 800, "$viewport_height": 600},
-        )
+    @parameterized.expand([("filtered_in_the_query", 10_000), ("filtered_after_the_query", 0)])
+    def test_day_viewports_go_to_each_listed_sessions_shard(self, _name: str, max_filtered_sessions: int) -> None:
+        for event, session_id, width in (
+            ("$screen", "s2", 800),
+            ("$autocapture", "s1", 1),
+            ("$pageview", "s9", 1),
+            ("$pageview", "s1", "wide"),
+            ("$pageview", "x" * 140_000, 1),
+        ):
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=f"d-{session_id}",
+                timestamp=self.day + timedelta(seconds=5),
+                properties={"$session_id": session_id, "$viewport_width": width, "$viewport_height": 600},
+            )
         flush_persons_and_events()
-        sessions = [s for s in _list(self._shard_input()) if s.session_id in ("s1", "s2")]
+        quote = self._quote(None, shards_per_day=4)
 
-        with patch.object(activities, "VIEWPORT_ROW_LIMIT", 1):
-            viewports, _ = load_session_metadata(self.team.pk, sessions)
+        with (
+            patch(f"{ACTIVITIES}.database_sync_to_async_pool", sync_to_async),
+            patch.object(activities, "MAX_FILTERED_SESSIONS", max_filtered_sessions),
+        ):
+            async_to_sync(self._load_viewports)(quote)
 
-        assert {session_id: len(rows) for session_id, rows in viewports.items()} == {"s1": 1, "s2": 1}
+        day = self.day.date().isoformat()
+        by_shard = {}
+        for shard in range(4):
+            listed = {s.session_id for s in _list(self._shard_input(quote=quote, shard=shard))}
+            viewports = ViewportReader.load(self.team.pk, "run-1", day, shard).take("", "~")
+            assert set(viewports) <= listed
+            by_shard.update({session_id: [v["width"] for v in rows] for session_id, rows in viewports.items()})
+        # s1's autocapture and non-numeric width are dropped, s9 is not in the quote, and an overlong session ID
+        # would otherwise break the line-by-line read.
+        assert by_shard == {"s1": ["1280"], "s2": ["800"]}
 
     def test_quote_usage_counts_stored_bytes_and_glacier_blocks(self) -> None:
         day = self.day.date().isoformat()
@@ -651,13 +687,13 @@ async def test_a_session_that_expires_while_the_shard_runs_is_not_exported() -> 
         session_ids_prefix="unused",
     )
 
-    line = await export_session(MagicMock(), MagicMock(), ByteBudget(1), input, session, [], None)
+    line = await export_session(MagicMock(), asyncio.Semaphore(1), MagicMock(), ByteBudget(1), input, session, [], None)
 
     assert line.status == "expired"
 
 
 @pytest.mark.asyncio
-async def test_block_fetches_wait_for_the_shard_byte_budget() -> None:
+async def test_block_fetches_wait_for_the_shard_byte_budget_and_fetch_limit() -> None:
     now = datetime.now(UTC)
     blocks = [Block(key=f"k{i}", start_byte=0, end_byte=99) for i in range(4)]
     sessions = [
@@ -673,24 +709,30 @@ async def test_block_fetches_wait_for_the_shard_byte_budget() -> None:
     ]
     in_flight = 0
     peak = 0
+    fetching = 0
+    peak_fetching = 0
 
     async def fetch(*_: Any, **__: Any) -> bytes:
-        nonlocal in_flight, peak
+        nonlocal in_flight, peak, fetching, peak_fetching
         # A block counts from its fetch until the consumer has written it.
         in_flight += 1
         peak = max(peak, in_flight)
+        fetching += 1
+        peak_fetching = max(peak_fetching, fetching)
         await asyncio.sleep(0)
+        fetching -= 1
         return b"x" * 100
 
     client = MagicMock()
     client.fetch_block = fetch
     # Room for 3 blocks of 100 bytes across both sessions.
     budget = ByteBudget(300)
+    fetches = asyncio.Semaphore(2)
 
     async def drain(session: SessionRow) -> int:
         nonlocal in_flight
         count = 0
-        async for _ in fetch_blocks_in_order(client, session, 1, budget):
+        async for _ in fetch_blocks_in_order(client, fetches, session, 1, budget):
             # A slow write: the block stays in memory while other sessions run.
             await asyncio.sleep(0)
             await asyncio.sleep(0)
@@ -700,4 +742,26 @@ async def test_block_fetches_wait_for_the_shard_byte_budget() -> None:
 
     assert await asyncio.gather(*(drain(s) for s in sessions)) == [4, 4]
     assert peak <= 3
+    assert peak_fetching == 2
     assert budget.used == 0
+
+
+@pytest.mark.asyncio
+async def test_the_pool_wait_holds_the_shards_in_the_scaling_metric_until_their_pods_are_ready() -> None:
+    seen: list[tuple[int, float]] = []
+    ready = iter([0, 3, 4, 4])
+
+    async def ready_pods(host: str) -> int:
+        pods = next(ready)
+        seen.append((pods, activities.EXPORT_SHARDS._value.get()))
+        return pods
+
+    with (
+        override_settings(RECORDING_API_EXPORT_PODS_HOST="pool-pods"),
+        patch.object(activities, "ready_export_pods", ready_pods),
+        patch.object(activities, "EXPORT_POOL_POLL_SECONDS", 0),
+    ):
+        await ActivityEnvironment().run(activities.wait_for_export_pool, ExportPoolInput(run_id="r", shards=2))
+
+    assert seen == [(0, 2), (3, 2), (4, 2)]
+    assert activities.EXPORT_SHARDS._value.get() == 0

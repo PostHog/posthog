@@ -2,7 +2,14 @@ from django.contrib import admin
 from django.db.models import QuerySet
 from django.http import HttpRequest
 
-from .models import SlackChannel, SlackSettings, SlackThreadJoin, SlackThreadTaskMapping, SlackUserProfileCache
+from .models import (
+    SlackChannel,
+    SlackDailyFocus,
+    SlackSettings,
+    SlackThreadJoin,
+    SlackThreadTaskMapping,
+    SlackUserProfileCache,
+)
 from .services.slack_settings import onboarding_status_label, reset_onboarding
 
 
@@ -172,3 +179,64 @@ class SlackUserProfileCacheAdmin(admin.ModelAdmin):
         ("Profile", {"fields": ("email", "display_name", "real_name", "is_admin", "is_owner")}),
         ("Dates", {"fields": ("created_at", "updated_at", "refreshed_at")}),
     )
+
+
+class SlackDailyFocusStateFilter(admin.SimpleListFilter):
+    title = "daily work focus"
+    parameter_name = "state"
+
+    # nosemgrep: tuple-return-prefer-dataclass -- Django requires (value, label) lookup pairs.
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+        return [("on", "On"), ("off", "Off")]
+
+    def queryset(self, request: HttpRequest, queryset: QuerySet[SlackDailyFocus]) -> QuerySet[SlackDailyFocus]:
+        if self.value() == "on":
+            return queryset.filter(next_run_at__isnull=False)
+        if self.value() == "off":
+            return queryset.filter(next_run_at__isnull=True)
+        return queryset
+
+
+@admin.register(SlackDailyFocus)
+class SlackDailyFocusAdmin(admin.ModelAdmin):
+    """Read only: changing the time here would not move the next run, and a deleted row reads as "never chose", so
+    the default would turn the daily work focus back on for a person who turned it off."""
+
+    list_display = (
+        "id",
+        "slack_workspace_id",
+        "slack_user_id",
+        "team",
+        "state",
+        "at",
+        "next_run_at",
+        "last_run_at",
+        "sent_at",
+        "updated_at",
+    )
+    list_filter = (SlackDailyFocusStateFilter, "slack_workspace_id", ("last_run_at", admin.DateFieldListFilter))
+    search_fields = ("slack_workspace_id", "slack_user_id", "team__name", "team__organization__name")
+    ordering = ("-updated_at",)
+
+    fieldsets = (
+        (None, {"fields": ("id", "team", "integration_id", "slack_workspace_id", "slack_user_id")}),
+        ("Schedule", {"fields": ("at", "next_run_at", "last_run_at", "sent_at")}),
+        ("Dates", {"fields": ("created_at", "updated_at")}),
+    )
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[SlackDailyFocus]:
+        # Admin has no team context; SlackDailyFocus's default manager is fail-closed.
+        return SlackDailyFocus.objects.unscoped().select_related("team")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: SlackDailyFocus | None = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: SlackDailyFocus | None = None) -> bool:
+        return False
+
+    @admin.display(description="State")
+    def state(self, obj: SlackDailyFocus) -> str:
+        return "On" if obj.next_run_at else "Off"

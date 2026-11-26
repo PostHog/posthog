@@ -989,6 +989,12 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "'(Z|[+-][0-9]{2}:?[0-9]{2})$'",
             "'(Z|[+-][0-9]{2}:[0-9]{2})$'",
         ),
+        # HogQL parses with the OrNull variant, so a value no branch can read, such as '', is NULL and not a failed cast.
+        (
+            "SELECT parseDateTimeBestEffort(user_id) FROM users",
+            'with_timezone(TRY_CAST("users"."user_id" AS TIMESTAMP)',
+            'with_timezone(CAST("users"."user_id" AS TIMESTAMP)',
+        ),
         # A direct Trino table declares its physical types, so a native UUID column keeps pushdown.
         (
             "SELECT 1 FROM users WHERE uuid = toUUID(user_id)",
@@ -2418,6 +2424,31 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2) "
             "SELECT (id AS y) + 1 AS x, x * 2 AS z, sum(y) OVER () AS total FROM rows WHERE x > 2",
             [(3, 6, 2)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'c') "
+            "SELECT id, length(name AS label) AS size FROM rows ORDER BY size, id LIMIT 1 BY size",
+            [(1, 1), (2, 2)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'c') "
+            "SELECT DISTINCT length(name AS label) AS size FROM rows ORDER BY id DESC",
+            [(1,), (2,)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'a') "
+            "SELECT id, name FROM rows ORDER BY length(name AS label) DESC, id LIMIT 1 BY label",
+            [(2, "bb"), (1, "a")],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'a') "
+            "SELECT id FROM rows ORDER BY id LIMIT 1 BY length(name AS label), label",
+            [(1,), (2,)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'bb' UNION ALL SELECT 3, 'a') "
+            "SELECT id, length(name) AS size FROM rows ORDER BY length(name AS label), id LIMIT 1 BY label",
+            [(1, 1), (2, 2)],
         ),
     ],
 )

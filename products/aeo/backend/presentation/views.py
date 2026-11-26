@@ -20,8 +20,8 @@ from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
-    posthog_feature_flag_enabled,
 )
 from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
 
@@ -57,7 +57,7 @@ from products.aeo.backend.facade.api import (
     update_prompt,
 )
 from products.aeo.backend.facade.contracts import (
-    AEO_CITATION_TRACKING_FLAG,
+    AI_VISIBILITY_ACCESS_FLAG,
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
     COMPETITOR_CANDIDATE_DAYS,
@@ -68,6 +68,7 @@ from products.aeo.backend.facade.contracts import (
     MAX_RANKED_PAGES,
     MAX_WINDOW_DAYS,
     MIN_MOVER_ANSWERS,
+    PROMPT_LIMIT_ERROR_CODE,
     PROMPT_TOPIC_MAX_LENGTH,
     PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
     Brand,
@@ -97,6 +98,7 @@ from products.aeo.backend.facade.contracts import (
     PromptEngineStats,
     PromptImport,
     PromptImportResult,
+    PromptLimitError,
     PromptMover,
     PromptNotFoundError,
     PromptSearchWord,
@@ -939,7 +941,8 @@ class AEOPromptUpdateRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
-        help_text="Turn the prompt on or off for future runs.",
+        help_text="Turn the prompt on or off for future runs. Turning one on fails with 400 when the project already "
+        "tracks its max_active_prompts, shown by GET aeo_setup/context/.",
     )
     topic = serializers.CharField(
         required=False,
@@ -1329,13 +1332,8 @@ class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
 
 
 class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
-    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        super().initial(request, *args, **kwargs)
-        distinct_id = getattr(request.user, "distinct_id", None)
-        if not distinct_id or not posthog_feature_flag_enabled(
-            AEO_CITATION_TRACKING_FLAG, distinct_id, organization_id=self.organization_id
-        ):
-            raise PermissionDenied("This feature is not available.")
+    posthog_feature_flag = AI_VISIBILITY_ACCESS_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
 
 
 class _WebAnalyticsReadAccessPermission(AccessControlPermission):
@@ -1377,6 +1375,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             APIScopePermission(),
             _WebAnalyticsReadAccessPermission(),
             TeamMemberAccessPermission(),
+            PostHogFeatureFlagPermission(),
         ]
 
     @validated_request(
@@ -1433,7 +1432,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=AEOPromptSerializer, description="The updated prompt."),
             400: OpenApiResponse(
-                description="The edit is invalid, the version does not exist, or the prompt is archived and must be restored first."
+                description="The edit is invalid, the version does not exist, the prompt is archived and must be restored first, or turning it on would pass the project's limit on active prompts."
             ),
             409: OpenApiResponse(description="Another prompt in the set already has the new text."),
         },
@@ -1447,6 +1446,8 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             raise NotFound()
         except PromptUpdateError as error:
             raise ValidationError(str(error))
+        except PromptLimitError as error:
+            raise ValidationError(str(error), code=PROMPT_LIMIT_ERROR_CODE)
         except PromptTextConflictError as error:
             raise Conflict(str(error))
         return Response(AEOPromptSerializer(prompt).data)
@@ -1701,13 +1702,19 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         request_serializer=AEOPromptBulkImportRequestSerializer,
         operation_id="aeo_prompts_bulk_import",
         summary="Import AEO prompts",
-        description="Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped.",
-        responses={200: OpenApiResponse(response=AEOPromptImportResultSerializer)},
+        description="Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped. New prompts are saved turned on, so an import that would take the project past its max_active_prompts (see GET aeo_setup/context/) is refused whole with a 400 that says how many more fit, and nothing is saved.",
+        responses={
+            200: OpenApiResponse(response=AEOPromptImportResultSerializer),
+            400: OpenApiResponse(description="The import would pass the project's limit on active prompts."),
+        },
         tags=["web_analytics"],
     )
     @action(detail=False, methods=["post"])
     def bulk_import(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        result = import_prompts(self.team_id, request.validated_data["prompts"])
+        try:
+            result = import_prompts(self.team_id, request.validated_data["prompts"])
+        except PromptLimitError as error:
+            raise ValidationError(str(error), code=PROMPT_LIMIT_ERROR_CODE)
         return Response(AEOPromptImportResultSerializer(result).data)
 
     @validated_request(
