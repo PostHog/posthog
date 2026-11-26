@@ -37,7 +37,6 @@ describe('vision-observations-list with no observations', () => {
 
         const output = await exec.handler(ctx, { command: `call ${TOOL_NAME} {"session_id": "session-1"}` })
 
-        expect(String(output)).toContain('`vision-scanners-inline-scan`')
-        expect(String(output)).toContain('`built_in: "summarize_recording"`')
+        expect(String(output)).toMatch(/`vision-scanners-inline-scan`.*built_in.*summarize_recording/)
     })
 })
