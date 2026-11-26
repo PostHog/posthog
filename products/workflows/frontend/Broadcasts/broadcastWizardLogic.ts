@@ -123,6 +123,7 @@ import {
     canMoveToDraft,
     getBroadcastChannel,
     getBroadcastStatus,
+    opensAsBroadcast,
 } from './broadcastsLogic'
 import {
     advanceAgentDraft,
@@ -1900,7 +1901,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         [TODAY_RECENT_KEY]: [
             (s) => [(_, props) => props.id as BroadcastWizardLogicProps['id'], s.broadcast],
             (id: BroadcastWizardLogicProps['id'], broadcast: HogFlowApi | null): TodayAutomateRecent | null =>
-                id !== 'new' && broadcast?.id === id
+                id !== 'new' && broadcast?.id === id && opensAsBroadcast(broadcast)
                     ? { type: 'broadcast', name: broadcast.name || 'Broadcast', href: urls.broadcast(id) }
                     : null,
         ],
