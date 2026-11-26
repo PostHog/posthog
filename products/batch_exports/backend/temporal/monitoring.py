@@ -3,15 +3,12 @@ import datetime as dt
 from dataclasses import dataclass
 from uuid import UUID
 
-from django.conf import settings
-
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.clickhouse.events_json import EVENTS_JSON_RECENT_TABLE
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -21,6 +18,7 @@ from products.batch_exports.backend.events_table import (
 )
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import afetch_batch_export_runs_in_range, aupdate_records_total_count
+from products.batch_exports.backend.temporal.clickhouse import get_batch_exports_client
 from products.batch_exports.backend.temporal.sql.events import (
     EVENT_COUNT_BY_INTERVAL,
     build_event_count_by_interval_query,
@@ -126,12 +124,13 @@ async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[Even
 
     # Count from the table the exports read, with the same `$feature_flag_called` rule, so that the counts match what
     # the exports send.
+    reads_new_events_table = batch_exports_read_new_events_table(inputs.team_id)
     query = (
         build_event_count_by_interval_query(
             EVENTS_JSON_RECENT_TABLE,
             includes_feature_flag_called=exports_feature_flag_called_events(inputs.team_id),
         )
-        if batch_exports_read_new_events_table(inputs.team_id)
+        if reads_new_events_table
         else EVENT_COUNT_BY_INTERVAL
     )
 
@@ -152,10 +151,13 @@ async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[Even
         "include_events": inputs.include_events,
         "exclude_events": inputs.exclude_events,
     }
-    # Both count queries read a recent events table, which the batch exports cluster stores, as the export does.
-    clickhouse_url = settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL
-    cluster = settings.CLICKHOUSE_BATCH_EXPORTS_CLUSTER if clickhouse_url else None
-    async with Heartbeater(), get_client(clickhouse_url=clickhouse_url, cluster=cluster) as client:
+    # Both count queries read a recent events table, as the export does.
+    async with (
+        Heartbeater(),
+        get_batch_exports_client(
+            team_id=inputs.team_id, reads_new_events_table=reads_new_events_table, reads_recent_events=True
+        ) as client,
+    ):
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
