@@ -1,7 +1,10 @@
 from typing import Optional, cast
 
 from products.warehouse_sources.sources.paddle._config import PaddleSourceConfig
-from products.warehouse_sources.sources.paddle.constants import EXPLORE_METRICS_RESOURCE_NAME
+from products.warehouse_sources.sources.paddle.constants import (
+    EXPLORE_METRICS_RESOURCE_NAME,
+    SUBSCRIPTION_HISTORY_RESOURCE_NAME,
+)
 from products.warehouse_sources.sources.paddle.paddle import (
     PaddlePermissionError,
     PaddleResumeConfig,
@@ -162,6 +165,8 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
             PADDLE_INCREMENTAL_FIELDS,
             names,
             default_incremental_lookback_seconds={EXPLORE_METRICS_RESOURCE_NAME: EXPLORE_METRICS_LOOKBACK_SECONDS},
+            # History is read with [GTE], so rows on the watermark come back each sync and only a merge dedupes them.
+            merge_only={SUBSCRIPTION_HISTORY_RESOURCE_NAME},
         )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PaddleResumeConfig]:

@@ -108,7 +108,7 @@ export const signingKeysLastLoadedTimestamp = new Gauge({
 
 export const signingKeyReloadFailuresTotal = new Counter({
     name: 'credentials_service_signing_key_reload_failures_total',
-    help: 'Background signing-key reloads that failed, leaving the previous key set in place',
+    help: 'Background signing-key reloads that failed, leaving the previous key set and credential values in place',
     registers: [register],
 })
 

@@ -42,8 +42,9 @@ Offer to let the person name two or three topics they care about, and use those 
 
 ## Step 2: Gather candidates
 
-Report rows are large (often 3 to 4 KB each, mostly the summary), so pull several small pools rather than one big page.
-Keep `limit` at 20 or below per call.
+Pull several small pools rather than one big page.
+Pass `limit` on each call, at 20 or below: without it, a page holds 10 reports.
+Each row carries `summary_lead`, the opening of the summary, not the full summary.
 Pass `exclude` with ids you already hold to keep later pools fresh.
 `exclude` takes at most 100 ids and the API rejects a longer list, so send the 100 you most want to skip (the strongest candidates so far) and dedupe the rest locally.
 Pools overlap; dedupe by `id` and remember which pools each report came from.
@@ -90,7 +91,7 @@ score = priority_base × model_multiplier × freshness
 - `priority_base`: P0 5, P1 4, P2 3, P3 2, P4 1, none 1.5.
 - `model_multiplier`: from the mean of the `action` and `fix` lifts, only when `ranking.status` is `scored` and `scored_at` is within about 7 days. Otherwise 1.0. A missing lift is unknown, not low.
 - `freshness`: favor reports updated in the last 2 days, decay those untouched for 3 weeks.
-- `interest_bonus`: match against the interest profile. A title match beats a summary match. A match on a high-strength, recently seen theme beats a stale one.
+- `interest_bonus`: match against the interest profile. A title match beats a `summary_lead` match. A match on a high-strength, recently seen theme beats a stale one.
 - `needs_me_bonus`: suggested reviewer, a claim they answer for, `pending_input` routed to them, an approved open pull request.
 
 Then apply judgment:

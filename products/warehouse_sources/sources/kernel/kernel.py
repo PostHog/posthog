@@ -18,6 +18,7 @@ from products.warehouse_sources.sources.kernel.settings import (
     TELEMETRY_DROPPED_DATA_FIELDS,
     TELEMETRY_RETENTION_DAYS,
     KernelEndpointConfig,
+    KernelFanOutConfig,
 )
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
@@ -49,6 +50,10 @@ class KernelResumeConfig:
     # page. Sessions are read in id order, and a None cursor starts the session at its first event.
     telemetry_session_id: str | None = None
     telemetry_cursor: int | None = None
+    # Fan-out endpoints: the parent to read next, and the offset of its next child page.
+    # Parents are read in id order, and a None offset starts the parent at its first page.
+    parent_id: str | None = None
+    parent_offset: int | None = None
     # List and telemetry endpoints: the last page is handed on, so a resume reads nothing again.
     completed: bool = False
 
@@ -475,6 +480,92 @@ def _iter_browser_telemetry_events(
                 manager.safe_point()
 
 
+def _fan_out_parent_ids(
+    session: requests.Session,
+    headers: dict[str, str],
+    fan_out: KernelFanOutConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[KernelResumeConfig],
+) -> list[str]:
+    """Ids of every parent row, in id order, collected before fanning out (see _telemetry_session_ids)."""
+    parent_ids: list[str] = []
+    for parents, _next_offset in _iter_list_pages(session, headers, KERNEL_ENDPOINTS[fan_out.parent_endpoint], logger):
+        for parent in parents:
+            parent_id = parent.get(fan_out.parent_id_field) if isinstance(parent, dict) else None
+            if isinstance(parent_id, str) and parent_id:
+                parent_ids.append(parent_id)
+        manager.safe_point()
+    return sorted(set(parent_ids))
+
+
+def _iter_child_pages(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: KernelEndpointConfig,
+    fan_out: KernelFanOutConfig,
+    parent_id: str,
+    logger: FilteringBoundLogger,
+    offset: int,
+) -> Iterator[tuple[list[dict[str, Any]], int | None]]:
+    """Yield each child page of one parent with the offset of the page after it, or None after the last."""
+    path = config.path.format(parent_id=quote(parent_id, safe=""))
+    while True:
+        params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset} if fan_out.paginated else {}
+        response = _fetch_page(session, _build_url(path, params), headers, logger, allow_not_found=True)
+        if response.status_code == 404:
+            # The parent can be deleted between listing it and reading its children.
+            logger.debug(f"Kernel {fan_out.parent_endpoint} {parent_id} not found, skipping its {config.name}")
+            yield [], None
+            return
+
+        items = _extract_items(response.json())
+        rows = [
+            _redact_sensitive_fields({**item, fan_out.parent_key: parent_id}, config.nested_sensitive_fields)
+            for item in items
+            if isinstance(item, dict)
+        ]
+        if not fan_out.paginated:
+            yield rows, None
+            return
+        has_more, next_offset = _next_page(response.headers, offset, len(items))
+        if not has_more or next_offset <= offset:
+            yield rows, None
+            return
+        yield rows, next_offset
+        offset = next_offset
+
+
+def _iter_fan_out_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: KernelEndpointConfig,
+    fan_out: KernelFanOutConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[KernelResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = manager.load_state() if manager.can_resume() else None
+    if resume is not None and resume.completed:
+        return
+    resume_parent_id = resume.parent_id if resume is not None else None
+    parent_ids = _fan_out_parent_ids(session, headers, fan_out, logger, manager)
+    for index, parent_id in enumerate(parent_ids):
+        if resume_parent_id is not None and parent_id < resume_parent_id:
+            continue
+        offset = resume.parent_offset if resume is not None and parent_id == resume_parent_id else None
+        following = parent_ids[index + 1] if index + 1 < len(parent_ids) else None
+        for rows, next_offset in _iter_child_pages(session, headers, config, fan_out, parent_id, logger, offset or 0):
+            if next_offset is not None:
+                manager.save_state(KernelResumeConfig(parent_id=parent_id, parent_offset=next_offset))
+            elif following is not None:
+                manager.save_state(KernelResumeConfig(parent_id=following))
+            else:
+                manager.save_state(KernelResumeConfig(completed=True))
+            if rows:
+                yield rows
+            else:
+                manager.safe_point()
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -491,6 +582,9 @@ def get_rows(
     # Each page goes out as its own item, so the cursor staged for a page covers every row handed on.
     if endpoint == BROWSER_TELEMETRY_EVENTS:
         yield from _iter_browser_telemetry_events(session, headers, logger, manager)
+        return
+    if config.fan_out is not None:
+        yield from _iter_fan_out_rows(session, headers, config, config.fan_out, logger, manager)
         return
 
     resume = manager.load_state() if manager.can_resume() else None

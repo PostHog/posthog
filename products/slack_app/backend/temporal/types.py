@@ -172,14 +172,17 @@ class SlackAppUnfurlChartsPostInput:
 
 @frozen
 class SlackAppForkThreadInputs:
-    """The Slack interactivity payload behind a "Fork to DM" click, verbatim.
+    """The Slack interactivity payload behind a fork menu click, verbatim.
 
     Passed through rather than parsed at the boundary: the webhook's only job is to ack
     inside Slack's three-second budget, so everything it could read from the payload is
-    read in the activity instead.
+    read in the activity instead. A fork into a channel rebuilds the payload from the
+    channel picker's metadata, and names the picked channel in ``target_channel``.
+    Without it the fork goes to the clicker's DM.
     """
 
     payload: dict[str, Any]
+    target_channel: str | None = None
 
 
 @frozen
@@ -232,6 +235,9 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # agent can pull that task's runs, logs and artifacts if the question needs more
     # than the messages.
     fork_source_task_id: str | None = None
+    # The first line of the forked thread's opening message. Another person wrote it, so
+    # task creation places it inside the attributed context block, never in the request.
+    fork_source_title: str | None = None
 
     @property
     def untagged_confirmed(self) -> bool:

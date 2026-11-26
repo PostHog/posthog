@@ -153,6 +153,12 @@ def _endpoint(config: CloverEndpointConfig, path: str) -> Endpoint:
 
 
 def _normalize_row(row: dict[str, Any], config: CloverEndpointConfig, window: tuple[int, int] | None) -> dict[str, Any]:
+    if config.reference_key is not None:
+        reference = row.get(config.reference_key)
+        reference_id = reference.get("id") if isinstance(reference, dict) else None
+        if not isinstance(reference_id, str) or not reference_id:
+            raise ValueError(f"Clover returned a {config.name} row with no {config.reference_key} id")
+        row[f"{config.reference_key}_id"] = reference_id
     if config.partition_field is not None:
         value = row.get(config.partition_field)
         if value is None and window is not None:

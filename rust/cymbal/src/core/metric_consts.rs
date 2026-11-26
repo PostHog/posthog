@@ -31,6 +31,10 @@ pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 // Labelled by `commit` (`async` / `sync`), pool wait included.
 pub const FRAME_SAVE_TIME: &str = "cymbal_frame_save_ms";
+// Labelled by `mode` and `team_id`. It counts opens only, so few teams get a series.
+pub const FRAME_MISS_BREAKER_OPENED: &str = "cymbal_frame_miss_breaker_opened";
+// Misses while a breaker is open, by `mode`. In `log` they still use Postgres.
+pub const FRAME_MISS_BREAKER_SKIPPED: &str = "cymbal_frame_miss_breaker_skipped";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
 pub const RELEASE_ID_CACHE_HITS: &str = "cymbal_release_id_cache_hits";
 pub const RELEASE_ID_CACHE_MISSES: &str = "cymbal_release_id_cache_misses";
@@ -131,6 +135,7 @@ pub const PROCESS_REQUESTS_TOTAL: &str = "cymbal_process_requests_total";
 pub const PROCESS_REQUEST_DURATION_MS: &str = "cymbal_process_request_duration_ms";
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
+pub const EVENT_PROCESSING_FAILURES: &str = "cymbal_event_processing_failures";
 
 // Per-team database slots (see `team_db_slots`)
 pub const TEAM_DB_SLOTS_CALLS: &str = "cymbal_team_db_slots_calls_total";

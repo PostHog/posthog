@@ -11,6 +11,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 import type { DataSuggestionApi } from '../../generated/api.schemas'
 import { FakeDnsHost, FakeEmailDomainBackend, FakeRecord } from './__mocks__/fakeEmailDomainBackend'
 import { emailDomainAgentLogic } from './emailDomainAgentLogic'
+import { emailDomainAutoConfigureLogic } from './emailDomainAutoConfigureLogic'
 import { emailDomainManualSetupLogic } from './emailDomainManualSetupLogic'
 import { EmailDomainScene } from './EmailDomainScene'
 import { emailDomainStatusLogic } from './emailDomainStatusLogic'
@@ -159,6 +160,14 @@ export const SettingsCloudflareRecordsRevealed: Story = {
         host: 'cloudflare',
         stage: (_, id) => emailDomainManualSetupLogic.findMounted({ id })?.actions.revealRecords(),
     },
+}
+
+export const SettingsCloudflareWaiting: Story = {
+    args: {
+        host: 'cloudflare',
+        stage: (_, id) => emailDomainAutoConfigureLogic.findMounted({ id })?.actions.autoConfigureTabOpened(),
+    },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }
 
 export const SettingsRoute53: Story = { args: { host: 'route53' } }

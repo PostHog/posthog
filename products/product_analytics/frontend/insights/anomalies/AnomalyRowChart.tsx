@@ -1,7 +1,15 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
-import { type AnomalyMarker, AnomalyPointsLayer, type Series, TimeSeriesLineChart } from '@posthog/quill-charts'
+import {
+    type AnomalyMarker,
+    AnomalyPointsLayer,
+    createTooltipDateFormatter,
+    DefaultTooltip,
+    type Series,
+    TimeSeriesLineChart,
+    type TooltipContext,
+} from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartTheme } from 'lib/charts/hooks'
@@ -21,6 +29,7 @@ import {
     EARLIER_ANOMALY_FILL_OPACITY,
     earlierAnomalyPointColor,
 } from './anomalyChartStyle'
+import { AnomalyJudgeVerdict } from './AnomalyJudgeVerdict'
 import { AnomalyRangeStartLine } from './AnomalyRangeStartLine'
 
 const handleChartError = makeChartErrorHandler('anomalies-tab-row-chart')
@@ -55,6 +64,25 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
     const tickFormatter = useMemo(
         () => anomalyAxisTickFormatter(series.interval, timezone, labelCount),
         [series.interval, timezone, labelCount]
+    )
+    // The render prop replaces the built-in tooltip, so it brings the date header the chart would set itself.
+    const tooltipLabelFormatter = useMemo(
+        () => createTooltipDateFormatter({ interval: series.interval, timezone, allDays: data?.labels }),
+        [series.interval, timezone, data?.labels]
+    )
+    const renderTooltip = useCallback(
+        (context: TooltipContext) => {
+            const verdict = data?.verdicts[context.dataIndex]
+            return (
+                <DefaultTooltip
+                    {...context}
+                    labelFormatter={tooltipLabelFormatter}
+                    valueFormatter={(value) => humanFriendlyNumber(value)}
+                    footer={verdict ? <AnomalyJudgeVerdict verdict={verdict} /> : undefined}
+                />
+            )
+        },
+        [data, tooltipLabelFormatter]
     )
     const chartSeries = useMemo<Series[]>(
         () => (data ? [{ key: series.series_key, label: series.series_label || 'Value', data: data.values }] : []),
@@ -106,8 +134,8 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
                     xDomain: data.xDomain,
                     yAxis: { tickFormatter: (value) => humanFriendlyNumber(value) },
                     showGrid: true,
-                    tooltip: { valueFormatter: (value) => humanFriendlyNumber(value) },
                 }}
+                tooltip={renderTooltip}
                 onError={handleChartError}
             >
                 <AnomalyBucketShading

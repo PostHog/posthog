@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { LemonButton, LemonSkeleton, Popover } from '@posthog/lemon-ui'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
 
 import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
@@ -9,6 +9,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
 import { RecommendationsIdle } from './RecommendationsIdle'
+import { RecommendationsLoading } from './RecommendationsLoading'
 import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationsModal } from './RecommendationsModal'
 import { RecommendationsSummary } from './RecommendationsSummary'
@@ -19,6 +20,8 @@ export function RecommendationsSection(): JSX.Element {
         dataWarehouseSources,
         sources,
         dataGaps,
+        serverDataGaps,
+        conversionSource,
         introSeen,
         responseLoading,
         responseError,
@@ -61,6 +64,8 @@ export function RecommendationsSection(): JSX.Element {
             has_invest_impact: directions.has('invest'),
             source_types: [...new Set(sources.map((source) => source.sourceType))],
             data_gap_count: dataGaps.length,
+            server_data_gap_kinds: showGroups ? serverDataGaps.map((gap) => gap.kind) : [],
+            conversion_source: showGroups ? (conversionSource?.kind ?? null) : null,
             // Manual dismissals and applied marks only. Detected ones have their own property.
             resolved_count: showGroups ? resolvedCount - detectedCount : 0,
             detected_applied_count: showGroups ? detectedCount : 0,
@@ -104,7 +109,7 @@ export function RecommendationsSection(): JSX.Element {
                     {shownState === 'recommendations' ? (
                         <RecommendationsSummary onOpen={() => openFirstRule('button')} />
                     ) : shownState === null ? (
-                        <LemonSkeleton className="h-6 w-60" />
+                        <RecommendationsLoading />
                     ) : (
                         <RecommendationsIdle state={shownState} />
                     )}

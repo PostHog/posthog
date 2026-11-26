@@ -58,7 +58,8 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     GetTaskProcessingContextInput,
     TaskProcessingContext,
     VmSandboxDecision,
-    _agent_egress_enrollment_selected,
+    _agent_egress_enrollment_config,
+    _agent_egress_git_enabled,
     _agent_egress_observation_config,
     _ensure_subscription_allowed,
     _fetch_run_flags,
@@ -167,7 +168,7 @@ def test_egress_observation_requires_an_explicit_eligible_development_run(case: 
         context.team_id += 1
     elif case == "run":
         context.run_id = str(uuid4())
-    if case not in {"enabled", "team", "run"}:
+    if case not in {"enabled", "team", "run", "interactive"}:
         Path(path).unlink()
     with override_settings(
         DEBUG=case != "production",
@@ -196,9 +197,21 @@ def test_egress_observation_requires_an_explicit_eligible_development_run(case: 
         "resumed",
         "snapshot",
         "interactive",
+        "interactive_maintained",
+        "interactive_maintained_flag_off",
         "restricted",
         "gvisor",
         "hogland",
+        "handoff",
+        "handoff_interactive",
+        "handoff_snapshot",
+        "handoff_foreign_sandbox",
+        "handoff_bounded",
+        "handoff_flag_off",
+        "handoff_restricted",
+        "handoff_backend_changed",
+        "git_without_grant",
+        "git_without_maintenance",
     ],
 )
 def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case: str, tmp_path: Path) -> None:
@@ -223,6 +236,12 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
             server_ca_file=tmp_path / "server.pem",
             client_ca_file=tmp_path / "client.pem",
             client_ca_key_file=tmp_path / "client-key.pem",
+            maintain_for_run=(case.startswith("handoff") and case != "handoff_bounded")
+            or case.startswith("interactive_maintained")
+            or case == "git_without_grant",
+            renew_relay_certificate=True,
+            route_git_reads=case.startswith("git_"),
+            publish_git_read_grant=case == "git_without_maintenance",
         ).model_dump_json()
     )
     if case == "missing":
@@ -231,7 +250,7 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
         context.state = {"sandbox_memory_gb": 1}
     elif case == "snapshot":
         context.state = {"same_run_resume": True, "snapshot_external_id": "snapshot-example"}
-    elif case == "interactive":
+    elif case.startswith("interactive"):
         context.state = {"mode": "interactive"}
     elif case == "restricted":
         context.allowed_domains = []
@@ -239,6 +258,18 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
         context.use_modal_vm_sandbox = False
     elif case == "hogland":
         context.sandbox_backend = "hogland"
+    if case.startswith("handoff"):
+        context.state = {"sandbox_id": "sb-current", "sandbox_backend": "modal"}
+        if case == "handoff_interactive":
+            context.state["mode"] = "interactive"
+        elif case == "handoff_snapshot":
+            context.state.update(same_run_resume=True, snapshot_external_id="snapshot-example")
+        elif case == "handoff_foreign_sandbox":
+            context.state["sandbox_id"] = "sb-other"
+        elif case == "handoff_restricted":
+            context.allowed_domains = []
+        elif case == "handoff_backend_changed":
+            context.state["sandbox_backend"] = "hogland"
     with override_settings(
         DEBUG=False,
         CLOUD_DEPLOYMENT="DEV",
@@ -252,9 +283,82 @@ def test_enrollment_requires_a_selected_compatible_run_and_regional_config(case:
         AGENT_EGRESS_PROBE_CONFIG_DIR=str(tmp_path),
         AGENT_EGRESS_ENROLLMENT_CONFIG="" if case == "disabled" else str(path),
     ):
-        assert _agent_egress_enrollment_selected(
-            context, flags=_flags({AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG: case != "flag_off"}), resumed=case == "resumed"
-        ) is (case in {"enabled", "implicit_provider", "empty_provider"})
+        config = _agent_egress_enrollment_config(
+            context,
+            flags=_flags({AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG: not case.endswith("flag_off")}),
+            input=GetTaskProcessingContextInput(
+                run_id=context.run_id,
+                resumed_sandbox_id="sb-current" if case == "resumed" or case.startswith("handoff") else None,
+                resume_agent_egress_enrollment=case.startswith("handoff"),
+            ),
+        )
+        assert (config is not None) is (
+            case
+            in {
+                "enabled",
+                "implicit_provider",
+                "empty_provider",
+                "interactive_maintained",
+                "handoff",
+                "handoff_interactive",
+                "handoff_snapshot",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "eligible",
+        "disabled",
+        "unselected",
+        "write",
+        "public",
+        "multiple",
+        "gitlab",
+        "interactive",
+        "custom",
+        "snapshot",
+        "resumed",
+    ],
+)
+def test_git_route_requires_a_fresh_readonly_single_repository_run(case: str, tmp_path: Path) -> None:
+    context = TaskProcessingContext(
+        task_id="task",
+        run_id="run",
+        team_id=1,
+        team_uuid="team",
+        organization_id="org",
+        github_integration_id=None,
+        repository="example/private",
+        distinct_id="test",
+        state={"github_read_access": case != "write"},
+    )
+    assert context.state is not None
+    if case == "public":
+        context.repository = "posthog/hedgebox"
+    elif case == "multiple":
+        context.state["repositories"] = ["example/one", "example/two"]
+    elif case == "gitlab":
+        context.repository_integration_id = 1
+    elif case == "interactive":
+        context.state["mode"] = "interactive"
+    elif case == "custom":
+        context.custom_image_name = "custom"
+    elif case == "snapshot":
+        context.state.update({"resume_from_run_id": "old", "snapshot_external_id": "im-old"})
+    config = AgentEgressEnrollmentConfig(
+        endpoint_domain="egress.example.com",
+        region="test",
+        relay_image_id="im-test",
+        server_ca_file=tmp_path / "server",
+        client_ca_file=tmp_path / "client",
+        client_ca_key_file=tmp_path / "key",
+        route_git_reads=case != "disabled",
+    )
+    assert _agent_egress_git_enabled(context, None if case == "unselected" else config, resumed=case == "resumed") is (
+        case == "eligible"
+    )
 
 
 @pytest.mark.parametrize(
@@ -942,7 +1046,21 @@ class TestGetTaskProcessingContextActivity:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
         "configuration",
-        ["disabled", "valid", "missing", "unconfigured_directory", "malformed", "outside_directory", "enrollment"],
+        [
+            "disabled",
+            "valid",
+            "missing",
+            "unconfigured_directory",
+            "malformed",
+            "outside_directory",
+            "enrollment",
+            "enrollment_maintained",
+            "enrollment_git",
+            "enrollment_git_legacy",
+            "enrollment_interactive",
+            "enrollment_continued",
+            "enrollment_continued_interactive",
+        ],
     )
     def test_get_task_processing_context_keeps_full_access_unrestricted(
         self, activity_environment, test_task, tmp_path: Path, configuration: str
@@ -964,7 +1082,17 @@ class TestGetTaskProcessingContextActivity:
             run_id=str(task_run.id),
         )
         marker = "synthetic-observation-private-material"
-        if configuration == "enrollment":
+        enrollment = configuration.startswith("enrollment")
+        continued = configuration.startswith("enrollment_continued")
+        if configuration.endswith("interactive"):
+            TaskRun.update_state_atomic(task_run.id, updates={"mode": "interactive"})
+        if continued:
+            TaskRun.update_state_atomic(task_run.id, updates={"sandbox_id": "sb-current", "sandbox_backend": "modal"})
+        if enrollment:
+            if configuration.startswith("enrollment_git"):
+                TaskRun.update_state_atomic(
+                    task_run.id, updates={"github_read_access": True, "repositories": ["example/private"]}
+                )
             Path(path).write_text(
                 AgentEgressEnrollmentConfig(
                     endpoint_domain="egress.example.com",
@@ -973,21 +1101,27 @@ class TestGetTaskProcessingContextActivity:
                     server_ca_file=directory / "server.pem",
                     client_ca_file=directory / "client.pem",
                     client_ca_key_file=directory / "client-key.pem",
+                    maintain_for_run=configuration != "enrollment",
+                    renew_relay_certificate=True,
+                    publish_git_read_grant=configuration.startswith("enrollment_git"),
+                    route_git_reads=configuration.startswith("enrollment_git"),
                 ).model_dump_json()
             )
         if configuration == "missing":
             Path(path).unlink()
         elif configuration == "malformed":
             Path(path).write_text('{"unexpected":"' + marker + '",')
-        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id), launches_agent=True)
+        input_data = GetTaskProcessingContextInput(
+            run_id=str(task_run.id),
+            launches_agent=True,
+            supports_agent_egress_git_reads=configuration != "enrollment_git_legacy",
+            resumed_sandbox_id="sb-current" if continued else None,
+            resume_agent_egress_enrollment=continued,
+        )
 
         def all_flags(_distinct_id: str, *, flag_keys_to_evaluate: list[str], **_kwargs: object) -> FlagsAndPayloads:
             return _flags(
-                flags={
-                    key: configuration == "enrollment"
-                    for key in flag_keys_to_evaluate
-                    if key == AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG
-                },
+                flags={key: enrollment for key in flag_keys_to_evaluate if key == AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG},
                 payloads={
                     key: '{"default_base_origin_products": ["user_created"]}'
                     for key in flag_keys_to_evaluate
@@ -998,11 +1132,11 @@ class TestGetTaskProcessingContextActivity:
         with (
             capture_logs() as logs,
             override_settings(
-                DEBUG=configuration != "enrollment",
+                DEBUG=not enrollment,
                 CLOUD_DEPLOYMENT="DEV",
-                SANDBOX_PROVIDER="modal" if configuration == "enrollment" else "MODAL_DOCKER",
+                SANDBOX_PROVIDER="modal" if enrollment else "MODAL_DOCKER",
                 AGENT_EGRESS_REGION="test-us",
-                AGENT_EGRESS_ENROLLMENT_CONFIG=path if configuration == "enrollment" else "",
+                AGENT_EGRESS_ENROLLMENT_CONFIG=path if enrollment else "",
                 AGENT_EGRESS_PROBE_CONFIG_DIR="" if configuration == "unconfigured_directory" else str(directory),
                 AGENT_EGRESS_OBSERVATION_CONFIG="" if configuration == "disabled" else path,
             ),
@@ -1012,9 +1146,18 @@ class TestGetTaskProcessingContextActivity:
 
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.allowed_domains is None
-        assert result.agent_egress_observation_config == (path if configuration in {"valid", "enrollment"} else None)
-        assert result.agent_egress_enrollment_enabled is (configuration == "enrollment")
-        invalid = configuration not in {"disabled", "valid", "enrollment"}
+        assert result.agent_egress_observation_config == (path if configuration == "valid" or enrollment else None)
+        assert result.agent_egress_enrollment_enabled is enrollment
+        assert result.agent_egress_maintain_for_run is (enrollment and configuration != "enrollment")
+        assert result.agent_egress_git_reads is (configuration == "enrollment_git")
+        if configuration == "enrollment_git":
+            task_run.refresh_from_db()
+            assert task_run.state["agent_egress_git_reads"] is True
+            assert not result.baked_repo_clone_enabled
+            assert not result.use_modal_resume_snapshots
+            assert not result.sandbox_rotation_enabled
+            assert not result.continue_as_new_enabled
+        invalid = configuration not in {"disabled", "valid"} and not enrollment
         warnings = [record for record in logs if record["event"] == "agent_egress_observation_disabled"]
         assert len(warnings) == int(invalid)
         assert marker not in str(logs)

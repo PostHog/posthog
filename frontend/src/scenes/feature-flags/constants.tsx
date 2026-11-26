@@ -24,5 +24,11 @@ export const MATCHING_ESTIMATE_TOOLTIP = (
             </Link>{' '}
             only. Anonymous visitors can still match this flag, so the actual number may be higher.
         </div>
+        <div className="mt-1">
+            <Link to="https://posthog.com/docs/feature-flags/property-overrides" target="_blank">
+                Property overrides
+            </Link>{' '}
+            sent with flag requests aren't stored, so users who match only through them aren't counted.
+        </div>
     </>
 )

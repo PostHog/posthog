@@ -215,7 +215,7 @@ class TestProviderImportRuns(BaseTest):
     ) -> None:
         mock_client_class.return_value.get_subscription_topics.return_value = [
             {"id": 1, "identifier": "topic_1", "name": "Newsletter"},
-            {"id": 2, "identifier": "topic_2", "name": "Product updates"},
+            {"id": 2, "identifier": "topic_2", "name": "Product updates", "subscribed_by_default": False},
         ]
         run = self._start(["categories"])
 
@@ -226,9 +226,25 @@ class TestProviderImportRuns(BaseTest):
             runs.run_step(self.team.id, run.id, "categories", attempt=1)
 
         run.refresh_from_db()
-        assert run.progress["categories"]["warnings"] == [
-            "2 subscription topics couldn't be imported. Run the import again to retry them."
+        warnings = run.progress["categories"]["warnings"]
+        assert warnings[0] == "2 subscription topics couldn't be imported. Run the import again to retry them."
+        assert "internal-detail" not in str(warnings)
+
+    def test_warns_about_topics_people_are_not_in_by_default(
+        self, mock_client_class: MagicMock, _start_workflow: MagicMock
+    ) -> None:
+        mock_client_class.return_value.get_subscription_topics.return_value = [
+            {"id": 1, "identifier": "topic_1", "name": "Newsletter", "subscribed_by_default": True},
+            {"id": 2, "identifier": "topic_2", "name": "Partner news", "subscribed_by_default": False},
         ]
+        run = self._start(["categories"])
+
+        runs.run_step(self.team.id, run.id, "categories", attempt=1)
+
+        run.refresh_from_db()
+        (warning,) = run.progress["categories"]["warnings"]
+        assert "Partner news" in warning
+        assert "Newsletter" not in warning
 
     @parameterized.expand(
         [

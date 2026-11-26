@@ -35,6 +35,7 @@ from products.signals.backend.facade.api import (
     AnomalyGroupBy,
     AnomalyHistoryFilters,
     AnomalyInterval,
+    AnomalyJudgeKind,
     AnomalyOrder,
     AnomalySearchFilters,
     AnomalySeriesRef,
@@ -156,18 +157,46 @@ class AnomalyInsightQuerySerializer(serializers.Serializer):
     )
 
 
+# The AI judge's verdict on a flagged bucket. A project whose scoring has no AI judge gets null for both.
+def _anomaly_kind_field() -> serializers.ChoiceField:
+    return serializers.ChoiceField(
+        source="verdict.kind",
+        choices=AnomalyJudgeKind.choices,
+        allow_null=True,
+        help_text=(
+            "The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the "
+            "judge was not asked or gave no verdict, or when it named no kind."
+        ),
+    )
+
+
+def _anomaly_reason_field() -> serializers.CharField:
+    return serializers.CharField(
+        source="verdict.reason",
+        allow_null=True,
+        help_text=(
+            "Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. "
+            "Null when the bucket is not flagged, or when the judge was not asked or gave no verdict."
+        ),
+    )
+
+
 class AnomalyFlaggedPointSerializer(serializers.Serializer):
     bucket_start = ProjectDateTimeField(help_text="The start of the flagged bucket, in the project timezone.")
     value = serializers.FloatField(allow_null=True, help_text="The series value of the bucket at scoring time.")
     score = serializers.FloatField(
         allow_null=True, help_text="The detector score of the bucket. Compare it only with buckets of the same series."
     )
+    anomaly_kind = _anomaly_kind_field()
+    anomaly_reason = _anomaly_reason_field()
 
 
 class AnomalySeriesPointSerializer(serializers.Serializer):
     bucket_start = ProjectDateTimeField(help_text="The start of the scored bucket, in the project timezone.")
     value = serializers.FloatField(allow_null=True, help_text="The series value of the bucket at scoring time.")
     flag = serializers.BooleanField(help_text="Whether the detector flagged the bucket.")
+    anomaly_kind = _anomaly_kind_field()
+    anomaly_reason = _anomaly_reason_field()
 
 
 class AnomalySeriesRefSerializer(serializers.Serializer):
@@ -457,6 +486,8 @@ class AnomalyBucketSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Detector-specific values for the bucket. The keys depend on the detector.",
     )
+    anomaly_kind = _anomaly_kind_field()
+    anomaly_reason = _anomaly_reason_field()
 
 
 class AnomalyInsightSeriesSerializer(serializers.Serializer):

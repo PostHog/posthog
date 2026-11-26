@@ -223,6 +223,7 @@
         "@xyflow/react": "^12.6.0",
         "bloommx": "^1.0.3",
         "buffer": "^6.0.3",
+        "button-sounds": "0.0.0",
         "clsx": "^2.1.1",
         "core-js": "^3.51.0",
         "country-flag-emoji-polyfill": "^0.1.10",

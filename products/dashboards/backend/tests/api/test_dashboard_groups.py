@@ -4,7 +4,9 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.dashboards.backend.customization import stored_groups
+from products.dashboards.backend.constants import MAX_GROUP_TITLE_LENGTH
+from products.dashboards.backend.customization import stored_groups, without_default_settings
+from products.dashboards.backend.presentation.widget_openapi_serializers import DashboardTileGroupSerializer
 
 
 class TestStoredGroups(SimpleTestCase):
@@ -57,3 +59,28 @@ class TestStoredGroups(SimpleTestCase):
     @parameterized.expand(cases)
     def test_reads_stored_groups(self, _name: str, customization: Any, expected: dict) -> None:
         assert stored_groups(customization) == expected
+
+    group_settings_cases: list[tuple[str, Any, dict[str, Any] | None]] = [
+        ("padded_title", {"title": "  Plans  "}, {"title": "Plans"}),
+        ("number_title", {"title": 5}, {"title": "5"}),
+        ("longest_title", {"title": "t" * MAX_GROUP_TITLE_LENGTH}, {"title": "t" * MAX_GROUP_TITLE_LENGTH}),
+        ("too_long_title", {"title": "t" * (MAX_GROUP_TITLE_LENGTH + 1)}, None),
+        ("null_title", {"title": None}, None),
+        ("null_character_title", {"title": "a\u0000b"}, None),
+        ("string_collapsed", {"collapsed": "true"}, {"collapsed": True}),
+        ("null_collapsed", {"collapsed": None}, None),
+        ("unknown_collapsed", {"collapsed": "maybe"}, None),
+        ("color", {"color": "red"}, {"color": "red"}),
+        ("blank_color", {"color": ""}, None),
+        ("unknown_color", {"color": "pink"}, None),
+        ("unknown_setting", {"icon": "star"}, {}),
+        ("not_an_object", ["Plans"], None),
+    ]
+
+    @parameterized.expand(group_settings_cases)
+    def test_reads_group_settings_as_the_api_writes_them(
+        self, _name: str, settings: Any, expected: dict[str, Any] | None
+    ) -> None:
+        written = DashboardTileGroupSerializer(data=settings)
+        assert (without_default_settings(written.validated_data) if written.is_valid() else None) == expected
+        assert stored_groups({"groups": {"plans": settings}}) == ({} if expected is None else {"plans": expected})

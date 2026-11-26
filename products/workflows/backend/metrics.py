@@ -30,6 +30,9 @@ TARGET_CONVERSION_METRIC = "conversion_by_start"
 RUN_STARTED_METRIC = "triggered"
 # Older runs have no `conversion_by_start` row even when they converted, so counting them would dilute the rate.
 CONVERSION_BY_START_RECORDED_SINCE = datetime(2026, 11, 13, tzinfo=UTC)
+# Older runs of these triggers have a versioned conversion but no versioned start, so counting them would inflate the rate.
+REQUEST_STARTED_TRIGGERS = frozenset({"webhook", "tracking_pixel", "manual"})
+REQUEST_STARTS_VERSIONED_SINCE = datetime(2026, 11, 28, tzinfo=UTC)
 
 # What a suggestion can aim at: the metric counted, what it divides by, and the name a person reads.
 # An untracked send can record neither an open nor a click. Anything else is measured on opens.

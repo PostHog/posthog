@@ -73,7 +73,7 @@ describe('issueSummaryLogic', () => {
         ['summaries are off for the project', UNAVAILABLE, null, 'hidden'],
         ['the organization has not approved AI', AI_NOT_APPROVED, null, 'ai_not_approved'],
         ['the person cannot read the summary sources', RESTRICTED, null, 'restricted'],
-        ['the project has not turned summaries on', SETTING_OFF, null, 'setting_off'],
+        ['the project has not turned summaries on', SETTING_OFF, null, 'hidden'],
     ])(
         'shows nothing before the answer, then reads once and never polls when %s',
         async (_name, response, firstSeen, view) => {

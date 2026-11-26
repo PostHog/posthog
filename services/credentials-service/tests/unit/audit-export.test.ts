@@ -10,7 +10,7 @@ import type { AuditExportConfig } from '@/lib/config'
 import { logger } from '@/lib/logging'
 
 const CONFIG: AuditExportConfig = {
-    host: 'https://capture.example.com',
+    host: 'https://capture.posthog.invalid',
     apiKey: 'phc_fake',
     batchSize: 10,
     intervalSeconds: 10,

@@ -43,7 +43,8 @@ The realtime pipeline understands three types of leaf, one of them in two varian
 | `cohort`                                            | Is the person in another cohort?                                                                  | In cohort 17                                         |
 
 Every other behavioral value, such as `performed_event_first_time`, `performed_event_sequence`, `performed_event_regularly`, `stopped_performing_event` and `restarted_performing_event`, is not supported in realtime.
-Neither are behavioral leaves keyed on an action instead of an event name, and `person_metadata` leaves, which read top-level person columns such as "first seen".
+Neither are behavioral leaves that match an action instead of an event name, and `person_metadata` leaves, which read top-level person columns such as "first seen".
+The save treats a leaf as an action when its `event_type` is `actions`, whether the action id in its `key` is stored as a number or a string.
 One unsupported leaf makes the whole cohort non-realtime.
 
 ## What the cohort API compiles on save
@@ -91,11 +92,17 @@ A hash that is not exactly 16 bytes makes its leaf unusable.
 The API serializer sets `cohort_type = 'realtime'` when all of the following hold:
 
 - every leaf compiled to bytecode without an error,
+  and a call to a function outside the Hog standard library counts as an error,
+  because the realtime evaluator would count that call as `false` without raising one,
 - no leaf is `person_metadata`,
 - every cohort reference points to a cohort that is itself realtime at the moment of this save,
 - the cohort does not use `filterTestAccounts`, because the test-account filters are added at query time and the realtime evaluator cannot see them,
 - no behavioral leaf looks back more than `REALTIME_COHORT_MAX_HISTORY_DAYS` (400 by default), because the seeder backfills no further than its own lookback cap,
 - on edits, the last known person count is under a size cap.
+
+The cohort API reports which of these kept a `daily` cohort off realtime, as its `realtime.reason` ([what readiness unlocks](completion-and-readiness.md#in-django)).
+The decision does not cover the processor's time range rules, so a cohort can be typed realtime and still have a criterion the pipeline drops for its window.
+The cohort API reports that case as `realtime.reason: unsupported_time_range` on an `off` or `needs_attention` cohort, and a turn-on of an `off` cohort refuses it.
 
 A sliding window counts by its length, with a month as 30 days and a year as 365, the same lengths the Rust evaluator uses.
 An absolute start date counts from its written date to the team's current day, and a range with only an end date always counts as too long.
@@ -267,7 +274,10 @@ A few window rules are worth knowing.
 - Operators other than `gte`, `lte`, `gt` and `lt` behave as equality.
   A count of zero is never a match, even for `lt 1`.
 
-A leaf is also dropped when its behavioral value is unsupported, when it is keyed on an action, when its condition hash or bytecode is missing or malformed, or when its type is unknown.
+A leaf is also dropped when its behavioral value is unsupported, when its `key` is a numeric action id, when its condition hash or bytecode is missing or malformed, or when its type is unknown.
+The processor does not read `event_type`, so it keeps a leaf whose action id is stored as a string and matches it as an event with that name.
+The save refuses such a leaf, so a cohort whose criteria are saved with one is not realtime and the processor does not load it.
+A cohort already typed realtime keeps that leaf, and that wrong match, until a save changes its criteria or `resave_cohorts` recompiles it.
 Every drop is counted by reason.
 
 ## Eligibility: which cohorts the processor composes
@@ -362,6 +372,8 @@ Leaves are evaluated with the Rust HogVM, configured the same way in every proce
   Event properties keep both texts, because cloud reads an event property without a `mat_` column through its property group, which keeps them too.
 - A program that fails at runtime, calls an unknown function, or returns a non-boolean counts as `false`.
   Failures are counted by reason.
+  The save path refuses a leaf that calls a function outside the Hog standard library, so an unknown function reaches the evaluator only in bytecode stored before that check.
+  A function name typed in another case, such as `NOT (x)` or `COALESCE(a, b)`, compiles to its lowercase library function when HogQL reads both spellings as the same function.
 - An event with malformed `properties` JSON skips only the behavioral side.
   Malformed `person_properties` skips the whole event when the person side has to evaluate.
   An event with an unparseable timestamp is skipped.

@@ -13,9 +13,11 @@ import type { RunManifest } from '../cloud/lease'
 import type { CpuPoint } from '../judge/bars'
 import type { DriveWindow } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
-import { FaultHold, FaultRule, ProviderEdge, startProviderEdge } from '../provider-edge'
+import { FaultHold, FaultRule } from '../provider-edge'
+import { EdgeProcess, startEdgeProcess } from '../provider-edge/process'
 import { FailoverJournal, FailoverOptions, failOver, sqlIdentityOf } from './failover'
 import { nameOf } from './identity'
+import { ProbeProcess, startProbeProcess } from './probe-process'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import {
     ConsumerGroup,
@@ -23,7 +25,9 @@ import {
     Role,
     RoleId,
     RoleSpec,
+    configHashOf,
     consumerGroupsOf,
+    intakeTopicsOf,
     portOf,
     roleIdsOf,
     roleSpecs,
@@ -33,9 +37,9 @@ import {
     Hogli,
     ProbeFailure,
     STACK,
+    createTopics,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
-    downServices,
     forgetSesBucket,
     groupLag,
     groupMembers,
@@ -43,9 +47,11 @@ import {
     postgresServersOf,
     rolesNotReady,
     seekToEnd,
+    serviceImagesOf,
     startStack,
     syncTemplates,
     terminateRoleConnections,
+    untilMigrated,
 } from './stack'
 import { RoleExit, createSupervisor } from './supervisor'
 import {
@@ -63,18 +69,25 @@ export type { RoleExit } from './supervisor'
 
 export interface Environment {
     up(signal: AbortSignal): Promise<void>
-    reset(settings: Profile['settings'], replicas?: Replicas): Promise<void>
+    reset(
+        settings: Profile['settings'],
+        replicas?: Replicas,
+        through?: { cyclotronThroughEdge?: boolean }
+    ): Promise<void>
     edgeUrl(): string
     role(name: Role): RoleHandle
     roles(): RoleHandle[]
     actuate(action: Action): Promise<Actuation>
     dependencyHealth(): Promise<{ healthy: boolean; down: ProbeFailure[] }>
+    runConfig(): Promise<RunConfig>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
     wiring(signal: AbortSignal): Promise<Wiring>
     writerCpu(manifest: RunManifest, window: DriveWindow, signal: AbortSignal): Promise<CpuPoint[]>
     down(): Promise<void>
 }
+
+export type RunConfig = { configHash: string | null; services: string[] | null }
 
 export type RoleHandle = { name: Role; replica: number; url: string; metricsUrl: string }
 
@@ -99,6 +112,7 @@ const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
 const EDGE_PORT = 4566
 const EDGE = { port: EDGE_PORT, owner: 'provider edge' }
 const TEMPLATES_WITHIN_MS = 120_000
+const MIGRATED_WITHIN_MS = 60_000
 const ROLE_HEALTHY_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
 const GROUPS_EMPTY_WITHIN_MS = 45_000
@@ -180,6 +194,15 @@ async function holdConnectionsDropped(sweep: () => Promise<number>): Promise<Act
     }
 }
 
+// The edge's proxy for each Cyclotron database the roles reach on their own.
+export async function proxiesOf(
+    pgProxyOf: EdgeProcess['pgProxyOf'],
+    direct: RoleSpec[]
+): Promise<Record<string, string>> {
+    const databases = [...new Set(direct.map(cyclotronUrlOf))]
+    return Object.fromEntries(await Promise.all(databases.map(async (url) => [url, await pgProxyOf(url)])))
+}
+
 export function createEnvironment({
     hogli = { command: path.join(REPO_ROOT, 'bin', 'hogli'), cwd: REPO_ROOT },
     docker = 'docker',
@@ -200,11 +223,13 @@ export function createEnvironment({
         graceMs: STOP_GRACE_MS,
         restartBackoffMs: ROLE_RESTART_BACKOFF_MS,
     })
-    let edge: ProviderEdge | undefined
+    let edge: EdgeProcess | undefined
+    let probing: { edgeUrl: string | undefined; probes: ProbeProcess } | undefined
     let postgresServers = [postgresUrl]
     let cyclotronUrl = STACK.cyclotronNodeUrl
     let releaseLock: (() => Promise<void>) | undefined
     let running: RoleId[] = roleIdsOf()
+    let launched: RoleSpec[] = []
 
     const logOf = (id: RoleId): string => path.join(stateDir, `${nameOf(id)}.log`)
 
@@ -224,10 +249,10 @@ export function createEnvironment({
             }
         },
 
-        async reset(settings, replicas = {}) {
+        async reset(settings, replicas = {}, through = {}) {
             const edge = startedEdge('reset')
             try {
-                await resetRoles(edge, settings, replicas)
+                await resetRoles(edge, settings, replicas, through.cyclotronThroughEdge === true)
             } catch (error) {
                 await stop()
                 throw error
@@ -241,7 +266,14 @@ export function createEnvironment({
         roles: () => running.map(handleOf),
 
         async dependencyHealth() {
-            const down = await downServices(edge?.url, postgresUrl, sesRateLimiterValkey)
+            if (!probing || probing.edgeUrl !== edge?.url) {
+                probing?.probes.close()
+                probing = {
+                    edgeUrl: edge?.url,
+                    probes: startProbeProcess({ edgeUrl: edge?.url, postgresUrl, sesValkey: sesRateLimiterValkey }),
+                }
+            }
+            const down = await probing.probes.check()
             return { healthy: down.length === 0, down }
         },
 
@@ -279,6 +311,11 @@ export function createEnvironment({
             }
         },
 
+        runConfig: async () => ({
+            configHash: launched.length === 0 ? null : configHashOf(launched),
+            services: await serviceImagesOf(docker).catch(() => null),
+        }),
+
         exits: (): RoleExit[] => supervisor.exits(),
 
         groupLag: (group) => groupLag(group, docker),
@@ -299,19 +336,32 @@ export function createEnvironment({
         down: stop,
     }
 
-    function startedEdge(caller: string): ProviderEdge {
+    function startedEdge(caller: string): EdgeProcess {
         if (!edge) {
             throw new Error(`Start the environment with up() before ${caller}().`)
         }
         return edge
     }
 
-    async function resetRoles(edge: ProviderEdge, settings: Profile['settings'], replicas: Replicas): Promise<void> {
+    async function resetRoles(
+        edge: EdgeProcess,
+        settings: Profile['settings'],
+        replicas: Replicas,
+        cyclotronThroughEdge: boolean
+    ): Promise<void> {
         const exitsBefore = supervisor.exits().length
         const joined = await kafkaGroups(docker).then(scenarioGroupsOf, () => [])
         await supervisor.stop()
-        const specs = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
+        const direct = roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas)
+        const specs = cyclotronThroughEdge
+            ? roleSpecs(env, edge, secrets, stateDir, settings, sesRateLimiterValkey, replicas, {
+                  urls: await proxiesOf(edge.pgProxyOf, direct),
+                  fallback: STACK.cyclotronNodeUrl,
+              })
+            : direct
         running = specs
+        launched = specs
+        await createTopics(intakeTopicsOf(specs), docker)
         const groups = unionOf(consumerGroupsOf(specs), joined)
         await waitForExpect(
             async () => {
@@ -325,7 +375,7 @@ export function createEnvironment({
             GROUPS_EMPTY_WITHIN_MS,
             PROBE_INTERVAL_MS
         )
-        edge.clearFaults()
+        await edge.clearFaults()
         postgresServers = postgresServersOf(specs[0], postgresUrl)
         cyclotronUrl = cyclotronUrlOf(specs[0])
         await deleteUnfinishedJobs(cyclotronUrl)
@@ -385,7 +435,7 @@ export function createEnvironment({
             throw await strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
-        await startStack(hogli, stateDir, env, signal)
+        await startStack(hogli, docker, stateDir, env, signal)
         const planned = roleSpecs(
             env,
             { url: `http://127.0.0.1:${EDGE_PORT}` },
@@ -393,6 +443,15 @@ export function createEnvironment({
             stateDir,
             {},
             sesRateLimiterValkey
+        )
+        await untilMigrated(
+            [
+                { url: postgresUrl, table: 'posthog_hogfunctiontemplate' },
+                { url: cyclotronUrlOf(planned[0]), table: 'cyclotron_jobs' },
+            ],
+            MIGRATED_WITHIN_MS,
+            PROBE_INTERVAL_MS,
+            signal
         )
         await refuseHeldPorts([...portsOf(planned), EDGE])
         const groups = consumerGroupsOf(planned)
@@ -408,7 +467,7 @@ export function createEnvironment({
             GROUP_DRAINS_WITHIN_MS,
             PROBE_INTERVAL_MS
         )
-        edge = await startProviderEdge({
+        edge = await startEdgeProcess({
             port: EDGE_PORT,
             trackingKeys: secrets.encryptionSaltKeys,
             caDir: path.join(stateDir, 'edge-ca'),
@@ -416,6 +475,11 @@ export function createEnvironment({
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs
+        launched = specs
+        await createTopics(intakeTopicsOf(specs), docker)
+        for (const group of groups) {
+            await seekToEnd(group, docker)
+        }
         postgresServers = postgresServersOf(specs[0], postgresUrl)
         cyclotronUrl = cyclotronUrlOf(specs[0])
         const api = specs.filter((spec) => spec.role === 'cdp-api')
@@ -443,6 +507,8 @@ export function createEnvironment({
         try {
             await supervisor.stop()
         } finally {
+            probing?.probes.close()
+            probing = undefined
             await edge?.close()
             edge = undefined
             await releaseLock?.()
