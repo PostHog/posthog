@@ -805,6 +805,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.SnapshotRejectedError as e:
             return Response({"detail": str(e), "code": "rejected"}, status=status.HTTP_409_CONFLICT)
+        except api.DecidedByPersonError as e:
+            return Response({"detail": str(e), "code": "decided_by_person"}, status=status.HTTP_409_CONFLICT)
         except ValueError:
             return Response({"detail": "Snapshot cannot be marked as tolerated"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(SnapshotSerializer(instance=snapshot).data)

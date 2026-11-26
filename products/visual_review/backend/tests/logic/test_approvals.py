@@ -18,6 +18,7 @@ from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import (
+    ActorType,
     BaselineMode,
     DecisionAction,
     DecisionChannel,
@@ -790,6 +791,21 @@ class TestReviewDecisions:
         assert api.get_run_snapshots(run.id, team_id=team.id).snapshots[0].review_state == "tolerated"
         assert not BaselineApproval.objects.filter(repo=repo, pr_number=1, identifier="Button").exists()
         assert [entry["action"] for entry in _history(run)] == ["accept", "clear"]
+
+    @pytest.mark.parametrize("history", [[ACCEPT], [ACCEPT, CLEAR]], ids=["person_accepted", "person_undid"])
+    def test_an_agent_cannot_tolerate_over_a_persons_decision(self, ledger, team, user, bob, history):
+        _repo, git, flow = ledger
+        run = _changed_run(git, flow)
+        for action in history:
+            _decide(run, bob, action, new_hash="b1")
+        snapshot = run.snapshots.get(identifier="Button")
+
+        with pytest.raises(errors.DecidedByPersonError):
+            toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, team.id, actor=ActorType.AGENT)
+
+        snapshot.refresh_from_db()
+        assert snapshot.review_state != ReviewState.TOLERATED
+        assert [entry["action"] for entry in _history(run)] == [action.value for action in history]
 
     def test_a_rejection_by_someone_outside_the_organization_still_blocks_and_names_nobody(self, ledger, team, user):
         _repo, git, flow = ledger

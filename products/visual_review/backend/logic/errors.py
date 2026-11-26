@@ -125,6 +125,12 @@ class SnapshotRejectedError(Exception):
     pass
 
 
+class DecidedByPersonError(Exception):
+    """A toleration by an agent refused because a person made the newest decision on the pair."""
+
+    pass
+
+
 class DecisionRefusedError(Exception):
     """A review decision call refused as a whole, because at least one snapshot could not take the decision.
 

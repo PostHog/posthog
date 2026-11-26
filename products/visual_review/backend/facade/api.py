@@ -134,6 +134,7 @@ StaleRunError = errors.StaleRunError
 RunNotFullyResolvedError = errors.RunNotFullyResolvedError
 DecisionRefusedError = errors.DecisionRefusedError
 SnapshotRejectedError = errors.SnapshotRejectedError
+DecidedByPersonError = errors.DecidedByPersonError
 BaselineFilePathNotConfiguredError = errors.BaselineFilePathNotConfiguredError
 CommitStatusNotPostedError = errors.CommitStatusNotPostedError
 BaselineRepairError = errors.BaselineRepairError

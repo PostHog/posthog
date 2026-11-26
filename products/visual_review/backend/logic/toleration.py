@@ -92,6 +92,17 @@ def mark_snapshot_as_tolerated(
             f"{snapshot.identifier} is rejected on this pull request, so it cannot be tolerated. "
             "Fix the code and push, or undo the rejection first."
         )
+    decision = effective.decision
+    if (
+        actor == ActorType.AGENT
+        and review_decisions.decides_by_pull_request(run)
+        and decision is not None
+        and decision.by_person
+    ):
+        raise errors.DecidedByPersonError(
+            f"A person decided on {snapshot.identifier} on this pull request, and an agent cannot change a "
+            "person's decision. Ask them to tolerate it."
+        )
     # Finalize records an accepted pair as the new baseline, so an earlier accept would undo the
     # toleration. Tolerating undoes the accept instead, and the history shows who did it.
     if review_decisions.decides_by_pull_request(run) and effective.accepted:
