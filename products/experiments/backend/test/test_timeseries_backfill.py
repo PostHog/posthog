@@ -31,13 +31,14 @@ class TestBackfillExperimentTimeseries(BaseTest):
         start = datetime.datetime(2024, 12, 25, 10, tzinfo=ZoneInfo("UTC"))
         until = datetime.date(2024, 12, 26)
         teams = [Team.objects.create(organization=self.organization, timezone="UTC") for _ in range(2)]
-        requests = []
+        requests: list[ExperimentTimeseriesRecalculation] = []
         for team in teams:
+            metric_uuid = f"metric-{team.id}"
             metric = {
                 "kind": "ExperimentMetric",
                 "name": "Uploads",
                 "metric_type": "mean",
-                "uuid": f"metric-{team.id}",
+                "uuid": metric_uuid,
                 "source": {"kind": "EventsNode", "event": "uploaded_file"},
             }
             experiment = Experiment.objects.create(
@@ -46,7 +47,7 @@ class TestBackfillExperimentTimeseries(BaseTest):
                 start_date=start,
                 metrics=[metric],
             )
-            config = get_metric_calculation_config(experiment, metric["uuid"])
+            config = get_metric_calculation_config(experiment, metric_uuid)
             assert config is not None
             requests.append(
                 ExperimentTimeseriesRecalculation.objects.create(

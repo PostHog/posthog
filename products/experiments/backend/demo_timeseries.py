@@ -61,38 +61,35 @@ def copy_demo_timeseries(source_team_id: int, target: ExperimentTimeseriesRecalc
         datetime.combine(start + timedelta(days=offset + 1), time.min, team_timezone)
         for offset in range((until - start).days + 1)
     }
-    points = list(
-        ExperimentMetricResult.objects.filter(
-            experiment_id=source.experiment_id,
-            metric_uuid=source.metric["uuid"],
-            fingerprint=source.fingerprint,
-            status=ExperimentMetricResult.Status.COMPLETED,
-            query_from=experiment.start_date,
-            query_to__in=windows,
-            result__isnull=False,
-        )
+    points = ExperimentMetricResult.objects.filter(
+        experiment_id=source.experiment_id,
+        metric_uuid=source.metric["uuid"],
+        fingerprint=source.fingerprint,
+        status=ExperimentMetricResult.Status.COMPLETED,
+        query_from=experiment.start_date,
+        query_to__in=windows,
     )
-    if not windows or len(points) != len(windows):
+    copies = [
+        ExperimentMetricResult(
+            experiment=experiment,
+            metric_uuid=target.metric["uuid"],
+            fingerprint=target.fingerprint,
+            display_key=target_config.legacy_key(),
+            query_from=point.query_from,
+            query_to=point.query_to,
+            status=point.status,
+            completed_at=point.completed_at,
+            # Debug queries name the source team and cannot be run against this clone.
+            result={**point.result, "clickhouse_sql": None, "hogql": None},
+        )
+        for point in points
+        if isinstance(point.result, dict)
+    ]
+    if not windows or len(copies) != len(windows):
         return False
 
     with transaction.atomic():
-        ExperimentMetricResult.objects.bulk_create(
-            [
-                ExperimentMetricResult(
-                    experiment=experiment,
-                    metric_uuid=target.metric["uuid"],
-                    fingerprint=target.fingerprint,
-                    display_key=target_config.legacy_key(),
-                    query_from=point.query_from,
-                    query_to=point.query_to,
-                    status=point.status,
-                    completed_at=point.completed_at,
-                    # Debug queries name the source team and cannot be run against this clone.
-                    result={**point.result, "clickhouse_sql": None, "hogql": None},
-                )
-                for point in points
-            ]
-        )
+        ExperimentMetricResult.objects.bulk_create(copies)
         target.status = ExperimentTimeseriesRecalculation.Status.COMPLETED
         target.last_successful_date = until
         target.save(update_fields=["status", "last_successful_date"])
