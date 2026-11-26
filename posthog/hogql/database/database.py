@@ -991,9 +991,9 @@ def _reads_tables_the_walk_cannot_name(
             # A synced table is queryable under its stored and its dotted name, and joins attach under either.
             # Foreign keys link tables that share a queryable namespace, even across sources.
             dotted = get_data_warehouse_table_name(table.external_data_source, table.name)
-            source = table.external_data_source
-            if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT:
-                group = f"source:{source.pk}"
+            data_source = table.external_data_source
+            if data_source is not None and data_source.access_method == ExternalDataSourceAccessMethod.DIRECT:
+                group = f"source:{data_source.pk}"
             elif "." in dotted:
                 group = dotted.rsplit(".", 1)[0]
             else:
