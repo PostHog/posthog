@@ -519,15 +519,35 @@ class TestProcessSingle:
         assert [a.attempt for c in mock_mark.call_args_list for a in c.kwargs["attempts"]] == expected_marked_attempts
         assert consumer._executing == {}
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A sustained S3/object-store blip (TransientObjectStoreError, a NonReportableError
+            # subclass) is retryable in principle, so it must still reach error tracking only via
+            # the classification made further down the stack, not get captured just because this
+            # batch's own retry budget ran out.
+            TransientObjectStoreError("Generic S3 error"),
+            # A destination connect that exhausted its own internal retries without landing on a
+            # classified configuration problem (EXPECTED_USER_ERROR_PATTERNS) is also retryable,
+            # not a NonReportableError — the max-retries branch must consult is_expected_user_error
+            # too, the same as the non-retryable branch already does.
+            DestinationDeliveryError(
+                "Prod",
+                RuntimeError(
+                    "Failed to connect after 5 attempts due to an unrecoverable error. "
+                    "Please review connection configuration. Error message: connection failed: "
+                    'connection to server at "203.0.113.5", port 5432 failed: '
+                    "server closed the connection unexpectedly"
+                ),
+            ),
+        ],
+        ids=["non_reportable_s3_blip", "destination_connect_exhausted"],
+    )
     @pytest.mark.asyncio
-    async def test_non_reportable_error_skips_error_tracking_even_at_max_attempts(self):
-        # A sustained S3/object-store blip (TransientObjectStoreError, a NonReportableError
-        # subclass) is retryable in principle, so it must still reach error tracking only via
-        # the classification made further down the stack, not get captured just because this
-        # batch's own retry budget ran out.
+    async def test_non_reportable_error_skips_error_tracking_even_at_max_attempts(self, error: Exception):
         consumer = _make_consumer(max_attempts=2)
         batch = _make_batch(latest_attempt=1)
-        consumer._process_batch = AsyncMock(side_effect=TransientObjectStoreError("Generic S3 error"))
+        consumer._process_batch = AsyncMock(side_effect=error)
 
         with (
             patch(
@@ -4844,6 +4864,10 @@ class TestIsRetryableError:
                 False,
             ),
             ("connection reset by peer", True),
+            # A destination connect that exhausted its own retries without a classified
+            # configuration problem — the customer's destination being briefly unreachable,
+            # not a bug — must stay retryable so the next scheduled run tries again.
+            ("Failed to connect after 5 attempts due to an unrecoverable error.", True),
         ],
     )
     def test_pattern_classification(self, message: str, retryable: bool):

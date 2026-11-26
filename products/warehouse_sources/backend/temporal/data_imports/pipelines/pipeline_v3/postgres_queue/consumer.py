@@ -206,9 +206,20 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     INCOMPLETE_RUN_ERROR,
 )
 
-# Subset of the non-retryable errors that are expected upstream/customer conditions rather than
-# pipeline bugs. The run still fails with an actionable message, but the engine skips
-# error-tracking capture for these so they don't drown real bugs. Kept deliberately narrow.
+# A destination connect that exhausted its own internal retries (PostgreSQLClient.connect,
+# shared by the Postgres and Redshift writers) without landing on a classified configuration
+# problem. This is the destination's network or server being briefly unreachable, the same
+# shape sources/postgres/postgres.py already treats as transient on the source side — kept out
+# of NON_RETRYABLE_ERROR_PATTERNS so the next scheduled run still retries it.
+DESTINATION_CONNECT_EXHAUSTED_PATTERNS: tuple[str, ...] = (
+    "Failed to connect after",
+    "Timed-out while trying to connect for",
+)
+
+# Errors that are expected upstream/customer conditions rather than pipeline bugs. The run still
+# fails with an actionable message, but the engine skips error-tracking capture for these so they
+# don't drown real bugs. Kept deliberately narrow. Most entries double as NON_RETRYABLE_ERROR_PATTERNS,
+# but an entry here need not be: is_retryable_error and is_expected_user_error are orthogonal.
 EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # a source column's type changed upstream and no longer fits the stored Delta column
     # (SchemaColumnTypeChangedException) — delta-rs can't widen in place, so the fix is a
@@ -223,6 +234,7 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # self-healing by design, the next scheduled sync retries automatically, and
     # INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL already tracks how often it fires
     INCOMPLETE_RUN_ERROR,
+    *DESTINATION_CONNECT_EXHAUSTED_PATTERNS,
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
