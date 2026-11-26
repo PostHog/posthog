@@ -132,7 +132,7 @@ def update_board(team_id: int, uid: str, user_id: int, spec: dict[str, Any], bas
     return _detail(board)
 
 
-def delete_board(team_id: int, uid: str) -> None:
+def delete_board(team_id: int, uid: str, user_id: int) -> None:
     with transaction.atomic():
         board = _live(team_id).select_for_update().filter(uid=uid).first()
         if board is None:
@@ -140,4 +140,5 @@ def delete_board(team_id: int, uid: str) -> None:
         if board.managed_by != BoardManagedBy.NATIVE:
             raise BoardReadOnly(uid)
         board.deleted = True
-        board.save(update_fields=["deleted", "last_modified_at"])
+        board.last_modified_by_id = user_id
+        board.save(update_fields=["deleted", "last_modified_by", "last_modified_at"])

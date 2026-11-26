@@ -13,6 +13,7 @@ from posthog.models.user import User
 from posthog.permissions import dashboard_v2_enabled, is_service_auth
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.dashboards.backend.facade import api
 from products.dashboards.backend.facade.contracts import (
     MAX_BOARD_SPEC_BYTES,
@@ -100,7 +101,7 @@ _INVALID = OpenApiResponse(description="The document's schema version is unknown
 _READ_ONLY = OpenApiResponse(description="The board is built in or managed from code, so it cannot change here.")
 
 
-class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     """Saved `dashboard-v2` boards. Each board is one JSON document."""
 
     # Boards share the `dashboard` resource: resource-level access to dashboards covers boards too, and an object
@@ -115,6 +116,10 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         super().initial(request, *args, **kwargs)
         # 404, not 403, so a project without the flag cannot tell the endpoint exists.
         if not dashboard_v2_enabled(self.team, request.user):
+            raise exceptions.NotFound()
+        # Boards belong to the project's root team. A child environment would check its own rules but
+        # read and write the root team's rows, so it gets a 404 too.
+        if self.team.pk != self.team.project_id:
             raise exceptions.NotFound()
 
     def read_object(self) -> BoardDetail | None:
@@ -131,9 +136,8 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _list_access(self) -> BoardListAccess | None:
         if is_service_auth(self.request):
             return None
-        access = self.user_access_control.list_access_filter(
-            "dashboard", include_all_if_admin=self.request.GET.get("admin_include_all") == "true"
-        )
+        # Org admins have implicit access to every dashboard, so the list must match retrieve, as for classic ones.
+        access = self.user_access_control.list_access_filter("dashboard", include_all_if_admin=True)
         if access is None:
             return None
         return BoardListAccess(
@@ -209,7 +213,7 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Delete a board. Its uid can then be reused."""
         self.get_object()
         try:
-            api.delete_board(self.team_id, uid)
+            api.delete_board(self.team_id, uid, cast(User, request.user).id)
         except BoardNotFound:
             raise exceptions.NotFound()
         except BoardReadOnly:
