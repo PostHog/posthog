@@ -110,9 +110,10 @@ async def fetch_docs_library_pages(query: str, *, transport: httpx.AsyncBaseTran
         "/business_knowledge/documents/search/"
     )
     async with httpx.AsyncClient(timeout=DOCS_LIBRARY_TIMEOUT, transport=transport) as client:
-        response = await client.get(
+        # POST, because the receiving side logs request URLs, and the query can hold what a customer pasted.
+        response = await client.post(
             url,
-            params={
+            json={
                 "query": query,
                 "limit": DOCS_LIBRARY_RESULT_LIMIT,
                 # A key with no library limit reads the whole project. The explicit id keeps such a key on the docs library.

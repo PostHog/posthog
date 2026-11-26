@@ -71,6 +71,22 @@ class TestLibraryLimitedKeys(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         return {hit["document_id"] for hit in response.json()}
 
+    def _searched_documents_by_post(self, body: dict[str, Any]) -> set[str]:
+        response = self.client.post(f"{self.base}/documents/search/", {"query": "lorem", **body}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        return {hit["document_id"] for hit in response.json()}
+
+    def test_post_search_applies_the_library_limit(self, _ff: Any, _embed: Any) -> None:
+        self._use_key(None, "whole project")
+        assert self._searched_documents_by_post({"library_id": str(self.public.id)}) == {str(self.public_document.id)}
+
+        self._use_key(self.public)
+        assert self._searched_documents_by_post({}) == {str(self.public_document.id)}
+        other = self.client.post(
+            f"{self.base}/documents/search/", {"query": "lorem", "library_id": str(self.internal.id)}, format="json"
+        )
+        assert other.status_code == status.HTTP_404_NOT_FOUND
+
     def test_limited_key_searches_only_its_library(self, _ff: Any, _embed: Any) -> None:
         self._use_key(None, "whole project")
         assert self._searched_documents() == {str(self.public_document.id), str(self.internal_document.id)}

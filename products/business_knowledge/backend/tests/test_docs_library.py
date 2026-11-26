@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from unittest.mock import patch
@@ -91,9 +92,11 @@ class TestSearchDocsLibrary(SimpleTestCase):
         request = self.requests[0]
         assert request.url.host == "docs-library.example.com"
         assert request.headers["Authorization"] == "Bearer phs_docs_library_test_key"
-        assert dict(request.url.params) == {
+        assert request.method == "POST"
+        assert request.url.query == b""
+        assert json.loads(request.content) == {
             "query": "how do flags work",
-            "limit": "10",
+            "limit": 10,
             "library_id": LIBRARY_SETTINGS["DOCS_SEARCH_LIBRARY_ID"],
         }
         assert resolve(request.url.path).url_name == "project_business_knowledge_documents-search"
