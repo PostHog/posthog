@@ -123,6 +123,7 @@ from products.managed_warehouse.backend.facade import query_labels as managed_wa
 from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_raw_access
 from products.metrics.backend.facade.api import derived_metric_resources
 from products.metrics.backend.facade.contracts import DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX
+from products.tracing.backend.facade.contracts import TRACING_QUERY_STATUS_LABEL
 from products.warehouse_sources.backend.facade.models import is_managed_warehouse_connection_ready
 
 from common.hogvm.python.utils import HogVMException
@@ -580,6 +581,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 except UserAccessControlError as error:
                     raise PermissionDenied(str(error)) from error
         self._enforce_derived_metric_source_access(request, query_status.labels or [])
+        self._enforce_tracing_access(request, query_status.labels or [])
         if managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL in (query_status.labels or []):
             try:
                 validate_managed_trino_raw_access(self.team, request.user if isinstance(request.user, User) else None)
@@ -651,6 +653,23 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     cast(APIScopeObject, resource), "viewer"
                 ):
                     raise PermissionDenied(f"You do not have access to {resource}.")
+
+    def _enforce_tracing_access(self, request: Request, labels: list[str]) -> None:
+        if TRACING_QUERY_STATUS_LABEL not in labels:
+            return
+        missing = scopes_caller_lacks(request, ["tracing:read"])
+        if missing:
+            raise InsufficientScope(missing, detail="Span queries also need: tracing:read.")
+        # No shared page renders spans, and a share token doesn't tie the caller to the query it names.
+        if request.user.is_anonymous:
+            raise PermissionDenied("Span query results can't be read through a share link.")
+        if isinstance(request.user, User):
+            from products.tracing.backend.facade.api import assert_tracing_viewer  # noqa: PLC0415
+
+            try:
+                assert_tracing_viewer(request.user, self.team)
+            except UserAccessControlError as error:
+                raise PermissionDenied(str(error)) from error
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["POST"], detail=False)
