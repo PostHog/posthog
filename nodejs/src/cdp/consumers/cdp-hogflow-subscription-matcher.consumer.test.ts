@@ -734,6 +734,11 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         it.each([
             ['only the event that started the run', ['event-uuid'], undefined],
             ['the event that started the run, then a later one', ['event-uuid', 'later-uuid'], 'later-uuid'],
+            [
+                'the event that started the run twice, then a later one',
+                ['event-uuid', 'event-uuid', 'later-uuid'],
+                'later-uuid',
+            ],
         ])('a batch with %s wakes the job on the first event that did not start the run', async (_, uuids, wokenBy) => {
             matcher.findRows = [
                 {

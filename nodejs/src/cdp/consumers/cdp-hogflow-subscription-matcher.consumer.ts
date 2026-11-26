@@ -750,7 +750,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         })
                     ) {
                         parkedCheck.noteMatch(globals)
-                        stepMatches.push(waitMatchEvent(globals))
+                        if (stepMatches[0]?.eventUuid !== globals.event.uuid) {
+                            stepMatches.push(waitMatchEvent(globals))
+                        }
                     }
                 }
                 if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals, eventsOnly))) {
@@ -2443,7 +2445,10 @@ async function evaluateWaitWake(
     }
     const matches: WaitMatchEvent[] = []
     for (const globals of candidateGlobals) {
-        if (await matchesWaitUntilCondition(wait, filterGlobalsFor(globals), { hogFlowId, actionId: wait.id })) {
+        if (
+            matches[0]?.eventUuid !== globals.event.uuid &&
+            (await matchesWaitUntilCondition(wait, filterGlobalsFor(globals), { hogFlowId, actionId: wait.id }))
+        ) {
             matches.push(waitMatchEvent(globals))
             if (matches.length === 2) {
                 break
@@ -2461,13 +2466,17 @@ function withNextMatch(
     kept: PendingWakeWrite['wakes'][string],
     wake: PendingWakeWrite['wakes'][string]
 ): PendingWakeWrite['wakes'][string] | undefined {
-    if (kept.next || wake.kind !== 'match' || wake.eventUuid === kept.eventUuid) {
+    if (kept.next || wake.kind !== 'match') {
+        return undefined
+    }
+    const later = [wake, wake.next].find((m) => m && m.eventUuid !== kept.eventUuid)
+    if (!later) {
         return undefined
     }
     const { at: _at, ...match } = kept as PendingWakeEntry
     return {
         ...match,
-        next: { eventName: wake.eventName, eventUuid: wake.eventUuid, eventTimestamp: wake.eventTimestamp },
+        next: { eventName: later.eventName, eventUuid: later.eventUuid, eventTimestamp: later.eventTimestamp },
     }
 }
 

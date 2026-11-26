@@ -1552,11 +1552,17 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect((await rowOf(id)).pending_wake.wait_condition).toMatchObject(match)
             })
 
-            it('keeps a later match next to a recorded one, so a run trigger recorded first cannot hide it', async () => {
+            it.each([
+                ['as its first event', { ...match, eventUuid: 'event-2' }],
+                [
+                    'behind a repeat of the recorded event',
+                    { ...match, next: { eventName: 'wakeup_event', eventUuid: 'event-2' } },
+                ],
+            ])('keeps a later match that arrives %s next to a recorded one', async (_name, later) => {
                 const id = await parkOutOfReach()
 
                 await record(id, match)
-                await record(id, { ...match, eventUuid: 'event-2' })
+                await (matcher as any).recordPendingWakes([{ id, wakes: { wait_condition: later } }])
 
                 expect((await rowOf(id)).pending_wake.wait_condition).toMatchObject({
                     ...match,
