@@ -525,4 +525,61 @@ describe('MessageTemplate', () => {
         await waitFor(() => expect(logic.values.templateChanged).toBe(false))
         expect(subject).toBeInTheDocument()
     })
+
+    it('disables Publish while discarding a draft and sends no publish request until discard finishes', async () => {
+        let releaseDiscard!: () => void
+        const discardGate = new Promise<void>((resolve) => {
+            releaseDiscard = resolve
+        })
+        let discardStarted!: () => void
+        const discardArrived = new Promise<void>((resolve) => {
+            discardStarted = resolve
+        })
+        const patchBodies: Record<string, unknown>[] = []
+        const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+            const body = (await request.json()) as Record<string, unknown>
+            patchBodies.push(body)
+            if ('draft_content' in body && body.draft_content === null) {
+                discardStarted()
+                await discardGate
+                return [
+                    200,
+                    {
+                        ...PASSWORD_RESET_WITH_DRAFT,
+                        draft_content: null,
+                        updated_at: '2026-01-01T00:01:00Z',
+                    },
+                ]
+            }
+            return [200, { ...PASSWORD_RESET_WITH_DRAFT, ...body, draft_content: null }]
+        }
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': PASSWORD_RESET_WITH_DRAFT },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': patch,
+                '/api/projects/:team_id/messaging_templates/:id/': patch,
+            },
+        })
+        await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
+
+        fireEvent.click(screen.getByLabelText('More draft actions'))
+        const discardMenuItem = await waitFor(() => {
+            const item = document.querySelector<HTMLElement>('[data-attr="message-template-discard-draft"]')
+            expect(item).not.toBeNull()
+            return item as HTMLElement
+        })
+        fireEvent.click(discardMenuItem)
+        const confirmButton = await screen.findByRole('button', { name: 'Discard draft' })
+        fireEvent.click(confirmButton)
+        await discardArrived
+
+        const publishButton = screen.getByText('Publish').closest('button') as HTMLButtonElement
+        expect(publishButton).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(publishButton)
+        expect(patchBodies).toEqual([{ draft_content: null }])
+
+        await act(async () => releaseDiscard())
+        await waitFor(() => expect(screen.queryByText('Editing draft')).not.toBeInTheDocument())
+        expect(patchBodies).toEqual([{ draft_content: null }])
+    })
 })
