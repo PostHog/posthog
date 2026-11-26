@@ -303,7 +303,6 @@ export const isRecipientFormatIssue = (issue: z.core.$ZodIssue): boolean =>
 
 export type TransactionalSendRefusal =
     | 'idempotency_key_reused'
-    | 'idempotency_unavailable'
     | 'intake_unavailable'
     | 'invalid_request'
     | 'not_sendable'
