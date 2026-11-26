@@ -1,7 +1,7 @@
 ---
 name: authoring-ci-workflows
 description: >
-  Use when adding or editing a GitHub Actions workflow, composite action, reusable workflow, or `actions.lock` under `.github/`: new CI jobs, triggers, matrices, checkout/clone tuning, action pinning and lockfiles, GitHub App token auth, concurrency groups, `timeout-minutes`, `paths` filters, reusing an earlier passing result, caching, or runner choice.
+  Use when adding or editing a GitHub Actions workflow, composite action, reusable workflow, or `actions.lock` under `.github/`: new CI jobs, triggers, matrices, checkout/clone tuning, action pinning and lockfiles, GitHub App token auth, concurrency groups, `timeout-minutes`, `paths` filters, reusing an earlier passing result, caching, runner choice, or a new host CI downloads from (Depot egress allow list).
   Covers PostHog's workflow-authoring conventions and the reasons behind them: the 500-runs/10s dispatch cap, shallow vs full clone, per-SHA push concurrency, dedicated App-token rate-limit buckets, and fork-safe secrets on a public repo.
   Points to the linters (`bin/hogli lint:workflows`, actionlint) that enforce the mechanical rules, and to the narrower skills for production deploys, secrets, and Depot runners.
   Not for debugging red CI (use debugging-ci-failures) or wiring a new secret end to end (use managing-github-actions-secrets).
@@ -343,6 +343,12 @@ curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10
 - No `--retry-delay` (it replaces exponential backoff with a fixed wait). Keep `-f`, or an error page lands in your output file at exit 0.
 - Don't retry anything non-idempotent (webhook posts, telemetry), or where a shell loop or readiness wait already retries.
 
+### New hosts need the egress allow list
+
+Depot runners reach only the hosts on the organization's egress allow list, which devex keeps in Depot, outside this repo.
+When a change makes a Depot job contact a host it did not before (a download, a new action or image, a webhook, a redirect target), tell the developer, add an `Egress:` line to the PR description, and send it to devex with `hogli devex:feedback`.
+[The egress reference](references/egress-allow-list.md) has the steps, what to try before asking for a rule, and how to see what a job contacts.
+
 ## Tokens — dedicated App tokens for high-volume calls
 
 `GITHUB_TOKEN` shares one ~15k req/hr bucket across every job of every run in the repo; it goes hot at merge peaks and change-detection jobs fail before real work starts.
@@ -633,6 +639,7 @@ Before that date, fix or add to the baseline every violation that landed during 
 - [ ] Third-party actions SHA-pinned, or the already-onboarded workflow's lockfile regenerated and verified.
 - [ ] Node from `.nvmrc`; `setup-uv` version pinned; runner labels name an OS version (`ubuntu-24.04`, never `ubuntu-latest`).
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
+- [ ] Any host a Depot job did not contact before is flagged to the developer and devex ([egress allow list](references/egress-allow-list.md)).
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
 - [ ] No step pushes to a `trunk-merge/` branch: a step that commits to the PR head fails there instead.

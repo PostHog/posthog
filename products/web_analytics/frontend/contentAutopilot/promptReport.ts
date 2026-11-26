@@ -129,7 +129,7 @@ export const pointsDelta = (delta: number, tooltip: string): KpiDelta => {
 }
 
 export const POSITION_DESCRIPTION =
-    'Where your site sits among the sources of an answer that cites it. #1 is the first source listed. Lower is better.'
+    'Where your link sits among the sources of answers that cite you, on average. #1 is first. Lower is better.'
 
 export const positionLabel = (position: number): string => `#${Math.round(position * 10) / 10}`
 

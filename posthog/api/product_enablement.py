@@ -23,6 +23,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.team.conversations_settings import conversations_settings_as_dict
+from posthog.api.team.session_recording_settings import MASKING_CONFIG_WEB_KEYS
 from posthog.api.team.team_config import TEAM_CONFIG_ADMIN_FIELDS_SET
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -34,7 +35,7 @@ from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource
 from products.authorization.backend.facade.enums import Action
 
-# Written only when the team has none set. posthog-js already masks inputs + passwords
+# Written only when the team has no web masking key set. posthog-js already masks inputs + passwords
 # by default, so this just pins that floor — page text stays visible for Signals to read.
 REPLAY_MASKING_FLOOR = {"maskAllInputs": True}
 
@@ -44,8 +45,10 @@ Recipe = Callable[[Team, set[str]], str]
 
 
 def _enable_session_replay(team: Team, touched: set[str]) -> str:
-    if team.session_recording_masking_config is None:
-        team.session_recording_masking_config = dict(REPLAY_MASKING_FLOOR)
+    existing = team.session_recording_masking_config
+    stored = existing if isinstance(existing, dict) else {}
+    if not any(key in stored for key in MASKING_CONFIG_WEB_KEYS):
+        team.session_recording_masking_config = {**REPLAY_MASKING_FLOOR, **stored}
         touched.add("session_recording_masking_config")
     if team.session_recording_opt_in:
         return "already_enabled"
@@ -77,8 +80,9 @@ def _enable_conversations(team: Team, touched: set[str]) -> str:
     return "enabled"
 
 
-# Companion defaults the server writes only when the field is unset: they pin a conservative floor
-# rather than express a caller's choice, so they never require admin even where the Team API gates them.
+# Companion defaults the server writes only where the team has set nothing (for masking: no web key).
+# They pin a conservative floor rather than express a caller's choice, so they never require admin
+# even where the Team API gates them.
 SERVER_DEFAULT_FIELDS: frozenset[str] = frozenset({"session_recording_masking_config", "conversations_settings"})
 
 RECIPES: dict[str, Recipe] = {

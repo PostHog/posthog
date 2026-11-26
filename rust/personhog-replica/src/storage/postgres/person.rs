@@ -500,7 +500,7 @@ impl PersonLookup for PostgresStorage {
                     }
                 }),
             )
-            .buffer_unordered(self.bulk_max_concurrent_chunks)
+            .buffer_unordered(self.team_delete_max_concurrent_chunks)
             .try_collect()
             .await?;
 

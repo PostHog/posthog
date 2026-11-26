@@ -2312,6 +2312,16 @@ class ComposeTicketSustainedThrottle(UserRateThrottle):
     rate = "180/hour"
 
 
+class TicketAiRerunBurstThrottle(UserRateThrottle):
+    scope = "ticket_ai_rerun_burst"
+    rate = "10/minute"
+
+
+class TicketAiRerunSustainedThrottle(UserRateThrottle):
+    scope = "ticket_ai_rerun_sustained"
+    rate = "60/hour"
+
+
 class TicketNoteBurstThrottle(UserRateThrottle):
     """
     Private notes get their own bucket, so an agent writing notes cannot use up the compose

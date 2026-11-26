@@ -77,6 +77,7 @@ from products.exports.backend.facade.api import render_png_export
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
+
 from products.tasks.backend.facade import (
     access as tasks_access,
     agent_run_starts as tasks_agent_run_starts,
@@ -381,9 +382,6 @@ def _parse_backlog(log_content: str) -> tuple[list[dict], TaskRunStreamBacklogIn
     # enough to stall every other stream on the ASGI event loop.
     entries = list(tasks_facade.parse_task_run_log_entries(log_content))
     return entries, TaskRunStreamBacklogIndex(entries)
-
-
-TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
@@ -1648,7 +1646,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             self._user_id(),
             artifacts=request.validated_data["artifacts"],
-            upload_expiration_seconds=TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
+            upload_expiration_seconds=tasks_facade.TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
         )
         if result is None:
             raise NotFound()
@@ -3310,7 +3308,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             artifacts=request.validated_data["artifacts"],
-            upload_expiration_seconds=TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
+            upload_expiration_seconds=tasks_facade.TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
             form_overhead_bytes=TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES,
         )
         if prepared is None and ok:

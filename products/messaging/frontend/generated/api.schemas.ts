@@ -1295,8 +1295,6 @@ export interface UserBasicApi {
 }
 
 export interface MessageTemplateApi {
-    /** Project folder for the new email template. */
-    _create_in_folder?: string
     readonly id: string
     /**
      * Human-readable template name shown in the library.
@@ -1351,8 +1349,6 @@ export interface PaginatedMessageTemplateListApi {
 }
 
 export interface PatchedMessageTemplateApi {
-    /** Project folder for the new email template. */
-    _create_in_folder?: string
     readonly id?: string
     /**
      * Human-readable template name shown in the library.
@@ -1482,14 +1478,6 @@ export interface MakeTransactionalApi {
      * @maxLength 64
      */
     confirmed_digest?: string
-}
-
-export interface MessageTemplatePlacementApi {
-    /**
-     * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
-     * @nullable
-     */
-    path: string | null
 }
 
 /**
@@ -1710,6 +1698,13 @@ export interface TransactionalEmailLogEventApi {
     reason: string | null
 }
 
+export interface TransactionalEmailTrackingApi {
+    /** False when the email went out with open tracking off, so it can never record an open. */
+    opens: boolean
+    /** False when the email went out with click tracking off, so it can never record a click. */
+    clicks: boolean
+}
+
 export interface TransactionalEmailLogDetailApi {
     /** The `message_id` that the send returned. */
     message_id: string
@@ -1763,6 +1758,8 @@ export interface TransactionalEmailLogDetailApi {
     action_id: string
     /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
     sensitive: boolean
+    /** What PostHog tracked for this email, in the terms of the send request's `tracking` option. Each kind reads true until the email's sent status arrives, and for an email sent before PostHog recorded it. */
+    tracking: TransactionalEmailTrackingApi
 }
 
 export interface TransactionalEmailActivityEventApi {
@@ -1842,16 +1839,25 @@ export interface TransactionalEmailImpactApi {
     opened: number
     /** Sends with at least one tracked link click. */
     clicked: number
-    /** Delivered sends nobody clicked. */
+    /** Delivered sends nobody clicked, of those that tracked clicks. */
     not_clicked: number
     /** Sends that went out with open and click tracking off, counted by when they were queued like the other counts. They can't record an open or a click. */
     untracked: number
+    /** Sends that went out with opens tracked and click tracking off, counted like `untracked`. They can't record a click, so `not_clicked` and `without_click` leave them out, along with the `untracked` sends. */
+    clicks_untracked: number
     /** How many days after the click or the send the event counts. */
     window_days: number
     /** Clicked sends and how many converted. Null without an event. */
     after_click: TransactionalEmailConversionsApi | null
     /** Delivered sends nobody clicked and how many converted. Null without an event. */
     without_click: TransactionalEmailConversionsApi | null
+    /**
+     * Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends at most. Sends that went out while link tagging was off carry no tag. Null when link_tagging_enabled is false, when the user has no access to querying events, or when the count could not be computed.
+     * @nullable
+     */
+    sessions: number | null
+    /** Whether the project setting that tags tracked links on the sender's own domain with ph_workflow_run is on now. The tag connects a click to its session. When false, sessions is null. Set it with workflows_config.email_workflow_run_link_tag_enabled in the project settings. */
+    link_tagging_enabled: boolean
 }
 
 export interface TransactionalEmailResultsApi {
