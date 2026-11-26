@@ -92,7 +92,6 @@ function containerLength(text: string, truncated: boolean): number {
     return text.length
 }
 
-// Returns the whole window when the value may continue past it.
 function unquotedValueLength(rest: string, separator: string, truncated: boolean): number {
     if (truncated && /^["']/.test(rest)) {
         return rest.length
