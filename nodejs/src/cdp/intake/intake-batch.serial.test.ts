@@ -25,7 +25,7 @@ import {
 } from '../services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocation } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
-import { IntakeBatchServices, insertIntakeBatch } from './intake-batch'
+import { IntakeBatchServices, SHADOW_COPY_MAX_AGE_MS, insertIntakeBatch } from './intake-batch'
 import { IntakeOutput, IntakeProducer } from './intake-producer'
 import { encodeIntakeMessage } from './message'
 import { keyedRunId } from './run-intake'
@@ -278,7 +278,7 @@ describe('insertIntakeBatch', () => {
 
     it.each([
         ['a fresh shadow copy', 0, 1],
-        ['a shadow copy older than the 92-hour cutoff', 93 * 60 * 60 * 1000, 0],
+        ['a shadow copy older than its claim can be trusted', SHADOW_COPY_MAX_AGE_MS + 60_000, 0],
     ])('inserts %s only while its claim still holds', async (_name, ageMs, jobs) => {
         const run = send({ shadow: true, producedAt: Date.now() - ageMs })
 

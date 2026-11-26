@@ -8,6 +8,7 @@ import { retryIfRetriable } from '~/common/utils/retries'
 import { HogFlow } from '../schema/hogflow'
 import type { CyclotronV2Manager } from '../services/cyclotron-v2'
 import { SerializedJobState, StateOpener, openSealedState } from '../services/cyclotron-v2/job-codec'
+import { IDEMPOTENCY_KEY_TTL_MS } from '../services/cyclotron-v2/manager'
 import { CyclotronV2IdempotentOutcome } from '../services/cyclotron-v2/types'
 import { CdpDeadLetterService, DeadLetterCircuitBreakerError } from '../services/dead-letter/cdp-dead-letter.service'
 import { EMAIL_QUEUE_PRIORITY, cdpEmailQueuedTotal } from '../services/messaging/email-priority'
@@ -78,8 +79,7 @@ type IntakeRun = {
 
 // A shadow copy repeats a run the route already inserted and claimed. Once the claim can have expired with its job,
 // inserting the copy would run it a second time, so an older copy is skipped. Topic retention keeps copies younger.
-// Pinned below the shortest TTL a claim was ever written with, so claims from before a TTL change still cover it.
-export const SHADOW_COPY_MAX_AGE_MS = 92 * 60 * 60 * 1000
+export const SHADOW_COPY_MAX_AGE_MS = IDEMPOTENCY_KEY_TTL_MS - 4 * 60 * 60 * 1000
 
 /**
  * Inserts a batch of intake messages as cyclotron jobs, each run exactly once.
