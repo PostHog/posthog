@@ -186,7 +186,7 @@ from products.dashboards.backend.facade.api import (
     dashboard_refs,
     hide_tiles_for_insights,
     insight_has_listed_tile,
-    insight_ids_on_dashboard,
+    insight_ids_on_dashboards,
     insights_with_dashboard_edit_access,
     plan_insight_tile_placement,
     restore_tiles_for_insights,
@@ -2692,9 +2692,10 @@ class InsightViewSet(
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
                     dashboards_ids = json.loads(dashboards_filter)
-                    for dashboard_id in dashboards_ids:
-                        # filter by dashboards one at a time so the filter is AND not OR
-                        queryset = queryset.filter(id__in=insight_ids_on_dashboard(dashboard_id))
+                    if dashboards_ids:
+                        # An insight must be on every listed dashboard, so the filter is AND, not OR.
+                        insight_ids_by_dashboard = insight_ids_on_dashboards(dashboards_ids)
+                        queryset = queryset.filter(id__in=frozenset.intersection(*insight_ids_by_dashboard.values()))
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:

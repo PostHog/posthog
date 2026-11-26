@@ -412,7 +412,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -2725,7 +2733,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -6634,7 +6650,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -9127,7 +9151,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -10136,7 +10168,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -12541,7 +12581,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -13550,7 +13598,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -14594,7 +14650,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -17001,7 +17065,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -17991,7 +18063,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -18975,7 +19055,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -21469,7 +21557,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -22485,7 +22581,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -23596,7 +23700,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -26008,7 +26120,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -26989,7 +27109,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -27962,7 +28090,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -30717,7 +30853,15 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_dashboarditem"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_dashboarditem"."team_id" = 99999))
+         AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   '''
 # ---

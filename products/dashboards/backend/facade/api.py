@@ -573,12 +573,29 @@ def insight_ids_on_dashboard(dashboard_id: int, *, include_removed_tiles: bool =
 
     With `include_removed_tiles`, a soft-deleted tile counts too, as it does in the `Insight.dashboards` relation.
     """
+    return insight_ids_on_dashboards([dashboard_id], include_removed_tiles=include_removed_tiles)[int(dashboard_id)]
+
+
+def insight_ids_on_dashboards(
+    dashboard_ids: Collection[int], *, include_removed_tiles: bool = False
+) -> dict[int, frozenset[int]]:
+    """Ids of the insights with a tile on each of these dashboards, read in one query.
+
+    Every requested dashboard is a key, and maps to an empty set when it has no tile. With `include_removed_tiles`,
+    a soft-deleted tile counts too, as it does in the `Insight.dashboards` relation.
+    """
+    if not dashboard_ids:
+        return {}
     manager = DashboardTile.objects_including_soft_deleted if include_removed_tiles else DashboardTile.objects
+    insight_ids: dict[int, set[int]] = {int(dashboard_id): set() for dashboard_id in dashboard_ids}
     # Filtering a list the caller has already scoped to its own team.
     # nosemgrep: idor-lookup-without-team
-    return frozenset(
-        manager.filter(dashboard__id=dashboard_id, insight_id__isnull=False).values_list("insight_id", flat=True)
+    tiles = manager.filter(dashboard_id__in=insight_ids.keys(), insight_id__isnull=False).values_list(
+        "dashboard_id", "insight_id"
     )
+    for dashboard_id, insight_id in tiles:
+        insight_ids[dashboard_id].add(insight_id)
+    return {dashboard_id: frozenset(ids) for dashboard_id, ids in insight_ids.items()}
 
 
 def tile_for_insight_on_dashboard(*, insight_id: int, dashboard_id: int | str) -> DashboardTile | None:
@@ -1282,6 +1299,7 @@ __all__ = [
     "home_dashboard_insights",
     "insight_has_listed_tile",
     "insight_ids_on_dashboard",
+    "insight_ids_on_dashboards",
     "insight_ids_on_dashboards_accessed_since",
     "insight_tiles",
     "insights_with_dashboard_edit_access",

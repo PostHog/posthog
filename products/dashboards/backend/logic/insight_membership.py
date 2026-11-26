@@ -5,6 +5,7 @@ from django.utils.timezone import now
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.facade.models import Insight
 
 
 def create_insight_tile(
@@ -17,10 +18,17 @@ def create_insight_tile(
 
 
 def create_insight_tiles(*, insight_id: int, team_id: int, dashboard_ids: Sequence[int]) -> None:
+    if not dashboard_ids:
+        return
+    # DashboardTile.save reads the tile's insight, and its dashboard when the insight has legacy filters.
+    # Load both once here, so that placing an insight on N dashboards does not read them N times.
+    insight = Insight.objects_including_soft_deleted.get(pk=insight_id, team_id=team_id)
+    dashboards = Dashboard.objects_including_soft_deleted.in_bulk(dashboard_ids) if insight.filters else {}
     for dashboard_id in dashboard_ids:
-        DashboardTile.objects.create(
-            insight_id=insight_id, dashboard_id=dashboard_id, team_id=team_id, last_refresh=now()
-        )
+        tile = DashboardTile(insight=insight, dashboard_id=dashboard_id, team_id=team_id, last_refresh=now())
+        if dashboard_id in dashboards:
+            tile.dashboard = dashboards[dashboard_id]
+        tile.save()
 
 
 def restore_or_create_insight_tile(*, dashboard: Dashboard, insight_id: int) -> tuple[DashboardTile, bool]:
