@@ -89,6 +89,11 @@ class TestReplaceInBlob(SimpleTestCase):
                 '<img src="https://cdn.tools.unlayer.com/social/icons/x.png">',
                 '<img src="https://cdn.tools.unlayer.com/social/icons/x.png">',
             ),
+            (
+                "quoted address with a space in the file name",
+                '<img src="https://assets.unlayer.com/projects/275430/1712000000000 banner.png?w=2">',
+                f'<img src="{COPY}?w=2">',
+            ),
             ("plain text after the address", f"{BANNER} is our banner", f"{COPY} is our banner"),
             ("two addresses on their own lines", f"{BANNER}\n{BANNER}", f"{COPY}\n{COPY}"),
         ]
@@ -96,7 +101,7 @@ class TestReplaceInBlob(SimpleTestCase):
     def test_replaces_every_spelling_of_a_copied_image_and_nothing_else(
         self, _name: str, before: str, after: str
     ) -> None:
-        copies = {BANNER: COPY}
+        copies = {BANNER: COPY, "https://assets.unlayer.com/projects/275430/1712000000000%20banner.png": COPY}
         assert replace_in_blob({"html": before}, copies)[0] == {"html": after}
 
     @parameterized.expand(
@@ -250,6 +255,10 @@ class TestCopyUnlayerEmailImages(BaseTest):
         flow.refresh_from_db()
         assert flow.actions[0]["config"]["inputs"]["email"]["value"]["html"] == _unlayer_html(BANNER)
         assert not UploadedMedia.objects.filter(team_id=self.team.id).exists()
+
+    def test_refuses_a_negative_team_limit(self) -> None:
+        with self.assertRaises(CommandError):
+            call_command("copy_unlayer_email_images", "--all-teams", "--max-teams", "-1")
 
     @override_settings(UPLOADED_MEDIA_PUBLIC_URL="", SITE_URL="http://localhost:8000")
     def test_refuses_to_write_copies_recipients_cannot_load(self) -> None:

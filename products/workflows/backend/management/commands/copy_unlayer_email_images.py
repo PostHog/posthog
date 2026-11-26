@@ -54,6 +54,8 @@ class Command(BaseCommand):
             raise CommandError("--no-fetch only works with --dry-run")
         if (options.get("after_team_id") is not None or options.get("max_teams") is not None) and not all_teams:
             raise CommandError("--after-team-id and --max-teams only work with --all-teams")
+        if (options.get("max_teams") or 0) < 0 or (options.get("after_team_id") or 0) < 0:
+            raise CommandError("--max-teams and --after-team-id can't be negative")
         if options["rate"] <= 0:
             raise CommandError("--rate must be above 0")
 

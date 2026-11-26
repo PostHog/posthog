@@ -21,6 +21,7 @@ import structlog
 from posthog.models import Team
 from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL, ObjectStorageUnavailable, UploadedMedia, sniff_image
 
+from products.workflows.backend.models.hog_flow.hog_flow import defer_hog_flow_reloads
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.services.email_content_rows import (
     TARGETS,
@@ -34,8 +35,11 @@ logger = structlog.get_logger(__name__)
 
 UNLAYER_HOST = "assets.unlayer.com"
 # The path only, so a query string after it stays where it is. ASCII only, so a lookalike host can't match.
+# Inside quotes an address runs to the closing quote, so a file name with a space stays whole.
 _UNLAYER_URL = re.compile(
-    r"(?:https?:)?//assets\.unlayer\.com/+projects/[0-9]+/[^\s\"'<>\\?#]+", re.IGNORECASE | re.ASCII
+    r"(?<=[\"'])(?:https?:)?//assets\.unlayer\.com/+projects/[0-9]+/[^\"'<>\\?#\n\r\t]+(?=[\"'?#])"
+    r"|(?:https?:)?//assets\.unlayer\.com/+projects/[0-9]+/[^\s\"'<>\\?#]+",
+    re.IGNORECASE | re.ASCII,
 )
 # A design stores an image address as its own value, unencoded, so the whole value is the address even with a space.
 _WHOLE_VALUE = re.compile(
@@ -281,13 +285,24 @@ def copy_team_images(
             continue
         outcome = _copy(team, key, project, dry_run=dry_run, fetch=fetch, limiter=limiter, max_bytes=max_bytes)
         report.images.append(outcome)
+        if outcome.status == "failed":
+            logger.info(
+                "workflows.unlayer_images.copy_failed",
+                team_id=team.pk,
+                source=key,
+                http_status=outcome.http_status,
+                failure=outcome.failure,
+                may_succeed_later=outcome.may_succeed_later,
+            )
         if outcome.status == "would_copy":
             copies[key] = f"(copy of {key})"
         elif outcome.status == "copied" and outcome.media_url is not None:
             copies[key] = outcome.media_url
 
-    for target, row_id in rows:
-        report.rows.append(_rewrite(target, row_id, copies, team_ids=team_ids, dry_run=dry_run))
+    # Workers reload the changed workflows once at the end, not once per saved row.
+    with defer_hog_flow_reloads():
+        for target, row_id in rows:
+            report.rows.append(_rewrite(target, row_id, copies, team_ids=team_ids, dry_run=dry_run))
     return report
 
 
