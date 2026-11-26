@@ -134,13 +134,13 @@ export type CloudProfile = z.infer<typeof CloudProfile>
 
 export type InputFile = { file: string; bytes: Buffer; sha256: string }
 
-export type ProfileInputs = {
+type ProfileInputs = {
     profile: CloudProfile
     runner: InputFile
     inputs: InputFile[]
-    readAlertFile: ReadAlertFile
 }
 
+export type CloudRunProfileInputs = ProfileInputs & { readAlertFile: ReadAlertFile }
 export type RunInputs = ProfileInputs & { card: RunCard }
 
 export class CloudProfileError extends Error {
@@ -181,7 +181,7 @@ export function loadCloudProfile(filePath: string): CloudProfile {
     return parseCloudProfile(filePath, readInput('cloud-profile.yaml', filePath))
 }
 
-export function loadRunInputs(filePath: string): ProfileInputs {
+export function loadRunInputs(filePath: string): CloudRunProfileInputs {
     const cloud = readInput('cloud-profile.yaml', filePath)
     const profile = parseCloudProfile(filePath, cloud)
     const dir = realpathSync(path.dirname(filePath))

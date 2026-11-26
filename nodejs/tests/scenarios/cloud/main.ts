@@ -7,7 +7,7 @@ import { isCardId, runCardOf } from './card'
 import { awaitCard, lastWorkAt, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
-import { CloudProfile, ProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
+import { CloudProfile, CloudRunProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
 import { report } from './report'
 import { addReader, createRunStack } from './stack'
 import { teardown } from './teardown'
@@ -39,7 +39,7 @@ function defaultController(): Controller {
     return { ...controller, origin: githubOrigin(controller) }
 }
 
-async function run(controller: Controller, inputs: ProfileInputs, cardId: string): Promise<number> {
+async function run(controller: Controller, inputs: CloudRunProfileInputs, cardId: string): Promise<number> {
     const { profile } = inputs
     const { min, max, idleMax } = profile.readerAcu
     if (idleMax !== undefined && idleMax < min) {
