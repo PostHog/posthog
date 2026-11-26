@@ -1,117 +1,133 @@
+import { OpeningTag, asciiLowerCase, readOpeningTag } from './opening-tag'
+
 export type HrefAnchor = {
     html: string
     href: string
 }
 
-type IndexFinder = (from: number) => number
+const COMMENT_START = /<!--(?!\[if\b[^<>]*\]>)/iy
+const COMMENT_END = /(?<=--)>|--!>/g
+const TAG_NAME = /<(\/?)([A-Za-z][^\t\n\f\r />]*)/y
+const JAVASCRIPT_SCHEME = /^javascript:/i
+const RAW_TEXT_ELEMENTS = ['script', 'style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes']
+const FOREIGN_ELEMENTS = ['svg', 'math']
+const CDATA_START = /<!\[CDATA\[/y
+const DECLARATION_START = /<(?:[!?]|\/(?![A-Za-z]))/y
 
-type HrefValue = { href: string; end: number }
-
-type ValueStream = {
-    nextValueEnd: IndexFinder
-    nextTagEnd: IndexFinder
-    nextAnchorClose: IndexFinder
-}
-
-const memoizedFinder = (html: string, pattern: RegExp): IndexFinder => {
-    const search = new RegExp(pattern)
-    let searchedFrom = -1
-    let found = -1
-    return (from) => {
-        if (searchedFrom === -1 || from < searchedFrom || (found !== -1 && from > found)) {
-            search.lastIndex = from
-            found = search.exec(html)?.index ?? -1
-            searchedFrom = from
+const rawTextEndFinder = (html: string): ((name: string, from: number) => number) => {
+    const unclosed = new Set<string>()
+    return (name, from) => {
+        const endTag = new RegExp(`</${name}[\\t\\n\\f\\r />]`, 'gi')
+        endTag.lastIndex = from
+        const end = unclosed.has(name) ? -1 : (endTag.exec(html)?.index ?? -1)
+        if (end === -1) {
+            unclosed.add(name)
         }
-        return found
+        return end
     }
 }
 
-const valueStream = (html: string, valueEnd: RegExp): ValueStream => ({
-    nextValueEnd: memoizedFinder(html, valueEnd),
-    nextTagEnd: memoizedFinder(html, />/g),
-    nextAnchorClose: memoizedFinder(html, /<\/a>/gi),
-})
-
-const hrefMatcher = (html: string): ((hrefStart: number) => HrefValue | null) => {
-    const assignment = /\s*=\s*/y
-    const javascriptScheme = /javascript:/iy
-    const doubleQuoted = valueStream(html, /"/g)
-    const singleQuoted = valueStream(html, /'/g)
-    const unquoted = valueStream(html, /['">\s]/g)
-
-    const isJavascriptAt = (position: number): boolean => {
-        javascriptScheme.lastIndex = position
-        return javascriptScheme.test(html)
-    }
-
-    const quotedValue = (valueStart: number, stream: ValueStream): HrefValue | null => {
-        if (isJavascriptAt(valueStart + 1)) {
-            return null
-        }
-        const closingQuote = stream.nextValueEnd(valueStart + 1)
-        return closingQuote === -1 ? null : { href: html.slice(valueStart + 1, closingQuote), end: closingQuote + 1 }
-    }
-
-    const unquotedValue = (valueStart: number): HrefValue | null => {
-        if (isJavascriptAt(valueStart)) {
-            return null
-        }
-        const stop = unquoted.nextValueEnd(valueStart)
-        const end = stop === -1 ? html.length : stop
-        return end === valueStart ? null : { href: html.slice(valueStart, end), end }
-    }
-
-    return (hrefStart) => {
-        assignment.lastIndex = hrefStart + 'href'.length
-        if (!assignment.test(html)) {
-            return null
-        }
-        const valueStart = assignment.lastIndex
-        const quote = html[valueStart]
-        const stream = quote === '"' ? doubleQuoted : quote === "'" ? singleQuoted : unquoted
-        const value = stream === unquoted ? unquotedValue(valueStart) : quotedValue(valueStart, stream)
-        if (!value) {
-            return null
-        }
-        const tagEnd = stream.nextTagEnd(value.end)
-        const anchorClose = tagEnd === -1 ? -1 : stream.nextAnchorClose(tagEnd + 1)
-        return anchorClose === -1 ? null : { href: value.href, end: anchorClose + '</a>'.length }
-    }
-}
+const trackableHref = (tag: OpeningTag): string | null =>
+    tag.attributes.findLast(({ name, value }) => name === 'href' && value !== null && !JAVASCRIPT_SCHEME.test(value))
+        ?.value ?? null
 
 export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) => string): string => {
-    const nextAnchorStart = memoizedFinder(html, /<a\b/gi)
-    const nextOpeningTagEnd = memoizedFinder(html, />/g)
-    const nextHref = memoizedFinder(html, /\bhref/gi)
-    const hrefMatchAt = hrefMatcher(html)
-
     const pieces: string[] = []
     let copiedUpTo = 0
-    let searchFrom = 0
-    let unscannedHrefsFrom = 0
-    let lastMatch: { hrefStart: number; match: HrefValue } | null = null
+    let open: { start: number; href: string } | null = null
+    let commentsCanClose = true
+    let quotesCanClose = true
+    let cdataCanClose = true
+    let declarationsCanClose = true
+    let foreignDepth = 0
+    const rawTextEnd = rawTextEndFinder(html)
 
-    for (let start = nextAnchorStart(searchFrom); start !== -1; start = nextAnchorStart(searchFrom)) {
-        const attributesStart = start + '<a'.length
-        const openingTagEnd = nextOpeningTagEnd(attributesStart)
-        const lastHrefStart = openingTagEnd === -1 ? html.length : openingTagEnd
-        const firstHrefStart = Math.max(unscannedHrefsFrom, attributesStart)
-        for (let hrefStart = nextHref(firstHrefStart); hrefStart !== -1 && hrefStart <= lastHrefStart; ) {
-            const match = hrefMatchAt(hrefStart)
-            if (match) {
-                lastMatch = { hrefStart, match }
-            }
-            hrefStart = nextHref(hrefStart + 1)
-        }
-        unscannedHrefsFrom = Math.max(unscannedHrefsFrom, lastHrefStart + 1)
-        if (!lastMatch || lastMatch.hrefStart < attributesStart) {
-            searchFrom = start + 1
+    for (let position = html.indexOf('<'); position !== -1; position = html.indexOf('<', position)) {
+        COMMENT_START.lastIndex = position
+        if (COMMENT_START.test(html)) {
+            COMMENT_END.lastIndex = position + '<!--'.length
+            commentsCanClose = commentsCanClose && COMMENT_END.test(html)
+            position = commentsCanClose ? COMMENT_END.lastIndex : position + 1
             continue
         }
-        const { href, end } = lastMatch.match
-        pieces.push(html.slice(copiedUpTo, start), replace({ html: html.slice(start, end), href }))
-        copiedUpTo = searchFrom = end
+        CDATA_START.lastIndex = position
+        if (foreignDepth > 0 && CDATA_START.test(html)) {
+            const end: number = cdataCanClose ? html.indexOf(']]>', CDATA_START.lastIndex) : -1
+            cdataCanClose = end !== -1
+            position = cdataCanClose ? end + ']]>'.length : position + 1
+            continue
+        }
+        DECLARATION_START.lastIndex = position
+        if (DECLARATION_START.test(html)) {
+            const end: number = declarationsCanClose ? html.indexOf('>', position) : -1
+            declarationsCanClose = end !== -1
+            position = declarationsCanClose ? end + 1 : position + 1
+            continue
+        }
+        TAG_NAME.lastIndex = position
+        const tagName = TAG_NAME.exec(html)
+        if (!tagName) {
+            position += 1
+            continue
+        }
+        const name = asciiLowerCase(tagName[2])
+        const isEndTag = tagName[1] === '/'
+        const isAnchor = name === 'a'
+        const attributesStart = TAG_NAME.lastIndex
+        let tag = quotesCanClose ? readOpeningTag(html, attributesStart, isAnchor) : null
+        if (!tag || tag.end === -1) {
+            quotesCanClose = false
+            const cut = html.indexOf('>', attributesStart)
+            if (cut === -1) {
+                break
+            }
+            const { attributes, selfClosing } = readOpeningTag(
+                html.slice(position, cut + 1),
+                attributesStart - position,
+                isAnchor
+            )
+            tag = {
+                selfClosing,
+                attributes: attributes
+                    .filter(({ end }) => end <= cut - position)
+                    .map((attribute) => ({
+                        ...attribute,
+                        start: attribute.start + position,
+                        end: attribute.end + position,
+                    })),
+                end: cut,
+            }
+        }
+        if (FOREIGN_ELEMENTS.includes(name) && !tag.selfClosing) {
+            foreignDepth = isEndTag ? Math.max(0, foreignDepth - 1) : foreignDepth + 1
+        }
+        if (!isEndTag && foreignDepth === 0 && RAW_TEXT_ELEMENTS.includes(name)) {
+            const end = rawTextEnd(name, tag.end + 1)
+            position = end === -1 ? tag.end + 1 : end
+            continue
+        }
+        if (isAnchor && foreignDepth > 0 && tag.selfClosing) {
+            position = tag.end + 1
+            continue
+        }
+        if (isAnchor && open) {
+            const end = isEndTag ? tag.end + 1 : position
+            pieces.push(
+                html.slice(copiedUpTo, open.start),
+                replace({ html: html.slice(open.start, end), href: open.href })
+            )
+            copiedUpTo = end
+            open = null
+        }
+        if (isAnchor && !isEndTag) {
+            const href = trackableHref(tag)
+            open = href === null ? null : { start: position, href }
+        }
+        position = tag.end + 1
+    }
+    if (open) {
+        pieces.push(html.slice(copiedUpTo, open.start), replace({ html: html.slice(open.start), href: open.href }))
+        copiedUpTo = html.length
     }
     pieces.push(html.slice(copiedUpTo))
     return pieces.join('')
