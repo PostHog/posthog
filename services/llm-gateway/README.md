@@ -4,7 +4,7 @@
 > This service takes no changes and is being removed.
 > It last served inference on 2026-11-18 in US and 2026-11-04 in EU.
 > Send LLM traffic through the Go AI gateway, [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway).
-> In Django, build the client with `build_ai_gateway_openai_client` or `build_ai_gateway_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py).
+> In Django, build the client with `build_openai_client` or `build_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py).
 > To move an existing caller, read `/migrating-llm-gateway-callers` and [`PARITY.md`](./PARITY.md).
 
 A standalone microservice for proxying LLM requests to Anthropic, OpenAI, OpenRouter, and Fireworks AI APIs.

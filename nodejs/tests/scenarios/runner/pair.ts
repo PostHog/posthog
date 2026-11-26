@@ -1,7 +1,7 @@
 import { type LoadedCard, cardHashOf } from '../cards'
 import type { DriveSummary } from '../generator/generator'
 import { bouncedSuppressed, noLoss } from '../judge/invariants'
-import type { DriveWindow, QueueSample } from '../judge/measurements'
+import { type DriveWindow, type QueueSample, maxOf } from '../judge/measurements'
 import { pgFailover } from '../valves/valves'
 import type { RunVerdict } from './runner'
 import { type Admission, type Status, unobservedValvesOf, withEvidenceError } from './status'
@@ -92,12 +92,12 @@ function queueCourseOf({ queue, drive }: JudgedRun): QueueCourse | null {
         return null
     }
     const dueAtStart = counted[0].due
-    const peakDue = Math.max(...counted.map(({ due }) => due))
+    const peakDue = maxOf(counted.map(({ due }) => due))
     return {
         dueAtStart,
         peakDue,
         growth: peakDue - dueAtStart,
-        peakOldestDueSeconds: Math.max(...counted.map(({ oldestDueSeconds }) => oldestDueSeconds)),
+        peakOldestDueSeconds: maxOf(counted.map(({ oldestDueSeconds }) => oldestDueSeconds)),
     }
 }
 

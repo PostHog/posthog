@@ -1143,7 +1143,7 @@ Note: Diffed against Asana's official OpenAPI spec (3 MB, ~120 GET paths). Also 
 
 ## Ashby — gaps
 
-Today (26): `application_feedback`, `application_hiring_team_roles`, `application_history`, `applications`, `archive_reasons`, `candidate_notes`, `candidate_tags`, `candidates`, `custom_fields`, `departments`, `interview_events`, `interview_schedules`, `interview_stage_groups`, `interview_stages`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `referrals`, `sequences`, `sources`, `survey_submissions`, `users`
+Today (30): `application_criteria_evaluations`, `application_feedback`, `application_hiring_team_roles`, `application_history`, `applications`, `archive_reasons`, `candidate_notes`, `candidate_tags`, `candidates`, `close_reasons`, `custom_fields`, `departments`, `interview_events`, `interview_schedules`, `interview_stage_groups`, `interview_stages`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `referrals`, `sequences`, `source_tracking_links`, `sources`, `survey_submissions`, `take_home_assignments`, `users`
 
 Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 
@@ -1157,10 +1157,10 @@ Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 - [x] `applicationHiringTeamRole.list` — membership table linking users to applications by role (recruiter, hiring manager) (medium)
 - [x] `surveySubmission.list` — candidate survey responses (including DEI surveys) tied to applications (medium)
 - [x] `candidate.listNotes` — recruiter notes per candidate, commonly wanted alongside candidates (medium)
-- [ ] `closeReason.list` — lookup resolving why openings/jobs were closed; pairs with the archiveReasons we already sync (medium)
-- [ ] `application.listCriteriaEvaluations` — structured per-criterion scores behind feedback, for calibrated scoring analysis (medium)
-- [ ] `takeHomeAssignment.list` — assignment issue/completion records, a stage most funnels drop out at (medium)
-- [ ] `sourceTrackingLink.list` — resolves attribution links behind the sources table already synced (low)
+- [x] `closeReason.list` — lookup resolving why openings/jobs were closed; pairs with the archiveReasons we already sync (medium)
+- [x] `application.listCriteriaEvaluations` — structured per-criterion scores behind feedback, for calibrated scoring analysis (medium)
+- [x] `takeHomeAssignment.list` — assignment issue/completion records, a stage most funnels drop out at (medium)
+- [x] `sourceTrackingLink.list` — resolves attribution links behind the sources table already synced (low)
 
 Note: `interview_events` is served from the nested `interviewEvents` array that `interviewSchedule.list` already returns in full, rather than fanning `interviewEvent.list` out once per schedule — both carry the same `InterviewEvent` objects.
 

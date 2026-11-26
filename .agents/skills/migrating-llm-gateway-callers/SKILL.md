@@ -40,7 +40,7 @@ Prefer the smallest existing pattern that matches the caller:
 
 Read [migration examples](references/migration-examples.md) for verified PRs covering Django clients, staged workload rollout, sandbox wiring, and attribution continuity. Follow the contract demonstrated by the relevant example rather than copying its code mechanically.
 
-1. Use `build_ai_gateway_openai_client` or `build_ai_gateway_anthropic_client` from `posthog/llm/gateway_client.py` for Django callers. They only reach the Go gateway. `build_openai_client`, `build_async_openai_client`, `build_anthropic_client` and `build_async_anthropic_client` still fall back to the Python gateway when `AI_GATEWAY_URL` is unset, and that fallback is being removed.
+1. Use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client` or `build_async_anthropic_client` from `posthog/llm/gateway_client.py` for Django callers. They read `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` and raise `GatewayNotConfiguredError` when either is missing. `build_ai_gateway_openai_client` sends the caller's own bearer instead of `AI_GATEWAY_API_KEY`.
 2. Use the slugless Go base URL. Do not carry a Python `/{product}/` path into the Go URL.
 3. Use a supported `phs_` or `pha_` credential with `llm_gateway:read`. Do not weaken auth or expose a shared secret to an untrusted runtime.
 4. Send event labels in one `X-PostHog-Properties` JSON object. Use the dedicated distinct ID and trace ID headers where required.
