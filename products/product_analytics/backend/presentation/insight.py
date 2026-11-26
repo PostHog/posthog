@@ -2694,7 +2694,7 @@ class InsightViewSet(
                     dashboards_ids = json.loads(dashboards_filter)
                     if not isinstance(dashboards_ids, list) or not all(
                         (isinstance(dashboard_id, int) and not isinstance(dashboard_id, bool))
-                        or (isinstance(dashboard_id, str) and dashboard_id.isdigit())
+                        or (isinstance(dashboard_id, str) and dashboard_id.isascii() and dashboard_id.isdigit())
                         for dashboard_id in dashboards_ids
                     ):
                         raise ValidationError(
