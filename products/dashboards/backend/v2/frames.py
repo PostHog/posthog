@@ -100,6 +100,10 @@ def _frames(
     kind = source.get("kind")
     if kind == "HogQLQuery":
         return hogql_frames(result, pivot=not as_table)
+    if kind == "TraceSpansAggregationQuery":
+        return span_aggregation_frames(result, as_table=as_table)
+    if kind == "TraceSpansQuery":
+        return span_list_frames(result)
     if kind == "MetricsQuery":
         return metrics_frames(result)
     if kind == "TrendsQuery":
@@ -107,10 +111,6 @@ def _frames(
             return trends_frames(TrendsQuery.model_validate(source), result)
         except ValidationError:
             return None
-    if kind == "TraceSpansAggregationQuery":
-        return span_aggregation_frames(result, as_table=as_table)
-    if kind == "TraceSpansQuery":
-        return span_list_frames(result)
     return None
 
 
