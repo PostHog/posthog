@@ -1325,6 +1325,33 @@ class TestActivateBillingAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert manager.call_args.args[0] == self.organization
 
+    @parameterized.expand(
+        [
+            ("overview_query", "get", "", "query"),
+            ("payment_body", "post", "activate/authorize/", "body"),
+            ("startup_body", "post", "startups/apply/", "body"),
+        ]
+    )
+    def test_organization_in_the_path_refuses_another_organization(
+        self, _name: str, method: str, path: str, sent_in: str
+    ) -> None:
+        organization = Organization.objects.create(name="Another organization")
+        OrganizationMembership.objects.create(
+            organization=organization, user=self.user, level=OrganizationMembership.Level.OWNER
+        )
+        url = f"/api/billing/{self.organization.id}/{path}"
+        other = {"organization_id": str(organization.id)}
+
+        with patch("ee.api.billing.BillingManager") as manager:
+            if sent_in == "query":
+                response = self.client.get(url, other)
+            else:
+                response = getattr(self.client, method)(url, other, content_type="application/json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "organization_id"
+        manager.assert_not_called()
+
     def test_organization_in_the_path_requires_membership(self) -> None:
         organization = Organization.objects.create(name="Organization the user is not in")
 
@@ -2571,6 +2598,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
             ("limits_route", "/api/billing//", status.HTTP_403_FORBIDDEN),
             ("list_route", "/api/billing/", status.HTTP_403_FORBIDDEN),
             ("read_only_route", "/api/billing/period/", status.HTTP_405_METHOD_NOT_ALLOWED),
+            ("organization_list_route", "/api/billing/{organization_id}/", status.HTTP_403_FORBIDDEN),
         ]
     )
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
@@ -2579,7 +2607,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self, _name: str, url: str, expected_status: int, _mock_feature_enabled, mock_update_billing
     ):
         response = self.client.patch(
-            url,
+            url.format(organization_id=self.organization.id),
             data={"custom_limits_usd": {"events": 10}},
             content_type="application/json",
         )

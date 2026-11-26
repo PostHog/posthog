@@ -1,6 +1,6 @@
 import re
 import json
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any, Literal, NoReturn, Optional, cast
@@ -720,14 +720,16 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # The router passes an action's permission_classes only to that action's own route, so the list route
             # takes them here.
             self.permission_classes = self.update_limits.kwargs["permission_classes"]
-        if self._organization_in_path:
-            # /api/billing/:organization_id/ names the organization, so no action follows the user's current project.
-            self.param_derived_from_user_current_team = None
         scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
         scoped_startup_application = self.action == "apply_startup_program" and bool(
             request.data.get("organization_id")
         )
-        if self.action in self.payment_actions or scoped_startup_application or scoped_billing_read:
+        if self._organization_in_path:
+            # /api/billing/:organization_id/ names the organization, so no action follows the user's current project
+            # or an organization_id sent in the body or query.
+            self.param_derived_from_user_current_team = None
+            self._refuse_another_organization(request)
+        elif self.action in self.payment_actions or scoped_startup_application or scoped_billing_read:
             serializer = BillingPaymentOrganizationSerializer(
                 data=request.query_params if scoped_billing_read else request.data
             )
@@ -739,6 +741,21 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 serializer.validated_data["organization_id"]
             )
         super().initial(request, *args, **kwargs)
+
+    def _refuse_another_organization(self, request: Request) -> None:
+        path_organization_id = UUID(self.kwargs[f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id"])
+        supplied = [request.query_params.get("organization_id")]
+        if isinstance(request.data, Mapping):
+            supplied.append(request.data.get("organization_id"))
+        for value in supplied:
+            if value is None:
+                continue
+            try:
+                matches = UUID(str(value)) == path_organization_id
+            except ValueError:
+                matches = False
+            if not matches:
+                raise ValidationError({"organization_id": "Does not match the organization in the path."})
 
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
@@ -1159,7 +1176,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not isinstance(user, User):
             raise PermissionDenied("You must be logged in to apply for the startup program")
 
-        organization_id = request.data.get("organization_id")
+        organization_id = request.data.get("organization_id") or self.kwargs.get(
+            f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id"
+        )
         if not organization_id:
             raise ValidationError({"organization_id": "This field is required."})
 
