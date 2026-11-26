@@ -1498,9 +1498,15 @@ class TestObservationStateActivities:
             observation_id=observation.id, scanner_result=result, scanner_type=model_output.scanner_type
         )
 
-        sdk = posthoganalytics.Client("phc_test", host="https://capture.example.com", sync_mode=True)
+        sdk = posthoganalytics.Client(
+            "phc_test", host="https://capture.example.com", sync_mode=True, capture_compression="none"
+        )
         with responses.RequestsMock() as capture, patch.multiple(posthoganalytics, default_client=sdk, disabled=False):
-            capture.add(responses.POST, "https://capture.example.com/i/v1/analytics/events", json={})
+            capture.add(
+                responses.POST,
+                "https://capture.example.com/i/v1/analytics/events",
+                json={"results": {str(observation.id): {"result": "ok"}}},
+            )
             mark_observation_succeeded_activity(inputs)
             mark_observation_succeeded_activity(inputs)  # retry: the transition is sticky, so no second event
             requests_sent = [call.request for call in capture.calls]
