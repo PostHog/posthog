@@ -1212,20 +1212,25 @@ class QueryBatch:
 
     def _report_logql_executed(self, query_id: str, started: float, *, has_error: bool) -> None:
         # LogQL has no query runner to send `query executed`, so the batch sends it, with the runner's core fields.
-        report_user_or_team_action(
-            "query executed",
-            {
-                "query_type": "LogQLQuery",
-                "query_id": query_id,
-                "dashboard_id": self._dashboard_id,
-                "cache_hit": False,
-                "has_error": has_error,
-                "response_time_ms": round((monotonic() - started) * 1000),
-            },
-            user=self._user,
-            team=self._team,
-            organization=self._team.organization,
-        )
+        # A reporting failure must not escape: `_work` would never queue the item's line, and its panel would wait out
+        # the batch deadline.
+        try:
+            report_user_or_team_action(
+                "query executed",
+                {
+                    "query_type": "LogQLQuery",
+                    "query_id": query_id,
+                    "dashboard_id": self._dashboard_id,
+                    "cache_hit": False,
+                    "has_error": has_error,
+                    "response_time_ms": round((monotonic() - started) * 1000),
+                },
+                user=self._user,
+                team=self._team,
+                organization=self._team.organization,
+            )
+        except Exception as e:
+            capture_exception(e)
 
     def _emit(self, line: tuple[int, bytes]) -> None:
         if self._is_cancelled():

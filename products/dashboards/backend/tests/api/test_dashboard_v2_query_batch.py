@@ -1370,6 +1370,19 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual(properties["has_error"], has_error)
         self.assertTrue(properties["query_id"].startswith("dashboard-v2-batch-"))
 
+    def test_a_logql_item_still_answers_when_reporting_fails(self) -> None:
+        with (
+            _snuffle_requests(200, _matrix(0)),
+            patch(
+                "products.dashboards.backend.v2.query_batch.report_user_or_team_action",
+                side_effect=RuntimeError("capture down"),
+            ),
+        ):
+            lines = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+
+        self.assertEqual(len(lines), 1)
+        self.assertNotIn("error", lines[0])
+
     @parameterized.expand([("no_access", "none", False), ("viewer", "viewer", True)])
     def test_a_member_runs_logql_only_with_logs_access(self, _name: str, access_level: str, runs: bool) -> None:
         self.organization.available_product_features = [
