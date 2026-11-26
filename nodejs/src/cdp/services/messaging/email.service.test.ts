@@ -3067,25 +3067,28 @@ describe('EmailService', () => {
                 }
             )
 
-            const heartbeatsEvery = (intervalMs: number): (() => number) => {
+            const heartbeatsEvery = (intervalMs: number, firstAfterMs: number): (() => number) => {
                 const dequeuedAt = Date.now()
-                return () =>
-                    intervalMs > 0
-                        ? dequeuedAt + Math.floor((Date.now() - dequeuedAt) / intervalMs) * intervalMs
+                return () => {
+                    const sinceFirstMs = Date.now() - dequeuedAt - firstAfterMs
+                    return intervalMs > 0 && sinceFirstMs >= 0
+                        ? dequeuedAt + firstAfterMs + Math.floor(sinceFirstMs / intervalMs) * intervalMs
                         : dequeuedAt
+                }
             }
 
-            it.each<[string, number, number, number]>([
-                ['keeps landing heartbeats', 2_000, 500, 1],
-                ['has a stall timeout as short as the margin', 5_000, 1_000, 1],
-                ['has a stall timeout just past its heartbeat interval', 1_200, 1_000, 1],
-                ['lands no heartbeat', 2_000, 0, 0],
+            it.each<[string, number, number, number, number]>([
+                ['keeps landing heartbeats', 2_000, 500, 500, 1],
+                ['has a stall timeout as short as the margin', 5_000, 1_000, 1_000, 1],
+                ['has a stall timeout just past its heartbeat interval', 1_200, 1_000, 1_000, 1],
+                ['restarts its heartbeat after an 800 ms workflow lookup', 1_800, 700, 1_500, 1],
+                ['lands no heartbeat', 2_000, 0, 0, 0],
             ])(
-                'a send with files whose worker %s, with a stall timeout of %i ms and heartbeats every %i ms, sends %i emails while its files download',
-                async (_name, stallTimeoutMs, heartbeatIntervalMs, emails) => {
+                'a send with files whose worker %s, with a stall timeout of %i ms, heartbeats every %i ms from %i ms, sends %i emails while its files download',
+                async (_name, stallTimeoutMs, heartbeatIntervalMs, firstHeartbeatAfterMs, emails) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 10_000 })
                     emailService.endSendsWithFilesBeforeTheJobLeaseLapses(
-                        heartbeatsEvery(heartbeatIntervalMs),
+                        heartbeatsEvery(heartbeatIntervalMs, firstHeartbeatAfterMs),
                         stallTimeoutMs,
                         heartbeatIntervalMs
                     )

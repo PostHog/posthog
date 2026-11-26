@@ -744,8 +744,13 @@ export class EmailService {
         stallTimeoutMs: number,
         heartbeatIntervalMs: number
     ): void {
-        const roomForAHeartbeatMs = stallTimeoutMs - Math.max(0, heartbeatIntervalMs)
-        const marginMs = Math.min(JOB_LEASE_MARGIN_MS, stallTimeoutMs / 2, Math.max(0, roomForAHeartbeatMs / 2))
+        const longestHeartbeatGapMs = 2 * Math.max(0, heartbeatIntervalMs)
+        const roomPastTheLongestHeartbeatGapMs = stallTimeoutMs - longestHeartbeatGapMs
+        const marginMs = Math.min(
+            JOB_LEASE_MARGIN_MS,
+            stallTimeoutMs / 2,
+            Math.max(0, roomPastTheLongestHeartbeatGapMs / 2)
+        )
         this.jobLease = stallTimeoutMs > 0 ? { leaseConfirmedAt, leaseMs: stallTimeoutMs - marginMs } : null
     }
 
