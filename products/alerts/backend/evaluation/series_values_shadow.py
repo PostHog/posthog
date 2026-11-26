@@ -8,6 +8,8 @@ from temporalio.exceptions import CancelledError
 
 from posthog.schema import TrendsQuery
 
+from posthog.hogql.constants import HogQLGlobalSettings
+
 from posthog.caching.insight_result import InsightResult
 from posthog.dataclasses import frozen
 from posthog.errors import CHQueryErrorQueryWasCancelled
@@ -27,8 +29,10 @@ logger = structlog.get_logger(__name__)
 SERIES_VALUES_PRECOMPUTE_FLAG = "alerts-series-values-precompute"
 SHADOW_COMPARISON_EVENT = "alert series values shadow compared"
 SHADOW_BUILD_BUDGET_SECONDS = 60
-# The build can pass its budget by the time it takes to print one INSERT, so the attempt needs more
-# than the budget left.
+# The shadow run reads only stored rows, after the build. The cap keeps a slow read inside the margin below.
+SHADOW_READ_MAX_SECONDS = 10
+# The build can pass its budget by the time it takes to print one INSERT, and the read follows it, so the
+# attempt needs more than the budget left.
 SHADOW_ATTEMPT_MARGIN_SECONDS = 30
 
 AlertKind = Literal["threshold", "detector"]
@@ -75,7 +79,12 @@ def is_series_values_precompute_enabled(team: Team) -> bool:
 def effective_trends_runner(
     team: Team, query: TrendsQuery, filters_override: dict | None, user: User | None
 ) -> TrendsQueryRunner:
-    runner = TrendsQueryRunner(query=query.model_copy(deep=True), team=team, user=user)
+    runner = TrendsQueryRunner(
+        query=query.model_copy(deep=True),
+        team=team,
+        user=user,
+        hogql_settings=HogQLGlobalSettings(max_execution_time=SHADOW_READ_MAX_SECONDS),
+    )
     if filters_override:
         runner.apply_dashboard_filters(dashboard_filter_from_dict(filters_override))
     return runner
@@ -142,9 +151,7 @@ def compare_series_values_shadow(
             comparison = ShadowComparison(outcome="unavailable", reason="attempt_out_of_time")
         else:
             runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
-            precomputed = precomputed_series_values(
-                runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS
-            )
+            precomputed = precomputed_series_values(runner, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
             comparison = compare_precomputed_values(precomputed, live)
     except _CANCELLATION:
         raise

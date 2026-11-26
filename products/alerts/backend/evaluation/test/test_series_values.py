@@ -20,6 +20,7 @@ from products.alerts.backend.evaluation.dispatcher import check_alert_for_insigh
 from products.alerts.backend.evaluation.series_values_shadow import (
     SHADOW_BUILD_BUDGET_SECONDS,
     SHADOW_COMPARISON_EVENT,
+    SHADOW_READ_MAX_SECONDS,
     compare_precomputed_values,
     compare_series_values_shadow,
 )
@@ -144,6 +145,22 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         )
         return {row[0] for row in rows}
 
+    def _stored_read_execution_limits(self) -> set[str]:
+        sync_execute("SYSTEM FLUSH LOGS")
+        rows = sync_execute(
+            """
+            SELECT DISTINCT Settings['max_execution_time']
+            FROM system.query_log
+            WHERE type = 'QueryFinish'
+              AND query_kind = 'Select'
+              AND query LIKE '%%series_values_preaggregated%%'
+              AND query LIKE '%%day_start%%'
+              AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s
+            """,
+            {"team_id": self.team.pk},
+        )
+        return {row[0] for row in rows}
+
     def _shadowed_check(self, alert: AlertConfiguration) -> tuple[Any, dict[str, Any]]:
         with self._enrolled(), patch(f"{_SHADOW}.posthoganalytics.capture") as capture:
             result = check_alert_for_insight(alert)
@@ -180,6 +197,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert cold_properties["insight_kind"] == "trends"
         limits = self._insert_execution_limits()
         assert limits and all(1 <= int(limit) <= SHADOW_BUILD_BUDGET_SECONDS for limit in limits)
+        assert self._stored_read_execution_limits() == {str(SHADOW_READ_MAX_SECONDS)}
 
     @parameterized.expand([("threshold", None), ("detector", _THRESHOLD_DETECTOR)])
     def test_a_mismatch_never_changes_the_check(self, _name: str, detector: dict[str, Any] | None) -> None:
@@ -237,7 +255,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
         _, properties = self._shadowed_check(alert)
 
-        assert properties["features"] == ["event_property_filters"]
+        assert properties["features"] == ["event_name", "event_property_filters"]
 
     @parameterized.expand(
         [
