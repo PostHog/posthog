@@ -30,12 +30,14 @@ interface OpenStream {
 describe('createQueryBatchRunner', () => {
     let streams: OpenStream[]
     let status: number
+    let traceresponse: string | null
 
     beforeEach(() => {
         jest.useFakeTimers()
         Object.assign(globalThis, { TextDecoder, TextEncoder })
         streams = []
         status = 200
+        traceresponse = null
         globalThis.fetch = jest.fn(async (_url: string, init: RequestInit) => {
             let controller!: ReadableStreamDefaultController<Uint8Array>
             const stream = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) })
@@ -44,7 +46,12 @@ describe('createQueryBatchRunner', () => {
                 push: (text) => controller.enqueue(new TextEncoder().encode(text)),
                 close: () => controller.close(),
             })
-            return { ok: status < 400, status, body: status < 400 ? stream : null } as unknown as Response
+            return {
+                ok: status < 400,
+                status,
+                headers: { get: (name: string) => (name === 'traceresponse' ? traceresponse : null) },
+                body: status < 400 ? stream : null,
+            } as unknown as Response
         }) as unknown as typeof fetch
     })
 
@@ -184,10 +191,11 @@ describe('createQueryBatchRunner', () => {
         await expect(result).rejects.toThrow('done')
     })
 
-    it('sends a sampled traceparent and reports the round trip under its trace id', async () => {
+    it("sends a sampled traceparent and reports the round trip under the server's trace id", async () => {
         let clock = 1000
         jest.spyOn(performance, 'now').mockImplementation(() => clock)
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        traceresponse = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
         try {
             let tabOnScreen = 'main'
             const runQuery = createQueryBatchRunner(7, { context: () => ({ dashboard_tab_id: tabOnScreen }) })
@@ -217,7 +225,7 @@ describe('createQueryBatchRunner', () => {
                     QUERY_BATCH_TIMING_EVENT,
                     expect.objectContaining({
                         dashboard_tab_id: 'main',
-                        trace_id: traceparent.split('-')[1],
+                        trace_id: '4bf92f3577b34da6a3ce929d0e0e4736',
                         batch_index: 0,
                         query_count: 3,
                         query_languages: { hogql: 1, promql: 1, insight: 1 },

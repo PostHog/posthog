@@ -18,27 +18,30 @@ import { HealthChecksCoverageNote } from './HealthChecksCoverageNote'
 import { HealthFindingDetail } from './HealthFindingDetail'
 import { HealthFindingListItem } from './HealthFindingListItem'
 import { HealthOverviewDetail } from './HealthOverviewDetail'
-import { type HealthPanelCheck, listedHealthChecks } from './healthPanelChecks'
+import { type ExposureChecksState, type HealthPanelCheck, listedHealthChecks } from './healthPanelChecks'
 import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
 import { type HealthPanelSelection, healthFindingKey, resolveHealthPanelSelection } from './healthPanelSelection'
 
 export function HealthChecksPanel({
     checks,
     findings,
+    checksLoading,
     setup,
     exposures,
     isDraft,
-    exposureChecksMissing,
+    exposureChecks,
     onFindingActedOn,
 }: {
     checks: HealthPanelCheck[]
     /** Issues first, as `healthPanelFindings` sorts them. */
     findings: HealthPanelFinding[]
+    /** True until the first health answer arrives. Until then the checks and findings are empty. */
+    checksLoading: boolean
     setup: ExperimentHealthSetupApi | null
     /** The exposure answer that the exposure checks come from. Null for a draft and before it loads. */
     exposures: ExperimentExposureQueryResponse | null
     isDraft: boolean
-    exposureChecksMissing: boolean
+    exposureChecks: ExposureChecksState
     onFindingActedOn?: () => void
 }): JSX.Element {
     const [pickedSelection, setPickedSelection] = useState<HealthPanelSelection | null>(null)
@@ -132,21 +135,18 @@ export function HealthChecksPanel({
                                 ))}
                             </div>
                         )}
-                        {(listedChecks.length > 0 || exposureChecksMissing) && (
-                            <div className="border-t">
-                                <HealthCheckList
-                                    checks={listedChecks}
-                                    exposureChecksMissing={exposureChecksMissing}
-                                    selectedKey={selection.kind === 'check' ? selection.key : null}
-                                    onSelect={(check) => {
-                                        const isSelected = selection.kind === 'check' && selection.key === check.key
-                                        if (select({ kind: 'check', key: check.key }, isSelected)) {
-                                            reportHealthCheckExpanded(check)
-                                        }
-                                    }}
-                                />
-                            </div>
-                        )}
+                        <HealthCheckList
+                            checks={listedChecks}
+                            checksLoading={checksLoading}
+                            exposureChecks={exposureChecks}
+                            selectedKey={selection.kind === 'check' ? selection.key : null}
+                            onSelect={(check) => {
+                                const isSelected = selection.kind === 'check' && selection.key === check.key
+                                if (select({ kind: 'check', key: check.key }, isSelected)) {
+                                    reportHealthCheckExpanded(check)
+                                }
+                            }}
+                        />
                     </div>
                 </nav>
                 <section

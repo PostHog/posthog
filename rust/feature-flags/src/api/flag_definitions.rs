@@ -7,22 +7,24 @@ use crate::{
         instance_setting::{constance_key, fetch_instance_setting_raw_value},
     },
     flags::{flag_analytics::is_billable_flag_key, flag_request::FlagRequestType},
-    handler::types::Library,
+    handler::{canonical_log::truncate_chars, types::Library},
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
-        FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER, FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
+        FLAG_DEFINITIONS_FEED_COUNTER, FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER,
+        FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
     },
     router::State as AppState,
     team::team_models::Team,
+    utils::user_agent::UserAgentInfo,
 };
 use axum::{
     debug_handler,
-    extract::{Query, State},
+    extract::{Query, RawQuery, State},
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use common_hypercache::{CacheSource, HyperCacheError, KeyType};
+use common_hypercache::{CacheSource, HyperCacheError, HyperCacheReader, KeyType};
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
@@ -45,6 +47,14 @@ const ALLOWLIST_TTL_SECS: u64 = 60;
 pub(crate) const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
 pub(crate) const FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET: &str =
     "flag_definitions:rebuild_s3_requests";
+
+/// Object name of the definitions v2 entry. The name is a contract with the Django writer.
+pub const FLAG_DEFINITIONS_V2_OBJECT_NAME: &str = "flags_with_cohorts_v2.json";
+
+const FEED_LEGACY: &str = "legacy";
+const FEED_V2: &str = "v2";
+
+const MAX_LOGGED_SDK_VERSION_CHARS: usize = 64;
 
 /// `trigger` label values for `FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER`. The two triggers
 /// ramp independently, so the dashboard has to separate them.
@@ -251,12 +261,25 @@ pub struct FlagDefinitionsQueryParams {
 pub async fn flags_definitions(
     State(state): State<AppState>,
     Query(params): Query<FlagDefinitionsQueryParams>,
+    RawQuery(raw_query): RawQuery,
     headers: HeaderMap,
     method: Method,
 ) -> Result<Response, FlagError> {
+    let requests_v2 = requests_definitions_v2(raw_query.as_deref());
+    let user_agent = UserAgentInfo::parse(
+        headers
+            .get("user-agent")
+            .and_then(|value| value.to_str().ok()),
+    );
     info!(
         method = %method,
         token = ?params.token.as_deref().map(loggable_token),
+        requests_v2,
+        sdk_name = user_agent.sdk_name,
+        sdk_version = user_agent
+            .sdk_version
+            .as_deref()
+            .map(|version| truncate_chars(version, MAX_LOGGED_SDK_VERSION_CHARS)),
         "Processing flag definitions request"
     );
 
@@ -305,6 +328,40 @@ pub async fn flags_definitions(
     }
 
     let team_key = KeyType::team(team.clone());
+    let library = Library::from_headers(&headers);
+
+    let v2_step = if requests_v2 {
+        serve_v2_entry(&state, &team, &team_key, client_etag.as_deref(), library).await?
+    } else {
+        V2Step::Legacy {
+            full_budget_spent: false,
+        }
+    };
+    inc(
+        FLAG_DEFINITIONS_FEED_COUNTER,
+        &[
+            (
+                "requested".to_string(),
+                if requests_v2 { FEED_V2 } else { FEED_LEGACY }.to_string(),
+            ),
+            (
+                "served".to_string(),
+                if matches!(v2_step, V2Step::Served(_)) {
+                    FEED_V2
+                } else {
+                    FEED_LEGACY
+                }
+                .to_string(),
+            ),
+            ("library".to_string(), library.to_string()),
+        ],
+        1,
+    );
+    let full_budget_spent = match v2_step {
+        V2Step::Served(response) => return Ok(response),
+        V2Step::Legacy { full_budget_spent } => full_budget_spent,
+    };
+
     let current_etag = match state
         .flags_with_cohorts_hypercache_reader
         .get_etag(&team_key)
@@ -340,30 +397,20 @@ pub async fn flags_definitions(
     // If client sent a matching ETag, short-circuit with 304 (skip full data fetch)
     if let (Some(ref client_val), Some(ref current_val)) = (&client_etag, &current_etag) {
         if client_val == current_val {
-            inc(
-                FLAG_DEFINITIONS_ETAG_COUNTER,
-                &[("result".to_string(), "hit".to_string())],
-                1,
-            );
-            if !*state.config.skip_writes
-                && is_billable_for_etag(&state, &team_key, team.id, current_val).await
-            {
-                state.billing_aggregator.record(
-                    team.id,
-                    FlagRequestType::FlagDefinitionsNotModified,
-                    Some(Library::from_headers(&headers)),
-                );
-            }
-            return Ok(not_modified_response(current_val));
+            return Ok(answer_not_modified(
+                &state,
+                &state.flags_with_cohorts_hypercache_reader,
+                &team_key,
+                team.id,
+                current_val,
+                library,
+            )
+            .await);
         }
     }
 
-    // A stale ETag gets a full response, so it spends the full-response budget too. The
-    // conditional limiter already counted this request.
-    if client_etag.is_some() {
-        state
-            .flag_definitions_full_limiter
-            .check_rate_limit_without_request_count(team.id)?;
+    if !full_budget_spent {
+        spend_full_budget_on_stale_etag(&state, team.id, client_etag.as_deref())?;
     }
 
     let etag_result = if client_etag.is_some() {
@@ -379,29 +426,194 @@ pub async fn flags_definitions(
 
     // Retrieve cached response from HyperCache (always with cohorts)
     let (cached_response, cache_source) = get_from_cache(&state, &team_key, team.id).await?;
-
-    // Record usage for billing, filtering out non-billable flags (surveys, product tours).
-    let billable = has_billable_flags(&cached_response);
-    if let (Some(etag), Some(billable)) = (
-        &current_etag,
-        billable_for_etag_from(&cached_response, cache_source),
-    ) {
-        state
-            .definitions_billable_cache
-            .insert(team.id, etag, billable)
-            .await;
-    }
-    if !*state.config.skip_writes && billable {
-        let library = Library::from_headers(&headers);
-        state
-            .billing_aggregator
-            .record(team.id, FlagRequestType::FlagDefinitions, Some(library));
-    }
+    bill_full_response(
+        &state,
+        team.id,
+        &cached_response,
+        cache_source,
+        current_etag.as_deref(),
+        library,
+    )
+    .await;
 
     Ok(ok_response_with_etag(
         cached_response,
         current_etag.as_deref(),
     ))
+}
+
+/// Only a single `v` that decodes to `2` selects the definitions v2 feed, because clients
+/// already send other values. The typed extractor would answer 400 for a repeated `v`.
+fn requests_definitions_v2(raw_query: Option<&str>) -> bool {
+    let mut versions = url::form_urlencoded::parse(raw_query.unwrap_or_default().as_bytes())
+        .filter(|(name, _)| name == "v")
+        .map(|(_, value)| value);
+    matches!(
+        (versions.next().as_deref(), versions.next()),
+        (Some("2"), None)
+    )
+}
+
+enum V2Step {
+    Served(Response),
+    Legacy { full_budget_spent: bool },
+}
+
+/// Answers from the team's definitions v2 entry, which lives in Redis only. A team without config
+/// version 2 flags has no v2 entry, so a missing one requests no rebuild. A failed read cannot tell
+/// if the team has one, and an error would take the legacy entry's S3 copy from teams with none.
+async fn serve_v2_entry(
+    state: &AppState,
+    team: &Team,
+    team_key: &KeyType,
+    client_etag: Option<&str>,
+    library: Library,
+) -> Result<V2Step, FlagError> {
+    let reader = &state.flags_with_cohorts_v2_hypercache_reader;
+    let etag = match reader.get_etag(team_key).await {
+        Ok(Some(etag)) => etag,
+        Ok(None) => {
+            return Ok(V2Step::Legacy {
+                full_budget_spent: false,
+            })
+        }
+        Err(e) => {
+            warn!(
+                team_id = team.id,
+                error = %e,
+                "Failed to read flag definitions v2 ETag, serving the legacy entry"
+            );
+            return Ok(V2Step::Legacy {
+                full_budget_spent: false,
+            });
+        }
+    };
+
+    if client_etag == Some(etag.as_str()) {
+        return Ok(V2Step::Served(
+            answer_not_modified(state, reader, team_key, team.id, &etag, library).await,
+        ));
+    }
+
+    // Before the payload read, so that a request the budget refuses costs no payload read.
+    let full_budget_spent = spend_full_budget_on_stale_etag(state, team.id, client_etag)?;
+    let response = match reader
+        .get_typed_from_redis::<FlagDefinitionsResponse>(team_key)
+        .await
+    {
+        Ok(Some(response)) => response,
+        Ok(None) | Err(HyperCacheError::CacheMiss) => {
+            return Ok(V2Step::Legacy { full_budget_spent })
+        }
+        Err(e) => {
+            warn!(
+                team_id = team.id,
+                error = %e,
+                "Failed to read flag definitions v2 payload, serving the legacy entry"
+            );
+            return Ok(V2Step::Legacy { full_budget_spent });
+        }
+    };
+
+    inc(
+        FLAG_DEFINITIONS_ETAG_COUNTER,
+        &[(
+            "result".to_string(),
+            if client_etag.is_some() {
+                "miss"
+            } else {
+                "none"
+            }
+            .to_string(),
+        )],
+        1,
+    );
+    inc(
+        FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
+        &[(
+            "source".to_string(),
+            CacheSource::Redis.as_log_str().to_string(),
+        )],
+        1,
+    );
+    info!(
+        team_id = team.id,
+        source = CacheSource::Redis.as_log_str(),
+        feed = FEED_V2,
+        "Cache hit for flag definitions"
+    );
+
+    bill_full_response(
+        state,
+        team.id,
+        &response,
+        CacheSource::Redis,
+        Some(&etag),
+        library,
+    )
+    .await;
+    Ok(V2Step::Served(ok_response_with_etag(response, Some(&etag))))
+}
+
+async fn answer_not_modified(
+    state: &AppState,
+    reader: &HyperCacheReader,
+    team_key: &KeyType,
+    team_id: i32,
+    etag: &str,
+    library: Library,
+) -> Response {
+    inc(
+        FLAG_DEFINITIONS_ETAG_COUNTER,
+        &[("result".to_string(), "hit".to_string())],
+        1,
+    );
+    if !*state.config.skip_writes
+        && is_billable_for_etag(state, reader, team_key, team_id, etag).await
+    {
+        state.billing_aggregator.record(
+            team_id,
+            FlagRequestType::FlagDefinitionsNotModified,
+            Some(library),
+        );
+    }
+    not_modified_response(etag)
+}
+
+/// A stale ETag gets a full response, so it spends that budget too. Returns whether it did.
+fn spend_full_budget_on_stale_etag(
+    state: &AppState,
+    team_id: i32,
+    client_etag: Option<&str>,
+) -> Result<bool, FlagError> {
+    if client_etag.is_none() {
+        return Ok(false);
+    }
+    state
+        .flag_definitions_full_limiter
+        .check_rate_limit_without_request_count(team_id)?;
+    Ok(true)
+}
+
+async fn bill_full_response(
+    state: &AppState,
+    team_id: i32,
+    response: &FlagDefinitionsResponse,
+    source: CacheSource,
+    etag: Option<&str>,
+    library: Library,
+) {
+    if let (Some(etag), Some(billable)) = (etag, billable_for_etag_from(response, source)) {
+        state
+            .definitions_billable_cache
+            .insert(team_id, etag, billable)
+            .await;
+    }
+    if !*state.config.skip_writes && has_billable_flags(response) {
+        state
+            .billing_aggregator
+            .record(team_id, FlagRequestType::FlagDefinitions, Some(library));
+    }
 }
 
 pub(crate) fn format_weak_etag(raw: &str) -> String {
@@ -548,6 +760,7 @@ fn billable_for_etag_from(response: &FlagDefinitionsResponse, source: CacheSourc
 /// counts as not billable, because over-billing is the worse failure.
 async fn is_billable_for_etag(
     state: &AppState,
+    reader: &HyperCacheReader,
     team_key: &KeyType,
     team_id: i32,
     etag: &str,
@@ -559,8 +772,7 @@ async fn is_billable_for_etag(
             // a definitions cache hit or queue a rebuild the way a full response does. It reads
             // Redis only, because an S3 copy cannot decide (see `billable_for_etag_from`), so a
             // fallback read would only add latency and S3 load. A Redis miss is not an answer.
-            let response = state
-                .flags_with_cohorts_hypercache_reader
+            let response = reader
                 .get_typed_from_redis::<FlagDefinitionsResponse>(team_key)
                 .await
                 .ok()?;
@@ -821,6 +1033,30 @@ mod tests {
     #[case::only_survey_and_tour_flags(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "product-tour-targeting-xyz"}]}), false)]
     fn test_has_billable_flags(#[case] response: Value, #[case] expected: bool) {
         assert_eq!(has_billable_flags(&response), expected);
+    }
+
+    #[rstest]
+    #[case::exactly_2(Some("v=2"), true)]
+    #[case::beside_other_parameters(Some("token=phc_abc&v=2&send_cohorts"), true)]
+    #[case::percent_encoded_2(Some("v=%32"), true)]
+    #[case::no_query(None, false)]
+    #[case::no_version(Some("token=phc_abc&send_cohorts"), false)]
+    #[case::version_1(Some("v=1"), false)]
+    #[case::version_3(Some("v=3"), false)]
+    #[case::leading_zero(Some("v=02"), false)]
+    #[case::decimal(Some("v=2.0"), false)]
+    #[case::empty(Some("v="), false)]
+    #[case::no_value(Some("v"), false)]
+    #[case::leading_space(Some("v=+2"), false)]
+    #[case::trailing_space(Some("v=2%20"), false)]
+    #[case::malformed_escape(Some("v=%ZZ"), false)]
+    #[case::repeated(Some("v=2&v=2"), false)]
+    #[case::repeated_after_another_value(Some("v=1&v=2"), false)]
+    #[case::repeated_before_another_value(Some("v=2&v=3"), false)]
+    #[case::uppercase_name(Some("V=2"), false)]
+    #[case::other_name(Some("ver=2"), false)]
+    fn test_requests_definitions_v2(#[case] raw_query: Option<&str>, #[case] expected: bool) {
+        assert_eq!(requests_definitions_v2(raw_query), expected);
     }
 
     #[rstest]

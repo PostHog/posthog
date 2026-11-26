@@ -14,7 +14,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 
-import { VARIABLE_TYPE_LABELS, formatVariableReference } from './constants'
+import { DELETE_VARIABLE_DESCRIPTION, VARIABLE_TYPE_LABELS, formatVariableReference } from './constants'
+import { QuillSqlVariablesTable } from './QuillSqlVariablesTable'
 import { sqlVariablesLogic } from './sqlVariablesLogic'
 
 export function SqlVariablesTable(): JSX.Element {
@@ -25,8 +26,7 @@ export function SqlVariablesTable(): JSX.Element {
     const handleDelete = (variable: Variable): void => {
         LemonDialog.open({
             title: `Delete variable "${variable.name}"?`,
-            description:
-                'Are you sure you want to delete this variable? This cannot be undone. Queries that use this variable will no longer work.',
+            description: DELETE_VARIABLE_DESCRIPTION,
             primaryButton: {
                 status: 'danger',
                 children: 'Delete variable',
@@ -123,28 +123,34 @@ export function SqlVariablesTable(): JSX.Element {
                     )
                 }
             />
-            <div className="flex flex-row items-center gap-2 justify-start mb-4">
-                <LemonInput
-                    type="search"
-                    placeholder="Search variables..."
-                    value={searchTerm}
-                    onChange={setSearchTerm}
-                    className="w-60"
-                />
-            </div>
-            <LemonTable<Variable>
-                data-attr="sql-variables-table"
-                rowKey="id"
-                dataSource={filteredVariables}
-                columns={columns as LemonTableColumn<Variable, keyof Variable | undefined>[]}
-                loading={variablesLoading}
-                emptyState="No variables yet. Create your first variable to get started."
-                defaultSorting={{
-                    columnKey: 'name',
-                    order: 1,
-                }}
-                pagination={{ pageSize: 25 }}
-            />
+            {todayRailNav ? (
+                <QuillSqlVariablesTable />
+            ) : (
+                <>
+                    <div className="flex flex-row items-center gap-2 justify-start mb-4">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search variables..."
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            className="w-60"
+                        />
+                    </div>
+                    <LemonTable<Variable>
+                        data-attr="sql-variables-table"
+                        rowKey="id"
+                        dataSource={filteredVariables}
+                        columns={columns as LemonTableColumn<Variable, keyof Variable | undefined>[]}
+                        loading={variablesLoading}
+                        emptyState="No variables yet. Create your first variable to get started."
+                        defaultSorting={{
+                            columnKey: 'name',
+                            order: 1,
+                        }}
+                        pagination={{ pageSize: 25 }}
+                    />
+                </>
+            )}
         </SceneContent>
     )
 }

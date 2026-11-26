@@ -3620,8 +3620,16 @@ def _insight_detail(request: HttpRequest, project_id: int, pk: int) -> HttpRespo
     return HttpResponse()
 
 
+def _dashboard_detail(request: HttpRequest, project_id: int, pk: int) -> HttpResponse:
+    request._pg_queries_labels = {"dashboard_v2": "true", "omit_results": "true", "sql_tiles": "21-50"}  # type: ignore[attr-defined]
+    return HttpResponse()
+
+
 class _PgQueryCountRoutes:
-    urlpatterns = [path("api/projects/<int:project_id>/insights/<int:pk>/", _insight_detail, name="insight-detail")]
+    urlpatterns = [
+        path("api/projects/<int:project_id>/insights/<int:pk>/", _insight_detail, name="insight-detail"),
+        path("api/projects/<int:project_id>/dashboards/<int:pk>/", _dashboard_detail, name="project_dashboards-detail"),
+    ]
 
 
 @override_settings(ROOT_URLCONF=_PgQueryCountRoutes, MIDDLEWARE=["posthog.middleware.QueryTimeCountingMiddleware"])
@@ -3648,6 +3656,25 @@ class TestQueryTimeCountingMiddlewarePgQueryMetric(SimpleTestCase):
             0,
             unit="{query}",
             attributes={"route": "insight-detail", "method": expected_method_label, "status_class": "2xx"},
+        )
+
+    def test_adds_labels_a_view_stashed_on_the_request(self) -> None:
+        client = MagicMock()
+        with patch("posthog.middleware.posthoganalytics.default_client", client):
+            self.client.get("/api/projects/2/dashboards/7/")
+
+        client.metrics.histogram.assert_called_once_with(
+            "api.request.pg_queries",
+            0,
+            unit="{query}",
+            attributes={
+                "route": "project_dashboards-detail",
+                "method": "GET",
+                "status_class": "2xx",
+                "dashboard_v2": "true",
+                "omit_results": "true",
+                "sql_tiles": "21-50",
+            },
         )
 
     @parameterized.expand([("unresolved_api_path", "/api/unknown/"), ("non_api_path", "/insights/7/")])

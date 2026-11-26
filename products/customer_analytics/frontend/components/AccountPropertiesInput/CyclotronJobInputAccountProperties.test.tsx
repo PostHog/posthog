@@ -20,6 +20,7 @@ jest.mock('lib/ui/quill', () => ({
     ComboboxInput: (): JSX.Element => <input />,
     ComboboxItem: ({ children }: PropsWithChildren): JSX.Element => <div>{children}</div>,
     ComboboxList: (): null => null,
+    ComboboxTrigger: ({ children }: PropsWithChildren): JSX.Element => <button>{children}</button>,
 }))
 
 describe('CyclotronJobInputAccountProperties', () => {
