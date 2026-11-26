@@ -24,7 +24,7 @@ import structlog
 from posthog.schema import HogQLQuery
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import access_controlled_posthog_tables
+from posthog.hogql.database.database import READ_SCOPES_RECORDED_QUERY_STATUS_LABEL, access_controlled_posthog_tables
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 
@@ -339,8 +339,11 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
         timings = _query_status_timings(status)
         if timings:
             envelope["timings"] = timings
-        # Kept with the run, so its rows stay gated on what the query read after the status expires.
-        envelope["read_scopes"] = sorted(read_scopes_from_labels(getattr(status, "labels", None)))
+        # Kept with the run, so its rows stay gated on what the query read after the status expires. A status
+        # from before scopes were recorded leaves the field unset, so readers derive it from the query.
+        labels = getattr(status, "labels", None) or []
+        if READ_SCOPES_RECORDED_QUERY_STATUS_LABEL in labels:
+            envelope["read_scopes"] = sorted(read_scopes_from_labels(labels))
         # The direct lane never involves the sandbox or the frame store, so labeling it
         # keeps those runs out of the inline bucket they would otherwise fall into and makes
         # a transport comparison count only the runs a transport choice applies to.

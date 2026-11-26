@@ -255,6 +255,7 @@ def execute_process_query(
 
     from posthog.hogql.database.database import (
         READ_SCOPE_QUERY_STATUS_LABEL_PREFIX,
+        READ_SCOPES_RECORDED_QUERY_STATUS_LABEL,
         credential_denied_scopes as credential_denial,
         read_posthog_table_scopes,
     )
@@ -321,11 +322,11 @@ def execute_process_query(
                 query_status=query_status,
             )
         # The run may be userless, so retrieval checks the requester against what the run actually read.
-        if read_scopes:
-            query_status.labels = [
-                *(query_status.labels or []),
-                *(f"{READ_SCOPE_QUERY_STATUS_LABEL_PREFIX}{scope}" for scope in sorted(read_scopes)),
-            ]
+        query_status.labels = [
+            *(query_status.labels or []),
+            READ_SCOPES_RECORDED_QUERY_STATUS_LABEL,
+            *(f"{READ_SCOPE_QUERY_STATUS_LABEL_PREFIX}{scope}" for scope in sorted(read_scopes)),
+        ]
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
         logger.info("Got results for team %s query %s", team_id, query_id)

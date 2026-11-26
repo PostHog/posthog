@@ -765,6 +765,8 @@ def _access_controlled_posthog_table_types() -> Mapping[type, APIScopeObject]:
 
 # Marks an async query status whose run read a table gated on this resource.
 READ_SCOPE_QUERY_STATUS_LABEL_PREFIX = "read-scope:"
+# On every status a worker that records read scopes completes, so a status without it predates them.
+READ_SCOPES_RECORDED_QUERY_STATUS_LABEL = "read-scopes-recorded"
 
 _read_posthog_table_scopes: ContextVar[set[str] | None] = ContextVar("read_posthog_table_scopes", default=None)
 
