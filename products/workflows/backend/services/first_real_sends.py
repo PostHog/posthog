@@ -64,7 +64,10 @@ def capture_first_real_sends(now: datetime) -> int:
         try:
             captured += _record_batch(dict(batch))
         except Exception as error:
-            logger.exception("workflows_first_real_send_batch_failed")
+            logger.exception(
+                "workflows_first_real_send_batch_failed",
+                hog_flow_ids=[str(hog_flow_id) for (_, hog_flow_id), _ in batch],
+            )
             failed_batches += 1
             first_error = first_error or error
     logger.info("workflows_first_real_sends_captured", captured=captured, failed_batches=failed_batches)

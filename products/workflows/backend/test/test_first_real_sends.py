@@ -141,16 +141,34 @@ class TestCaptureWorkflowFirstRealSends(ClickhouseTestMixin, BaseTest):
             flow.refresh_from_db()
             assert flow.first_real_send_at is not None
         assert scoped_capture.return_value.__exit__.call_count == 2
+        assert sorted(event["properties"]["hog_flow_id"] for event in captured_events(scoped_capture)) == sorted(
+            str(flow.id) for flow in flows
+        )
 
+    @patch(f"{SERVICE}.CANDIDATE_BATCH_SIZE", 1)
     @patch(f"{SERVICE}.ph_scoped_capture")
-    def test_a_postgres_failure_fails_the_run(self, scoped_capture: MagicMock) -> None:
-        flow = self._flow()
-        self._metric(flow, NOW - timedelta(hours=2))
+    def test_a_postgres_failure_in_one_batch_fails_the_run_after_the_others(self, scoped_capture: MagicMock) -> None:
+        flows = [self._flow(), self._flow()]
+        for flow in flows:
+            self._metric(flow, NOW - timedelta(hours=2))
+        flow_ids = {flow.id for flow in flows}
+        failed_ids: list = []
+        real_filter = HogFlow.objects.filter
 
-        with patch.object(HogFlow.objects, "filter", side_effect=OperationalError("Postgres is down")):
+        def filter_failing_for_first_batch(*args, **kwargs):
+            batch_ids = flow_ids.intersection(kwargs.get("pk__in", []))
+            if batch_ids and not failed_ids:
+                failed_ids.extend(batch_ids)
+                raise OperationalError("Postgres is down")
+            return real_filter(*args, **kwargs)
+
+        with patch.object(HogFlow.objects, "filter", side_effect=filter_failing_for_first_batch):
             with self.assertRaises(OperationalError):
                 capture_workflow_first_real_sends()
 
-        flow.refresh_from_db()
-        assert flow.first_real_send_at is None
-        assert captured_events(scoped_capture) == []
+        stamped = {flow.id for flow in HogFlow.objects.filter(pk__in=flow_ids, first_real_send_at__isnull=False)}
+        assert stamped == flow_ids - set(failed_ids)
+        assert len(stamped) == 1
+        assert [event["properties"]["hog_flow_id"] for event in captured_events(scoped_capture)] == [
+            str(flow_id) for flow_id in stamped
+        ]
