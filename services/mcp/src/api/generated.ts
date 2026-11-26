@@ -78047,6 +78047,12 @@ export namespace Schemas {
          */
       width?: number;
       /**
+         * Card height in pixels. Omit for automatic height.
+         * @minimum 120
+         * @maximum 1600
+         */
+      height?: number;
+      /**
          * Source notebook cell ID.
          * @maxLength 160
          */

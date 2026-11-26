@@ -1,16 +1,15 @@
-import { CSSProperties, useMemo } from 'react'
+import { useMemo } from 'react'
 
 import { IconChevronDown, IconCopy, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { cn } from 'lib/utils/css-classes'
 import type { NotebookStaleReason } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
-import type { NotebookAppLayoutApi } from '../generated/api.schemas'
+import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
 import { NotebookAppBlock } from './NotebookAppBlock'
+import { NotebookAppCard } from './NotebookAppCard'
 
 export function NotebookAppCanvas({
     layout,
@@ -22,6 +21,7 @@ export function NotebookAppCanvas({
     selectedId,
     canInteract,
     onSelect,
+    onResize,
     onMove,
     onMoveBy,
     onDuplicate,
@@ -40,6 +40,7 @@ export function NotebookAppCanvas({
     selectedId: string | null
     canInteract: boolean
     onSelect?: (id: string) => void
+    onResize?: (id: string, size: Pick<NotebookAppBlockApi, 'width' | 'height'>) => void
     onMove?: (id: string, beforeId: string) => void
     onMoveBy?: (id: string, direction: number) => void
     onDuplicate?: (id: string) => void
@@ -62,26 +63,16 @@ export function NotebookAppCanvas({
     return (
         <div className="NotebookAppBuilder__grid" data-attr="notebook-app-canvas">
             {blocks.map((block, index) => (
-                <div
+                <NotebookAppCard
                     key={block.id}
-                    className="NotebookAppBuilder__slot"
-                    style={{ '--app-block-width': block.width ?? 12 } as CSSProperties}
-                    onDragOver={editing ? (event) => event.preventDefault() : undefined}
-                    onDrop={
-                        editing
-                            ? (event) => {
-                                  event.preventDefault()
-                                  onMove?.(event.dataTransfer.getData('application/x-notebook-app-block'), block.id)
-                              }
-                            : undefined
-                    }
-                >
-                    <LemonCard
-                        hoverEffect={false}
-                        className={cn('h-full min-w-0 p-4', editing && selectedId === block.id && 'border-accent')}
-                    >
-                        {editing && (
-                            <div className="flex items-center justify-between gap-2 mb-3 border-b pb-2">
+                    block={block}
+                    selected={editing && selectedId === block.id}
+                    onSelect={onSelect}
+                    onResize={editing ? onResize : undefined}
+                    onMove={editing ? onMove : undefined}
+                    toolbar={
+                        editing && (
+                            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 mb-3 border-b pb-2">
                                 <LemonButton
                                     size="xsmall"
                                     type={selectedId === block.id ? 'secondary' : 'tertiary'}
@@ -152,20 +143,21 @@ export function NotebookAppCanvas({
                                     </LemonMenu>
                                 </div>
                             </div>
-                        )}
-                        <NotebookAppBlock
-                            block={block}
-                            cell={cellsById.get(block.node_id ?? '')}
-                            stale={!!staleNodeIds[block.node_id || '']}
-                            onSource={!editing ? onSource : undefined}
-                            variables={variables}
-                            canInteract={canInteract}
-                            onInput={onInput}
-                            onCellOutput={onCellOutput}
-                            renderOutput={renderOutput}
-                        />
-                    </LemonCard>
-                </div>
+                        )
+                    }
+                >
+                    <NotebookAppBlock
+                        block={block}
+                        cell={cellsById.get(block.node_id ?? '')}
+                        stale={!!staleNodeIds[block.node_id || '']}
+                        onSource={!editing ? onSource : undefined}
+                        variables={variables}
+                        canInteract={canInteract}
+                        onInput={onInput}
+                        onCellOutput={onCellOutput}
+                        renderOutput={renderOutput}
+                    />
+                </NotebookAppCard>
             ))}
             {!blocks.length && (
                 <div className="col-span-12 border border-dashed rounded p-8 text-center text-secondary">

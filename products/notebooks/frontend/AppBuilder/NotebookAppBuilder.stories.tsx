@@ -217,10 +217,15 @@ export const Builder: Story = {
         fireEvent.change(canvas.getByLabelText('Component text'), {
             target: { value: '## Review notes\n\nAdded in the app builder.' },
         })
+        fireEvent.change(canvas.getByRole('slider', { name: 'Width' }), { target: { value: '5' } })
+        const height = canvas.getByRole('spinbutton', { name: 'Height' })
+        fireEvent.change(height, { target: { value: '240' } })
+        fireEvent.blur(height)
         const saveButton = canvasElement.querySelector('[data-attr="notebook-app-save"]')!
         await waitFor(() => expect(saveButton).toBeEnabled())
         fireEvent.click(saveButton)
         await waitFor(() => expect(saved.app_draft.blocks.at(-1)?.text).toContain('Review notes'))
+        expect(saved.app_draft.blocks.at(-1)).toMatchObject({ width: 5, height: 240 })
         expect(saved.app_published.blocks).toHaveLength(layout.blocks.length)
     },
 }
@@ -279,6 +284,7 @@ export const Published: Story = {
         expect(metric('222')).toBeVisible()
 
         const chart = app.getByRole('img', { name: /chart with 2 data series/i }).parentElement!
+        expect(chart.closest('.NotebookAppBuilder__slot')?.getBoundingClientRect().height).toBe(360)
         const { left, top, width, height } = chart.getBoundingClientRect()
         const lastWeek = { clientX: left + width * 0.8, clientY: top + height * 0.5 }
         fireEvent.mouseMove(chart, lastWeek)
