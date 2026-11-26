@@ -298,6 +298,8 @@ def queried_access_controlled_resources(
 
         if _has_placeholder_table(select):
             return None  # the table is unknown until the placeholder expands -> fail closed
+        if _has_query_tag(select):
+            return None  # a query tag's tables appear only when it expands -> fail closed
 
         collector = TableCollector()
         collector.visit(select)
@@ -437,6 +439,26 @@ def _has_placeholder_table(select) -> bool:
 
     finder = _PlaceholderTableFinder()
     finder.visit(select)
+    return finder.found
+
+
+def _has_query_tag(node) -> bool:
+    """True when a HogQLX tag anywhere in the tree expands to a query, which can read any table."""
+    # Deferred to break the query_runner -> this module -> hogql import cycle.
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS  # noqa: PLC0415
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
+
+    class _QueryTagFinder(TraversingVisitor):
+        found = False
+
+        def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+            if node.kind not in HOGQLX_TAGS and node.kind not in HOGQLX_COMPONENTS:
+                self.found = True
+            super().visit_hogqlx_tag(node)
+
+    finder = _QueryTagFinder()
+    finder.visit(node)
     return finder.found
 
 

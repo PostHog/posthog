@@ -84,6 +84,11 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("placeholder_join", "select * from events join {table} on 1", None),
             ("placeholder_outside_from", "select * from events where {filters}", set()),
             (
+                "query_tag_in_an_expression",
+                "select event from events where event in (<HogQLQuery query='select name from posthog.trace_spans' />)",
+                None,
+            ),
+            (
                 "account_email_threads_lazy_join",
                 "select accounts.email_threads.count from system.accounts as accounts",
                 {"account", "ticket"},
