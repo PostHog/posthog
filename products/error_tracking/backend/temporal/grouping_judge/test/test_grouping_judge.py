@@ -299,7 +299,7 @@ class TestGroupingJudgeProperties(SimpleTestCase):
             "judge_same_issue": True,
             "judge_swapped": properties["judge_swapped"],
             "judge_rejudge_same_issue": True,
-            "judge_model": "claude-haiku-4-5",
+            "judge_model": "claude-haiku-5-5",
             "judge_view": "type_message_and_stack",
         }
         serialized = repr(properties)
