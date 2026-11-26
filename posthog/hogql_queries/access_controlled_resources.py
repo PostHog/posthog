@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import field
 from functools import reduce
@@ -264,13 +264,14 @@ def queried_access_controlled_resources(
     embedded_sources = (
         [value for name, value in query.__dict__.items() if name != "query"] if is_hogql_query else [query]
     )
-    for embedded_sql in _embedded_hogql(embedded_sources):
-        nested = queried_access_controlled_resources(
-            HogQLQuery(query=embedded_sql), team, bypassed_scopes=bypassed_scopes
-        )
-        if nested is None:
-            return None
-        embedded_scopes |= nested
+    with nullcontext() if _shared_catalogs.get() is not None else shared_warehouse_lookups():
+        for embedded_sql in _embedded_hogql(embedded_sources):
+            nested = queried_access_controlled_resources(
+                HogQLQuery(query=embedded_sql), team, bypassed_scopes=bypassed_scopes
+            )
+            if nested is None:
+                return None
+            embedded_scopes |= nested
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
         return _with_fallback_parents({"account"}, bypassed_scopes) | embedded_scopes
@@ -308,7 +309,7 @@ def queried_access_controlled_resources(
         if _has_placeholder_table(select):
             return None  # the table is unknown until the placeholder expands -> fail closed
 
-        table_names = _table_names_including_join_constraints(select)
+        table_names, cte_names = _table_names_including_join_constraints(select)
         system_scopes = _table_scopes()
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
         scopes_from_system_tables = set(scopes)
@@ -361,7 +362,8 @@ def queried_access_controlled_resources(
         # fingerprint runs before any database), so resolve referenced warehouse objects with a light
         # name lookup. We only add the scope here; the specific denied object IDs are folded into the
         # cache key by AnalyticsQueryRunner._get_object_access_restrictions.
-        non_system_names = table_names - set(system_scopes)
+        # A name that only a CTE defines needs no warehouse lookup; an over-match here only adds scopes.
+        non_system_names = table_names - cte_names - set(system_scopes)
         if non_system_names:
             views = catalog.get_views(non_system_names)
             # Inside a view walk the parent view already added warehouse_table, so skip the table lookup.
@@ -458,7 +460,7 @@ def _embedded_hogql(value) -> Iterator[str]:
     into a select so one analysis covers both. Comments can split keywords, so no keyword filter applies."""
     # Deferred to break the query_runner -> this module -> hogql import cycle.
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
-    from posthog.hogql.parser import parse_expr  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_order_expr  # noqa: PLC0415
 
     if isinstance(value, HogQLQuery):
         if isinstance(value.query, str):
@@ -468,9 +470,15 @@ def _embedded_hogql(value) -> Iterator[str]:
             return
         try:
             parse_expr(value)
+            yield f"select (\n{value}\n)"
+            return
+        except BaseHogQLError:
+            pass
+        try:
+            parse_order_expr(value)  # a sort expression such as `(...) DESC`
+            yield f"select 1 order by\n{value}\n"
         except BaseHogQLError:
             return
-        yield f"select (\n{value}\n)"
     elif isinstance(value, BaseModel):
         for item in value.__dict__.values():
             yield from _embedded_hogql(item)
@@ -482,8 +490,10 @@ def _embedded_hogql(value) -> Iterator[str]:
             yield from _embedded_hogql(item)
 
 
-def _table_names_including_join_constraints(select) -> set[str]:
-    """Tables a select reads, including those in subqueries inside `JOIN ... ON`, which `get_table_names` skips."""
+def _table_names_including_join_constraints(select) -> tuple[set[str], set[str]]:
+    """Every table name a select reads, including in subqueries inside `JOIN ... ON` (which `get_table_names`
+    skips), and the CTE names it defines. CTE names are not subtracted: a CTE is scoped to its own select, so a
+    name it shadows may still be read as the real table elsewhere in the query."""
     # Deferred to break the query_runner -> this module -> hogql import cycle.
     from posthog.hogql import ast  # noqa: PLC0415
     from posthog.hogql.metadata import TableCollector  # noqa: PLC0415
@@ -495,7 +505,7 @@ def _table_names_including_join_constraints(select) -> set[str]:
 
     collector = _Collector()
     collector.visit(select)
-    return collector.table_names - collector.ctes
+    return collector.table_names, collector.ctes
 
 
 def _has_placeholder_table(select) -> bool:

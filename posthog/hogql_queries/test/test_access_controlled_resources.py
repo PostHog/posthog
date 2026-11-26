@@ -14,6 +14,7 @@ from posthog.schema import (
     DataWarehouseNode,
     EntityType,
     EventsNode,
+    EventsQuery,
     FunnelsDataWarehouseNode,
     HogQLFilters,
     HogQLPropertyFilter,
@@ -83,6 +84,11 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             ("trace_spans", "select * from posthog.trace_spans", {"tracing"}),
+            (
+                "cte_shadowing_a_real_read",
+                "select * from posthog.trace_spans where 1 in (with `posthog.trace_spans` as (select 1 as a) select a from `posthog.trace_spans`)",
+                {"tracing"},
+            ),
             (
                 "join_condition_subquery",
                 "select * from events e join persons p on e.person_id = p.id and p.x = (select count() from posthog.trace_spans)",
@@ -243,6 +249,11 @@ class TestQueriedAccessControlledResources(BaseTest):
                 "accounts_metric",
                 lambda: AccountsQuery(metrics=["count() + (select count() from posthog.trace_spans)"]),
                 {"account", "tracing"},
+            ),
+            (
+                "events_order_by_desc",
+                lambda: EventsQuery(select=["*"], orderBy=["(select count() from posthog.trace_spans) DESC"]),
+                {"tracing"},
             ),
             (
                 "hogql_property_filter",
