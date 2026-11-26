@@ -100,8 +100,10 @@ rules:
     - match:
           - '/quota_redis.py'
           - '/quota_migration.py'
+          - '/quota_spine_comparison.py'
           - '/test/test_quota_migration.py'
           - '/test/test_quota_redis.py'
+          - '/test/test_quota_spine_comparison.py'
           - '/usage_ingestion/test_*.py'
       owners: team-billing
     - match:

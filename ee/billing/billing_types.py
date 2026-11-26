@@ -271,3 +271,20 @@ class Product(TypedDict, total=False):
     inclusion_only: bool
     features: Optional[list[ProductBaseFeature]]
     headline: Optional[str]
+
+
+class BillingLimit(TypedDict):
+    organization_id: str
+    resource: str
+    # Dollar amounts, as decimal strings.
+    usage: str
+    limit: str
+    over_limit: bool
+    enforced: bool
+    grace_expiry: str | None
+    never_drop_data: bool
+
+
+class BillingLimits(TypedDict):
+    usage_through: str | None
+    limits: list[BillingLimit]
