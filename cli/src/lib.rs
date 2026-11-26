@@ -7,6 +7,7 @@ pub mod dsym;
 pub mod error;
 pub mod experimental;
 pub mod invocation_context;
+pub mod jvm;
 pub mod login;
 pub mod proguard;
 pub mod release;
