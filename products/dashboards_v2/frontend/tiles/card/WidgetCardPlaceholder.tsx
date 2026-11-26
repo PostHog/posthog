@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@posthog/quill'
 import type { SavedWidget } from '../../dashboard/document/dashboardTypes'
 import { isPartShown } from '../../presentation/tileParts'
 import { type WidgetType, widgetSlots } from '../../widgets/core/widgetDefinition'
+import { WidgetErrorBoundary } from '../../widgets/core/WidgetErrorBoundary'
 import { WidgetLoading } from '../../widgets/core/WidgetView'
 
 /**
@@ -30,7 +31,9 @@ export function WidgetCardPlaceholder({
                 </CardHeader>
             )}
             <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <Loading widget={widget} />
+                <WidgetErrorBoundary widget={widget} fallback={<WidgetLoading />}>
+                    <Loading widget={widget} />
+                </WidgetErrorBoundary>
             </CardContent>
         </Card>
     )

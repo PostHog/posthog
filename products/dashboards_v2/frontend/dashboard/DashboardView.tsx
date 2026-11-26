@@ -41,7 +41,7 @@ import {
 import { DashboardErrorBoundary } from './DashboardErrorBoundary'
 import { DashboardTabs } from './DashboardTabs'
 import { type Dashboard, GRID, activeGridTab, gridTabs } from './document/dashboardTypes'
-import { findTile } from './document/tileTree'
+import { everyTile, findTile } from './document/tileTree'
 import { withFolds } from './edits/dashboardEdits'
 import { type DashboardLoadTrigger, createDashboardTiming } from './timing/dashboardTiming'
 import { useStableController } from './useStableController'
@@ -234,7 +234,7 @@ function DashboardViewContent({ header, surface, sampleData = false, ...props }:
         () => (stacked ? stackTiles(activeTab.tiles, GRID.columns, sizeOf) : activeTab.tiles),
         [stacked, activeTab.tiles, sizeOf]
     )
-    timingContext.current = { surface, tileCount: activeTab.tiles.length }
+    timingContext.current = { surface, tileCount: everyTile(activeTab.tiles).length }
 
     // A layout effect runs before the tiles' own effects start their queries, so the load is open to count them.
     const loadInputs = useRef<{ refresh: number; filters: ActiveFilters; tabId: string } | null>(null)

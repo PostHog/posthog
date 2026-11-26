@@ -1,4 +1,4 @@
-import { type ComponentType, Suspense, memo, useContext } from 'react'
+import { type ComponentType, Suspense, memo, useContext, useLayoutEffect } from 'react'
 
 import * as constructionHoggie from '@posthog/brand/hoggies/png/construction-1'
 import * as errorHoggie from '@posthog/brand/hoggies/png/error'
@@ -13,6 +13,13 @@ import type { SavedWidget } from '../../dashboard/document/dashboardTypes'
 import type { WidgetType } from './widgetDefinition'
 import { WidgetErrorBoundary } from './WidgetErrorBoundary'
 import { WidgetHostContext } from './widgetHostContext'
+
+// A widget that suspends before its query starts would otherwise let the load end without it.
+function HoldsLoad(): null {
+    const { timing } = useContext(WidgetHostContext)
+    useLayoutEffect(() => timing?.hold(), [timing])
+    return null
+}
 
 const HedgehogError = pngHoggie(errorHoggie)
 const HedgehogPuzzle = pngHoggie(puzzleHoggie)
@@ -129,7 +136,14 @@ export const WidgetView = memo(function WidgetView({
                 />
             }
         >
-            <Suspense fallback={<Loading widget={widget} />}>
+            <Suspense
+                fallback={
+                    <>
+                        <HoldsLoad />
+                        <Loading widget={widget} />
+                    </>
+                }
+            >
                 {SampleData ? (
                     <SampleData widget={widget} />
                 ) : (

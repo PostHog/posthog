@@ -5,6 +5,8 @@ export type QueryOutcome = 'success' | 'error'
 /** Told when a widget's query starts. The function it returns is called once the query ends. */
 export type QueryTiming = {
     started: (cached: boolean) => (outcome: QueryOutcome) => void
+    /** Keeps the load open, such as while a widget's code downloads. The function it returns lets it end again. */
+    hold: () => () => void
 }
 
 export type WidgetHost = {

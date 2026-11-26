@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { ContentWidget } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
@@ -18,9 +18,9 @@ import { statSpec } from './viz/stat/statSpec'
 import { type ChartStates, type VizDefinition, defineViz } from './vizTypes'
 
 // Each kind of chart loads its drawing code the first time a tile draws it, so a page fetches only the kinds it shows.
-const StatViz = lazy(() => import('./viz/stat/StatViz').then((module) => ({ default: module.StatViz })))
-const LineViz = lazy(() => import('./viz/line/LineViz').then((module) => ({ default: module.LineViz })))
-const BarViz = lazy(() => import('./viz/bar/BarViz').then((module) => ({ default: module.BarViz })))
+const StatViz = lazyWithRetry(() => import('./viz/stat/StatViz').then((module) => ({ default: module.StatViz })))
+const LineViz = lazyWithRetry(() => import('./viz/line/LineViz').then((module) => ({ default: module.LineViz })))
+const BarViz = lazyWithRetry(() => import('./viz/bar/BarViz').then((module) => ({ default: module.BarViz })))
 
 /** The kinds of chart that ship with dashboards v2, in add menu order. Every chart widget can draw them. */
 export const DEFAULT_VIZ_TYPES: VizDefinition[] = [

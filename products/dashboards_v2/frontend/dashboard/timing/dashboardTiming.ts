@@ -75,16 +75,17 @@ export function createDashboardTiming({
         if (ended.queryCount === 0) {
             return
         }
+        const endedAt = status === 'abandoned' ? now() : ended.lastEndedAt
         const longTasks = supportsLongTasks()
         try {
-            performance.measure(`dashboard v2 ${ended.trigger}`, { start: ended.startedAt, end: ended.lastEndedAt })
+            performance.measure(`dashboard v2 ${ended.trigger}`, { start: ended.startedAt, end: endedAt })
         } catch {
             // Only a trace in DevTools reads the measure, so a browser without it loses nothing.
         }
         onReport({
             trigger: ended.trigger,
             status,
-            durationMs: Math.round(ended.lastEndedAt - ended.startedAt),
+            durationMs: Math.round(endedAt - ended.startedAt),
             firstResultMs: ended.firstResultAt === null ? null : Math.round(ended.firstResultAt - ended.startedAt),
             queryCount: ended.queryCount,
             cachedQueryCount: ended.cachedQueryCount,
@@ -182,6 +183,25 @@ export function createDashboardTiming({
                 if (outcome === 'error') {
                     current.failedQueryCount++
                 }
+                if (current.pending === 0) {
+                    waitForQuiet()
+                }
+            }
+        },
+        hold() {
+            const current = load
+            if (!current) {
+                return () => {}
+            }
+            clearTimeout(quietTimer)
+            current.pending++
+            let released = false
+            return () => {
+                if (released || load !== current) {
+                    return
+                }
+                released = true
+                current.pending--
                 if (current.pending === 0) {
                     waitForQuiet()
                 }
