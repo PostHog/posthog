@@ -321,7 +321,12 @@ export function QuillHogFunctionList({
                     />
                 </InputGroup>
                 {!hideFeedback ? (
-                    <Button variant="link-muted" onClick={() => openFeedbackDialog(props.type)}>
+                    <Button
+                        variant="link-muted"
+                        size="inline"
+                        className="text-[length:var(--text-ui,0.8125rem)]"
+                        onClick={() => openFeedbackDialog(props.type)}
+                    >
                         Can't find what you're looking for?
                     </Button>
                 ) : null}
