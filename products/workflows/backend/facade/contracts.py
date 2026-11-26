@@ -840,6 +840,10 @@ class SuggestionsSample:
     reached: bool
     # Tracked sends (sent minus untracked) from the live version's busiest email step in the window.
     tracked_sends: int
+    # All sends, tracked or not, from the live version's busiest email step in the window.
+    sends: int
+    # A readable conversion goal lets untracked sends count toward the floor.
+    reads_conversion: bool
     required_sends: int
     version_live_since: datetime
 

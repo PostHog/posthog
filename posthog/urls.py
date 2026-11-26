@@ -292,10 +292,6 @@ urlpatterns = [
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius"})),
     ),
     path(
-        "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
-        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
-    ),
-    path(
         "api/projects/<str:team_id>/internal/hog_flows/account_audience",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_account_audience"})),
     ),
