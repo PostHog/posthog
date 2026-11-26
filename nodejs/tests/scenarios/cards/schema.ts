@@ -68,8 +68,17 @@ export const Card = z
                 minOffered: z.number().min(0).max(1).default(0.9),
                 ramp: z.array(RampStep).min(1).optional(),
                 stopOnBreak: z.literal(true).optional(),
+                warmUp: Duration.optional(),
             })
             .strict()
+            .refine(({ for: lasts, warmUp }) => warmUp === undefined || durationMs(warmUp) < durationMs(lasts), {
+                message: 'the warm-up must end before the drive does',
+                path: ['warmUp'],
+            })
+            .refine(({ ramp, warmUp }) => warmUp === undefined || ramp === undefined, {
+                message: 'a drive with a ramp takes no warm-up',
+                path: ['warmUp'],
+            })
             .refine(
                 ({ for: lasts, ramp }) =>
                     ramp === undefined ||

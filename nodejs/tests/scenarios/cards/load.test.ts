@@ -220,6 +220,28 @@ describe('load', () => {
             'drive.ramp: every step of a ramp that stops on a break must last longer than 0ms',
         ],
         [
+            'a warm-up that lasts the whole drive',
+            { ...card, drive: { ...card.drive, warmUp: '30s' } },
+            undefined,
+            'drive.warmUp: the warm-up must end before the drive does',
+        ],
+        [
+            'a warm-up on a ramp',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    warmUp: '5s',
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.warmUp: a drive with a ramp takes no warm-up',
+        ],
+        [
             'a stop on break with a valve the stop could leave due',
             {
                 ...card,
@@ -318,6 +340,26 @@ describe('load', () => {
             { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '36s' }] },
             { ...profile, settings: sesSettings, load: emailLoad },
             "valves.0.at: the valve can fire 36s into the drive, inside the 30s fault-free baseline and the role scrape that closes it, which load admission's claim rates need; set at to 37s or later",
+        ],
+        [
+            'a valve that fires inside the warm-up on a profile without admission',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, when: undefined, at: '100s' }],
+            },
+            undefined,
+            'valves.0.at: the valve can fire 100s into the drive, inside its 160s warm-up; set at to 160s or later',
+        ],
+        [
+            'a when valve armed before the slowest scrape that closes the baseline after a warm-up',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, at: '190s' }],
+            },
+            { ...profile, settings: sesSettings, load: emailLoad },
+            "valves.0.at: the valve can fire 190s into the drive, inside the 160s warm-up, the 30s fault-free baseline after it and the role scrape that closes it, which load admission's claim rates need; set at to 197s or later",
         ],
         [
             'a valve offset longer than a timer can wait',
@@ -767,6 +809,15 @@ describe('load', () => {
         [
             'a when valve armed once the slowest scrape that closes the baseline is in',
             { ...card, drive: { ...card.drive, for: '60s' }, valves: [{ ...emailWorkerKill, at: '37s' }] },
+            { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
+        ],
+        [
+            'a when valve armed once the slowest scrape that closes the baseline after a warm-up is in',
+            {
+                ...card,
+                drive: { ...card.drive, for: '227s', warmUp: '160s' },
+                valves: [{ ...emailWorkerKill, at: '197s' }],
+            },
             { ...profile, settings: sesSettings, load: emailLoad, host: { cpuCeiling: 0.5 } },
         ],
         [

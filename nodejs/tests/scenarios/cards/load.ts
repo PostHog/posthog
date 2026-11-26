@@ -237,21 +237,36 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
 
 const SCRAPED_FAULT_SECONDS = MIN_BASELINE_SECONDS + (SAMPLE_INTERVAL_MS + SCRAPE_TIMEOUT_MS) / 1000
 
-function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
+function faultFreeOf(card: Card, profile: Profile): { seconds: number; inside: string } | undefined {
+    const warmUp = card.drive.warmUp === undefined ? 0 : durationMs(card.drive.warmUp) / 1000
     if (profile.load === undefined && profile.host === undefined) {
-        return []
+        return warmUp === 0 ? undefined : { seconds: warmUp, inside: `its ${warmUp}s warm-up` }
     }
     const scraped = Object.keys(profile.load?.targets.claimsPerSecond ?? {}).length > 0
-    const first = scraped ? SCRAPED_FAULT_SECONDS : MIN_BASELINE_SECONDS
-    const baseline = scraped
-        ? `the ${MIN_BASELINE_SECONDS}s fault-free baseline and the role scrape that closes it, which load admission's claim rates need`
-        : `the ${MIN_BASELINE_SECONDS}s fault-free baseline that load and host admission measure`
+    const before = warmUp === 0 ? 'the' : `the ${warmUp}s warm-up, the`
+    const after = warmUp === 0 ? '' : ' after it'
+    return scraped
+        ? {
+              seconds: warmUp + SCRAPED_FAULT_SECONDS,
+              inside: `${before} ${MIN_BASELINE_SECONDS}s fault-free baseline${after} and the role scrape that closes it, which load admission's claim rates need`,
+          }
+        : {
+              seconds: warmUp + MIN_BASELINE_SECONDS,
+              inside: `${warmUp === 0 ? 'the' : `the ${warmUp}s warm-up and the`} ${MIN_BASELINE_SECONDS}s fault-free baseline${after} that load and host admission measure`,
+          }
+}
+
+function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
+    const faultFree = faultFreeOf(card, profile)
+    if (faultFree === undefined) {
+        return []
+    }
     const driveSeconds = stepsOf(card.drive).at(-1)!.toMs / 1000
     return card.valves.flatMap((entry, i) => {
         const seconds = durationMs(entry.at ?? '0s') / 1000
-        if (seconds < first) {
+        if (seconds < faultFree.seconds) {
             return [
-                `valves.${i}.at: the valve can fire ${seconds}s into the drive, inside ${baseline}; set at to ${first}s or later`,
+                `valves.${i}.at: the valve can fire ${seconds}s into the drive, inside ${faultFree.inside}; set at to ${faultFree.seconds}s or later`,
             ]
         }
         return seconds < driveSeconds

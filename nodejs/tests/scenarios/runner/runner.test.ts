@@ -64,6 +64,7 @@ import { Role, RoleSpec, SCENARIO_SESSION_PREFIX, consumerGroupsOf, roleSpecs, s
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { KafkaGroup, WORKFLOWS_ADAPTER, Wiring, wiringOf } from '../environment/topology'
 import { JournalEntry } from '../judge/judge'
+import { DriveWindow } from '../judge/measurements'
 import { main } from '../main'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
@@ -1166,6 +1167,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak,
             bars = [],
             driveFor = '2s',
+            warmUp,
             convergeWithin,
             settings = {},
         }: {
@@ -1179,6 +1181,7 @@ describe('runner through seed, drive and judge', () => {
             stopOnBreak?: true
             bars?: Named[]
             driveFor?: string
+            warmUp?: string
             convergeWithin?: string
             settings?: Profile['settings']
         } = {}
@@ -1196,6 +1199,7 @@ describe('runner through seed, drive and judge', () => {
                     traffic: [{ name: traffic }],
                     ramp,
                     stopOnBreak,
+                    warmUp,
                 },
                 invariants,
                 measure: measures,
@@ -1499,6 +1503,25 @@ describe('runner through seed, drive and judge', () => {
                 /^refused_at_intake failed: [\w-]+-1: the intake could not be reached: .*ECONNREFUSED/
             ),
             units: { targetUnits: 4, offeredUnits: 4 },
+        })
+    }, 30_000)
+
+    it('records the warm-up its drive ran, and the baseline it admitted after it', async () => {
+        const result = await createRunner(environmentOf('none'), env).run(
+            shortSmoke([], 'transactional_email', { driveFor: '3s', warmUp: '1s' }),
+            NEVER_ABORTED
+        )
+        results.push(result)
+
+        const { drive } = evidenceOf(result, 'probes.json') as { drive: DriveWindow }
+        const iso = (at: number): string => new Date(at).toISOString()
+        expect({
+            warmedAfterMs: drive.warmedAt! - drive.startedAt,
+            ...(evidenceOf(result, 'scorecard.json') as object),
+        }).toMatchObject({
+            warmedAfterMs: 1000,
+            warmUp: { from: iso(drive.startedAt), to: iso(drive.warmedAt!) },
+            baseline: { from: iso(drive.warmedAt!), to: iso(drive.endedAt) },
         })
     }, 30_000)
 
