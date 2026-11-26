@@ -1500,7 +1500,11 @@ class TestObservationStateActivities:
         )
 
         sdk = posthoganalytics.Client(
-            "phc_test", host="https://capture.example.com", sync_mode=True, capture_compression="none"
+            "phc_test",
+            host="https://capture.example.com",
+            sync_mode=True,
+            capture_compression="none",
+            max_retries=0,
         )
         with responses.RequestsMock() as capture, patch.multiple(posthoganalytics, default_client=sdk, disabled=False):
             capture.add(
