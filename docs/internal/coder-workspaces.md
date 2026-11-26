@@ -81,6 +81,10 @@ hogli devbox:sync --terminate                        # tear down when done
 
 `devbox:open --vscode` / `--cursor` / `--herdr` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth. For a worktree's devbox, the warning names the worktree to edit instead.
 
+The mirror leaves out `.git`, so `git rev-parse HEAD` on the box names the box's own checkout, not your local commit.
+To make `/_livez`, the debug badge and the `X-PostHog-Build` header show your commit, start the app with `POSTHOG_GIT_COMMIT` set to the full 40-character lowercase SHA from your local `git rev-parse HEAD`.
+A `commit.txt` in the checkout takes precedence over the variable, and an empty or malformed value falls back to git.
+
 **One devbox per git worktree** —
 Run `hogli devbox:worktree` from a linked worktree to give it its own labeled box and sync mirror. The label comes from the branch name without a leading `<coder-user>/`, shortened with a hash when it would push the workspace name past Coder's 32-character limit. Re-running reuses the same box and mirror. Inside that worktree, commands such as `devbox:exec`, `devbox:ssh` and `devbox:status` target its box without `-n <label>` and print which box they picked, and `-n @<coder-user>` targets your default box. When that box was deleted, they stop and point to `hogli devbox:worktree` to create it again. `--clone-from <label>` creates the box with `devbox:clone`, and `--dry-run` prints the plan.
 

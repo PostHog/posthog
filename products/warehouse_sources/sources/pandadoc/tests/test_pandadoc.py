@@ -30,8 +30,19 @@ class TestFormatDateFilter:
 
 
 class TestBuildQueryParams:
-    @pytest.mark.parametrize("endpoint", ["templates", "forms", "document_folders", "template_folders"])
-    def test_paginated_non_incremental_endpoints_only_count(self, endpoint):
+    @pytest.mark.parametrize(
+        "endpoint, expected_count",
+        [
+            ("templates", PAGE_SIZE),
+            ("forms", PAGE_SIZE),
+            ("document_folders", PAGE_SIZE),
+            ("template_folders", PAGE_SIZE),
+            ("content_library_items", PAGE_SIZE),
+            ("workspaces", PAGE_SIZE),
+            ("users", 50),
+        ],
+    )
+    def test_paginated_non_incremental_endpoints_only_count(self, endpoint, expected_count):
         params = _build_query_params(
             PANDADOC_ENDPOINTS[endpoint],
             should_use_incremental_field=False,
@@ -39,7 +50,7 @@ class TestBuildQueryParams:
             incremental_field=None,
         )
 
-        assert params == {"count": PAGE_SIZE}
+        assert params == {"count": expected_count}
 
 
 class TestValidateCredentials:
@@ -55,17 +66,26 @@ class TestPagination:
     def _driver() -> SourceDriver:
         return SourceDriver(PandaDocSource(), PandaDocSourceConfig(api_key="key"))
 
-    def test_paginates_until_short_page(self) -> None:
-        full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
+    @pytest.mark.parametrize(
+        "endpoint, path, page_size",
+        [
+            ("documents", "/public/v1/documents", PAGE_SIZE),
+            ("users", "/public/v1/users", 50),
+        ],
+    )
+    def test_paginates_until_short_page(self, endpoint, path, page_size) -> None:
+        full_page = [{"id": str(i)} for i in range(page_size)]
         result = self._driver().run(
-            "documents",
+            endpoint,
             [ScriptedResponse(json={"results": full_page}), ScriptedResponse(json={"results": [{"id": "last"}]})],
         )
 
         assert result.raised is None
         assert result.rows[-1] == {"id": "last"}
-        assert len(result.rows) == PAGE_SIZE + 1
+        assert len(result.rows) == page_size + 1
+        assert result.paths == [path, path]
         assert result.params("page") == ["1", "2"]
+        assert result.params("count") == [str(page_size)] * 2
         # State saved once, after the first (full) page, pointing at page 2.
         assert result.saved_states == [PandaDocResumeConfig(page=2)]
 
@@ -146,6 +166,24 @@ class TestDocumentChildren:
                 "fields",
                 {"fields": [{"uuid": "f1", "value": "x"}]},
                 [{"uuid": "f1", "value": "x", "document_id": "docA"}],
+            ),
+            (
+                "document_linked_objects",
+                "linked-objects",
+                {
+                    "linked_objects": [
+                        {"id": "link1", "provider": "examplecrm", "entity_type": "deal", "entity_id": "7"}
+                    ]
+                },
+                [
+                    {
+                        "id": "link1",
+                        "provider": "examplecrm",
+                        "entity_type": "deal",
+                        "entity_id": "7",
+                        "document_id": "docA",
+                    }
+                ],
             ),
             (
                 "document_details",

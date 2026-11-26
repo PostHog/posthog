@@ -271,7 +271,7 @@ export function SurveyCancelEventTrigger(): JSX.Element {
         <SurveyEventSelector
             conditionField="cancelEvents"
             label="Cancel survey on events"
-            info="Triggers fire when the event is captured in the current user session via a PostHog SDK. Requires posthog-js 1.299+. Web surveys only."
+            info="Triggers fire when the event is captured in the current user session via a PostHog SDK. Requires posthog-js 1.299+ or posthog-ios 3.96+. Not yet supported in React Native, Android, or Flutter."
             emptyTitle={`During your ${delaySeconds} second delay...`}
             emptyDescription="If any of these events fire, the survey is cancelled — useful when the user has already completed the action."
             addButtonText="Add cancel event"

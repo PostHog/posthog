@@ -18,7 +18,7 @@ import structlog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
+from posthog.models.utils import SHA256_HASH_PREFIX
 
 logger = structlog.get_logger(__name__)
 
@@ -112,8 +112,8 @@ class TokenAuthCache:
 
         Clears Redis cache entries so the Rust /flags/definitions service re-validates
         against Postgres on the next request. Does not revoke the tokens themselves.
-        Covers team secret tokens, project secret API keys, and personal API keys
-        that have access to the team.
+        Covers project secret API keys and personal API keys that have access to the
+        team.
 
         When dry_run=True, collects and counts tokens but skips Redis deletion.
 
@@ -121,21 +121,13 @@ class TokenAuthCache:
         """
         # Guard here (not just in invalidate_tokens) to skip the DB queries
         if not dry_run and not self.is_configured:
-            return {"secret_tokens": 0, "project_secret_keys": 0, "personal_keys": 0, "total": 0}
+            return {"project_secret_keys": 0, "personal_keys": 0, "total": 0}
 
-        team = Team.objects.only("id", "secret_api_token", "secret_api_token_backup", "organization_id").get(id=team_id)
+        team = Team.objects.only("id", "organization_id").get(id=team_id)
 
         all_hashes: list[str] = []
 
-        # 1. Team secret tokens
-        secret_token_hashes = [
-            hash_key_value(token, mode="sha256")
-            for token in (team.secret_api_token, team.secret_api_token_backup)
-            if token
-        ]
-        all_hashes.extend(secret_token_hashes)
-
-        # 2. Project Secret API Keys
+        # 1. Project Secret API Keys
         psak_secure_values: list[str] = list(
             ProjectSecretAPIKey.objects.filter(team_id=team_id, secure_value__isnull=False).values_list(
                 "secure_value", flat=True
@@ -143,7 +135,7 @@ class TokenAuthCache:
         )
         all_hashes.extend(psak_secure_values)
 
-        # 3. Personal API Keys that could access this team
+        # 2. Personal API Keys that could access this team
         org_id = str(team.organization_id)
         pak_secure_values: list[str] = list(
             PersonalAPIKey.objects.filter(
@@ -164,7 +156,6 @@ class TokenAuthCache:
             self.invalidate_tokens(all_hashes)
 
         counts = {
-            "secret_tokens": len(secret_token_hashes),
             "project_secret_keys": len(psak_secure_values),
             "personal_keys": len(pak_secure_values),
             "total": len(all_hashes),

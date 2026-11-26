@@ -26,6 +26,8 @@ export function newScanner(teamName?: string | null): ScannerFormValues {
         prompt_question: '',
         estimated_monthly_credits: null,
         estimated_at: null,
+        // Server-derived from the scope, so an unsaved scanner has none yet.
+        scope_summary: null,
         // Seed price for the unsaved scanner; the server-computed value takes over after the first save.
         credits_per_observation: OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL],
         // An unsaved scanner has no object yet, so there's no effective access level for it —

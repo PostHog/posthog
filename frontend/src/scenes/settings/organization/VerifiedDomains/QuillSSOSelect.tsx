@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { SSOProvider } from '~/types'
@@ -18,12 +19,13 @@ export function QuillSSOSelect({
     disabledReason,
 }: SSOSelectInterface): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!preflight) {
         return null
     }
 
-    const options = ssoSelectOptions(preflight, samlAvailable, oidcAvailable)
+    const options = ssoSelectOptions(preflight, samlAvailable, oidcAvailable, value, featureFlags)
     const items = options.map((option) => ({ value: option.value, label: option.label }))
     const reason = loading ? 'Cannot change while loading' : disabledReason
 

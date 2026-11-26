@@ -5,7 +5,12 @@ import { BindLogic } from 'kea'
 import { canvasHostLogic } from './canvasHostLogic'
 import { CanvasHostPromptDialog } from './CanvasHostPromptDialog'
 
-const props = { canvasId: 'example-canvas', spaceId: 'example-space', sourceVersionId: 'example-version' }
+const props = {
+    canvasId: 'example-canvas',
+    canvasName: 'Example canvas',
+    spaceId: 'example-space',
+    sourceVersionId: 'example-version',
+}
 
 const meta: Meta<typeof CanvasHostPromptDialog> = {
     component: CanvasHostPromptDialog,

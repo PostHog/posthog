@@ -248,7 +248,7 @@ def test_trace_upload_does_not_block_infrastructure_cleanup(monkeypatch: pytest.
     monkeypatch.setattr("products.posthog_ai.eval_harness.harness.lifecycle.TRACE_SHUTDOWN_TIMEOUT_SECONDS", 0)
     with (
         patch("posthoganalytics.Posthog", side_effect=partial(Posthog, flush_at=1, enable_local_evaluation=False)),
-        patch("posthoganalytics.consumer.batch_post", side_effect=blocked_upload),
+        patch("posthoganalytics.consumer._send_v1_batch", side_effect=blocked_upload),
         patch("products.posthog_ai.eval_harness.harness.lifecycle.atexit.register"),
         patch("products.posthog_ai.eval_harness.harness.lifecycle._git", return_value=""),
     ):
@@ -346,7 +346,7 @@ def test_run_routes_through_the_engine(
         patch(
             "posthoganalytics.Posthog", side_effect=partial(Posthog, sync_mode=True, enable_local_evaluation=False)
         ) as create_client,
-        patch("posthoganalytics.client.batch_post") as batch_post,
+        patch("posthoganalytics.client._send_v1_batch") as send_batch,
         patch("products.posthog_ai.eval_harness.harness.lifecycle.atexit.register"),
         patch(
             "products.posthog_ai.eval_harness.harness.lifecycle._git",
@@ -377,11 +377,11 @@ def test_run_routes_through_the_engine(
         assert create_client.call_count == 1
 
     if opt_out_capture:
-        batch_post.assert_not_called()
+        send_batch.assert_not_called()
     else:
-        assert batch_post.call_count == 2
-        for call in batch_post.call_args_list:
-            event = call.kwargs["batch"][0]
+        assert send_batch.call_count == 2
+        for call in send_batch.call_args_list:
+            event = call.args[2][0]
             assert event["event"] == "$ai_trace"
             assert event["properties"]["$ai_trace_id"] == "trace-1"
 

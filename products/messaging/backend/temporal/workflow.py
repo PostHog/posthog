@@ -3,7 +3,7 @@ from datetime import timedelta
 import temporalio.workflow
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, ChildWorkflowError, is_cancelled_exception
+from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError, is_cancelled_exception
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -69,7 +69,7 @@ CHUNK_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=5),
-    non_retryable_error_types=["ContactsImportAccessLost", "ContactsCohortGone"],
+    non_retryable_error_types=["ContactsImportAccessLost", "ContactsCohortGone", "ContactsPartMissing"],
 )
 
 
@@ -161,7 +161,8 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ProviderContactsImportInputs) -> ContactsImportOutcome:
-        people = found = removed = failed_lists = retried_chunks = 0
+        people = found = removed = failed_lists = retried_chunks = sent_people = new_people = 0
+        people_not_sent = False
         for plan in inputs.people_imports:
             cohort = ContactsCohortInputs(
                 team_id=inputs.team_id,
@@ -170,6 +171,7 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                 chunks=plan.chunks,
                 created_by_id=plan.created_by_id,
             )
+            sending = True
             try:
                 for chunk in range(plan.chunks):
                     sent = await workflow.execute_activity(
@@ -180,6 +182,10 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                             chunk=chunk,
                             send_events=plan.send_events,
                             created_by_id=plan.created_by_id,
+                            # The people this list waits for won't come, so it fills with the ones who exist.
+                            wait_for_people=not people_not_sent,
+                            provider=plan.provider,
+                            step=plan.step,
                         ),
                         start_to_close_timeout=CHUNK_TIMEOUT,
                         heartbeat_timeout=CHUNK_HEARTBEAT_TIMEOUT,
@@ -188,6 +194,10 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                     people += sent.people
                     found += sent.found
                     retried_chunks += sent.attempt > 1
+                    if plan.send_events:
+                        sent_people += sent.people
+                        new_people += sent.new_people
+                sending = False
                 removed += await workflow.execute_activity(
                     fill_contacts_cohort_activity,
                     cohort,
@@ -195,10 +205,18 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                     heartbeat_timeout=CHUNK_HEARTBEAT_TIMEOUT,
                     retry_policy=CHUNK_RETRY_POLICY,
                 )
-            except ActivityError:
+            except ActivityError as error:
                 # The lists fill separate cohorts, so one that fails does not stop the others.
                 workflow.logger.warning("Contact list import failed", extra={"cohort_id": plan.cohort_id})
                 failed_lists += 1
+                cause = error.cause
+                acknowledged = 0
+                if plan.send_events and isinstance(cause, ApplicationError) and cause.type == "ContactsCaptureFailed":
+                    acknowledged = int(cause.details[0])
+                    sent_people += acknowledged
+                    new_people += int(cause.details[1])
+                # Lists below still wait for people from a part capture took some of.
+                people_not_sent = people_not_sent or (sending and plan.send_events and not acknowledged)
                 await workflow.execute_activity(
                     fail_contacts_cohort_activity,
                     cohort,
@@ -206,5 +224,11 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                     retry_policy=FINISH_RETRY_POLICY,
                 )
         return ContactsImportOutcome(
-            people=people, found=found, removed=removed, failed_lists=failed_lists, retried_chunks=retried_chunks
+            people=people,
+            found=found,
+            removed=removed,
+            failed_lists=failed_lists,
+            retried_chunks=retried_chunks,
+            sent=sent_people,
+            new_people=new_people,
         )

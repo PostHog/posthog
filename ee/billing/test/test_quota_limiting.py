@@ -17,6 +17,7 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.client import Pipeline
 
 from posthog.api.test.test_team import create_team
 from posthog.constants import FlagRequestType
@@ -46,6 +47,7 @@ from ee.billing.quota_limiting import (
     is_team_limited,
     list_limited_team_attributes,
     org_quota_limited_until,
+    reconcile_limited_team_tokens,
     refresh_org_self_driving_quota,
     remove_limited_team_tokens,
     replace_limited_team_tokens,
@@ -385,7 +387,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         flush_persons_and_events()
-        with self.assertNumQueries(FuzzyInt(4, 20)):
+        with self.assertNumQueries(FuzzyInt(4, 21)):
             result = self._run_quota_limiting()
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert result.quota_limited_orgs["events"] == {}
@@ -1437,6 +1439,73 @@ class TestQuotaLimiting(BaseTest):
         call_args = mock_capture.call_args
         self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")
         self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})
+
+    @parameterized.expand([("deactivated", False, True), ("never_deactivated", None, False)])
+    def test_deactivated_organization_is_limited_for_feature_flags_only(
+        self, _name: str, is_active: bool | None, expected_limited: bool
+    ) -> None:
+        self.redis_client.delete("@posthog/quota-limits/feature_flag_requests")
+
+        demo_team = create_team(organization=self.organization)
+        Team.objects.filter(pk=demo_team.pk).update(is_demo=True)
+
+        def limited(resource: QuotaResource) -> bool:
+            results = {
+                is_team_limited(team.api_token, resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+                for team in (self.team, demo_team)
+            }
+            assert len(results) == 1
+            return results.pop()
+
+        self.organization.is_active = is_active
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is expected_limited
+
+        self._run_quota_limiting()
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is expected_limited
+        assert limited(QuotaResource.EVENTS) is False
+
+        self.organization.usage = {
+            "feature_flag_requests": {"usage": 10, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        update_org_billing_quotas(self.organization)
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is expected_limited
+
+        self.organization.is_active = True
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is False
+
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_reactivating_an_organization_keeps_its_feature_flags_grace_period(self) -> None:
+        self.redis_client.delete("@posthog/quota-limits/feature_flag_requests")
+        self.organization.usage = {
+            "feature_flag_requests": {"usage": 110, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+        update_org_billing_quotas(self.organization)
+
+        self.organization.is_active = False
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        self._run_quota_limiting()
+
+        self.organization.refresh_from_db()
+        self.organization.is_active = True
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        update_org_billing_quotas(self.organization)
+
+        assert not is_team_limited(
+            self.team.api_token, QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+        assert is_team_limited(
+            self.team.api_token, QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+        )
 
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
@@ -2660,6 +2729,66 @@ class TestQuotaLimiting(BaseTest):
         members_after = {member.decode("utf-8") for member in self.redis_client.zrange(recordings_zset_key, 0, -1)}
         assert self.team.api_token in members_after
         mock_update_remote_config.apply_async.assert_not_called()
+
+
+class TestQuotaSetWritesAtRedisArgumentLimit(SimpleTestCase):
+    key = "@posthog/quota-limits/events"
+    argument_limit = 6
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.redis_client = get_client()
+        self.redis_client.delete(self.key)
+        self.addCleanup(self.redis_client.delete, self.key)
+
+    @parameterized.expand(
+        [
+            ("replace_at_limit", "replace", 2, 4, 1, 0),
+            ("replace_above_limit", "replace", 5, 9, 3, 0),
+            ("reconcile_at_limit", "reconcile", 2, 4, 1, 1),
+            ("reconcile_above_limit", "reconcile", 5, 9, 3, 3),
+        ]
+    )
+    def test_write_keeps_each_command_within_the_argument_limit(
+        self,
+        _name: str,
+        write: str,
+        token_count: int,
+        stale_count: int,
+        expected_zadd_count: int,
+        expected_zrem_count: int,
+    ) -> None:
+        score = int(timezone.now().timestamp()) + 3600
+        stale_tokens = {f"stale-{index}": score for index in range(stale_count)}
+        tokens = {f"limited-{index}": score + index for index in range(token_count)}
+        self.redis_client.zadd(self.key, stale_tokens)  # type: ignore[arg-type]
+        transactions: list[tuple[bool, list[tuple]]] = []
+        execute = Pipeline.execute
+
+        def record_transaction(pipeline: Pipeline, *args: Any, **kwargs: Any) -> Any:
+            transactions.append((pipeline.transaction, [command for command, _options in pipeline.command_stack]))
+            return execute(pipeline, *args, **kwargs)
+
+        with (
+            patch("ee.billing.quota_limiting.REDIS_MAX_COMMAND_ARGUMENTS", self.argument_limit, create=True),
+            patch.object(Pipeline, "execute", autospec=True, side_effect=record_transaction),
+        ):
+            if write == "replace":
+                replace_limited_team_tokens(QuotaResource.EVENTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+            else:
+                reconcile_limited_team_tokens(
+                    QuotaResource.EVENTS, list(stale_tokens), tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+
+        [(is_transaction, commands)] = transactions
+        assert is_transaction
+        assert max(len(command) for command in commands) <= self.argument_limit
+        command_names = [command[0] for command in commands]
+        assert command_names.count("ZADD") == expected_zadd_count
+        assert command_names.count("ZREM") == expected_zrem_count
+        assert dict(self.redis_client.zrange(self.key, 0, -1, withscores=True)) == {
+            token.encode(): float(token_score) for token, token_score in tokens.items()
+        }
 
 
 def _full_usage_counters(**overrides: int) -> UsageCounters:

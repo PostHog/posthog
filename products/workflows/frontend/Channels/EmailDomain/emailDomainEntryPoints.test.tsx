@@ -9,6 +9,8 @@ import { router } from 'kea-router'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { EmailSenderRow } from 'scenes/hog-functions/email-templater/EmailSenderRow'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,11 +19,14 @@ import { initKeaTests } from '~/test/init'
 
 import { MessagingTabActions } from '../../MessagingTabActions'
 import { SendingDomainRow } from '../../Transactional/sendFromCode/SendingDomainRow'
+import { SenderStep } from '../../Transactional/wizard/steps/SenderStep'
+import { transactionalEmailWizardLogic } from '../../Transactional/wizard/transactionalEmailWizardLogic'
 import { workflowLogic } from '../../Workflows/workflowLogic'
 import { WorkflowSandboxSenderBanner } from '../../Workflows/WorkflowSandboxSenderBanner'
 import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
 import { MessageChannels } from '../MessageChannels'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
+import { POLL_FAST_MS } from './emailDomainStatusLogic'
 
 const { ToastContainer, toast } = jest.requireActual('react-toastify')
 
@@ -175,6 +180,19 @@ describe('email domain setup entry points', () => {
         expect(document.querySelector('[data-attr="workflow-sandbox-sender-set-up-domain"]')).toBeNull()
     })
 
+    it("opens the stopped sender's domain page from the live workflow banner when no verified sender can send", async () => {
+        backend.addSender({ email: 'hello@pending.example.com' })
+        const stopped = backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
+        stopped.config = { ...(stopped.config as Record<string, unknown>), ses_sending_status: 'failed' }
+        await renderInApp(liveWorkflowBanner)
+
+        expect(await screen.findByText(/fix your sending domain and switch those steps to it/)).toBeInTheDocument()
+        fireEvent.click(element('workflow-sandbox-sender-fix-domain'))
+        await flush()
+
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(stopped.id)}$`))
+    })
+
     it("offers no setup from the live workflow banner while the senders can't be read", async () => {
         backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
         useMocks({ get: { '/api/environments/:team_id/integrations/': () => [500, { detail: 'Server error' }] } })
@@ -235,6 +253,65 @@ describe('email domain setup entry points', () => {
         }
     )
 
+    it('sets up a sender in place from an email step with none, and fills the step with it', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/messaging_templates/': { results: [] },
+                '/api/projects/:team_id/property_definitions/': { results: [] },
+            },
+        })
+        const templaterProps = {
+            value: { design: null, html: '', text: '', subject: '', from: {}, to: '' },
+            onChange: jest.fn(),
+            type: 'native_email' as const,
+        }
+        await renderInApp(
+            <BindLogic logic={emailTemplaterLogic} props={templaterProps}>
+                <EmailSenderRow />
+            </BindLogic>
+        )
+
+        fireEvent.click(element('workflow-email-sender-connect'))
+        await flush()
+        fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+            target: { value: 'acme.com' },
+        })
+        fireEvent.click(element('email-domain-use-custom-domain'))
+        fireEvent.click(element('email-domain-continue'))
+        await flush()
+
+        fireEvent.click(screen.getByLabelText('close'))
+        await flush()
+        expect(templaterProps.onChange).toHaveBeenLastCalledWith(
+            expect.objectContaining({ from: expect.objectContaining({ integrationId: SENDER_ID }) })
+        )
+    })
+
+    it('keeps the transactional setup open when its domain verifies, and hands the sender to the email', async () => {
+        await renderInApp(<SenderStep />)
+
+        fireEvent.click(element('transactional-email-wizard-setup-sender'))
+        await flush()
+        fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+            target: { value: 'acme.com' },
+        })
+        fireEvent.click(element('email-domain-use-custom-domain'))
+        fireEvent.click(element('email-domain-continue'))
+        await flush()
+
+        backend.verifyDomain(DOMAIN)
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(POLL_FAST_MS)
+        })
+        integrationsLogic.actions.loadIntegrations()
+        await flush()
+        expect(element('transactional-email-sender-select')).toBeInTheDocument()
+
+        fireEvent.click(element('email-domain-use-sender'))
+        await flush()
+        expect(transactionalEmailWizardLogic.values.draft.email.from).toMatchObject({ integrationId: SENDER_ID })
+    })
+
     it('opens the existing sender when the new address already has one', async () => {
         const existing = backend.addSender({ email: `hello@${DOMAIN}` })
         await renderInApp(<EmailSetupModal onClose={jest.fn()} onComplete={jest.fn()} />)
@@ -248,6 +325,19 @@ describe('email domain setup entry points', () => {
         await flush()
 
         expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(existing.id)}$`))
+    })
+
+    it('opens the existing sender next to an email being written', async () => {
+        backend.addSender({ email: `hello@${DOMAIN}` })
+        await renderInApp(<EmailSetupModal entry="transactional" onClose={jest.fn()} onComplete={jest.fn()} />)
+
+        fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+            target: { value: 'acme.com' },
+        })
+        fireEvent.click(element('email-domain-use-custom-domain'))
+        await flush()
+
+        expect(screen.getByText('Open it').closest('a')).toHaveAttribute('target', '_blank')
     })
 
     describe('adding a sender to an existing domain', () => {

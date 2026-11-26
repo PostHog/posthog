@@ -33,6 +33,8 @@ services:
                     @capture-ai {
                         path /i/v0/ai
                         path /i/v0/ai/*
+                        path /i/v1/ai/events
+                        path /i/v1/ai/events/
                     }
 
                     @capture {

@@ -754,6 +754,23 @@ export const RatingEnumApi = {
 } as const
 
 /**
+ * * `wrong_facts` - Wrong or made-up facts
+ * * `missed_question` - Missed the customer's question
+ * * `too_vague` - Too vague to act on
+ * * `wrong_tone` - Wrong tone or style
+ * * `should_not_run` - Should not have run on this ticket
+ */
+export type AiFeedbackReasonEnumApi = (typeof AiFeedbackReasonEnumApi)[keyof typeof AiFeedbackReasonEnumApi]
+
+export const AiFeedbackReasonEnumApi = {
+    WrongFacts: 'wrong_facts',
+    MissedQuestion: 'missed_question',
+    TooVague: 'too_vague',
+    WrongTone: 'wrong_tone',
+    ShouldNotRun: 'should_not_run',
+} as const
+
+/**
  * Payload for recording reviewer feedback on an AI reply.
  */
 export interface AiFeedbackRequestApi {
@@ -772,6 +789,11 @@ export interface AiFeedbackRequestApi {
      * @maxLength 2000
      */
     feedback_text?: string
+    /**
+     * Optional reasons for a bad rating. Ignored for a good rating.
+     * @maxItems 5
+     */
+    reasons?: AiFeedbackReasonEnumApi[]
 }
 
 /**
@@ -892,7 +914,7 @@ export interface TicketNoteCreateRequestApi {
      * @maxLength 5000
      */
     message: string
-    /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. */
+    /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image src must be the url of an image uploaded to this project. */
     rich_content?: unknown
 }
 
@@ -905,7 +927,7 @@ export interface PatchedTicketNoteUpdateRequestApi {
      * @maxLength 5000
      */
     message?: string
-    /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
+    /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. Each image src must be the url of an image uploaded to this project. */
     rich_content?: unknown
 }
 
@@ -920,7 +942,7 @@ export interface TicketReplyRequestApi {
     message: string
     /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
     is_private?: boolean
-    /** Optional TipTap rich content JSON for formatted messages. */
+    /** Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {"type": "image", "attrs": {"src": <url>, "alt": <text>}} to the "doc" content. Each src must be the url of an image uploaded to this project, or the request fails with a 400. */
     rich_content?: unknown
 }
 
@@ -1027,7 +1049,7 @@ export interface ComposeTicketApi {
      * @maxLength 5000
      */
     message: string
-    /** TipTap rich content JSON for formatted messages. */
+    /** TipTap rich content JSON for formatted messages. Each image src must be the url of an image uploaded to this project. */
     rich_content?: unknown
     /**
      * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.

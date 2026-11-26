@@ -109,7 +109,9 @@ def _top_level_source(
     # Server-side incremental filter: only endpoints with a documented `updated_since` param
     # narrow the window, and only once a watermark exists.
     if should_use_incremental_field and config.updated_since_param and db_incremental_field_last_value:
-        params[config.updated_since_param] = _format_updated_since(db_incremental_field_last_value)
+        params[config.updated_since_param] = config.updated_since_template.format(
+            _format_updated_since(db_incremental_field_last_value)
+        )
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(domain, api_key),
@@ -194,7 +196,9 @@ def _fanout_source(
             job_id=job_id,
             db_incremental_field_last_value=None,
             parent_endpoint_extra={"data_selector": parent_config.data_key},
-            child_endpoint_extra={"data_selector": config.data_key},
+            # Explicit, because a child path that ends in a placeholder (`?folder_id={folder_id}`)
+            # otherwise gets the framework's single-page paginator for single-entity paths.
+            child_endpoint_extra={"data_selector": config.data_key, "paginator": HeaderLinkPaginator()},
             page_size_param="per_page",
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_state,

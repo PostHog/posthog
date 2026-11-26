@@ -108,10 +108,10 @@ class AwsEndUserMessagingSource(ResumableSource[AwsEndUserMessagingSourceConfig,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             keywords=["aws eum", "eum", "amazon pinpoint", "pinpoint sms", "sms voice"],
             label="AWS End User Messaging",
-            caption="""Sync the SMS and voice resources of AWS End User Messaging (formerly Amazon Pinpoint SMS) from one AWS region: phone numbers, pools, sender IDs, configuration sets, opt-out lists, opted-out numbers, keywords, registrations, verified destination numbers, protect configurations, spend limits, and account attributes and limits.
+            caption="""Sync the SMS and voice resources of AWS End User Messaging (formerly Amazon Pinpoint SMS) from one AWS region: phone numbers, pools, sender IDs, configuration sets, opt-out lists, opted-out numbers, keywords, registrations with their associations, versions, and field values, pool origination identities, verified destination numbers, protect configurations, spend limits, and account attributes and limits.
 
-Give the IAM user or role the `sms-voice:Describe*` actions, or only these for the tables you select:
-`sms-voice:DescribePhoneNumbers`, `sms-voice:DescribePools`, `sms-voice:DescribeSenderIds`, `sms-voice:DescribeConfigurationSets`, `sms-voice:DescribeOptOutLists`, `sms-voice:DescribeOptedOutNumbers`, `sms-voice:DescribeKeywords`, `sms-voice:DescribeRegistrations`, `sms-voice:DescribeVerifiedDestinationNumbers`, `sms-voice:DescribeProtectConfigurations`, `sms-voice:DescribeSpendLimits`, `sms-voice:DescribeAccountAttributes`, and `sms-voice:DescribeAccountLimits`.
+Give the IAM user or role the `sms-voice:Describe*` and `sms-voice:List*` actions, or only these for the tables you select:
+`sms-voice:DescribePhoneNumbers`, `sms-voice:DescribePools`, `sms-voice:DescribeSenderIds`, `sms-voice:DescribeConfigurationSets`, `sms-voice:DescribeOptOutLists`, `sms-voice:DescribeOptedOutNumbers`, `sms-voice:DescribeKeywords`, `sms-voice:DescribeRegistrations`, `sms-voice:ListRegistrationAssociations`, `sms-voice:DescribeRegistrationVersions`, `sms-voice:DescribeRegistrationFieldValues`, `sms-voice:ListPoolOriginationIdentities`, `sms-voice:DescribeVerifiedDestinationNumbers`, `sms-voice:DescribeProtectConfigurations`, `sms-voice:DescribeSpendLimits`, `sms-voice:DescribeAccountAttributes`, and `sms-voice:DescribeAccountLimits`.
 
 The API does not return sent or received messages. To analyze message events, send them from a configuration set to an event destination such as Amazon S3. All tables use full refresh because the API has no time filter.""",
             iconPath="/static/warehouse-sources/aws_end_user_messaging/icon.png",

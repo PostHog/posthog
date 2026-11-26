@@ -87,10 +87,12 @@ WHITELISTED_PREFIXES = [
     "/login/google-oauth2",
     "/login/github",
     "/login/gitlab",
+    "/login/chatgpt",
     "/login/saml",
     "/complete/google-oauth2",
     "/complete/github",
     "/complete/gitlab",
+    "/complete/chatgpt",
     "/complete/saml",
     "/api/saml/metadata",
 ]

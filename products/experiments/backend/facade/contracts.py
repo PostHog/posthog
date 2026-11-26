@@ -9,14 +9,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Final, Generic, Literal, Optional, TypeVar
 
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.experiments.backend.facade.enums import RecalculationStartOutcome
+from products.experiments.backend.facade.enums import MetricSourceRole, RecalculationStartOutcome, SharedMetricType
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -239,6 +239,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
+    METRIC_USES_FEATURE_FLAG_CALLED = "metric_uses_feature_flag_called"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     METRIC_ALL_ZERO = "metric_all_zero"
@@ -248,6 +249,8 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
@@ -269,30 +272,6 @@ class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
     QUERY = "query"
     # The stored definition doesn't parse into a metric.
     DEFINITION = "definition"
-
-
-class HealthExposureInputsStatus(LabeledStrEnum):
-    READY = "ready"
-    # The cached answer is past its age. A recalculation runs in the background, or the last one failed.
-    STALE = "stale"
-    # No cached answer. A calculation runs in the background.
-    CALCULATING = "calculating"
-    NOT_LAUNCHED = "not_launched"
-    NO_QUERY_ACCESS = "no_query_access"
-    # The query could not be built, or no answer is cached and the last background calculation failed.
-    FAILED = "failed"
-
-
-class ExperimentHealthInputsTrafficStatus(LabeledStrEnum):
-    READ = "read"
-    NOT_NEEDED = "not_needed"
-    NO_QUERY_ACCESS = "no_query_access"
-    # The reader is denied a flag call property that the scan reads.
-    DENIED_PROPERTIES = "denied_properties"
-    NO_FLAG_VERSION = "no_flag_version"
-    # The scan failed or was too expensive, which is cached so that it does not run again on every load. Or another
-    # request's scan was still running and did not answer in time.
-    UNKNOWN = "unknown"
 
 
 class ExperimentHealthFlagChangeKind(LabeledStrEnum):
@@ -340,6 +319,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
+    METRIC_USES_FEATURE_FLAG_CALLED = "metric_uses_feature_flag_called"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     METRIC_ALL_ZERO = "metric_all_zero"
@@ -354,6 +334,8 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
 
 
 @frozen
@@ -427,7 +409,8 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "only_count_matured_users",
         'Whether "Require completed conversion or retention window" is on',
     )
-    PRIMARY_METRIC_COUNT = "primary_metric_count", "Primary metrics that the calculation computes"
+    PRIMARY_METRIC_COUNT = "primary_metric_count", "Primary metrics of the experiment"
+    SECONDARY_METRIC_COUNT = "secondary_metric_count", "Secondary metrics of the experiment"
     WAITING_METRIC_COUNT = (
         "waiting_metric_count",
         "Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet",
@@ -444,6 +427,7 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "The key of the variant that the feature flag serves to everyone, or null when it serves more than one",
     )
     FLAG_LAST_CALLED_AT = "flag_last_called_at", "When PostHog last recorded a call of the feature flag"
+    FLAG_CALLED = "flag_called", "Whether PostHog has recorded a call of the feature flag"
     SINCE_START_HOURS = (
         "since_start_hours",
         "Hours since the experiment's start date, which can be earlier than the launch",
@@ -451,6 +435,24 @@ class ExperimentHealthValueKey(LabeledStrEnum):
     DAILY_CALCULATION_ENDS_AT = (
         "daily_calculation_ends_at",
         "When the daily calculation stops covering the experiment, a fixed number of days after its start date",
+    )
+    EVENTS_BILLING_LIMIT_REACHED = (
+        "events_billing_limit_reached",
+        "Whether the organization reached its billing limit for product analytics, so that PostHog drops the "
+        "project's product analytics events",
+    )
+    EVENTS_BILLING_LIMIT_ENDS_AT = (
+        "events_billing_limit_ends_at",
+        "When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier",
+    )
+    FEATURE_FLAGS_BILLING_LIMIT_REACHED = (
+        "feature_flags_billing_limit_reached",
+        "Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to "
+        "the project's flag requests",
+    )
+    FEATURE_FLAGS_BILLING_LIMIT_ENDS_AT = (
+        "feature_flags_billing_limit_ends_at",
+        "When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier",
     )
     METRIC_NAME = "metric_name", "The name of a metric"
     METRIC_ROLE = "metric_role", "Whether a metric is primary or secondary"
@@ -498,6 +500,16 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "traffic_since_at",
         "The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later",
     )
+    HISTORY_SINCE_AT = (
+        "history_since_at",
+        "The start of the feature flag's history that the check reads: the experiment's start date, which can be "
+        "earlier than the launch",
+    )
+    CHANGE_COUNT = (
+        "change_count",
+        "Changes of the feature flag since history_since_at of the kind that the check looks for, such as split "
+        "changes",
+    )
     CHANGED_AT = "changed_at", "When a change of the feature flag was saved"
     BEFORE_EXPOSURE = (
         "before_exposure",
@@ -525,6 +537,11 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service "
         "evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped "
         "values count in no condition",
+    )
+    COHORT_COUNT = "cohort_count", "Cohorts that the exposure criteria filter on"
+    DYNAMIC_COHORT_COUNT = (
+        "dynamic_cohort_count",
+        "Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation",
     )
     EVENT = "event", "The name of an event that the check looked up"
     EVENT_RECEIVED = (
@@ -554,6 +571,10 @@ class ExperimentHealthValueKey(LabeledStrEnum):
     OTHER_DRAFT_EXPERIMENT_COUNT = (
         "other_draft_experiment_count",
         "Other draft experiments on the same feature flag that are not archived",
+    )
+    FILTERS_TEST_ACCOUNTS = (
+        "filters_test_accounts",
+        "Whether the counts leave out internal and test users, because the experiment applies the test account filters",
     )
 
 
@@ -609,16 +630,67 @@ class ExperimentHealthCheckResult:
 @frozen
 class ExperimentHealthReleaseCondition:
     """A condition set of the flag: the share of its matching users or groups who get the flag, how many filters they
-    must match, and the group type it assigns variants by (None for users)."""
+    must match, the group type it assigns variants by (None for users), and the variant it serves to all of them (None
+    when the split picks one)."""
 
     rollout_percentage: float
     property_count: int
     aggregation_group_type_index: int | None
+    variant: str | None
+    # False when the set serves nobody: its rollout is 0%, or an earlier set ends the flag's evaluation before it.
+    # None on a flag that buckets by device ID, because a request without a device ID skips the earlier sets that need
+    # the bucketing hash and can reach the set anyway.
+    reachable: bool | None
+
+
+@frozen
+class ExperimentHealthExposureSetup:
+    """What the exposure criteria count as an exposure. Neither an event nor an action means the flag's calls."""
+
+    event: str | None
+    action: str | None
+    # The event, or the action's name, that has to follow a user's flag call before the user counts.
+    activation: str | None
+
+
+class ExperimentHealthStatsMethod(LabeledStrEnum):
+    BAYESIAN = "bayesian", "Bayesian"
+    FREQUENTIST = "frequentist", "Frequentist"
+
+
+class ExperimentHealthMultipleVariantHandling(LabeledStrEnum):
+    EXCLUDE = "exclude", "Exclude from analysis"
+    FIRST_SEEN = "first_seen", "Use first seen variant"
+
+
+@frozen
+class ExperimentHealthAnalysisSetup:
+    """What the results calculation reads besides the metrics, resolved as the calculation resolves it. A
+    `*_from_project_default` field is true when the experiment doesn't set the value, so the calculation takes the
+    project's default."""
+
+    stats_method: ExperimentHealthStatsMethod
+    confidence_level: float
+    sequential_testing: bool | None
+    sequential_testing_from_project_default: bool
+    cuped: bool
+    cuped_lookback_days: int | None
+    cuped_from_project_default: bool
+    cuped_lookback_days_from_project_default: bool
+    # The names of the calculated metrics whose type CUPED doesn't support. Empty when CUPED is off.
+    metrics_without_cuped_support: tuple[str, ...]
+    filters_test_accounts: bool | None
+    test_account_filter_count: int
+    multiple_variant_handling: ExperimentHealthMultipleVariantHandling | None
+    only_count_matured_users: bool
+    baseline_variant: str
+    excluded_variants: tuple[str, ...]
 
 
 @frozen
 class ExperimentHealthSetup:
-    """The settings of the experiment's flag that decide who gets the flag and which variant a user gets."""
+    """The settings of the experiment and its flag that decide who gets the flag, which variant a user gets, who counts
+    as exposed, and how the results are calculated."""
 
     # The flag's condition sets as stored, in evaluation order.
     release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
@@ -628,6 +700,9 @@ class ExperimentHealthSetup:
     evaluation_runtime: str
     evaluation_contexts: tuple[str, ...]
     ensure_experience_continuity: bool
+    # None when the exposure criteria can't be read, or the exposures come from a data warehouse table.
+    exposure: ExperimentHealthExposureSetup | None
+    analysis: ExperimentHealthAnalysisSetup
 
 
 @frozen
@@ -659,6 +734,25 @@ class ExperimentValidationError(Exception):
         # The input field that the message is about, so that an HTTP boundary can report the error on that field.
         # None when the message is about the input as a whole.
         self.field = field
+
+
+class ExperimentVersionConflict(Exception):
+    """Raised when a stale write raced a concurrent update and could not be applied safely. The detail is written for
+    the person who sent the write, so a caller at an HTTP boundary can return it as a 409."""
+
+    def __init__(
+        self,
+        detail: str = "This experiment changed since you loaded it. Review the latest changes and try again.",
+        *,
+        current_version: int,
+        conflicting_fields: list[str] | None = None,
+        conflicting_metric_uuids: list[str] | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.current_version = current_version
+        self.conflicting_fields = conflicting_fields or []
+        self.conflicting_metric_uuids = conflicting_metric_uuids or []
 
 
 class LegacyMigrationError(Exception):
@@ -714,6 +808,588 @@ class ExperimentExposureLinkage:
     # The product's resolution, which only the replay facade reads back. It holds the query context, so it is typed
     # `object` to keep that context off the contract. It is left out of equality and hashing.
     _resolution: object = field(compare=False, repr=False)
+
+
+# Hard cap on the batch endpoint's id list. A playlist page holds 20 recordings, and every
+# extra session widens the grouped scans; anything larger should arrive as separate batches.
+MAX_SESSION_CONTEXT_BATCH = 20
+
+
+@frozen
+class SessionMetricSourceHit:
+    """One source of a metric with at least one matching event in a session."""
+
+    role: MetricSourceRole
+    name: str
+    # Position among *all* the metric's sources, data-warehouse ones included, so a funnel step
+    # keeps its real step number even when an earlier step has no session events.
+    index: int
+    total: int
+    event_count: int
+    first_timestamp: datetime
+    timestamps: tuple[datetime, ...]
+
+
+@frozen
+class SessionMetricHit:
+    """A metric with at least one matching event in a session."""
+
+    metric_uuid: str
+    metric_name: str
+    event_count: int
+    first_timestamp: datetime
+    # The first event timestamps, ascending: seek points for the player. event_count is the true
+    # total, so this can be shorter than event_count.
+    timestamps: tuple[datetime, ...]
+    # Which of the metric's sources fired, so a hit reads as "step 2 of 3" or "the start event of
+    # a retention metric" rather than an unqualified "this metric happened". Sources with no
+    # matching event are omitted, as is the whole breakdown when the metric is over the
+    # aggregate-group ceiling.
+    sources: tuple[SessionMetricSourceHit, ...]
+
+
+@frozen
+class SessionExperiment:
+    """One experiment whose feature flag a session recording saw, and what the session saw of it."""
+
+    experiment_id: int
+    experiment_name: str
+    flag_key: str
+    variant: str
+    variants_seen: tuple[str, ...]
+    multiple_variants: bool
+    first_exposure_timestamp: datetime | None
+    experiment_start_date: datetime | None
+    experiment_end_date: datetime | None
+    # The experiment's metrics with >=1 matching event in the session, sorted by first occurrence.
+    metrics_in_session: tuple[SessionMetricHit, ...]
+
+
+# Ceiling on returned session ids. The recordings list is fetched over GET, so the ids ride in a
+# query string: ~45 encoded characters each puts 100 ids at ~4.5 KB, with headroom under the 8 KB
+# request-line limits proxies commonly enforce. Doubling it would not.
+MAX_SESSION_BUCKET_LIMIT = 100
+# The scan reads every session in the window, not a known id list, so the window is what bounds
+# it. It ends at the latest in-session exposure rather than at now, because an experiment whose
+# exposures stopped has nothing left in its recent days. The response carries the window it read,
+# because a clamped scan has to state what it left out.
+MAX_BUCKET_SCAN_DAYS = 30
+
+
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class ExperimentSessionBucket(LabeledStrEnum):
+    """Which question the returned session set answers."""
+
+    FIRED_ANY = "fired_any", "fired_any"
+    NO_METRIC_ACTIVITY = "no_metric_activity", "no_metric_activity"
+    FUNNEL_DROPOFF = "funnel_dropoff", "funnel_dropoff"
+
+
+class SessionBucketUnavailable(Exception):
+    """The requested bucket can't be computed for this experiment — a caller error, not a
+    failure. Raised instead of returning an empty session list, so an unmatchable metric never
+    reads as "no sessions matched"."""
+
+
+@dataclass(frozen=True)
+class BucketMetric:
+    metric_uuid: str
+    metric_name: str
+
+
+@dataclass(frozen=True)
+class ExcludedBucketMetric:
+    metric_uuid: str
+    metric_name: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class SessionBucketScan:
+    """What the scan found, and what gets cached: every recorded match, most recent first, not yet
+    cut to `limit`.
+
+    The cut waits for the viewer's per-recording access filter, which runs on read so a revocation
+    lands even on a warm entry. Cutting first would let a denied recording spend a returned slot,
+    and would let `truncated` carry the one bit that a recording the viewer can't see matched.
+    """
+
+    candidate_session_ids: list[str]
+    # The scan filled its over-fetch batch, so more matches may exist beyond the ones it saw.
+    scan_hit_cap: bool
+    limit: int
+    considered_metrics: list[BucketMetric]
+    excluded_metrics: list[ExcludedBucketMetric]
+    date_from: datetime
+    date_to: datetime
+    filter_test_accounts: bool
+    used_exposure_fallback: bool
+
+
+@dataclass(frozen=True)
+class SessionBucketResult:
+    """One viewer's answer: the sessions they may see, cut to the limit."""
+
+    session_ids: list[str]
+    truncated: bool
+    considered_metrics: list[BucketMetric]
+    excluded_metrics: list[ExcludedBucketMetric]
+    date_from: datetime
+    date_to: datetime
+    filter_test_accounts: bool
+    used_exposure_fallback: bool
+
+
+EXPERIMENT_BEHAVIOR_COMPARISON_FLAG = "experiment-behavior-comparison"
+# The most days of events one comparison reads. Tighter than MAX_BUCKET_SCAN_DAYS. The bucket scan
+# filters by event name in its WHERE, so ClickHouse prunes on the events table's primary key; this
+# one compares every event name there is and has no such predicate, so time is all that stands
+# between it and the team's whole history.
+MAX_DELTA_SCAN_DAYS = 14
+# How far past a person's first exposure their events are read. Their compared session is the one
+# holding their earliest event in this stretch, so the bound keeps "first session after exposure"
+# meaning the session where they met the change, and it caps the per-(person, session) aggregation
+# state for people with many sessions. Stretches are clamped at the window end, so a person first
+# exposed inside the horizon of an experiment's end date is read over what is left of it: still
+# the session they met the change in, with only its tail missing.
+FIRST_SESSION_HORIZON_HOURS = 24
+# How many recordings a card names to start with. Enough to offer a choice, few enough that the
+# reader still opens one instead of reading a second list.
+MAX_CARD_HIGHLIGHTS = 3
+MAX_CARD_RECORDINGS = 20
+
+
+class SessionEventDeltasUnavailable(Exception):
+    """The cards can't be computed for this experiment — a caller error, not a failure.
+    Raised instead of returning an empty shelf, so "we declined to compare" never reads as
+    "the variants behaved identically"."""
+
+
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class ExperimentWatchCardStrength(LabeledStrEnum):
+    """How far apart a variant and the rest are, conservatively, in bands rather than as a number."""
+
+    # Nobody in the other variants did it, among the people compared. A fact about the compared set
+    # rather than a ratio, and the one band that is exact.
+    ONLY = "only", "only"
+    FAR_MORE = "far_more", "far_more"
+    MORE = "more", "more"
+    SLIGHTLY_MORE = "slightly_more", "slightly_more"
+
+
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class ExperimentWatchCardKind(LabeledStrEnum):
+    # An event this variant did clearly more than the other variants together.
+    BEHAVIOR = "behavior", "behavior"
+    # Same evidence, but the event is an error/rage signal, so it reads as a defect lead.
+    FRICTION = "friction", "friction"
+    # An event only this variant can fire, because the variant is what renders it. Confirms the change is
+    # live rather than saying anything about what people did with it.
+    VARIANT_ONLY = "variant_only", "variant_only"
+    # A shortcut to recordings around one of the experiment's own metric events. No comparison
+    # claim: what happened to the metric is the results tab's answer.
+    METRIC = "metric", "metric"
+
+
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class ExperimentWatchEmptyReason(LabeledStrEnum):
+    """Why a shelf carries no cards. Set exactly when the shelf is empty.
+
+    Each reason asks something different of the reader, so the frontend and the MCP tool report
+    the reason rather than an empty list.
+    """
+
+    # Fewer than two variants cleared MIN_VARIANT_PERSONS. A rollout split that changed during the
+    # run lands here too, undiagnosed, because the exposure chart already shows it.
+    TOO_EARLY = "too_early", "too_early"
+    # The variants were compared and no event told them apart.
+    NO_SEPARATION = "no_separation", "no_separation"
+    # Events told the variants apart, but no recording behind them can be opened.
+    NO_RECORDINGS = "no_recordings", "no_recordings"
+    # The experiment has exposed people and none of them has a session the scan can see in the
+    # window. Only the sessions are read over the window; who counts as exposed is read over the
+    # whole run, so the exposures can predate the window, which is why the copy must date the claim
+    # to the window rather than to the exposures. More time alone cannot fix it: more traffic
+    # captured the same way produces more exposed people without sessions. The read stops at the
+    # request, though, so people exposed less than a horizon ago can still return, and the copy
+    # must not claim the day has passed.
+    NO_SESSION_LINKED_EXPOSURES = "no_session_linked_exposures", "no_session_linked_exposures"
+
+
+@dataclass(frozen=True)
+class ExperimentWatchHighlight:
+    """One recording a card names first, and everything it carries that earned it the place.
+
+    The friction signals are session-level rather than per event, so a recording keeps them on
+    every card it backs. That is deliberate: the reason has to survive a reader opening the
+    recording, and "this session rage clicked six times" does, while anything scoped to the card's
+    own event would contradict itself the moment the same session appeared under a second card.
+    The one per-card part, "did this N times", survives the same trip because "this" reads against
+    whichever card it is printed on.
+    """
+
+    session_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class ExperimentWatchCard:
+    """One group of recordings worth opening, and the one sentence that justifies it.
+
+    Deliberately no rate, no ratio and no person count: a precise number next to an event name is
+    an effect size, and the results tab publishes those for everything the experiment measures,
+    computed over a different window and a different unit. The only number here is how many
+    recordings the card can actually show.
+    """
+
+    kind: ExperimentWatchCardKind
+    event: str
+    # The variant whose recordings these are — for comparison cards, the variant that did the event more.
+    variant: str
+    # None on metric cards: they are shortcuts, not comparisons.
+    strength: Optional[ExperimentWatchCardStrength]
+    # The metric this card's event belongs to, on a shortcut card and on a comparison card alike.
+    # Set means the results tab measures this event, so the card must be read as pointing there
+    # rather than as a second answer.
+    metric_name: Optional[str]
+    recording_count: int
+    session_ids: list[str]
+    # Which of those recordings to open first, strongest signal first. Empty when none of them
+    # carries one, which is itself worth showing: it says the card's recordings are unremarkable
+    # apart from the event that earned the card.
+    highlights: list[ExperimentWatchHighlight]
+
+
+@dataclass(frozen=True)
+class ExperimentWatchVariant:
+    """One variant's compared population: exposed people, and the sessions they were seen in."""
+
+    key: str
+    persons: int
+    sessions: int
+
+
+@dataclass(frozen=True)
+class ExperimentWatchResult:
+    cards: list[ExperimentWatchCard]
+    variants: list[ExperimentWatchVariant]
+    multiple_variant_persons: int
+    multiple_variant_handling: str
+    metric_events: list[str]
+    date_from: datetime
+    date_to: datetime
+    filter_test_accounts: bool
+    # Always False. The population is person-scoped now, so no stamped-property stand-in exists to
+    # fall back to; the field stays so the payload shape holds for existing readers.
+    used_exposure_fallback: bool
+    # True when more people were exposed than one comparison covers, so the most recently exposed
+    # were compared. Named for the session ceiling it used to report, kept so the payload shape
+    # holds for existing readers.
+    sessions_truncated: bool
+    events_truncated: bool
+    min_variant_persons: int
+    # Reported so a reader can tell a card carrying every recording of its event from one that ran
+    # into the ceiling. A count sitting on the cap is a floor, and printed as a plain number beside
+    # an event name it reads as a measurement of that event.
+    max_card_recordings: int
+    # How many cards the duplicate-recording-set rule removed from this viewer's shelf, reported
+    # so the shelf-loaded telemetry can say how often DUPLICATE_CARD_OVERLAP fires on real shelves
+    # before anyone tunes it. Set in `finalize_watch_cards` rather than in the scan, because the
+    # shelf is cached across viewers and the duplicate cut runs on the shelf a viewer actually gets.
+    dropped_duplicate_cards: int
+    too_early: bool
+    # Settled per viewer in `finalize_watch_cards`: the recording access cut can empty a shelf the
+    # scan built with findings on it.
+    empty_reason: Optional[ExperimentWatchEmptyReason]
+
+
+EXPERIMENT_SETUP_CONTEXT_FLAG: Final = "experiment-setup-context"
+DEFAULT_LIST_LIMIT: Final = 10
+MAX_LIST_LIMIT: Final = 25
+MAX_PROPERTY_FILTERS: Final = 10
+
+
+class SetupContextSectionStatus(LabeledStrEnum):
+    OK = "ok"
+    SKIPPED = "skipped"
+    TIMED_OUT = "timed_out"
+    ERROR = "error"
+
+
+class SdkLibCategory(LabeledStrEnum):
+    WEB = "web"
+    MOBILE = "mobile"
+    SERVER = "server"
+    OTHER = "other"
+
+
+class PreviousExperimentState(LabeledStrEnum):
+    """Every value `Experiment.status_label` can return, which is what this section reports."""
+
+    DRAFT = "draft"
+    RUNNING = "running"
+    PAUSED = "paused"
+    EXPOSURE_FROZEN = "exposure_frozen"
+    STOPPED = "stopped"
+
+
+@frozen
+class SetupContextInputs:
+    target_event: str | None = None
+    target_url_contains: str | None = None
+    # Tuples so the frozen dataclass carries no shared mutable default.
+    target_properties: tuple[dict[str, Any], ...] = ()
+    metric_event: str | None = None
+    metric_properties: tuple[dict[str, Any], ...] = ()
+    previous_experiments_limit: int = DEFAULT_LIST_LIMIT
+    shared_metrics_limit: int = DEFAULT_LIST_LIMIT
+
+    def __post_init__(self) -> None:
+        if self.target_url_contains and self.target_event != "$pageview":
+            raise ValueError("target_url_contains needs target_event to be $pageview")
+        if self.target_properties and not self.target_event:
+            raise ValueError("target_properties needs target_event")
+        if self.metric_properties and not self.metric_event:
+            raise ValueError("metric_properties needs metric_event")
+        for filters in (self.target_properties, self.metric_properties):
+            if len(filters) > MAX_PROPERTY_FILTERS:
+                raise ValueError(f"pass at most {MAX_PROPERTY_FILTERS} property filters")
+        # The same event on both sides makes every person who reached the surface a converter, so
+        # the baseline would always be 1.0 and tell the caller nothing.
+        if self.metric_event and self.metric_event == self.target_event:
+            raise ValueError("metric_event must differ from target_event")
+        for limit in (self.previous_experiments_limit, self.shared_metrics_limit):
+            if not 1 <= limit <= MAX_LIST_LIMIT:
+                raise ValueError(f"list limits must be between 1 and {MAX_LIST_LIMIT}")
+
+
+@frozen
+class TeamDefaults:
+    stats_method: str | None
+    confidence_level: float | None
+    minimum_detectable_effect: int | None
+    product_default_minimum_detectable_effect: int
+    product_default_stats_method: str
+    product_default_confidence_level: float
+    only_count_matured_users: bool
+    cuped_enabled: bool
+    sequential_testing_enabled: bool
+    flags_persistence_default: bool
+    test_account_filter_count: int
+    new_experiments_filter_test_accounts: bool
+    default_exposure_event: str
+
+
+@frozen
+class SdkLibProfile:
+    lib: str | None
+    category: SdkLibCategory
+    calls: int
+    distinct_ids: int
+    device_id_share: float
+    # None when no call from this SDK carried the property at all, so a 0 is never mistaken for a
+    # fact. Derived from what the rows carry rather than from the SDK's name, because the name
+    # lists are incomplete and each SDK decides for itself what it sends.
+    locally_evaluated_share: float | None
+    anonymous_share: float | None
+
+
+@frozen
+class LibActivity:
+    lib: str | None
+    category: SdkLibCategory
+    events: int
+    distinct_ids: int
+
+
+@frozen
+class SdkProfile:
+    window_days: int
+    source_event: str
+    computed_at: datetime
+    libs: list[SdkLibProfile]
+    libs_truncated: bool
+    flags_seen: int
+    flags_evaluated_on_server_and_web: int
+    evaluated_on_server_and_web: bool
+    libs_on_any_event: list[LibActivity] | None
+    libs_on_any_event_truncated: bool
+
+
+@frozen
+class LibReach:
+    lib: str | None
+    category: SdkLibCategory
+    unique_persons: int
+    anonymous_share: float | None
+    device_id_share: float
+
+
+@frozen
+class TargetSurface:
+    window_days: int
+    source_event: str
+    target_url_contains: str | None
+    target_properties: list[dict[str, Any]]
+    computed_at: datetime
+    test_accounts_filtered: bool
+    unique_persons: int
+    exposures_per_day_estimate: float
+    libs: list[LibReach]
+    libs_truncated: bool
+    anonymous_share: float | None
+    device_id_share: float | None
+
+
+@frozen
+class FunnelBaselineStats:
+    number_of_samples: int
+    # The calculator's input contract requires `sum` on every baseline, so the funnel carries it too.
+    sum: float
+    step_counts: list[float]
+
+
+@frozen
+class MeanCountBaselineStats:
+    number_of_samples: int
+    sum: float
+    sum_squares: float
+
+
+@frozen
+class CandidateMetric:
+    window_days: int
+    source_event: str
+    metric_properties: list[dict[str, Any]]
+    target_event: str | None
+    computed_at: datetime
+    test_accounts_filtered: bool
+    persons_reached: int | None = None
+    persons_converted: int | None = None
+    conversion_rate: float | None = None
+    funnel_baseline_stats: FunnelBaselineStats | None = None
+    mean_count_baseline_stats: MeanCountBaselineStats | None = None
+    note: str | None = None
+    event_volume: int | None = None
+    unique_persons: int | None = None
+
+
+@frozen
+class ExperimentOutcome:
+    metric_type: str
+    # None when the stored result carries no sample counts at all, which must not read as a zero:
+    # "the experiment analyzed nobody" is the signal this section exists to surface.
+    metric_samples: int | None
+    analyzed_exposures: int | None
+    control_baseline_value: float | None
+    any_variant_significant: bool
+    result_completed_at: datetime | None
+    result_data_through: datetime | None
+
+
+@frozen
+class PreviousExperiment:
+    id: int
+    name: str
+    state: PreviousExperimentState
+    created_at: datetime
+    start_date: datetime | None
+    end_date: datetime | None
+    conclusion: str | None
+    feature_flag_key: str
+    variant_count: int
+    split_even: bool | None
+    serving_single_variant: str | None
+    rollout_percentage: float | None
+    multiple_variant_handling: str
+    multiple_variant_handling_set: bool
+    ensure_experience_continuity: bool
+    bucketing_identifier: str
+    evaluation_runtime: str
+    group_aggregation: bool
+    custom_exposure_event: str | None
+    custom_exposure_action_id: int | None
+    exposure_property_filters: list[dict[str, Any]]
+    activation_event: str | None
+    activation_action_id: int | None
+    filter_test_accounts: bool
+    primary_metric_count: int
+    secondary_metric_count: int
+    shared_metric_count: int
+    primary_metric_types: list[str]
+    primary_metric_events: list[str]
+    primary_metric_action_ids: list[int]
+    minimum_detectable_effect: float | None
+    stats_method: str
+    has_holdout: bool
+    outcome: ExperimentOutcome | None
+
+
+@frozen
+class PreviousExperimentsSummary:
+    total: int
+    launched: int
+    launched_without_results: int
+    launched_with_unknown_analyzed_exposures: int
+    launched_with_zero_analyzed_exposures: int
+    launched_with_under_100_analyzed_exposures: int
+    using_device_id_bucketing: int
+    using_persistence: int
+    using_custom_exposure: int
+    using_exposure_property_filters: int
+    using_activation: int
+    using_uneven_split: int
+    serving_single_variant: int
+
+
+@frozen
+class PreviousExperiments:
+    experiments: list[PreviousExperiment]
+    summary: PreviousExperimentsSummary
+
+
+@frozen
+class SharedMetricUsage:
+    id: int
+    name: str
+    metric_type: str | None
+    events: list[str]
+    action_ids: list[int]
+    used_as_primary: int
+    used_as_secondary: int
+    last_used_at: datetime | None
+    matches_metric_event: bool | None
+    metric_event_roles: list[str] | None
+
+
+@frozen
+class SharedMetrics:
+    metric_event: str | None
+    metric_event_match_truncated: bool
+    metrics: list[SharedMetricUsage]
+
+
+# hoglint reads an unbound type variable as an unknown type, so the bound is what lets the facade hand a section out.
+SetupContextSectionData = (
+    TeamDefaults | SdkProfile | TargetSurface | CandidateMetric | PreviousExperiments | SharedMetrics
+)
+_SectionData = TypeVar("_SectionData", bound=SetupContextSectionData)
+
+
+@frozen
+class SetupContextSection(Generic[_SectionData]):
+    status: SetupContextSectionStatus
+    data: _SectionData | None = None
+
+
+@frozen
+class ExperimentSetupContext:
+    team_defaults: SetupContextSection[TeamDefaults]
+    sdk_profile: SetupContextSection[SdkProfile]
+    target_surface: SetupContextSection[TargetSurface]
+    candidate_metric: SetupContextSection[CandidateMetric]
+    previous_experiments: SetupContextSection[PreviousExperiments]
+    shared_metrics: SetupContextSection[SharedMetrics]
 
 
 @dataclass(frozen=True)
@@ -871,6 +1547,180 @@ class ExperimentRef:
 
 
 @frozen
+class ExperimentFlag:
+    """The feature flag of an experiment, with the fields of the minimal flag shape of the feature flags API."""
+
+    id: int
+    team_id: int
+    name: str
+    # The stored key. A soft-deleted flag keeps its tombstone suffix here.
+    key: str
+    filters: dict[str, Any]
+    deleted: bool
+    active: bool
+    ensure_experience_continuity: bool | None
+    version: int | None
+    evaluation_runtime: str | None
+    bucketing_identifier: str | None
+    evaluation_contexts: tuple[str, ...]
+
+
+@frozen
+class ExperimentHoldoutView:
+    """The holdout of an experiment, as the experiment API shows it."""
+
+    id: int
+    name: str
+    description: str | None
+    filters: list[dict[str, Any]]
+    created_by: ExperimentCreator | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@frozen
+class ExperimentSavedMetricLinkView:
+    """A shared metric that an experiment uses, as the experiment API shows it.
+
+    `query` names each action by its current name, and carries the calculation key of the link as its
+    `fingerprint`. `effective_query` is that query with the overrides from `metadata` applied. It is None when
+    the query is not an `ExperimentMetric` of a known metric type, because only those take overrides.
+    """
+
+    id: int
+    experiment_id: int
+    saved_metric_id: int
+    name: str
+    metadata: dict[str, Any]
+    query: dict[str, Any] | None
+    effective_query: dict[str, Any] | None
+    created_at: datetime
+
+
+@frozen
+class ExperimentBasic:
+    """An experiment, as the experiments list shows it.
+
+    `parameters` holds the stored parameters with the flag config keys replaced by the current config of the
+    feature flag, or of the rule for an experiment on a flag rule.
+    """
+
+    id: int
+    team_id: int
+    name: str
+    description: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+    # The key of the flag without the tombstone suffix of a soft-deleted flag.
+    feature_flag_key: str
+    feature_flag: ExperimentFlag
+    holdout: ExperimentHoldoutView | None
+    exposure_cohort_id: int | None
+    parameters: dict[str, Any]
+    running_time_calculation: dict[str, Any] | None
+    excluded_variants: tuple[str, ...] | None
+    archived: bool
+    deleted: bool | None
+    created_by_id: int | None
+    created_by: ExperimentCreator | None
+    created_at: datetime
+    updated_at: datetime
+    type: str | None
+    conclusion: str | None
+    conclusion_comment: str | None
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    # True when an inline or shared metric is an ExperimentTrendsQuery or an ExperimentFunnelsQuery.
+    is_legacy: bool
+    tags: tuple[str, ...]
+
+
+@frozen
+class ExperimentDetail(ExperimentBasic):
+    """An experiment, as the experiment API shows one experiment. The inline metrics name each action by its
+    current name."""
+
+    feature_flag_rule_id: "UUID | None"
+    holdout_id: int | None
+    filters: dict[str, Any]
+    secondary_metrics: list[dict[str, Any]] | None
+    metrics: list[dict[str, Any]] | None
+    metrics_secondary: list[dict[str, Any]] | None
+    saved_metrics: tuple[ExperimentSavedMetricLinkView, ...]
+    exposure_criteria: dict[str, Any] | None
+    stats_config: dict[str, Any] | None
+    scheduling_config: dict[str, Any] | None
+    primary_metrics_ordered_uuids: list[str] | None
+    secondary_metrics_ordered_uuids: list[str] | None
+    only_count_matured_users: bool
+    version: int | None
+    flag_cleanup_task_id: "UUID | None"
+    repository: str | None
+    can_freeze_exposure: bool
+    # The event that exposures are counted on when the experiment configures no custom exposure event.
+    resolved_exposure_event: str
+
+
+@frozen
+class ExperimentListFilters:
+    """The query parameters of the experiments list.
+
+    Each value is the raw text of the query parameter with the same name, so the list parses and refuses it
+    the way the API does.
+    """
+
+    status: str | None = None
+    created_by_id: str | None = None
+    archived: str | None = None
+    feature_flag_id: str | None = None
+    feature_flag_ids: str | None = None
+    prompt_name: str | None = None
+    event: str | None = None
+    tags: str | None = None
+    excluded_tags: str | None = None
+    search: str | None = None
+    order: str | None = None
+
+
+class WebExperimentNotFound(Exception):
+    """Raised when the project has no web experiment with the id."""
+
+
+@frozen
+class WebExperimentConfig:
+    """A web experiment, as the web experiments API and the toolbar show it.
+
+    `variants` holds every variant of the feature flag with the rollout percentage that the flag stores, plus
+    the transforms that the experiment stores for that variant. When the flag has no variants, it holds the
+    variants that the experiment stores.
+    """
+
+    id: int
+    name: str
+    created_at: datetime
+    # The stored key of the flag. A soft-deleted flag keeps its tombstone suffix here.
+    feature_flag_key: str
+    variants: dict[str, Any]
+
+
+WebExperimentWriteField = Literal["name", "created_at", "variants"]
+
+
+@frozen
+class WebExperimentWrite:
+    """The fields of a web experiment that a create or an update sets.
+
+    `fields_set` names the fields that the caller sent. An update sets only those fields. A create needs a
+    name and variants, and does not read `created_at`.
+    """
+
+    fields_set: frozenset[WebExperimentWriteField]
+    name: str | None = None
+    created_at: datetime | None = None
+    variants: dict[str, Any] | None = None
+
+
+@frozen
 class MetricCalculationKeys:
     """The calculation key of each metric on an experiment. Result rows and the stored metric
     `fingerprint` fields hold these keys."""
@@ -891,6 +1741,19 @@ class DailyMetricCalculation:
     metric_uuid: str
     # The key that files the metric's daily result.
     calculation_key: str
+
+
+@frozen
+class BaselineStats:
+    """Sufficient statistics for the control group, mirroring the frontend ``baseline`` object."""
+
+    number_of_samples: int
+    sum: float
+    sum_squares: float = 0.0
+    denominator_sum: float | None = None
+    denominator_sum_squares: float | None = None
+    numerator_denominator_sum_product: float | None = None
+    step_counts: tuple[float, ...] = ()
 
 
 class RunningTimeMode(LabeledStrEnum):
@@ -1058,11 +1921,82 @@ class TeamExperimentsSettingsUpdate:
 
 @frozen
 class LinkedExperiment:
-    """An experiment that is not deleted, as the flag it uses lists it."""
+    """An experiment that is not deleted, as the flag or the shared metric it uses lists it."""
 
     id: int
     name: str
     is_running: bool
+
+
+@frozen
+class ListAccess:
+    """Which records the access control rules let a list show the viewer.
+
+    This is the narrowing that `UserAccessControl.filter_queryset_by_access_level` applies to a queryset list.
+    With `only_allowed`, the viewer has no resource-level access: the list keeps the allowed ids and the
+    viewer's own records. Otherwise it drops the blocked ids, except the viewer's own records.
+    """
+
+    viewer_id: int
+    only_allowed: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+class SavedMetricNotFound(Exception):
+    """Raised when the team has no shared metric with the id."""
+
+
+@frozen
+class SavedMetric:
+    """A shared metric, as the shared metrics API shows it.
+
+    `query` names each action it references by the current name of that action. A deleted action keeps the
+    name that the metric stored.
+    """
+
+    id: int
+    team_id: int
+    name: str
+    description: str | None
+    query: dict[str, Any]
+    created_by_id: int | None
+    created_by: ExperimentCreator | None
+    created_at: datetime
+    updated_at: datetime
+    tags: tuple[str, ...]
+
+
+@frozen
+class SavedMetricListFilters:
+    # Each term must match the name, the description or a tag of the metric.
+    search_terms: tuple[str, ...] = ()
+    # Keeps the metrics whose query references this event, directly or through an action.
+    event: str | None = None
+    # Keeps the metrics that any of these users created.
+    created_by_ids: tuple[int, ...] = ()
+    # Keeps the metrics that carry at least one of these tags.
+    tags: tuple[str, ...] = ()
+    # Keeps the metrics of this type. `funnel` also keeps legacy funnels, and `trend` keeps legacy trends.
+    metric_type: SharedMetricType | None = None
+
+
+SavedMetricWriteField = Literal["name", "description", "query", "tags"]
+
+
+@frozen
+class SavedMetricWrite:
+    """The fields of a shared metric that a create or an update sets.
+
+    `fields_set` names the fields that the caller sent. An update keeps the stored value of every other
+    field, and keeps the tags unless `tags` is in `fields_set`.
+    """
+
+    fields_set: frozenset[SavedMetricWriteField]
+    name: str | None = None
+    description: str | None = None
+    query: dict[str, Any] | None = None
+    tags: tuple[str, ...] = ()
 
 
 @frozen
@@ -1165,3 +2099,62 @@ class ProportionTestResult:
     confidence_interval: tuple[float, float]
     p_value: float
     is_significant: bool
+
+
+@frozen
+class MetricRecalculationResult:
+    metric_uuid: str
+    status: str
+    result: dict[str, Any] | None
+    error_message: str | None
+    configuration_status: str
+
+
+@frozen
+class ActiveRecalculationRun:
+    id: str
+    status: str
+
+
+@frozen
+class RecalculationRunSummary:
+    id: str
+    experiment_id: int
+    status: str
+    total_metrics: int
+    completed_metrics: int
+    failed_metrics: int
+    metric_errors: dict[str, dict[str, Any]]
+    created_at: datetime | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    query_to: datetime | None
+
+
+@frozen
+class RequestedRecalculation(RecalculationRunSummary):
+    is_existing: bool
+
+
+@frozen
+class RecalculationRun(RecalculationRunSummary):
+    metric_retries: dict[str, dict[str, Any]]
+    results: tuple[MetricRecalculationResult, ...]
+    rows_read: int | None = None
+    estimated_rows_total: int | None = None
+
+
+@frozen
+class LatestRecalculation(RecalculationRun):
+    active_run: ActiveRecalculationRun | None
+    result_source: Literal["recalculation", "timeseries_fallback"]
+    exceeds_recalculation_age_limit: bool
+
+
+class WarehouseNativeResultAccessDenied(Exception):
+    """Raised when the reader may not read the stored results of a warehouse-native experiment. The detail is written
+    for the reader, so a caller at an HTTP boundary can return it as a 403."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail

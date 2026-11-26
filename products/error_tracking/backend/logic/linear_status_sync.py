@@ -21,23 +21,15 @@ from redis.exceptions import LockError, LockNotOwnedError
 
 from posthog.event_usage import groups
 from posthog.ingress.contracts import DeliveryOwnership
-from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.activity_logging.activity_log import Trigger
-
-# `bounded_statement_timeout` gets the database alias of a read from the router, and the router needs
-# the model class. So `Integration` is imported only to cap the ownership lookup, and every read of a
-# row goes through the SDK.
-from posthog.models.integration import (  # nosemgrep: semgrep.rules.devex.integration-model-through-sdk
-    Integration,
-    LinearIntegration,
-    LinearRateLimitedError,
-)
+from posthog.models.integration import LinearIntegration, LinearRateLimitedError
 from posthog.ph_client import ph_scoped_capture
 from posthog.redis import get_client
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic.issue_mutations import transition_issue_status_by_automation
+from products.error_tracking.backend.logic.linear_workspace import workspace_ownership
 from products.error_tracking.backend.logic.team_flags import team_flag_explicitly_off
 from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
 
@@ -55,8 +47,6 @@ _ROLLOUT_FLAG = "error-tracking-linear-status-sync"
 # pinned: change rows store this as their actor. The sync has no automation row, and the column is a
 # plain id, so nothing resolves it.
 _AUTOMATION_ID = UUID("0ae328e3-a2de-4999-b50f-dac5e1c1552e")
-
-_WORKSPACE_LOOKUP_TIMEOUT_MS = 800
 
 # Long enough to read every linked ticket of one issue. A job that dies holding the lock frees it then.
 _ISSUE_LOCK_TIMEOUT_SECONDS = 120
@@ -108,9 +98,16 @@ def delivery_ownership(payload: Mapping[str, Any]) -> DeliveryOwnership:
     job = prepare_job(payload)
     if job is None:
         return DeliveryOwnership.UNDECIDED
-    with bounded_statement_timeout(_WORKSPACE_LOOKUP_TIMEOUT_MS, models=[Integration]):
-        held_here = IntegrationManager.linear.oauth.exists_by_external_id(job.organization_id)
-    return DeliveryOwnership.LOCAL if held_here else DeliveryOwnership.ELSEWHERE
+    return workspace_ownership(job.organization_id)
+
+
+def reconcile_linked_issue(issue: ErrorTrackingIssue, *, organization_id: str, identifier: str) -> None:
+    if team_flag_explicitly_off(_ROLLOUT_FLAG, issue.team_id):
+        return
+    job = contracts.LinearStatusSyncJob(
+        organization_id=organization_id, identifiers=(identifier,), previous_state_id=None
+    )
+    _sync_issue(issue, job, _LinearReads(job))
 
 
 def sync_status(job: contracts.LinearStatusSyncJob) -> None:
@@ -143,18 +140,18 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
         if issue.team_id in switched_off_team_ids:
             continue
         try:
-            with _issue_lock(issue.id):
+            with issue_status_lock(issue.id):
                 _refresh_moved_identifiers(issue, job, workspace_integration_ids)
                 _sync_issue(issue, job, linear_reads)
         except Exception as error:
             logger.warning("linear_status_sync_issue_failed", issue_id=str(issue.id), team_id=issue.team_id)
             failures.append(error)
     if failures:
-        raise _failure_to_retry(failures)
+        raise failure_to_retry(failures)
 
 
 @contextmanager
-def _issue_lock(issue_id: UUID) -> Iterator[None]:
+def issue_status_lock(issue_id: UUID) -> Iterator[None]:
     """Run one issue's Linear reads and status change while no other job does the same for it.
 
     A job reads the ticket states before it takes the issue row lock, so two overlapping jobs
@@ -177,7 +174,7 @@ def _issue_lock(issue_id: UUID) -> Iterator[None]:
             lock.release()
 
 
-def _failure_to_retry(failures: list[Exception]) -> Exception:
+def failure_to_retry(failures: list[Exception]) -> Exception:
     """The failure that needs the longest wait, because the task picks its retry from the raised type.
 
     A rate limit comes first, because a retry before Linear resets the limit fails again. A busy
@@ -231,9 +228,12 @@ class _LinearReads:
         self._rate_limited: dict[int, LinearRateLimitedError] = {}
 
     def previous_state_type(self, integration: IntegrationRecord) -> str | None:
+        previous_state_id = self._job.previous_state_id
+        if previous_state_id is None:
+            return None
         if integration.id not in self._previous_state_types:
             self._previous_state_types[integration.id] = self._read(
-                integration, lambda linear: linear.workflow_state_type(self._job.previous_state_id)
+                integration, lambda linear: linear.workflow_state_type(previous_state_id)
             )
         return self._previous_state_types[integration.id]
 

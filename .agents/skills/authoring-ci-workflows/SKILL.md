@@ -498,6 +498,14 @@ What this still does not answer is whether a narrowed run would have **caught** 
 Only backend scores that, in `tools/test_selection_verdict.py`, which reads the run's JUnit and reports recall.
 The cheap oracle for the rest is the queue: the `trunk-merge/**` run tests the same code with the full suite, so a failure there whose file was reachable from the diff and was not selected is a miss, at no extra compute.
 
+### A repository-wide check can scan only what the diff changes
+
+A job that scans every file in the repository pays for the whole tree on every pull request, so its cost grows with the repository while its findings can only come from the files the diff changes.
+Narrow it whenever the tool's verdict is per file: no markdownlint rule reads two files, so on a given commit a file the diff left alone cannot change a result.
+`frontend-format`'s `Lint markdown files` scanned all 2018 markdown files in about 80s for that reason; a pull request now lints only the markdown it changes, about 1s, while master's push run and the merge queue keep the full scan, which is where drift no single diff shows up in stays covered.
+Keep the full scan for a diff that moves the tool's configuration or its ignore rules: those change the verdict for files the diff does not touch.
+The step logs which mode it took and how many files, so a fallback that bites is readable from the job log; a selector with no such line needs an event, see below.
+
 ### Reusing an earlier passing result
 
 Without reuse, every push to a PR re-runs each suite whose filter matches anything in the whole PR, even when the push touched none of its files.

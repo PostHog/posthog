@@ -3,6 +3,7 @@
 This is the ONLY module other apps are allowed to import.
 """
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -15,6 +16,7 @@ import posthoganalytics
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.event_usage import AnalyticsProps, groups
+from posthog.ingress.contracts import DeliveryOwnership
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
@@ -24,7 +26,15 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
-from ..logic import built_in_filters, external_references, github_external_references, rules, team_flags
+from ..logic import (
+    built_in_filters,
+    external_references,
+    github_external_references,
+    linear_external_references,
+    rules,
+    sentry_migration,
+    team_flags,
+)
 from ..logic.issue_summary_config import ISSUE_SUMMARY_FLAG
 from ..logic.issue_tags import (
     enabled as issue_tag_enabled,
@@ -32,6 +42,11 @@ from ..logic.issue_tags import (
     reader as issue_tag_reader,
     rules as issue_tag_rules,
 )
+from ..logic.sentry_migration import (
+    client as sentry_client,
+    errors as sentry_migration_errors,
+)
+from ..logic.team_purge import delete_stack_frames_and_symbol_sets_for_team as _delete_frames_and_symbol_sets
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -55,6 +70,8 @@ IssueTagRuleFiltersError = issue_tag_rules.IssueTagRuleFiltersError
 IssueTagRuleLimitError = issue_tag_rules.IssueTagRuleLimitError
 IssueTagsDisabledError = issue_tag_gate.IssueTagsDisabledError
 UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
+SentryApiError = sentry_client.SentryApiError
+SentryMigrationSelectionError = sentry_migration_errors.SentryMigrationSelectionError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
@@ -342,7 +359,7 @@ def _to_spike_event(event) -> contracts.ErrorTrackingSpikeEvent:
 def list_spike_events(
     *,
     team_id: int,
-    issue_ids: list[str] | None = None,
+    issue_ids: list[UUID] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     order_by: str | None = None,
@@ -735,6 +752,25 @@ def set_built_in_filter_enabled(team_id: int, key: str, *, enabled: bool) -> con
     return _to_built_in_filter(built_in_filters.set_built_in_filter_enabled(team_id, key, enabled=enabled))
 
 
+def list_sentry_projects(connection: contracts.SentryConnection) -> list[contracts.SentryProject]:
+    return sentry_migration.list_sentry_projects(connection)
+
+
+def preview_sentry_migration(
+    team_id: int, connection: contracts.SentryConnection, project: contracts.SentryProjectRef
+) -> list[contracts.SentryMigrationItem]:
+    return sentry_migration.preview_sentry_migration(team_id, connection, project)
+
+
+def apply_sentry_migration(
+    team_id: int,
+    connection: contracts.SentryConnection,
+    project: contracts.SentryProjectRef,
+    item_ids: list[str],
+) -> contracts.SentryMigrationResult:
+    return sentry_migration.apply_sentry_migration(team_id, connection, project, item_ids)
+
+
 def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:
     return contracts.ErrorTrackingBypassRule(
         id=rule.id,
@@ -895,6 +931,22 @@ def link_github_external_reference(job: contracts.GitHubExternalReferenceJob) ->
     return github_external_references.link_reference(job)
 
 
+def prepare_linear_external_reference_jobs(payload: dict[str, Any]) -> list[contracts.LinearExternalReferenceJob]:
+    return linear_external_references.prepare_jobs(payload)
+
+
+def link_linear_external_reference(job: contracts.LinearExternalReferenceJob) -> bool:
+    return linear_external_references.link_reference(job)
+
+
+def link_linear_external_references(jobs: list[contracts.LinearExternalReferenceJob]) -> list[bool]:
+    return linear_external_references.link_references(jobs)
+
+
+def linear_external_reference_delivery_ownership(payload: dict[str, Any]) -> DeliveryOwnership:
+    return linear_external_references.delivery_ownership(payload)
+
+
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:
     return logic.get_issue_values(team_id=team_id, key=key, value=value)
 
@@ -995,3 +1047,11 @@ def document_embedding_tables() -> list[DocumentEmbeddingTable]:
 def document_embeddings_buffer_table() -> str:
     """The sharded buffer that holds every new document, in each model, until its TTL drops it."""
     return DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE
+
+
+def delete_stack_frames_and_symbol_sets_for_team(team_id: int, should_stop: Callable[[], bool] | None = None) -> bool:
+    """Batch-delete the team's stack frames and symbol sets. Called from team deletion, before the Team cascade.
+
+    Return False when ``should_stop`` ended the purge before it finished.
+    """
+    return _delete_frames_and_symbol_sets(team_id, should_stop=should_stop)

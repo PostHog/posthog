@@ -173,6 +173,13 @@ class TestWebPageDirectoryQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert totals.aiReferrals is not None and totals.aiReferrals.current == 1
         assert totals.aiCrawls is not None and totals.aiCrawls.current == 2
 
+        without_crawls = self._run(
+            pageKeys=["example.com/pricing"], metrics=[WebPageDirectoryMetric.VISITORS], includeSiteTotals=True
+        ).siteTotals
+        assert without_crawls is not None
+        assert without_crawls.serverLogs is None
+        assert without_crawls.visitors is not None and without_crawls.visitors.current == 2
+
     @parameterized.expand(
         [
             ("browser_filter_limits_bounce_sessions", "$browser", "Chrome", 0.0),

@@ -312,6 +312,162 @@ export interface CopyDashboardTemplateApi {
 }
 
 /**
+ * * `query` - Query
+ * * `insight` - Insight
+ * * `hogql` - HogQL
+ * * `promql` - PromQL
+ * * `logql` - LogQL
+ */
+export type QueryBatchLanguageEnumApi = (typeof QueryBatchLanguageEnumApi)[keyof typeof QueryBatchLanguageEnumApi]
+
+export const QueryBatchLanguageEnumApi = {
+    Query: 'query',
+    Insight: 'insight',
+    Hogql: 'hogql',
+    Promql: 'promql',
+    Logql: 'logql',
+} as const
+
+/**
+ * * `time_series` - Time series
+ * * `table` - Table
+ */
+export type QueryBatchTargetFormatEnumApi =
+    (typeof QueryBatchTargetFormatEnumApi)[keyof typeof QueryBatchTargetFormatEnumApi]
+
+export const QueryBatchTargetFormatEnumApi = {
+    TimeSeries: 'time_series',
+    Table: 'table',
+} as const
+
+/**
+ * * `classic` - Classic
+ * * `new` - New
+ */
+export type QueryBatchEngineEnumApi = (typeof QueryBatchEngineEnumApi)[keyof typeof QueryBatchEngineEnumApi]
+
+export const QueryBatchEngineEnumApi = {
+    Classic: 'classic',
+    New: 'new',
+} as const
+
+export interface QueryBatchTargetApi {
+    /**
+     * The panel's ID for this query. Not used for caching.
+     * @maxLength 200
+     */
+    refId: string
+    /** 'query': `query` is a PostHog query node as JSON, bare or as `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'insight' is a deprecated name for 'query'. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
+     *
+     * * `query` - Query
+     * * `insight` - Insight
+     * * `hogql` - HogQL
+     * * `promql` - PromQL
+     * * `logql` - LogQL */
+    language: QueryBatchLanguageEnumApi
+    /**
+     * The query text, read according to `language`.
+     * @maxLength 200000
+     */
+    query: string
+    /**
+     * The series name template the panel draws. Returned unchanged on the target's line.
+     * @maxLength 1000
+     */
+    legend?: string
+    /** How the panel draws the result. Returned unchanged on the target's line.
+     *
+     * * `time_series` - Time series
+     * * `table` - Table */
+    format?: QueryBatchTargetFormatEnumApi
+    /** For query and hogql targets: 'new' runs on the new events schema and materialized views. 'classic', the default, runs as `/query` does.
+     *
+     * * `classic` - Classic
+     * * `new` - New */
+    engine?: QueryBatchEngineEnumApi
+}
+
+export interface QueryBatchTimeApi {
+    /**
+     * End of the range: `now`, `now-1h`, or ISO 8601.
+     * @maxLength 100
+     */
+    to: string
+    /**
+     * Start of the range: `now-7d`, `now-30m`, or ISO 8601.
+     * @maxLength 100
+     */
+    from: string
+}
+
+/**
+ * SQL variable values by variable ID, as `/query` takes in `variables_override`.
+ * @nullable
+ */
+export type QueryBatchQueryApiVariables = { [key: string]: unknown } | null
+
+export interface QueryBatchQueryApi {
+    /** What to run. */
+    target: QueryBatchTargetApi
+    /** The panel's time range. Relative expressions keep the cache key the same across reloads. */
+    time: QueryBatchTimeApi
+    /**
+     * SQL variable values by variable ID, as `/query` takes in `variables_override`.
+     * @nullable
+     */
+    variables?: QueryBatchQueryApiVariables
+    /**
+     * For insight targets that have an interval: minute, hour, day, week, month, quarter or year. For promql and logql targets, the smallest step, as a duration such as 1m or 5m.
+     * @maxLength 20
+     */
+    interval?: string
+    /**
+     * For promql and logql targets: the most points per series. Sets the step with `interval`.
+     * @minimum 1
+     * @maximum 10000
+     */
+    maxDataPoints?: number
+    /** Serve a stale cached result at once and recompute it in the background for the next read. */
+    swr?: boolean
+    /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
+    cacheOnly?: boolean
+    /**
+     * The tile this target belongs to. Only labels the query's run in the query log.
+     * @maxLength 64
+     */
+    tile?: string
+}
+
+/**
+ * * `result` - Result
+ * * `frames` - Frames
+ */
+export type ResultFormatEnumApi = (typeof ResultFormatEnumApi)[keyof typeof ResultFormatEnumApi]
+
+export const ResultFormatEnumApi = {
+    Result: 'result',
+    Frames: 'frames',
+} as const
+
+export interface QueryBatchRequestApi {
+    /**
+     * The panels' queries, at most 500.
+     * @maxItems 500
+     */
+    queries: QueryBatchQueryApi[]
+    /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+     *
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
+    /**
+     * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
+     * @nullable
+     */
+    dashboard?: number | null
+}
+
+/**
  * * `default` - Default
  * * `template` - Template
  * * `duplicate` - Duplicate
@@ -2524,6 +2680,8 @@ export interface HogQLQueryModifiersApi {
     propertyGroupsMode?: PropertyGroupsModeApi | null
     pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
+    /** Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session. */
+    sessionFilterGlobalJoin?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
@@ -2620,6 +2778,9 @@ export const QueryScanFindingKindApi = {
     NoEventFilter: 'no_event_filter',
     NoStartDate: 'no_start_date',
     PersonsJoin: 'persons_join',
+    RepeatedCteExpansion: 'repeated_cte_expansion',
+    CrossJoinEquality: 'cross_join_equality',
+    DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
 } as const
 
 export interface QueryScanWarningApi {
@@ -7199,6 +7360,25 @@ export interface ExperimentBreakdownResultApi {
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
 }
 
+/**
+ * Exposed entities with no row of the metric query that counted, by variant.
+ */
+export type ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows = { [key: string]: number } | null
+
+/**
+ * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+ */
+export type ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants = { [key: string]: number } | null
+
+export interface ExperimentWarehouseNativeRowsLeftOutApi {
+    /** Exposure rows with an empty entity_id. */
+    empty_id?: number | null
+    /** Exposed entities with no row of the metric query that counted, by variant. */
+    exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+    unknown_variants?: ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants
+}
+
 export interface ExperimentQueryResponseApi {
     baseline?: ExperimentStatsBaseValidatedApi | null
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
@@ -7208,6 +7388,8 @@ export interface ExperimentQueryResponseApi {
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean | null
     kind?: 'ExperimentQuery'
+    /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+    rows_left_out?: ExperimentWarehouseNativeRowsLeftOutApi | null
     variant_results?: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[] | null
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarningApi[] | null
@@ -7441,6 +7623,8 @@ export interface HogQLQueryApi {
     /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFiltersApi | null
     kind?: 'HogQLQuery'
+    /** Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+    limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** Client provided name of the query */
@@ -8218,6 +8402,8 @@ export interface ConversionGoalFilter1Api {
         | null
     response?: ConversionGoalFilter1ApiResponse
     schema_map: ConversionGoalFilter1ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8314,6 +8500,8 @@ export interface ConversionGoalFilter2Api {
         | null
     response?: ConversionGoalFilter2ApiResponse
     schema_map: ConversionGoalFilter2ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8415,6 +8603,8 @@ export interface ConversionGoalFilter3Api {
     schema_map: ConversionGoalFilter3ApiSchemaMap
     table_name: string
     timestamp_field: string
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8617,6 +8807,13 @@ export interface ErrorTrackingIssueTagFilterApi {
     key: string
 }
 
+export interface ErrorTrackingIssueTagsFilterApi {
+    /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+    has?: string[] | null
+    /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+    hasNot?: string[] | null
+}
+
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
 export const OrderDirection2Api = {
@@ -8679,8 +8876,9 @@ export interface ErrorTrackingQueryApi {
     groupTypeIndex?: number | null
     /** Filter to a specific error tracking issue by ID. */
     issueId?: string | null
-    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
     issueTag?: ErrorTrackingIssueTagFilterApi | null
+    /** Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project. */
+    issueTags?: ErrorTrackingIssueTagsFilterApi | null
     kind?: 'ErrorTrackingQuery'
     limit?: number | null
     /** Modifiers used when performing the query */
@@ -8866,6 +9064,8 @@ export interface TraceQueryResponseApi {
 
 export interface TraceQueryApi {
     dateRange?: DateRangeApi | null
+    /** Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every matching event. Leave unset to return every event. */
+    eventsLimit?: number | null
     /** Include stored sentiment evaluation results for the trace and its generations. */
     includeSentiment?: boolean | null
     kind?: 'TraceQuery'
@@ -10267,6 +10467,70 @@ export interface CachedTileInsightResultApi {
     query?: _InsightQuerySchemaApi | null
 }
 
+export interface FrameMetaApi {
+    /**
+     * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
+     * @nullable
+     */
+    interval: string | null
+    /**
+     * Start of the range the frame covers.
+     * @nullable
+     */
+    date_from: string | null
+    /**
+     * End of the range the frame covers.
+     * @nullable
+     */
+    date_to: string | null
+    /** Whether the frame is the compared period. Its dates are that period's dates. */
+    previous: boolean
+}
+
+/**
+ * * `time` - Time
+ * * `number` - Number
+ */
+export type FrameFieldTypeEnumApi = (typeof FrameFieldTypeEnumApi)[keyof typeof FrameFieldTypeEnumApi]
+
+export const FrameFieldTypeEnumApi = {
+    Time: 'time',
+    Number: 'number',
+} as const
+
+export interface FrameFieldApi {
+    /** Field name: 'time' for the time field, 'value' for a number field. */
+    name: string
+    /** What the values are.
+     *
+     * * `time` - Time
+     * * `number` - Number */
+    type: FrameFieldTypeEnumApi
+    /** A time field holds epoch milliseconds. A number field holds null for a gap. */
+    values: (number | null)[]
+    /**
+     * UCUM unit of the values, e.g. 'By' or 'ms'.
+     * @nullable
+     */
+    unit: string | null
+}
+
+/**
+ * Label values that identify the series within the tile.
+ */
+export type FrameApiLabels = { [key: string]: string }
+
+export interface FrameApi {
+    /** Series name, as the chart legend shows it. */
+    name: string
+    /** Label values that identify the series within the tile. */
+    labels: FrameApiLabels
+    /** Interval and date range of the frame. */
+    meta: FrameMetaApi
+    /** A time field, then one number field. */
+    fields: FrameFieldApi[]
+}
+
 export interface CachedTileResultApi {
     /** Dashboard tile ID. */
     id: number
@@ -10279,6 +10543,13 @@ export interface CachedTileResultApi {
     status: CachedTileStatusEnumApi
     /** The cached result. Present only when status is 'hit'. */
     insight?: CachedTileInsightResultApi
+    /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+     *
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
+    /** Chart-ready frames, one per series. Present when format is 'frames'. */
+    frames?: FrameApi[]
 }
 
 export interface CachedTilesResponseApi {
@@ -10890,6 +11161,13 @@ export interface DashboardStreamCachedTileApi {
     status: CachedTileStatusEnumApi
     /** The cached result. Present only when status is 'hit'. */
     insight?: CachedTileInsightResultApi
+    /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+     *
+     * * `result` - Result
+     * * `frames` - Frames */
+    format?: ResultFormatEnumApi
+    /** Chart-ready frames, one per series. Present when format is 'frames'. */
+    frames?: FrameApi[]
     /** Present on hits: whether the cached result is past its target age. */
     stale?: boolean
 }
@@ -11751,6 +12029,10 @@ export type DashboardsCachedTilesRetrieveParams = {
      */
     filters_override?: string
     /**
+     * 'frames' returns chart-ready frames instead of `insight.result` for trends line, area and bar tiles and for metrics tiles. Other tiles keep their result, with `format` 'result'.
+     */
+    format?: DashboardsCachedTilesRetrieveFormat
+    /**
      * Comma-separated dashboard tile IDs to read, at most 100. Results come back in this order.
      */
     tile_ids: string
@@ -11759,6 +12041,14 @@ export type DashboardsCachedTilesRetrieveParams = {
      */
     variables_override?: string
 }
+
+export type DashboardsCachedTilesRetrieveFormat =
+    (typeof DashboardsCachedTilesRetrieveFormat)[keyof typeof DashboardsCachedTilesRetrieveFormat]
+
+export const DashboardsCachedTilesRetrieveFormat = {
+    Frames: 'frames',
+    Json: 'json',
+} as const
 
 export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat

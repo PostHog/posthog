@@ -1,8 +1,10 @@
+from dataclasses import replace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import connection
 
@@ -28,6 +30,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDestination,
     SourceKind,
 )
+from products.alerts_platform.backend.logic import source_configs
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 WEBHOOK_URL = "https://example.com/hooks/secret-path"
@@ -117,6 +120,29 @@ class TestAlertDestinations(BaseTest):
 
         assert error.value.field == field
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
+
+    def test_a_source_without_incident_events_refuses_pagerduty_but_accepts_a_webhook(self) -> None:
+        spec = source_configs.spec(SourceKind.LOGS)
+        assert spec is not None
+        pagerduty = NewAlertDestination(
+            data={"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "fake-routing-key"},
+            event_kinds=FIRING,
+        )
+
+        with patch(
+            "products.alerts_platform.backend.logic.source_configs.spec",
+            return_value=replace(spec, incident_event_ids=None),
+        ):
+            with pytest.raises(AlertDestinationValidationError) as error:
+                self._create(pagerduty)
+
+            assert error.value.field == "type"
+            assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
+
+            (created,) = self._create(NewAlertDestination(data=WEBHOOK, event_kinds=FIRING))
+
+        assert created.data == WEBHOOK
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == (created,)
 
     def test_subscribers_replace_only_the_destinations_that_name_users(self) -> None:
         addresses = cast(AlertDestinationData, {"type": DestinationType.EMAIL, "email_addresses": ["a@example.com"]})

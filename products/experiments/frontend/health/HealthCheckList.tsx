@@ -1,7 +1,9 @@
+import { Spinner } from '@posthog/lemon-ui'
+
 import { HealthCheckPlainRow } from './HealthCheckPlainRow'
 import { HealthCheckRow } from './HealthCheckRow'
 import { HEALTH_CHECK_STATUS_DISPLAY } from './healthCheckStatusDisplay'
-import type { ListedHealthCheck } from './healthPanelChecks'
+import type { ExposureChecksState, ListedHealthCheck } from './healthPanelChecks'
 
 type ListedStatus = ListedHealthCheck['status']
 
@@ -26,17 +28,36 @@ function groupByOutcome(checks: ListedHealthCheck[]): CheckGroup[] {
 
 export function HealthCheckList({
     checks,
-    exposureChecksMissing,
+    checksLoading,
+    exposureChecks,
     selectedKey,
     onSelect,
 }: {
     checks: ListedHealthCheck[]
-    exposureChecksMissing: boolean
+    checksLoading: boolean
+    exposureChecks: ExposureChecksState
     selectedKey: ListedHealthCheck['key'] | null
     onSelect: (check: ListedHealthCheck) => void
-}): JSX.Element {
+}): JSX.Element | null {
+    const running = checksLoading ? 'Health checks' : exposureChecks === 'pending' ? 'Exposure checks' : null
+    // While the checks load, the "Health checks" row includes the exposure checks, so a failed exposure answer shows
+    // only after the other checks load.
+    const exposureChecksMissing = !checksLoading && exposureChecks === 'missing'
+    if (!running && !exposureChecksMissing && checks.length === 0) {
+        return null
+    }
     return (
-        <div className="flex flex-col gap-5 px-4 py-3" data-attr="experiment-health-check-list">
+        <div className="flex flex-col gap-5 border-t px-4 py-3" data-attr="experiment-health-check-list">
+            {running && (
+                <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-semibold text-secondary">Running</span>
+                    <ul className="-mx-2 m-0 p-0 list-none flex flex-col">
+                        <HealthCheckPlainRow icon={<Spinner />}>
+                            <span>{running}</span>
+                        </HealthCheckPlainRow>
+                    </ul>
+                </div>
+            )}
             {exposureChecksMissing && (
                 // The exposure checks come with the exposure answer, so without one the page has no names for them.
                 <div className="flex flex-col gap-1.5">

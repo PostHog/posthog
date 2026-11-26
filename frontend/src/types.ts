@@ -43,6 +43,7 @@ import type {
     ErrorTrackingAIFeatureEnumApi,
     FlagEvaluationsModeEnumApi,
     OrganizationMemberNoticeApi,
+    OrganizationExternalProjectLinkApi,
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
     ProjectApi,
@@ -109,6 +110,7 @@ import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { EndpointPlanClampApi } from 'products/endpoints/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
@@ -303,13 +305,14 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'chatgpt' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    chatgpt?: boolean
     saml?: boolean
     oidc?: boolean
 }
@@ -340,7 +343,6 @@ export enum AccessControlResourceType {
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
     Evaluation = 'evaluation',
-    Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
@@ -616,6 +618,8 @@ export interface PersonalAPIKeyType {
     scopes: string[]
     scoped_organizations?: OrganizationType['id'][] | null
     scoped_teams?: TeamType['id'][] | null
+    /** Name of the partner application that created the key while provisioning a project. */
+    provisioned_by_name?: string | null
 }
 
 export interface ProjectSecretAPIKeyRequest {
@@ -653,6 +657,7 @@ export interface OrganizationType extends OrganizationBasicType {
     enforce_2fa: boolean | null
     enforce_verified_domains: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_data_processing_locked?: boolean
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean
@@ -671,7 +676,7 @@ export interface OrganizationType extends OrganizationBasicType {
     member_count: number
     default_anonymize_ips?: boolean
     default_role_id?: string | null
-    uses_most_specific_access_resolution?: boolean | null
+    external_project_links?: OrganizationExternalProjectLinkApi[]
 }
 
 export interface OrganizationDomainType {
@@ -800,6 +805,7 @@ export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
     blockSelector?: string
+    mobile?: { maskAllText?: boolean; maskAllImages?: boolean }
 }
 
 export enum ActivationTaskStatus {
@@ -2733,6 +2739,7 @@ export interface EndpointType extends WithAccessControl {
     created_by: UserBasicType | null
     data_freshness_seconds: number
     plan_refresh_floor_seconds: number | null
+    plan_clamp: EndpointPlanClampApi | null
     is_materialized: boolean
     current_version: number
     current_version_id: string
@@ -3553,6 +3560,10 @@ export interface TrendResult {
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
     incomplete_end?: boolean
+    /** Formula breakdowns only: the events all series counted for this value, which decide the shown rows. */
+    breakdown_event_count?: number
+    /** Formula breakdowns only, on the "Other" row: how many breakdown values it groups. */
+    breakdown_other_values_count?: number
 }
 
 interface Person {
@@ -4771,6 +4782,7 @@ export interface PrevalidatedInvite {
     target_email: string
     first_name: string
     organization_name: string
+    radar_client_id?: string
 }
 
 interface InstancePreferencesInterface {
@@ -4834,6 +4846,8 @@ export interface PreflightStatus {
     webmcp_available?: boolean
     /** Origin of the PostHog instance that issues CIMD verification tokens. Empty when this instance issues them. */
     cimd_verification_token_issuer_url?: string
+    /** ISO time from which a new experiment counts `$experiment_exposure` (`EXPERIMENT_EXPOSURE_EVENT_CUTOFF`). Null when every experiment counts `$feature_flag_called`. */
+    experiment_exposure_event_cutoff?: string | null
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
@@ -5161,7 +5175,7 @@ export interface Experiment {
     status?: ExperimentStatus | null
     /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
     is_legacy?: boolean
-    /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
+    /** Server-computed: the event exposures are counted on when no custom exposure event is configured: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (`experiment_exposure_event_cutoff` in preflight), otherwise `$feature_flag_called`. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
     resolved_exposure_event?: string
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
@@ -5326,8 +5340,19 @@ export interface AppContext {
     oauth_scope_resolution?: OAuthScopeResolution
     /** Set when the client requested `ema_issuer:manage`: the consent screen asks which organization will trust the client's issuer. */
     oauth_ema_issuer_consent?: OAuthEmaIssuerConsent
+    /** Set when `/authorize` would issue a code without consent but the sign-in is too old: the page asks for a re-auth, then reloads. */
+    oauth_reauthentication_required?: boolean
+    /** Set on `/toolbar_oauth/error` after the server refuses a toolbar sign-in request. */
+    toolbar_oauth_error?: ToolbarOAuthErrorContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
+}
+
+export interface ToolbarOAuthErrorContext {
+    title: string
+    message: string
+    detail: string | null
+    links_to_authorized_urls: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -6203,6 +6228,8 @@ export enum ActivityScope {
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_SKILL = 'LLMSkill',
     LLM_TRACE = 'LLMTrace',
+    TRACE_REVIEW = 'TraceReview',
+    SCORE_DEFINITION = 'ScoreDefinition',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
@@ -6338,6 +6365,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
     sync_frequency_bounds?: SyncFrequencyBoundsApi
+    /** Set while a plan floor rewrite of the cadence stands. Single fetches only */
+    plan_clamp?: DataWarehouseSavedQueryApi['plan_clamp']
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null
@@ -6720,6 +6749,7 @@ export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    last_checked_at?: ExternalDataSchemaApi['last_checked_at']
     /** The live table the schema syncs into, also before its first sync when the schema already names one. */
     table_id?: string | null
     /** The schema is linked to a self-managed table that its first sync will import. */
@@ -6750,6 +6780,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. */
     webhook_not_registered?: boolean
+    webhook_issue?: ExternalDataSchemaApi['webhook_issue']
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.

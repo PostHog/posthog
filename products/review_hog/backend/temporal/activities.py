@@ -41,6 +41,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
+from products.review_hog.backend.deep_follow_up import DeepFollowUp
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview, get_finished_review_hooks
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
@@ -245,6 +246,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
 from products.review_hog.backend.silent_stamphog import finish_standard_automatic_turn, start_silent_stamphog
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.review_hog.backend.temporal.types import (
+    DEEP_FOLLOW_UP_ACTION,
     REQUESTED_TRIGGERS,
     TRIGGER_AUTOMATIC,
     TRIGGER_LABEL,
@@ -299,6 +301,7 @@ class FetchPRDataInput:
     # This turn's mode. Read only to hold the tier back on a flash turn: the persisted arm must stay
     # what the PR's next normal review runs on. Defaulted so pre-field payloads stay full reviews.
     review_mode: str = REVIEW_MODE_FULL
+    trigger_action: str | None = None
 
 
 @dataclass(frozen=False)
@@ -755,6 +758,7 @@ class GatePushInput:
     coordinator: bool = False
     installation_id: str | None = None
     github_repo_id: int | None = None
+    trigger_action: str | None = None
 
 
 @dataclass(frozen=False)
@@ -961,7 +965,11 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     # and posted this exact head; new comments are surfaced for visibility but don't gate yet.
     report = ReviewReport.objects.for_team(input.team_id).get(id=report_id)
     already_published = review_already_published(report, head_sha, input.review_mode)
-    already_completed = bool(head_sha) and report.automatic_reviewed_head_sha == head_sha
+    already_completed = (
+        bool(head_sha)
+        and report.automatic_reviewed_head_sha == head_sha
+        and input.trigger_action != DEEP_FOLLOW_UP_ACTION
+    )
     # This turn's index. run_count (completed turns) only bumps at finalize, so a turn that fails and
     # resumes reuses the same index while a fresh turn gets a new one.
     run_index = report.run_count + 1
@@ -2704,6 +2712,9 @@ def _cadence_allows_follow_up(input: GatePushInput, current: PRSnapshotArtefact 
 
 
 def _gate_push(input: GatePushInput) -> PushGateDecision:
+    # The Deep follow-up reviews the head that its Standard turn just reviewed, so no rule about pushes applies.
+    if input.trigger_action == DEEP_FOLLOW_UP_ACTION:
+        return _gate_automatic_deep_push(input)
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
     if not _cadence_allows_follow_up(input, current, draft):
@@ -3163,14 +3174,15 @@ def _finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> Non
     )
     if queued:
         _log_silent_stamphog(input.repository, input.pr_number, input.head_sha)
+    DeepFollowUp(input).start()
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def finish_standard_automatic_turn_activity(input: FinishedStandardAutomaticTurn) -> None:
-    """Record on the turn marker whether the turn was clean with full coverage, and queue the silent stamphog
-    review for a clean turn that the queue does not answer for.
+    """Record on the turn marker whether the turn was clean with full coverage, queue the silent stamphog
+    review for a clean turn that the queue does not answer for, and queue a Deep follow-up after a must-fix finding.
 
     The workflow catches the final failure. The turn then stays unrecorded, which never counts as clean.
     """

@@ -1,11 +1,27 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import {
+    type ReauthenticationPrompt,
+    timeSensitiveAuthenticationLogic,
+} from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { AGENT_CLI_API_KEY_SCOPES, API_SCOPES, APIScope, scopeMatchesSearch, scopesArrayToObject } from 'lib/scopes'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationBasicType } from '~/types'
@@ -122,6 +138,7 @@ export interface cliAuthorizeLogicValues {
         name: string
     }[]
     projectsLoading: boolean
+    reauthenticationDismissed: boolean
     requestedUseCases: CLIUseCase[]
     scopePreset: string | null
     searchTerm: string
@@ -143,6 +160,9 @@ export interface cliAuthorizeLogicActions {
         }
         user: UserType | null
     } // userLogic
+    setReauthenticationPrompt: (prompt: ReauthenticationPrompt | null) => {
+        prompt: ReauthenticationPrompt | null
+    } // timeSensitiveAuthenticationLogic
     loadProjects: (organizationId: string) => string
     loadProjectsFailure: (
         error: string,
@@ -182,6 +202,9 @@ export interface cliAuthorizeLogicActions {
     }
     setAuthorizeValues: (values: DeepPartial<CLIAuthorizeForm>) => {
         values: DeepPartial<CLIAuthorizeForm>
+    }
+    setReauthenticationDismissed: (dismissed: boolean) => {
+        dismissed: boolean
     }
     setRequestedUseCases: (useCases: CLIUseCase[]) => {
         useCases: CLIUseCase[]
@@ -238,6 +261,14 @@ export interface cliAuthorizeLogicMeta {
     }
 }
 
+// pinned: API error code from TimeSensitiveActionPermission
+const SENSITIVE_ACTION_REQUIRED_REAUTH = 'sensitive_action_required_reauth'
+
+const CLI_REAUTHENTICATION_PROMPT: ReauthenticationPrompt = {
+    title: "Confirm it's you to authorize the CLI",
+    description: "The CLI gets a personal API key that doesn't expire. Sign in again to confirm it's you.",
+}
+
 export type cliAuthorizeLogicType = MakeLogicType<
     cliAuthorizeLogicValues,
     cliAuthorizeLogicActions,
@@ -248,7 +279,7 @@ export type cliAuthorizeLogicType = MakeLogicType<
 export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
     path(['scenes', 'authentication', 'cli', 'cliAuthorizeLogic']),
     connect(() => ({
-        actions: [userLogic, ['loadUserSuccess']],
+        actions: [userLogic, ['loadUserSuccess'], timeSensitiveAuthenticationLogic, ['setReauthenticationPrompt']],
         values: [userLogic, ['user']],
     })),
     actions({
@@ -258,8 +289,16 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setScopePreset: (preset: string | null) => ({ preset }),
         resetScopes: true,
+        setReauthenticationDismissed: (dismissed: boolean) => ({ dismissed }),
     }),
     reducers({
+        reauthenticationDismissed: [
+            false,
+            {
+                setReauthenticationDismissed: (_, { dismissed }) => dismissed,
+                submitAuthorize: () => false,
+            },
+        ],
         isSuccess: [
             false,
             {
@@ -310,6 +349,10 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                 scopes: !scopes?.length ? ('Your personal API key needs at least one scope' as any) : undefined,
             }),
             submit: async ({ userCode, projectId, scopes }) => {
+                // A SAML sign-in prompt leaves the page and comes back to its URL, so the URL keeps the typed code.
+                if (router.values.searchParams.code !== userCode) {
+                    router.actions.replace(urls.cliAuthorize(), { ...router.values.searchParams, code: userCode })
+                }
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.create('api/cli-auth/authorize/', {
@@ -320,8 +363,13 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                     return response
                 } catch (error: any) {
                     const errorCode = error?.data?.error || error?.code
-                    if (errorCode === 'invalid_code') {
-                        actions.setAuthorizeManualErrors({ userCode: 'Invalid or expired code. Please try again.' })
+                    if (errorCode === SENSITIVE_ACTION_REQUIRED_REAUTH) {
+                        actions.setReauthenticationDismissed(true)
+                    } else if (errorCode === 'invalid_code') {
+                        actions.setAuthorizeManualErrors({
+                            userCode:
+                                'This code is invalid or expired. Run the login command in your terminal again to get a new code.',
+                        })
                     } else if (errorCode === 'expired') {
                         actions.setAuthorizeManualErrors({
                             userCode: 'This code has expired. Please request a new code in your terminal.',
@@ -503,7 +551,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             actions.setAuthorizeValue('scopes', newScopes)
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/cli/authorize': (_, searchParams) => {
             const code = searchParams.code
             if (code) {
@@ -518,13 +566,15 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                     const parsedUseCase = parseCLIUseCase(uc)
                     return parsedUseCase ? [parsedUseCase] : []
                 })
-                if (useCases.length > 0) {
+                // Submitting adds the code to the URL, which runs this again. Only a change of use cases resets the scopes.
+                if (useCases.length > 0 && useCases.join(',') !== values.requestedUseCases.join(',')) {
                     actions.setRequestedUseCases(useCases)
                 }
             }
         },
     })),
     afterMount(({ actions, values }) => {
+        actions.setReauthenticationPrompt(CLI_REAUTHENTICATION_PROMPT)
         if (values.authorize.organizationId) {
             return
         }
@@ -533,5 +583,8 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         if (currentOrganizationId) {
             actions.setAuthorizeValue('organizationId', currentOrganizationId)
         }
+    }),
+    beforeUnmount(({ actions }) => {
+        actions.setReauthenticationPrompt(null)
     }),
 ])

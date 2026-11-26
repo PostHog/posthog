@@ -44,7 +44,7 @@ from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import SYNC_SEND_MAX_RETRIES, SYNC_SEND_TIMEOUT_SECONDS, ph_scoped_capture
 from posthog.redis import get_celery_broker_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
@@ -413,8 +413,9 @@ class UsageReportCounters:
     go_mcp_events_count_in_period: int
     ruby_mcp_events_count_in_period: int
 
-    # MCP usage overlaps billable event and per-SDK totals.
+    # Excluded from web_events_count_in_period, like the other per-SDK MCP counts.
     web_mcp_events_count_in_period: int
+    # MCP usage overlaps billable event and per-SDK totals.
     mcp_tool_call_events_count_in_period: int
     mcp_missing_capability_events_count_in_period: int
     mcp_initialize_events_count_in_period: int
@@ -451,6 +452,8 @@ class UsageReportCounters:
     unreal_events_count_in_period: int
     roblox_events_count_in_period: int
     rust_events_count_in_period: int
+    rust_ffi_events_count_in_period: int
+    electron_events_count_in_period: int
     active_hog_destinations_in_period: int
     active_hog_transformations_in_period: int
 
@@ -693,7 +696,9 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         )
         capture_exception(err)
         capture_event(
-            pha_client=get_ph_client(sync_mode=True),
+            pha_client=get_ph_client(
+                sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS
+            ),
             name=f"organization usage report to billing service failure",
             organization_id=org_id,
             properties={"err": str(err)},
@@ -1055,6 +1060,9 @@ MCP_ANALYTICS_EVENT_METRICS: dict[str, str] = {
 }
 
 
+WEB_MCP_RAW_EVENT_ROWS = "web_mcp_raw_event_rows"
+
+
 def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     """Keep MCP metrics on `events`, whose ORDER BY key matches their dedup expression.
 
@@ -1067,25 +1075,25 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
     library_expression, _ = get_property_string_expr(
         "events", "$lib", "'$lib'", "properties", use_new_events_schema=False
     )
-    metric_names = (*MCP_ANALYTICS_EVENT_METRICS.values(), "web_mcp_events")
+    metric_names = (*MCP_ANALYTICS_EVENT_METRICS.values(), "web_mcp_events", WEB_MCP_RAW_EVENT_ROWS)
     metric_expressions = ",\n            ".join(
         f"uniqExactIf(event_key, event = %({metric_name})s) AS {metric_name}"
         for metric_name in MCP_ANALYTICS_EVENT_METRICS.values()
     )
     # nosemgrep: clickhouse-fstring-param-audit - metric names and property expressions come from internal definitions
     query_template = f"""
-        WITH tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) AS event_key
+        WITH
+            tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) AS event_key,
+            if(
+                {library_expression} = %(web_mcp_lib)s,
+                {interface_expression} = %(web_mcp_interface)s,
+                0
+            ) AS is_web_mcp
         SELECT
             team_id,
             {metric_expressions},
-            uniqExactIf(
-                event_key,
-                if(
-                    {library_expression} = %(web_mcp_lib)s,
-                    {interface_expression} = %(web_mcp_interface)s,
-                    0
-                )
-            ) AS web_mcp_events
+            uniqExactIf(event_key, is_web_mcp) AS web_mcp_events,
+            countIf(is_web_mcp) AS {WEB_MCP_RAW_EVENT_ROWS}
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND startsWith(event, %(mcp_event_prefix)s)
@@ -1186,6 +1194,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-unreal", None, "unreal_events"),
         ("posthog-roblox", None, "roblox_events"),
         ("posthog-rs", None, "rust_events"),
+        ("posthog-rs-ffi", None, "rust_ffi_events"),
+        ("posthog-electron", None, "electron_events"),
     )
     tracked_libs = tuple(
         dict.fromkeys(
@@ -1275,6 +1285,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "unreal_events": {},
             "roblox_events": {},
             "rust_events": {},
+            "rust_ffi_events": {},
+            "electron_events": {},
         }
 
         # Process each result set
@@ -1312,8 +1324,16 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         )
         mcp_analytics_counts_by_metric = _get_mcp_analytics_event_metric_counts(begin=begin, end=end)
 
+    # The base scan can't split out WebMCP events because that needs `$mcp_interface` from `properties`.
+    parent_subtractions = dict(ai_sub_sdk_metric_counts.parent_subtractions)
+    # web_events counts duplicate rows, so subtract raw WebMCP rows rather than the deduplicated metric.
+    # The raw rows always come from `events`. When the base scan reads `events_json`, the two tables can
+    # collapse duplicates differently, so this subtraction is approximate. Keep both scans on one table if
+    # the MCP query moves.
+    if web_mcp_rows := dict(mcp_analytics_counts_by_metric.pop(WEB_MCP_RAW_EVENT_ROWS)):
+        parent_subtractions["web_events"] = web_mcp_rows
     # Remove sub-SDK events from each parent metric. max(0, count) guards against cross-query ingestion jitter.
-    for parent_metric, team_subtractions in ai_sub_sdk_metric_counts.parent_subtractions.items():
+    for parent_metric, team_subtractions in parent_subtractions.items():
         metrics[parent_metric] = [
             (team_id, max(0, count - team_subtractions.get(team_id, 0))) for team_id, count in metrics[parent_metric]
         ]
@@ -3155,7 +3175,7 @@ def capture_report(
     if not organization_id:
         raise ValueError("Organization_id must be provided")
 
-    pha_client = get_ph_client(sync_mode=True)
+    pha_client = get_ph_client(sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS)
 
     try:
         capture_event(
@@ -3408,6 +3428,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_unreal_events_count_in_period": all_metrics["unreal_events"],
         "teams_with_roblox_events_count_in_period": all_metrics["roblox_events"],
         "teams_with_rust_events_count_in_period": all_metrics["rust_events"],
+        "teams_with_rust_ffi_events_count_in_period": all_metrics["rust_ffi_events"],
+        "teams_with_electron_events_count_in_period": all_metrics["electron_events"],
         "teams_with_heatmap_count_in_period": get_teams_with_heatmap_count_in_period(period_start, period_end),
         "teams_with_zero_duration_recording_count_in_period": get_teams_with_zero_duration_recording_count_in_period(
             period_start, period_end
@@ -3817,6 +3839,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         unreal_events_count_in_period=all_data["teams_with_unreal_events_count_in_period"].get(team.id, 0),
         roblox_events_count_in_period=all_data["teams_with_roblox_events_count_in_period"].get(team.id, 0),
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
+        rust_ffi_events_count_in_period=all_data["teams_with_rust_ffi_events_count_in_period"].get(team.id, 0),
+        electron_events_count_in_period=all_data["teams_with_electron_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_ingested_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_overage_bytes_in_period=ai_overage_bytes_in_period,
@@ -4200,7 +4224,7 @@ def send_all_org_usage_reports(
     except Exception:
         pass
 
-    pha_client = get_ph_client(sync_mode=True)
+    pha_client = get_ph_client(sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS)
 
     if organization_ids:
         logger.info(
