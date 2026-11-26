@@ -122,7 +122,7 @@ describe('billingLogic', () => {
         expect(billingLogic.values.billing).toEqual(loaded)
     })
 
-    it('reads no billing before the organization loads, and loads it for the organization once it arrives', async () => {
+    it('reads no billing or invoices before the organization loads, and loads them once it arrives', async () => {
         const billingReads: string[] = []
         useMocks({
             get: {
@@ -134,23 +134,33 @@ describe('billingLogic', () => {
                     billingReads.push(String(params.organization_id))
                     return [200, billingState]
                 },
+                '/api/billing/:organization_id/get_invoices': (req) => {
+                    billingReads.push(`${new URL(req.request.url).searchParams.get('status')} invoices`)
+                    return [200, { count: 1, link: null }]
+                },
             },
         })
         organizationLogic.actions.loadCurrentOrganizationSuccess(null)
         billingLogic.mount()
 
-        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+            billingLogic.actions.loadInvoices()
+            billingLogic.actions.loadUncollectibleInvoices()
+        }).toFinishAllListeners()
 
         expect(billingReads).toEqual([])
 
         await expectLogic(billingLogic, () =>
             organizationLogic.actions.loadCurrentOrganizationSuccess(MOCK_DEFAULT_ORGANIZATION)
         )
-            .toDispatchActions(['loadBilling', 'loadBillingSuccess'])
+            .toDispatchActions(['loadBillingSuccess', 'loadInvoicesSuccess', 'loadUncollectibleInvoicesSuccess'])
             .toFinishAllListeners()
 
-        expect(billingReads).toEqual([MOCK_DEFAULT_ORGANIZATION.id])
+        expect(billingReads.sort()).toEqual([MOCK_DEFAULT_ORGANIZATION.id, 'open invoices', 'uncollectible invoices'])
         expect(billingLogic.values.billing?.products).toEqual(billingState.products)
+        expect(billingLogic.values.openInvoices).toEqual({ count: 1, link: null })
+        expect(billingLogic.values.uncollectibleInvoices).toEqual({ count: 1, link: null })
     })
 
     it('keeps ambient credit and profile refreshes for an unscoped successful billing load', async () => {

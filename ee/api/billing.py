@@ -824,8 +824,26 @@ class BillingCouponClaimResponseSerializer(serializers.Serializer):
     )
 
 
+_LIST_ROUTE_PATHS = frozenset({"/api/billing/", "/api/billing/{organization_id}/"})
+
+
+def _is_list_route_patch(path: str, method: str) -> bool:
+    # PATCH on the list route runs the limits action, which its own route already documents. drf-spectacular can't
+    # describe one action on two routes: it inspects the other route's view, which has no request, so the schemas
+    # below leave this one out.
+    return method == "PATCH" and path in _LIST_ROUTE_PATHS
+
+
+class _BillingSchema(PostHogAutoSchema):
+    def get_operation(self, path, path_regex, path_prefix, method, registry):
+        if _is_list_route_patch(path, method):
+            return None
+        return super().get_operation(path, path_regex, path_prefix, method, registry)
+
+
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    schema = _BillingSchema()
     serializer_class = BillingSerializer
     pagination_class = None
     param_derived_from_user_current_team: Literal["team_id", "project_id"] | None = "team_id"
@@ -1774,6 +1792,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class _OrganizationPathBillingSchema(PostHogAutoSchema):
+    # Subclassing _BillingSchema would give drf-spectacular's extended schema a duplicate base class.
+    def get_operation(self, path, path_regex, path_prefix, method, registry):
+        if _is_list_route_patch(path, method):
+            return None
+        return super().get_operation(path, path_regex, path_prefix, method, registry)
+
     # /api/billing/ serves the same actions, so the organization route needs operation ids of its own.
     def get_operation_id(self) -> str:
         return "billing_organization_" + super().get_operation_id().removeprefix("billing_")

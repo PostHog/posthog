@@ -153,12 +153,9 @@ export const billingOrganizationId = (organization: OrganizationType | null): st
 
 // Returns null on any failure, so a user who cannot read invoices just sees no invoice banner.
 const loadInvoiceSummary = async (
-    organizationId: string | undefined,
+    organizationId: string,
     status: 'open' | 'uncollectible'
 ): Promise<OpenInvoices | null> => {
-    if (!organizationId) {
-        return null
-    }
     try {
         const { count, link } = await billingOrganizationGetInvoicesRetrieve(organizationId, { status })
         return { count: count ?? 0, link: link ?? null }
@@ -1151,15 +1148,25 @@ export const billingLogic = kea<billingLogicType>([
         openInvoices: [
             null as OpenInvoices | null,
             {
-                loadInvoices: (): Promise<OpenInvoices | null> =>
-                    loadInvoiceSummary(values.currentOrganization?.id, 'open'),
+                loadInvoices: async (): Promise<OpenInvoices | null> => {
+                    if (!values.currentOrganization?.id) {
+                        cache.invoicesAwaitOrganization = true
+                        return values.openInvoices
+                    }
+                    return await loadInvoiceSummary(values.currentOrganization.id, 'open')
+                },
             },
         ],
         uncollectibleInvoices: [
             null as OpenInvoices | null,
             {
-                loadUncollectibleInvoices: (): Promise<OpenInvoices | null> =>
-                    loadInvoiceSummary(values.currentOrganization?.id, 'uncollectible'),
+                loadUncollectibleInvoices: async (): Promise<OpenInvoices | null> => {
+                    if (!values.currentOrganization?.id) {
+                        cache.uncollectibleInvoicesAwaitOrganization = true
+                        return values.uncollectibleInvoices
+                    }
+                    return await loadInvoiceSummary(values.currentOrganization.id, 'uncollectible')
+                },
             },
         ],
         creditOverview: [
@@ -1722,9 +1729,21 @@ export const billingLogic = kea<billingLogicType>([
     })),
     listeners(({ actions, values, cache }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
-            if (cache.billingAwaitsOrganization && currentOrganization?.id) {
+            // Each of these loads ran once and returned early while the organization was still loading.
+            if (!currentOrganization?.id) {
+                return
+            }
+            if (cache.billingAwaitsOrganization) {
                 cache.billingAwaitsOrganization = false
                 actions.loadBilling()
+            }
+            if (cache.invoicesAwaitOrganization) {
+                cache.invoicesAwaitOrganization = false
+                actions.loadInvoices()
+            }
+            if (cache.uncollectibleInvoicesAwaitOrganization) {
+                cache.uncollectibleInvoicesAwaitOrganization = false
+                actions.loadUncollectibleInvoices()
             }
         },
         reportBillingShown: () => {
