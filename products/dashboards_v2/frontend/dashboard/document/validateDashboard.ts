@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { type FilterSpec, findFilterType, hasFilterOn } from '../../filters/filterSpec'
-import { type WidgetTypeSpec, findWidget, sizeOfWidgets } from '../../widgets/widgetSpec'
+import { type WidgetTypeSpec, findWidget, sizeOfWidgets } from '../../widgets/core/widgetSpec'
 import {
     dashboardDocumentSchema,
     documentContentWidgetSchema,
