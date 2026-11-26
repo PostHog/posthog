@@ -225,7 +225,7 @@ export interface projectSecretAPIKeysLogicMeta {
             key: string
             label: string
         }[]
-        availablePresets: (user: UserType | null, featureFlags: any) => ProjectSecretAPIKeyScopePreset[]
+        availablePresets: (user: UserType | null, featureFlags: FeatureFlagsSet) => ProjectSecretAPIKeyScopePreset[]
     }
 }
 
