@@ -14,7 +14,7 @@ async def test_fetches_the_local_billing_period_endpoint() -> None:
             "current_period_start": "2026-07-09T00:00:00Z",
             "current_period_end": "2026-08-09T00:00:00Z",
         },
-        request=httpx.Request("GET", "https://us.posthog.com/api/projects/42/billing/period/"),
+        request=httpx.Request("GET", "https://us.posthog.com/api/billing/period/"),
     )
     http_client = MagicMock()
     http_client.get = AsyncMock(return_value=response)
@@ -27,8 +27,9 @@ async def test_fetches_the_local_billing_period_endpoint() -> None:
         current_period_end="2026-08-09T00:00:00Z",
     )
     http_client.get.assert_awaited_once_with(
-        "https://us.posthog.com/api/projects/42/billing/period/",
+        "https://us.posthog.com/api/billing/period/",
         headers={"Authorization": "Bearer phx_test"},
+        params={"team_id": 42},
         timeout=2.0,
     )
 
@@ -38,7 +39,7 @@ async def test_malformed_response_falls_open() -> None:
     response = httpx.Response(
         200,
         content=b"not json",
-        request=httpx.Request("GET", "https://us.posthog.com/api/projects/42/billing/period/"),
+        request=httpx.Request("GET", "https://us.posthog.com/api/billing/period/"),
     )
     http_client = MagicMock()
     http_client.get = AsyncMock(return_value=response)
@@ -52,7 +53,7 @@ async def test_caches_a_successful_missing_period() -> None:
     response = httpx.Response(
         200,
         json={"current_period_start": None, "current_period_end": None},
-        request=httpx.Request("GET", "https://us.posthog.com/api/projects/42/billing/period/"),
+        request=httpx.Request("GET", "https://us.posthog.com/api/billing/period/"),
     )
     redis = AsyncMock()
     redis.get.side_effect = [None, b'{"current_period_start": null, "current_period_end": null}']
