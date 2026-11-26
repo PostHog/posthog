@@ -7,6 +7,8 @@ pages and searches then count those rows, and never unpack the JSON columns of t
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Sequence
 from urllib.parse import urlparse
 
 from django.db.models import Q
@@ -41,7 +43,7 @@ def citation_rows(check: AEOCitationCheck) -> list[AEOCheckCitation]:
     with_url = {host for _, host in cited}
     beyond = [host.lower() for host in check.top_cited_domains or [] if isinstance(host, str) and host]
     cited += [("", host) for host in dict.fromkeys(beyond) if host not in with_url and len(host) <= 255]
-    return [
+    rows = [
         AEOCheckCitation(
             team_id=check.team_id,
             citation_check_id=check.id,
@@ -53,6 +55,21 @@ def citation_rows(check: AEOCitationCheck) -> list[AEOCheckCitation]:
         )
         for position, (url, host) in enumerate(cited, start=1)
     ]
+    mark_first_citations(rows)
+    return rows
+
+
+def mark_first_citations(rows: Sequence[AEOCheckCitation]) -> None:
+    """Set which rows are their answer's first citation of a domain and of a URL. The rows of each check must
+    all be here, in position order."""
+    domains: set[tuple[uuid.UUID, str]] = set()
+    urls: set[tuple[uuid.UUID, str]] = set()
+    for row in rows:
+        domain, url = (row.citation_check_id, row.domain), (row.citation_check_id, row.url)
+        row.first_of_domain = bool(row.domain) and domain not in domains
+        row.first_of_url = bool(row.url) and url not in urls
+        domains.add(domain)
+        urls.add(url)
 
 
 def search_rows(check: AEOCitationCheck) -> list[AEOCheckSearch]:
@@ -76,18 +93,28 @@ def write_facts(checks: list[AEOCitationCheck]) -> None:
         return
     # Every check of one call belongs to one team: a run and a backfill page are both per team.
     team_id = checks[0].team_id
-    AEOCheckCitation.objects.for_team(team_id, canonical=True).bulk_create(
-        [row for check in checks for row in citation_rows(check)], ignore_conflicts=True
-    )
+    citations = AEOCheckCitation.objects.for_team(team_id, canonical=True)
+    citations.bulk_create([row for check in checks for row in citation_rows(check)], ignore_conflicts=True)
+    # Rows written before the first-citation flags existed are kept by the insert above, so they get the
+    # flags here. A check's rows are always written together, so all of them lack the flags or none do.
+    unmarked = citations.filter(citation_check_id__in=[check.id for check in checks], first_of_domain__isnull=True)
+    if unmarked.exists():
+        rows = list(
+            unmarked.only("id", "citation_check_id", "position", "url", "domain").order_by(
+                "citation_check_id", "position"
+            )
+        )
+        mark_first_citations(rows)
+        citations.bulk_update(rows, ["first_of_domain", "first_of_url"])
     AEOCheckSearch.objects.for_team(team_id, canonical=True).bulk_create(
         [row for check in checks for row in search_rows(check)], ignore_conflicts=True
     )
 
 
 def has_checks_without_facts(team_id: int) -> bool:
-    """Whether the team has a check from before the fact rows existed. The backfill writes the newest
-    check first and the oldest last, so the oldest check that cites anything has rows only once the
-    backfill reached the end."""
+    """Whether the team has a check from before the fact rows, or their first-citation flags, existed. The
+    backfill writes the newest check first and the oldest last, so the oldest check that cites anything has
+    flagged rows only once the backfill reached the end."""
     team_id = resolve_effective_team_id(team_id)
     oldest = (
         AEOCitationCheck.objects.for_team(team_id, canonical=True)
@@ -96,10 +123,10 @@ def has_checks_without_facts(team_id: int) -> bool:
         .values_list("id", flat=True)
         .first()
     )
-    return (
-        oldest is not None
-        and not AEOCheckCitation.objects.for_team(team_id, canonical=True).filter(citation_check_id=oldest).exists()
-    )
+    if oldest is None:
+        return False
+    oldest_rows = AEOCheckCitation.objects.for_team(team_id, canonical=True).filter(citation_check_id=oldest)
+    return list(oldest_rows.values_list("first_of_domain", flat=True)[:1]) in ([], [None])
 
 
 def backfill_facts(team_id: int) -> int:
