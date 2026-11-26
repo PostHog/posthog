@@ -941,7 +941,8 @@ def _virtual_fields_changed_since(built_at: datetime, team: Team) -> bool:
 
     if (
         ActivityLog.objects.filter(
-            team_id=team.pk,
+            # Saved expressions are stored, and logged, on the project's root team.
+            team_id__in={team.pk, team.parent_team_id or team.pk},
             scope__in=["DataWarehouseJoin", "DataWarehouseExpression"],
             created_at__gt=built_at,
         )
