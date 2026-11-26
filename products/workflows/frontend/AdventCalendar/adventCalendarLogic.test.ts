@@ -58,7 +58,7 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.openCount).toBe(1)
     })
 
-    it('keeps a door shut until its day comes', () => {
+    it('keeps a door shut until its day comes, then unlocks it on an open page', () => {
         logic.actions.activateDoor('door-1')
         logic.actions.answerDoor('door-2', 'james')
         logic.actions.activateDoor('door-3-upper')
@@ -67,6 +67,54 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-3-upper')?.status).toBe('open')
         expect(doorOf(logic, 'door-4-upper')?.status).toBe('locked')
         expect(logic.values.openCount).toBe(3)
+
+        jest.advanceTimersByTime(15 * 60 * 60 * 1000)
+
+        expect(doorOf(logic, 'door-4-upper')?.status).toBe('ready')
+    })
+
+    it('keeps the opened doors of each account apart in one browser', () => {
+        logic.actions.activateDoor('door-1')
+
+        signIn({ uuid: '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e02' })
+
+        expect(doorOf(logic, 'door-1')?.status).toBe('ready')
+        expect(logic.values.openCount).toBe(0)
+    })
+
+    it('keeps an answer saved in another tab when this tab opens the next door', () => {
+        logic.actions.activateDoor('door-1')
+        window.dispatchEvent(
+            new StorageEvent('storage', {
+                key: 'workflows-advent-calendar-progress',
+                newValue: JSON.stringify({
+                    '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01': { opened: [1, 2], answers: { 2: 'tim' } },
+                }),
+            })
+        )
+
+        logic.actions.activateDoor('door-3-lower')
+
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+        expect(logic.values.progress).toEqual({ opened: [1, 2, 3], answers: { 2: 'tim' } })
+    })
+
+    it.each([
+        ['james', 'tim'],
+        ['tim', 'james'],
+    ])('settles on one answer when this tab picks %s and another picks %s', (here, there) => {
+        logic.actions.activateDoor('door-1')
+        logic.actions.answerDoor('door-2', here)
+        window.dispatchEvent(
+            new StorageEvent('storage', {
+                key: 'workflows-advent-calendar-progress',
+                newValue: JSON.stringify({
+                    '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01': { opened: [1, 2], answers: { 2: there } },
+                }),
+            })
+        )
+
+        expect(logic.values.progress).toEqual({ opened: [1, 2], answers: { 2: 'james' } })
     })
 
     it('opens a question door with the answer and drops the path not taken', () => {

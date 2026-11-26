@@ -7,15 +7,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { ADVENT_CARD_EDGE_GAP, ADVENT_CARD_INSET, adventCardPlacement } from './adventCardPlacement'
 import { ADVENT_TIPS } from './adventContent'
 import { ADVENT_DOOR_SIZE, AdventDoor, adventDoorColor, adventWeekday } from './adventGraph'
 import { AdventRewardArt } from './AdventRewardArt'
 import { AdventTipCard } from './AdventTipCard'
 import { ADVENT_CARD_CLOSE_MS } from './useAdventCard'
 
-const WIDTH = 320
-const INSET = 13
-const EDGE_GAP = 8
 const OPEN_CLIP = 'inset(-2px round 16px)'
 const OPEN_MS = 480
 
@@ -75,19 +73,23 @@ export function AdventDoorCard({
     const color = adventDoorColor(door)
     const { title, detail } = headline(door)
 
-    const hasRoomRight = face.left - INSET + WIDTH <= stage.width - EDGE_GAP
-    const hasRoomLeft = face.left + face.size + INSET - WIDTH >= EDGE_GAP
-    const isLeftward = door.row === 1 ? !hasRoomRight && hasRoomLeft : hasRoomLeft || !hasRoomRight
+    const { isLeftward, width } = adventCardPlacement(face, stage.width, door.row)
     const isUpward = door.row === 2
-    const far = `calc(100% - ${INSET + face.size}px)`
-    const near = `${INSET}px`
+    const far = `calc(100% - ${ADVENT_CARD_INSET + face.size}px)`
+    const near = `${ADVENT_CARD_INSET}px`
     const closedClip = `inset(${isUpward ? far : near} ${isLeftward ? near : far} ${isUpward ? near : far} ${isLeftward ? far : near} round 12px)`
 
     const style: CSSProperties = {
-        width: WIDTH,
-        maxHeight: isUpward ? face.top + face.size + INSET - EDGE_GAP : stage.height - (face.top - INSET) - EDGE_GAP,
-        ...(isLeftward ? { right: stage.width - (face.left + face.size + INSET) } : { left: face.left - INSET }),
-        ...(isUpward ? { bottom: stage.height - (face.top + face.size + INSET) } : { top: face.top - INSET }),
+        width,
+        maxHeight: isUpward
+            ? face.top + face.size + ADVENT_CARD_INSET - ADVENT_CARD_EDGE_GAP
+            : stage.height - (face.top - ADVENT_CARD_INSET) - ADVENT_CARD_EDGE_GAP,
+        ...(isLeftward
+            ? { right: stage.width - (face.left + face.size + ADVENT_CARD_INSET) }
+            : { left: face.left - ADVENT_CARD_INSET }),
+        ...(isUpward
+            ? { bottom: stage.height - (face.top + face.size + ADVENT_CARD_INSET) }
+            : { top: face.top - ADVENT_CARD_INSET }),
         borderColor: color,
         clipPath: isOpen ? OPEN_CLIP : closedClip,
         transitionDuration: `${isOpen ? OPEN_MS : ADVENT_CARD_CLOSE_MS}ms`,
