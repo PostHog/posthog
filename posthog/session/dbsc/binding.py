@@ -1,8 +1,10 @@
+import time
 import secrets
 from datetime import datetime
 from typing import Any, Literal, cast
 
 from django.contrib.sessions.backends.base import SessionBase
+from django.http import HttpRequest
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -12,6 +14,9 @@ from posthog.session.models import Session
 Algorithm = Literal["ES256", "RS256"]
 
 OFFER_SESSION_KEY = "_dbsc_offer"
+# Long enough to register. A session that never registers must not stay claimable by whoever holds its cookie.
+OFFER_TTL_SECONDS = 10 * 60
+_LOGIN_OFFER_ATTR = "_dbsc_login_offer"
 
 
 @frozen
@@ -73,14 +78,35 @@ def carry_binding(session: SessionBase, binding: Binding) -> None:
     session.pop(OFFER_SESSION_KEY, None)
 
 
+def carry_into_impersonation(session: SessionBase, staff_binding: Binding | None) -> None:
+    """An impersonation stays bound to the staff member's device, and is never offered a binding of its own."""
+    if staff_binding is not None:
+        carry_binding(session, staff_binding)
+    else:
+        session.pop(OFFER_SESSION_KEY, None)
+
+
 def is_bound_or_carried(session: SessionBase) -> bool:
     return DBSC_CARRY_SESSION_KEY in session or current_binding(session) is not None
 
 
-def new_offer(session: SessionBase) -> None:
-    session[OFFER_SESSION_KEY] = secrets.token_urlsafe(16)
+def new_offer(request: HttpRequest) -> None:
+    request.session[OFFER_SESSION_KEY] = {
+        "id": secrets.token_urlsafe(16),
+        "expires_at": time.time() + OFFER_TTL_SECONDS,
+    }
+    setattr(request, _LOGIN_OFFER_ATTR, True)
 
 
 def offer_id(session: SessionBase) -> str | None:
-    value = session.get(OFFER_SESSION_KEY)
-    return value if isinstance(value, str) else None
+    offer = session.get(OFFER_SESSION_KEY)
+    if not isinstance(offer, dict) or not isinstance(offer.get("id"), str):
+        return None
+    expires_at = offer.get("expires_at")
+    if not isinstance(expires_at, int | float) or expires_at <= time.time():
+        return None
+    return offer["id"]
+
+
+def is_login_response(request: HttpRequest) -> bool:
+    return bool(getattr(request, _LOGIN_OFFER_ATTR, False))

@@ -91,6 +91,23 @@ class TestSessionStore(BaseTest):
         with self.assertRaises(UpdateError):
             store.save(must_create=False)
 
+    def test_cycle_key_keeps_the_device_binding_out_of_session_data(self):
+        user = self._make_user()
+        store = self._store()
+        store[SESSION_KEY] = str(user.pk)
+        store.create()
+        binding = {"id": "b1", "alg": "ES256", "jwk": {"kty": "EC"}, "bound_at": "2026-01-01T00:00:00+00:00"}
+        Session.objects.filter(session_key=store.session_key).update(dbsc_binding=binding)
+        old_key = store.session_key
+
+        store.cycle_key()
+        store.save()
+
+        row = Session.objects.get(session_key=store.session_key)
+        assert row.dbsc_binding == binding
+        assert "_dbsc_carry" not in row.get_decoded()
+        assert not Session.objects.filter(session_key=old_key).exists()
+
 
 class TestSessionStoreAsync(NonAtomicBaseTest):
     """The async store path (asave/acreate_model_instance) must match the sync path: stamp user_id,
@@ -153,19 +170,15 @@ class TestSessionStoreAsync(NonAtomicBaseTest):
         with self.assertRaises(UpdateError):
             async_to_sync(store.asave)()
 
-    def test_cycle_key_keeps_the_device_binding_out_of_session_data(self):
+    def test_acycle_key_keeps_the_device_binding(self):
         user = self._make_user()
         store = self._store()
         store[SESSION_KEY] = str(user.pk)
-        store.create()
+        async_to_sync(store.acreate)()
         binding = {"id": "b1", "alg": "ES256", "jwk": {"kty": "EC"}, "bound_at": "2026-01-01T00:00:00+00:00"}
         Session.objects.filter(session_key=store.session_key).update(dbsc_binding=binding)
-        old_key = store.session_key
 
-        store.cycle_key()
-        store.save()
+        async_to_sync(store.acycle_key)()
+        async_to_sync(store.asave)()
 
-        row = Session.objects.get(session_key=store.session_key)
-        assert row.dbsc_binding == binding
-        assert "_dbsc_carry" not in row.get_decoded()
-        assert not Session.objects.filter(session_key=old_key).exists()
+        assert Session.objects.get(session_key=store.session_key).dbsc_binding == binding

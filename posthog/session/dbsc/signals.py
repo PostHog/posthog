@@ -13,7 +13,7 @@ from posthog.session.dbsc.rollout import Mode, mode_for
 def offer_device_binding(sender: object, user: User, request: HttpRequest, **kwargs: object) -> None:
     """Mark the session a login created as one to bind. Sessions from before a login stay unbound."""
     session = getattr(request, "session", None)
-    if session is None or is_impersonated_session(request) or bindings.is_bound_or_carried(session):
+    if session is None or is_impersonated_session(request) or mode_for(user) == Mode.OFF:
         return
-    if mode_for(user) != Mode.OFF:
-        bindings.new_offer(session)
+    if not bindings.is_bound_or_carried(session):
+        bindings.new_offer(request)

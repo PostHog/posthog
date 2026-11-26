@@ -41,7 +41,7 @@ class TestActivityLogOCSF(APIBaseTest):
             ("updated", 3004, 3, None),
             ("deleted", 3004, 4, None),
             ("logged_in", 3002, 1, None),
-            ("session_refused_unbound", 3002, 1, None),
+            ("session_refused_unbound", 3002, 99, "session_refused_unbound"),
             ("scim_provisioned", 3001, 1, None),
             ("exported for opengraph image", 3004, 99, "exported for opengraph image"),
         ]

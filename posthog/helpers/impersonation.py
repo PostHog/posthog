@@ -49,7 +49,8 @@ def end_impersonation(request: HttpRequest) -> None:
         pass
     binding = current_binding(request.session)
     restore_original_login(request)
-    if binding is not None:
+    # loginas logs nobody back in once its signed flag expired, and an anonymous session must not keep the key.
+    if binding is not None and request.user.is_authenticated:
         carry_binding(request.session, binding)
 
 

@@ -20,7 +20,7 @@ class CookieCheck(StrEnum):
 
 
 def cookie_name() -> str:
-    # The __Host- prefix needs the Secure attribute, which local HTTP development leaves off.
+    """The __Host- prefix needs the Secure attribute, which local HTTP development leaves off."""
     return "__Host-ph_dbsc" if settings.SESSION_COOKIE_SECURE else "ph_dbsc"
 
 

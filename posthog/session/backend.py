@@ -62,20 +62,29 @@ class SessionStore(DBStore):
         self.loaded_row = obj
         return obj
 
+    def _locked_dbsc_binding(self) -> object:
+        model = cast("type[Session]", self.model)
+        return (
+            model.objects.select_for_update()
+            .filter(session_key=self.session_key)
+            .values_list("dbsc_binding", flat=True)
+            .first()
+        )
+
     def cycle_key(self) -> None:
         """A login on the same browser rotates the key, and the device key stays in that browser."""
-        binding = self._stored_dbsc_binding()
-        if binding is not None:
-            self[DBSC_CARRY_SESSION_KEY] = binding
-        super().cycle_key()
-
-    def _stored_dbsc_binding(self) -> Any:
         if self.session_key is None:
-            return None
-        if self.loaded_row is not None and self.loaded_row.session_key == self.session_key:
-            return self.loaded_row.dbsc_binding
-        model = cast("type[Session]", self.model)
-        return model.objects.filter(session_key=self.session_key).values_list("dbsc_binding", flat=True).first()
+            super().cycle_key()
+            return
+        # The row lock carries a binding that a concurrent registration commits, or makes that registration fail.
+        with transaction.atomic(using=router.db_for_write(self.model)):
+            binding = self._locked_dbsc_binding()
+            if binding is not None:
+                self[DBSC_CARRY_SESSION_KEY] = binding
+            super().cycle_key()
+
+    async def acycle_key(self) -> None:
+        await sync_to_async(self.cycle_key)()
 
     def _model_instance_for_save(self, data: dict[str, Any]) -> "Session":
         obj = self.create_model_instance({key: value for key, value in data.items() if key != DBSC_CARRY_SESSION_KEY})

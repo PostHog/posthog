@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from posthog.dataclasses import frozen
 from posthog.session.dbsc.binding import Algorithm, Binding
 from posthog.session.dbsc.cookies import cookie_attributes, cookie_name
+from posthog.session.dbsc.paths import REFRESH_PATH, START_PATH
 
 REGISTRATION_HEADER = "Secure-Session-Registration"
 CHALLENGE_HEADER = "Secure-Session-Challenge"
@@ -15,10 +16,9 @@ RESPONSE_HEADER = "Secure-Session-Response"
 SESSION_ID_HEADER = "Sec-Secure-Session-Id"
 SKIPPED_HEADER = "Secure-Session-Skipped"
 
-START_PATH = "/dbsc/start"
-REFRESH_PATH = "/dbsc/refresh"
-
 _PROOF_TYPE = "dbsc+jwt"
+# Only these members describe the key. Anything else the browser sends is not stored on the session row.
+_KEY_MEMBERS: dict[Algorithm, tuple[str, ...]] = {"ES256": ("kty", "crv", "x", "y"), "RS256": ("kty", "n", "e")}
 _MIN_RSA_KEY_BITS = 2048
 
 
@@ -72,7 +72,6 @@ def _proof_header(token: str) -> tuple[Algorithm, dict[str, Any]]:
     if header.get("typ") != _PROOF_TYPE:
         raise ProofError("wrong_type")
     alg = header.get("alg")
-    # The draft also allows "none", which proves nothing about the device.
     if alg not in ("ES256", "RS256"):
         raise ProofError("unsupported_algorithm")
     return cast(Algorithm, alg), header
@@ -127,7 +126,8 @@ def verify_registration_proof(token: str) -> Proof:
     alg, header = _proof_header(token)
     jwk = header.get("jwk")
     key = _public_key(alg, jwk)
-    return Proof(alg=alg, jti=_verified_jti(token, key, alg), jwk=cast(dict[str, Any], jwk))
+    public_jwk = {member: cast(dict[str, Any], jwk)[member] for member in _KEY_MEMBERS[alg]}
+    return Proof(alg=alg, jti=_verified_jti(token, key, alg), jwk=public_jwk)
 
 
 def verify_refresh_proof(token: str, binding: Binding) -> Proof:

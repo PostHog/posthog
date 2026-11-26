@@ -15,7 +15,7 @@ from posthog.middleware import (
     is_read_only_impersonation,
 )
 from posthog.models import User
-from posthog.session.dbsc.binding import OFFER_SESSION_KEY, carry_binding, current_binding
+from posthog.session.dbsc.binding import carry_into_impersonation, current_binding
 
 
 def start_impersonation(request, user_id, *, read_only: bool):
@@ -39,11 +39,7 @@ def start_impersonation(request, user_id, *, read_only: bool):
     )
 
     if login_succeeded:
-        # The staff member's browser keeps its device key, so the impersonation stays bound to it.
-        if staff_binding is not None:
-            carry_binding(request.session, staff_binding)
-        else:
-            request.session.pop(OFFER_SESSION_KEY, None)
+        carry_into_impersonation(request.session, staff_binding)
         if read_only:
             request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
         elif IMPERSONATION_READ_ONLY_SESSION_KEY in request.session:

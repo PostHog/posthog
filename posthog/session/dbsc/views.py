@@ -3,6 +3,7 @@ without a CORS preflight, which this server never grants."""
 
 import hmac
 
+from django.contrib.auth import logout
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -16,8 +17,9 @@ from posthog.session.dbsc import (
     protocol,
 )
 from posthog.session.dbsc.cookies import set_bound_cookie
+from posthog.session.dbsc.decisions import Action
 from posthog.session.dbsc.events import record_refresh, record_refusal, record_registration
-from posthog.session.dbsc.owner import binding_owner
+from posthog.session.dbsc.owner import binding_mode
 from posthog.session.dbsc.rollout import Mode, is_available, mode_for
 
 
@@ -75,16 +77,20 @@ def start_session(request: HttpRequest) -> HttpResponse:
 @require_POST
 def refresh_session(request: HttpRequest) -> HttpResponse:
     user = request.user
+    if not is_available():
+        # A 5xx keeps the browser's DBSC session, so turning DBSC back on finds the bindings still usable.
+        record_refresh("unavailable", user_id=None)
+        return HttpResponse(status=503)
     session_id = protocol.parse_sf_string(request.headers.get(protocol.SESSION_ID_HEADER))
     if session_id is None:
         record_refresh("missing_session_id", user_id=None)
         return HttpResponse(status=400)
-    if not is_available() or not isinstance(user, User) or request.session.session_key is None:
+    if not isinstance(user, User) or request.session.session_key is None:
         record_refresh("no_session", user_id=None)
         return _end_dbsc_session()
 
     binding = bindings.current_binding(request.session)
-    if binding is None or not hmac.compare_digest(binding.id, session_id):
+    if binding is None or not hmac.compare_digest(binding.id.encode(), session_id.encode()):
         record_refresh("unknown_session", user_id=user.id)
         return _end_dbsc_session()
 
@@ -95,20 +101,21 @@ def refresh_session(request: HttpRequest) -> HttpResponse:
     try:
         proof = protocol.verify_refresh_proof(token, binding)
     except protocol.ProofError:
-        # Someone holds the session cookie and the DBSC session id but not the device key.
-        owner = binding_owner(request)
-        mode = mode_for(owner) if owner is not None else Mode.OFF
+        mode = binding_mode(request)
         record_refresh("invalid_proof", user_id=user.id)
-        record_refusal(
-            request,
-            user,
-            mode=mode,
-            reason="invalid_proof",
-            skipped=False,
-            impersonated=is_impersonated_session(request),
-        )
+        if mode != Mode.OFF:
+            record_refusal(
+                request,
+                user,
+                mode=mode,
+                reason="invalid_proof",
+                action=Action.END_SESSION if mode == Mode.ENFORCE else Action.RECORD,
+                skipped=False,
+                cross_site=False,
+                impersonated=is_impersonated_session(request),
+            )
         if mode == Mode.ENFORCE:
-            request.session.flush()
+            logout(request)
         return _end_dbsc_session()
     if not challenges.consume_challenge(challenges.refresh_subject(binding.id), proof.jti):
         record_refresh("stale_challenge", user_id=user.id)

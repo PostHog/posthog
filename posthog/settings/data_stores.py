@@ -832,6 +832,12 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+# DBSC challenges are read right after they are written and pass only once, which a lagging replica breaks.
+CACHES["dbsc_challenges"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Survey site snapshot polls must read the render claim and asset pointer they wrote, or they start duplicate renders.
 CACHES["survey_site_snapshot"] = {
     **CACHES["default"],
@@ -1009,6 +1015,7 @@ if TEST:
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
+    CACHES["dbsc_challenges"] = CACHES["default"]
     CACHES["cdp_invocation_replay"] = CACHES["default"]
     CACHES["survey_site_snapshot"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
