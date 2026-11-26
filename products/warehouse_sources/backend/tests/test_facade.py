@@ -102,7 +102,7 @@ class TestWarehouseSourcesFacade(BaseTest):
 
         assert [(r.source_type, r.latest_error) for r in results] == [
             ("Postgres", "permission denied for table users (password ***)"),
-            ("Stripe", "request failed: api_key=***"),
+            ("Stripe", api.UNMASKABLE_SOURCE_ERROR),
         ]
         assert results[0].last_run_at == newest.created_at
 

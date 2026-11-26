@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlsplit
 from posthog.dataclasses import frozen
 from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError, looks_encrypted
 
+from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -123,7 +124,7 @@ _SECRET_PARAM_NAMES = (
 
 _ERROR_REDACTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # Password in URL userinfo: postgres://user:secret@host
-    (re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s:/@?#]+:)[^\s/?#@]+@", re.IGNORECASE), rf"\1{REDACTED_VALUE}@"),
+    (re.compile(r"(\b[a-z][a-z0-9+.-]{0,31}://[^\s:/@?#]+:)[^\s/?#@]+@", re.IGNORECASE), rf"\1{REDACTED_VALUE}@"),
     # Query string or key=value pairs: ?api_key=secret, password=secret
     (
         re.compile(rf"((?<![a-z0-9_])(?:{_SECRET_PARAM_NAMES})=)[^\s&;,'\"]+", re.IGNORECASE),
@@ -195,15 +196,20 @@ def source_secret_values(source_type: str, job_inputs: Mapping[str, Any]) -> fro
 def source_secret_values_by_source(sources: Iterable[ExternalDataSource]) -> dict[UUID, frozenset[str]]:
     """The stored secret values of each source, read with one inputs query for all of them.
 
-    A source whose inputs can't be read is left out, so its errors keep only the pattern masking.
+    A source whose inputs can't be read is left out, since its errors can't be masked.
     """
     sources = list(sources)
     inputs = SourceInputsStore.load_many(sources)
-    return {
-        source.id: source_secret_values(source.source_type, inputs[source.id])
-        for source in sources
-        if source.id in inputs
-    }
+    secrets: dict[UUID, frozenset[str]] = {}
+    for source in sources:
+        if source.id not in inputs:
+            # `load_many` also drops a source when its credentials read fails; `load` raises that instead.
+            try:
+                inputs[source.id] = SourceInputsStore.load(source)
+            except UnreadableSourceInputsError:
+                continue
+        secrets[source.id] = source_secret_values(source.source_type, inputs[source.id])
+    return secrets
 
 
 def get_integration_error_redaction_values(integration: IntegrationRecord | None) -> frozenset[str]:
