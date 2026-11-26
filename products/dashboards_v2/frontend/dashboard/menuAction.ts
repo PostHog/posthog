@@ -1,8 +1,8 @@
 export interface MenuAction {
     /**
      * Stable, so a widget type or host can find an action by it in `tileActions` or `dashboardActions`. Built in for a
-     * content tile: `present`, `move`, `add-to-tab`, `download-image`, `parts`, `remove`, plus a chart's `chart-type` and `chart-options`. Built in for a
-     * section: `rename`, `download-image`, `auto-layout`, `parts`, `remove`. Built in for the dashboard: `download-image`, `tab-appearance`.
+     * content tile: `present`, `move`, `add-to-tab`, `download-image`, `parts`, `background-color`, `remove`, plus a chart's `chart-type` and `chart-options`. Built in for a
+     * section: `rename`, `download-image`, `auto-layout`, `parts`, `remove`. Built in for the dashboard: `download-image`, `tab-appearance`, `allow-filters`.
      */
     key: string
     label: string

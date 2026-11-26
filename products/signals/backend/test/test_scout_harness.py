@@ -38,7 +38,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.scoping import team_scope
+from posthog.models.scoping import team_scope, unscoped
 from posthog.models.utils import uuid7
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.sync import database_sync_to_async
@@ -82,6 +82,7 @@ from products.signals.backend.scout_harness.prompt import (
     _REPORT_CHARTS,
     HARNESS_PROMPT_VERSION,
     MEMORY_UPKEEP_SCOUT,
+    OWN_SCRATCHPAD_STALE_DAYS,
     _checkout_section,
     build_run_prompt,
 )
@@ -96,6 +97,7 @@ from products.signals.backend.scout_harness.runner import (
     _failure_streak_runs_in_window,
     _inbox_reports_search_available,
     _memory_upkeep_is_live,
+    _own_scratchpad_counts,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -107,6 +109,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.team_limits import BackgroundBackoff
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
+from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadCounts
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
     TrialContext,
@@ -507,6 +510,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
             repositories=["acme-co/service"],
+            own_scratchpad=ScratchpadCounts(live=41, without_expiry=29, not_updated_since_cutoff=17),
         )
 
         offsets = [
@@ -519,12 +523,14 @@ class TestPromptCacheablePrefix(SimpleTestCase):
                 "# Your checkout",
                 "# Structured output",
                 "# Your run identity",
+                "# Your scratchpad",
             )
         ]
         # Per-team values first, the run's own identity last.
         assert offsets == sorted(offsets)
         head = prompt[: offsets[0]]
         # Every stable section, down to the closing output-format one, sits above the block.
+        assert "# Scratchpad upkeep" in head
         assert "# Output format" in head
         for value in (
             "00000000-0000-0000-0000-000000000abc",
@@ -571,18 +577,82 @@ class TestPromptCacheablePrefix(SimpleTestCase):
         if rendered:
             assert prompt.index("# Find people who read the work") > prompt.index("# Output format")
 
+    @parameterized.expand(
+        [
+            ("counts_shown", ScratchpadCounts(live=41, without_expiry=29, not_updated_since_cutoff=17), False, True),
+            ("no_entries", ScratchpadCounts(live=0, without_expiry=0, not_updated_since_cutoff=0), False, False),
+            ("failed_check", None, False, False),
+            ("private_trial", ScratchpadCounts(live=41, without_expiry=29, not_updated_since_cutoff=17), True, False),
+        ]
+    )
+    def test_own_scratchpad_counts_render_only_for_a_scout_holding_live_entries(
+        self, _name: str, counts: ScratchpadCounts | None, is_private_trial: bool, rendered: bool
+    ) -> None:
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-memory-holder",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=[],
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            own_scratchpad=counts,
+            is_private_trial=is_private_trial,
+        )
+
+        assert ("# Your scratchpad" in prompt) is rendered
+        if rendered:
+            assert "- live: 41\n- with no expiry: 29\n" in prompt
+            assert f"- not updated in the last {OWN_SCRATCHPAD_STALE_DAYS} days: 17" in prompt
+
 
 class TestMemoryUpkeepCheck(SimpleTestCase):
-    def test_a_failed_check_resolves_false(self) -> None:
+    @parameterized.expand(
+        [
+            ("memory_upkeep", "has_live_entry_created_by", lambda: _memory_upkeep_is_live(MagicMock()), False),
+            (
+                "own_scratchpad",
+                "count_live_entries_created_by",
+                lambda: _own_scratchpad_counts(MagicMock(parent_team_id=None, id=1), "signals-scout-errors"),
+                None,
+            ),
+        ]
+    )
+    def test_a_failed_check_resolves_to_no_section(
+        self, _name: str, query: str, check: Callable[[], object], expected: object
+    ) -> None:
         with (
             patch(
-                "products.signals.backend.scout_harness.runner.has_live_entry_created_by",
+                f"products.signals.backend.scout_harness.runner.{query}",
                 side_effect=RuntimeError("database unavailable"),
             ),
             patch("products.signals.backend.scout_harness.runner.capture_exception") as capture,
         ):
-            assert _memory_upkeep_is_live(MagicMock()) is False
+            assert check() is expected
         capture.assert_called_once()
+
+
+class TestOwnScratchpadCountsQuery(BaseTest):
+    def test_the_check_reads_the_scratchpad_without_an_ambient_team_scope(self) -> None:
+        from products.signals.backend.scout_harness.tools.scratchpad import remember
+
+        run = SignalScoutRun.objects.create(
+            task_run=_make_task_run(self.team), team=self.team, skill_name="signals-scout-errors", skill_version=1
+        )
+        remember(team_id=self.team.id, key="noise:checkout", content="c", run_id=str(run.id))
+
+        # The runner calls the check from a Temporal activity, which sets no team scope.
+        with unscoped():
+            counts = _own_scratchpad_counts(self.team, "signals-scout-errors")
+
+        assert counts == ScratchpadCounts(live=1, without_expiry=1, not_updated_since_cutoff=0)
 
 
 class TestMemoryUpkeepGate(BaseTest):
@@ -1545,7 +1615,7 @@ class TestPromptBuilder(BaseTest):
                     "memory_upkeep_is_live",
                     "# Memory upkeep",
                     'key_prefix="learned:area:"',
-                    ["signals-scout-dreaming", "dream:digest:", "learned:"],
+                    ["signals-scout-dreaming", "dream:digest:", "learned:<kind>"],
                 ),
             )
         ]

@@ -6,7 +6,11 @@ from typing import Any, Optional
 from django.db import models
 
 from posthog.management.migration_analysis.models import OperationRisk
-from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_properly_staged
+from posthog.management.migration_analysis.utils import (
+    VolatileFunctionDetector,
+    check_drop_properly_staged,
+    sql_run_at_migration_time,
+)
 
 # Base URL for migration safety documentation
 SAFE_MIGRATIONS_DOCS_URL = (
@@ -498,7 +502,7 @@ class RunSQLAnalyzer(OperationAnalyzer):
         sql_original = str(op.sql)
         sql_without_comments = re.sub(r"--[^\n]*", "", sql_original)  # Remove -- comments
         sql_without_comments = re.sub(r"#[^\n]*", "", sql_without_comments)  # Remove # comments
-        sql = sql_without_comments.upper()
+        sql = sql_run_at_migration_time(sql_without_comments).upper()
 
         # CREATE EXTENSION takes a lock only on pg_extension, not on user tables.
         # Django's typed wrappers (TrigramExtension etc.) emit IF NOT EXISTS, so

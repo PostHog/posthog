@@ -9278,11 +9278,25 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             f"/api/projects/{self.team.id}/cohorts/{cohort.id}/realtime/", {"enabled": enabled}, format="json"
         )
 
-    def test_turning_realtime_on_and_off_logs_both_changes(self) -> None:
+    # The `cohorts-set-realtime` MCP tool sends a token, so the switch must not need a session.
+    @parameterized.expand([("session", None), ("personal_api_key", ["cohort:write"])])
+    @patch("posthog.api.cohort.report_user_action")
+    def test_turning_realtime_on_and_off_logs_both_changes(
+        self, _name: str, key_scopes: list[str] | None, mock_report_user_action: MagicMock
+    ) -> None:
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF)
+        if key_scopes is not None:
+            key = self.create_personal_api_key_with_scopes(key_scopes)
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
         turned_on = self._switch(cohort, True)
         turned_off = self._switch(cohort, False)
+
+        assert [(call.args[1], call.args[2]["cohort_id"]) for call in mock_report_user_action.call_args_list] == [
+            ("cohort realtime enabled", cohort.pk),
+            ("cohort realtime disabled", cohort.pk),
+        ]
 
         assert (turned_on.status_code, turned_on.json()["realtime_enabled"]) == (200, True)
         assert (turned_off.status_code, turned_off.json()["realtime_enabled"]) == (200, False)
@@ -9294,6 +9308,33 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             if change["field"] == "realtime_enabled"
         ]
         assert changes == [(False, True), (True, False)]
+
+    @parameterized.expand(
+        [
+            ("nothing_is_preparing_it", False, "needs_attention", ["cohort realtime retried"]),
+            ("a_build_is_queued", True, "building", []),
+        ]
+    )
+    def test_turning_on_a_cohort_that_is_on_prepares_it_again_when_nothing_is_preparing_it(
+        self, _name: str, queued: bool, state_before: str, events: list[str]
+    ) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        pending_key = cohort_backfill_pending_key(cohort.id, CohortBackfillKind.BEHAVIORAL)
+        self.addCleanup(get_redis_client().delete, pending_key)
+        if queued:
+            get_redis_client().set(pending_key, CohortBackfillTrigger.COHORT_CREATED, ex=300)
+        before = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+
+        with (
+            patch("posthog.api.cohort.report_user_action") as report,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self._switch(cohort, True)
+
+        after = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+        assert response.status_code == 200
+        assert (before["state"], after["state"]) == (state_before, "building")
+        assert [call.args[1] for call in report.call_args_list] == events
 
     @parameterized.expand(
         [
@@ -9515,6 +9556,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         [
             ("sequence", "sequence", False, "unsupported_criteria"),
             ("action", "action", False, "action_criteria"),
+            ("action_with_a_string_id", "action_with_a_string_id", False, "action_criteria"),
             ("daily_cohort_reference", "daily_cohort_reference", False, "includes_non_realtime_cohort"),
             ("test_account_filter", "pageview", True, "test_account_filter"),
         ]
@@ -9543,6 +9585,9 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         elif criteria == "action":
             action = create_action(team=self.team, name="Signed up", steps_json=[{"event": "signed_up"}])
             leaves = [{**pageview, "key": action.id, "event_type": "actions"}]
+        elif criteria == "action_with_a_string_id":
+            action = create_action(team=self.team, name="Signed up", steps_json=[{"event": "signed_up"}])
+            leaves = [{**pageview, "key": str(action.id), "event_type": "actions"}]
         elif criteria == "daily_cohort_reference":
             daily = Cohort.objects.create(
                 team=self.team,
@@ -9570,6 +9615,49 @@ class TestCohortRealtimeSwitch(APIBaseTest):
 
         assert response.status_code == 201, response.json()
         assert (response.json()["realtime"]["state"], response.json()["realtime"]["reason"]) == ("daily", reason)
+
+    @parameterized.expand(
+        [
+            ("window_in_days", {}, None, 200),
+            (
+                "counted_since_a_date",
+                {"value": "performed_event_multiple", "explicit_datetime": "2026-11-01"},
+                "unsupported_time_range",
+                400,
+            ),
+            (
+                "counted_in_hours",
+                {"value": "performed_event_multiple", "explicit_datetime": "-24h"},
+                "unsupported_time_range",
+                400,
+            ),
+        ]
+    )
+    def test_an_off_cohort_names_the_time_range_a_turn_on_refuses(
+        self, _name: str, overrides: dict, reason: str | None, turn_on_status: int
+    ) -> None:
+        cohort = self._cohort({**_REALTIME_PAGEVIEW_LEAF, **overrides})
+
+        realtime = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+        turned_on = self._switch(cohort, True)
+
+        refusal_code = "realtime_refused" if reason else None
+        assert (realtime["state"], realtime["reason"], turned_on.status_code, turned_on.json().get("code")) == (
+            "off",
+            reason,
+            turn_on_status,
+            refusal_code,
+        )
+
+    def test_a_cohort_that_is_on_names_the_time_range_nothing_can_prepare(self) -> None:
+        cohort = self._cohort(
+            {**_REALTIME_PAGEVIEW_LEAF, "value": "performed_event_multiple", "explicit_datetime": "2026-11-01"},
+            enabled=True,
+        )
+
+        realtime = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+
+        assert (realtime["state"], realtime["reason"]) == ("needs_attention", "unsupported_time_range")
 
     @parameterized.expand(
         [

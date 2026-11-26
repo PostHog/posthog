@@ -101,6 +101,8 @@ from products.signals.backend.scout_harness.tools.runs import (
 from products.signals.backend.scout_harness.tools.scratchpad import (
     MAX_SCRATCHPAD_CONTENT_LENGTH,
     MAX_SCRATCHPAD_SEARCH_LIMIT,
+    ScratchpadCounts,
+    count_live_entries_created_by,
     has_live_entry_created_by,
     search_scratchpad_naming,
 )
@@ -807,6 +809,32 @@ class TestSearchScratchpad(BaseTest):
             found = has_live_entry_created_by(team_id=self.team.id, skill_name="signals-scout-dreaming")
 
         assert found is expected
+        assert len(queries.captured_queries) == 1
+
+    def test_count_live_entries_created_by_counts_one_writers_live_entries_in_one_query(self) -> None:
+        from posthog.models import Team
+
+        now = datetime(2026, 6, 30, tzinfo=UTC)
+        own_run = _create_run(self.team, skill_name="signals-scout-errors")
+        rows = [
+            (self.team, own_run, "durable-fresh", None, now - timedelta(days=1)),
+            (self.team, own_run, "durable-stale", None, now - timedelta(days=40)),
+            (self.team, own_run, "expiring-stale", now + timedelta(days=1), now - timedelta(days=40)),
+            (self.team, own_run, "expired", now - timedelta(days=1), now - timedelta(days=40)),
+            (self.team, _create_run(self.team, skill_name="signals-scout-apm"), "sibling", None, now),
+        ]
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        rows.append((other_team, _create_run(other_team, skill_name="signals-scout-errors"), "other-team", None, now))
+        for team, run, key, expires_at, updated_at in rows:
+            remember(team_id=team.id, key=key, content="c", run_id=str(run.id))
+            SignalScratchpad.objects.filter(team=team, key=key).update(expires_at=expires_at, updated_at=updated_at)
+
+        with time_machine.travel(now, tick=False), CaptureQueriesContext(connection) as queries:
+            counts = count_live_entries_created_by(
+                team_id=self.team.id, skill_name="signals-scout-errors", updated_before=now - timedelta(days=30)
+            )
+
+        assert counts == ScratchpadCounts(live=3, without_expiry=2, not_updated_since_cutoff=2)
         assert len(queries.captured_queries) == 1
 
     @parameterized.expand([("full", False, None), ("keys", True, None), ("preview", False, 2)])

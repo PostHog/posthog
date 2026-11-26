@@ -7,7 +7,8 @@ if TYPE_CHECKING:
     from stripe import StripeClient
 
 from django.conf import settings
-from django.db import transaction
+from django.db import router, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -80,6 +81,10 @@ def revoke_team_oauth_tokens(applications: list[OAuthApplication], team_id: int)
     Take two locks. lock_oauth_connection covers the refresh in django-oauth-toolkit. The
     application row lock covers the Stripe provisioning refresh. One lock is not enough. A row
     lock alone lets a token minted during the sweep stay outside the snapshot of the delete.
+
+    Also delete the personal API keys these applications minted for the team, for every member,
+    so a partner key does not outlive the partner's access to the team. Keys a user created carry
+    no ``provisioned_by`` and stay.
     """
     if not applications:
         return
@@ -112,6 +117,49 @@ def revoke_team_oauth_tokens(applications: list[OAuthApplication], team_id: int)
 
         OAuthRefreshToken.objects.filter(application__in=applications, scoped_teams=[team_id]).delete()
         OAuthAccessToken.objects.filter(application__in=applications, scoped_teams=[team_id]).delete()
+
+        _delete_provisioned_personal_api_keys(applications, team_id)
+
+
+def _delete_provisioned_personal_api_keys(applications: list[OAuthApplication], team_id: int) -> None:
+    """Delete the keys these applications minted that reach ``team_id``.
+
+    A key reaches the team when its project restriction names the team, or when it has no project
+    restriction, and in both cases its organization restriction must cover the team's organization,
+    the same intersection authentication applies. A key with neither restriction reaches the team
+    only when its owner belongs to the team's organization.
+    """
+    # Imported here because posthog.models imports this module while it initializes.
+    from posthog.models.activity_logging.personal_api_key_utils import OrganizationAdminKeyActionContext
+    from posthog.models.personal_api_key import PersonalAPIKey
+    from posthog.models.team.team import Team
+
+    organization_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is None:
+        return
+
+    no_team_restriction = Q(scoped_teams=[]) | Q(scoped_teams__isnull=True)
+    no_organization_restriction = Q(scoped_organizations=[]) | Q(scoped_organizations__isnull=True)
+    restricted_to_organization = Q(scoped_organizations__contains=[str(organization_id)])
+    in_scope = (Q(scoped_teams__contains=[team_id]) & (no_organization_restriction | restricted_to_organization)) | (
+        no_team_restriction
+        & (
+            restricted_to_organization
+            | (no_organization_restriction & Q(user__organization_membership__organization_id=organization_id))
+        )
+    )
+
+    # The writer, because a replica can lag behind a key a mint just committed.
+    keys = (
+        PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey))
+        .filter(provisioned_by__in=applications)
+        .filter(in_scope)
+        .distinct()
+    )
+    # Key by key, so the activity log records each deletion as an action of the team's organization.
+    with OrganizationAdminKeyActionContext(str(organization_id)):
+        for key in keys:
+            key.delete()
 
 
 class StripeIntegration:

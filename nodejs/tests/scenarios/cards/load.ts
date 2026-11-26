@@ -7,7 +7,9 @@ import { z } from 'zod'
 import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
+import { durationMs } from '../duration'
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
+import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../judge/measurements'
 import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile, stepsOf } from './schema'
@@ -233,6 +235,31 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     )
 }
 
+const SCRAPED_FAULT_SECONDS = MIN_BASELINE_SECONDS + (SAMPLE_INTERVAL_MS + SCRAPE_TIMEOUT_MS) / 1000
+
+function checkFaultFreeBaseline(card: Card, profile: Profile): string[] {
+    if (profile.load === undefined && profile.host === undefined) {
+        return []
+    }
+    const scraped = Object.keys(profile.load?.targets.claimsPerSecond ?? {}).length > 0
+    const first = scraped ? SCRAPED_FAULT_SECONDS : MIN_BASELINE_SECONDS
+    const baseline = scraped
+        ? `the ${MIN_BASELINE_SECONDS}s fault-free baseline and the role scrape that closes it, which load admission's claim rates need`
+        : `the ${MIN_BASELINE_SECONDS}s fault-free baseline that load and host admission measure`
+    const driveSeconds = stepsOf(card.drive).at(-1)!.toMs / 1000
+    return card.valves.flatMap((entry, i) => {
+        const seconds = durationMs(entry.at ?? '0s') / 1000
+        if (seconds < first) {
+            return [
+                `valves.${i}.at: the valve can fire ${seconds}s into the drive, inside ${baseline}; set at to ${first}s or later`,
+            ]
+        }
+        return seconds < driveSeconds
+            ? []
+            : [`valves.${i}.at: ${seconds}s is past the drive's end at ${driveSeconds}s, so the valve never fires`]
+    })
+}
+
 const SES_SHARE = 0.5
 
 const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
@@ -349,6 +376,7 @@ function check(
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
                   ...checkSesLimiter(card, loaded.profile, defaults),
+                  ...checkFaultFreeBaseline(card, loaded.profile),
                   ...checkIntakeReplicaValves(card, loaded.profile),
                   ...checkAcceptedBoundaryReplicas(card, loaded.profile),
                   ...checkIntakeProfile(loaded.profile),
@@ -370,4 +398,4 @@ function check(
 }
 
 export const cardHashOf = (card: Card, profileHash: string): string =>
-    sha256({ card: { ...card, gates: undefined }, profileHash })
+    sha256({ card: { ...card, gates: undefined, pair: undefined }, profileHash })

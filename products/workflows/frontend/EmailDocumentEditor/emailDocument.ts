@@ -2,6 +2,12 @@ import type { JSONContent } from '@tiptap/core'
 
 export const EMAIL_DOCUMENT_VERSION = 1
 
+/**
+ * Written only for a document with a section. An editor from before sections can't read one and would open an empty
+ * email. It ignores this version and opens the stored html instead.
+ */
+export const EMAIL_DOCUMENT_SECTION_VERSION = 2
+
 /** pinned: stored in saved designs, renaming orphans every document saved under the old key */
 export const EMAIL_DOCUMENT_DESIGN_KEY = 'emailDocument'
 
@@ -196,6 +202,8 @@ export function fontOptions(current: string | undefined): { label: string; value
         : [{ label: current.split(',')[0].replace(/['"]/g, ''), value: current }, ...EMAIL_FONTS]
 }
 
+export const SECTION_PADDING: EmailSides = { top: 24, right: 24, bottom: 24, left: 24 }
+
 export const DEFAULT_EMAIL_PAGE_STYLE: EmailPageStyle = {
     backgroundColor: '#ffffff',
     padding: 0,
@@ -337,6 +345,10 @@ export function isEmailDocEmpty(doc: JSONContent): boolean {
     return (doc.content ?? []).every(isEmptyParagraph)
 }
 
+export function hasSection(node: JSONContent): boolean {
+    return node.type === 'emailSection' || (node.content ?? []).some(hasSection)
+}
+
 /** Every web font stylesheet the email needs, on the page or on a block. */
 export function emailFontUrls(doc: JSONContent): string[] {
     const urls = new Set<string>()
@@ -380,7 +392,12 @@ export function emailDocumentFromValue(value: { html?: string | null; design?: D
     stale: boolean
 } {
     const candidate = value?.design?.[EMAIL_DOCUMENT_DESIGN_KEY]
-    if (!candidate || typeof candidate !== 'object' || candidate.version !== EMAIL_DOCUMENT_VERSION || !candidate.doc) {
+    if (
+        !candidate ||
+        typeof candidate !== 'object' ||
+        ![EMAIL_DOCUMENT_VERSION, EMAIL_DOCUMENT_SECTION_VERSION].includes(candidate.version) ||
+        !candidate.doc
+    ) {
         return { document: null, stale: false }
     }
     const savedHtml = typeof candidate.html === 'string' ? candidate.html : wrappedHtmlOf(value?.design)
