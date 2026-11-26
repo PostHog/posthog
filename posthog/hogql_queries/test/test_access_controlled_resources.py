@@ -81,6 +81,11 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             ("trace_spans", "select * from posthog.trace_spans", {"tracing"}),
             (
+                "subquery_in_a_table_function_argument",
+                "select count() as n from numbers((select count() from posthog.trace_spans))",
+                {"tracing"},
+            ),
+            (
                 "subquery_in_a_join_constraint",
                 "select 1 from events e join persons p on e.person_id = p.id "
                 "and e.event in (select name from posthog.trace_spans)",
