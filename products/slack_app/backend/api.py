@@ -122,6 +122,11 @@ from products.slack_app.backend.services.integration_resolver import (
     unresolved_user_properties,
     user_resolution_failure_reply,
 )
+from products.slack_app.backend.services.shared_channels import (
+    SHARED_CHANNELS_TURNED_OFF_MESSAGE,
+    SharedChannelAccess,
+    shared_channel_access,
+)
 from products.slack_app.backend.services.slack_app_home import (
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
     HOME_ACTION_IDS,
@@ -2703,7 +2708,30 @@ def _dispatch_mention_to_target(
         return ROUTE_HANDLED_LOCALLY
 
     channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
-    if channel_id and is_ext_shared_channel and not _channel_is_approved(mention_target.integration_id, channel_id):
+    access = (
+        shared_channel_access(mention_target, channel_id)
+        if channel_id and is_ext_shared_channel
+        else SharedChannelAccess.ALLOWED
+    )
+    if access == SharedChannelAccess.TURNED_OFF:
+        replied = untagged_followup_mapping is None and _post_slack_user_ephemeral(
+            slack,
+            channel_id or "",
+            str(event.get("user") or ""),
+            None,
+            SHARED_CHANNELS_TURNED_OFF_MESSAGE,
+        )
+        _report_slack_mention_dropped(
+            event,
+            slack_team_id,
+            # pinned: analytics property value, the reason a mention never reached the agent
+            reason="shared_channels_turned_off",
+            replied=replied,
+            integration=mention_target,
+            posthog_user=posthog_user,
+        )
+        return ROUTE_HANDLED_LOCALLY
+    if access == SharedChannelAccess.NEEDS_APPROVAL:
         if untagged_followup_mapping is not None:
             logger.info(
                 "slack_app_thread_message_channel_unapproved",
@@ -3071,7 +3099,9 @@ def route_posthog_code_event_to_relevant_region(
             attributed_user = _report_slack_mention_received(event, probe, slack_team_id, posthog_user=None)
             channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
             ephemeral_only = bool(
-                is_ext_shared_channel and channel_id and not _channel_is_approved(slack_team_id, channel_id)
+                is_ext_shared_channel
+                and channel_id
+                and shared_channel_access(probe, channel_id) != SharedChannelAccess.ALLOWED
             )
             replied = _post_user_resolution_failure_reply(
                 probe=probe,
@@ -3445,7 +3475,7 @@ def _hand_off_command(
         return False
     # The answer is visible in the thread, which would announce PostHog in a shared channel that has
     # not approved it yet. The agent path has the approval gate for that.
-    if is_ext_shared_channel and not _channel_is_approved(slack_team_id, channel):
+    if is_ext_shared_channel and shared_channel_access(probe, channel) != SharedChannelAccess.ALLOWED:
         return False
     # A command is addressed to the app: a message that opens with someone else's mention is not.
     bot_user_id = get_cached_bot_user_id(SlackIntegration(probe), probe)
@@ -3807,16 +3837,6 @@ def _post_team_join_welcome(integration: WorkspaceIntegration, slack_user_id: st
             exc_info=True,
         )
         return False
-
-
-def _channel_is_approved(slack_workspace_id: str, channel_id: str) -> bool:
-    """True iff a user in this channel has already granted PostHog approval.
-
-    The ``is_ext_shared_channel`` flag that gates whether approval is required
-    at all lives on the Slack event envelope — see ``posthog_code_event_handler``
-    — so this only needs to answer the persistence question.
-    """
-    return SlackChannel.approval_granted(slack_workspace_id, channel_id)
 
 
 def _post_channel_approval_prompt(
@@ -4890,14 +4910,17 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
 
     # A typed reply in an unapproved Slack Connect channel is dropped before dispatch, and a
     # channel can become shared after the buttons were posted.
-    if not _channel_is_approved(slack_team_id, channel) and channel_is_ext_shared(slack, channel):
-        logger.info("slack_app_reply_suggestion_channel_unapproved", integration_id=integration.id)
+    access = shared_channel_access(integration, channel)
+    if access != SharedChannelAccess.ALLOWED and channel_is_ext_shared(slack, channel):
+        logger.info("slack_app_reply_suggestion_channel_unapproved", integration_id=integration.id, access=access)
         _post_slack_user_ephemeral(
             slack,
             channel,
             clicker_slack_user_id,
             thread_ts,
-            "This channel is shared with another organization, so PostHog needs approval here first. "
+            SHARED_CHANNELS_TURNED_OFF_MESSAGE
+            if access == SharedChannelAccess.TURNED_OFF
+            else "This channel is shared with another organization, so PostHog needs approval here first. "
             "Mention @PostHog in the channel to approve it.",
         )
         return HttpResponse(status=200)

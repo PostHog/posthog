@@ -96,6 +96,7 @@ import { ProjectEventsRetentionSetting } from 'products/product_analytics/fronte
 import { ProjectEventsTableSetting } from 'products/product_analytics/frontend/settings/ProjectEventsTableSetting'
 import { SlackAppChannelSettings } from 'products/slack_app/frontend/settings/SlackAppChannelSettings'
 import { SlackAppPersonalSettings } from 'products/slack_app/frontend/settings/SlackAppPersonalSettings'
+import { SlackAppWorkspaceSettings } from 'products/slack_app/frontend/settings/SlackAppWorkspaceSettings'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
@@ -2265,6 +2266,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "Set a default project, repository and question mode for a Slack channel. The project and repository win over each person's own, and the question mode can only make things stricter. Each organization keeps its own channel settings.",
                 component: <SlackAppChannelSettings />,
                 keywords: ['slack', 'channel', 'repository', 'project', 'questions'],
+            },
+            {
+                id: 'slack-app-workspace',
+                title: 'Workspace settings',
+                description: 'Settings for everyone in this Slack workspace.',
+                component: <SlackAppWorkspaceSettings />,
+                keywords: ['slack', 'shared', 'connect', 'external', 'workspace'],
             },
         ],
     },

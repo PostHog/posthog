@@ -66,7 +66,7 @@ from products.slack_app.backend.logic.progress_phases import (
 from products.slack_app.backend.logic.reply_suggestions import (
     report_implementation_button as slack_report_implementation_button,
 )
-from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.public_channel_catalog import public_channel_options
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
@@ -110,7 +110,7 @@ __all__ = [
     "invalidate_slack_integration_auth_state",
     "record_slack_feature_used",
     "slack_artifact_delivery_state_updates",
-    "slack_channel_is_approved",
+    "slack_shared_channel_allows_replies",
     "slack_thread_is_mapped_to_task",
     "slack_task_notifications_muted",
     "slack_followup_invite",
@@ -164,14 +164,19 @@ def invalidate_slack_integration_auth_state(team_id: int, integration_id: int) -
         invalidate_workspace_bot_user_id(slack_team_id)
 
 
-def slack_channel_is_approved(slack_workspace_id: str, slack_channel_id: str) -> bool:
-    """Whether someone in this channel has approved PostHog answering in it.
+def slack_shared_channel_allows_replies(integration: IntegrationRecord, slack_channel_id: str) -> bool:
+    """Whether PostHog may reply in this externally shared channel: someone in it approved PostHog, and the
+    workspace did not turn shared channels off.
 
-    Approval is only required for externally shared channels, where a reply is visible to
-    members of another Slack workspace. Callers read that from the ``is_ext_shared_channel``
-    flag Slack puts on the event envelope and skip this lookup when it is false.
+    Only externally shared channels need this. Callers read that from the ``is_ext_shared_channel`` flag Slack
+    puts on the event envelope and skip this check when it is false.
     """
-    return SlackChannel.approval_granted(slack_workspace_id, slack_channel_id)
+    from products.slack_app.backend.services.shared_channels import (  # noqa: PLC0415
+        SharedChannelAccess,
+        shared_channel_access,
+    )
+
+    return shared_channel_access(integration, slack_channel_id) == SharedChannelAccess.ALLOWED
 
 
 def slack_artifact_delivery_state_updates(integration: IntegrationRecord) -> dict[str, str | bool]:

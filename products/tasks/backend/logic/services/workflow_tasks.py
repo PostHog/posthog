@@ -25,7 +25,10 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.mcp_store.backend.facade.api import resolve_agent_gateway_server_ids
-from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates, slack_channel_is_approved
+from products.slack_app.backend.facade.api import (
+    slack_artifact_delivery_state_updates,
+    slack_shared_channel_allows_replies,
+)
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
@@ -682,7 +685,8 @@ def _may_speak_in_channel(integration: IntegrationRecord, ctx: contracts.Workflo
     """Whether the task is allowed to reply in this channel at all.
 
     An externally shared channel has members from another Slack workspace, so PostHog stays
-    silent there until someone in it approves. Mentions already refuse on the same rule; a
+    silent there until someone in it approves, and while the workspace turned shared channels
+    off. Mentions already refuse on the same rule; a
     task binding the thread is the same disclosure, so it answers to the same approval.
 
     The flag comes from Slack's own event envelope, carried through the trigger event and
@@ -691,7 +695,7 @@ def _may_speak_in_channel(integration: IntegrationRecord, ctx: contracts.Workflo
     """
     if not ctx.is_ext_shared_channel:
         return True
-    if slack_channel_is_approved(integration.integration_id or "", ctx.channel):
+    if slack_shared_channel_allows_replies(integration, ctx.channel):
         return True
     logger.info(
         "workflow_task_slack_channel_not_approved",
