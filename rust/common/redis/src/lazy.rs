@@ -113,7 +113,7 @@ impl Client for LazyRedisClient {
         if let Err(error) = &result {
             // A response timeout is not unrecoverable, but a hung connection never answers again.
             if matches!(error, CustomRedisError::Timeout) || error.is_unrecoverable_error() {
-                warn!(%error, "quota Redis read failed; rebuilding the connection");
+                warn!(%error, "quota Redis read failed; asking the connection to heal");
                 client.heal_connection().await;
             }
         }
