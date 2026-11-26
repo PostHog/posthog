@@ -2817,11 +2817,17 @@ describe('EmailService', () => {
                         'SES refusing the first connection',
                         (emailService: EmailService): void => sesRefusesTheFirstConnection(emailService),
                     ],
+                    [
+                        'SES throttling the first request',
+                        (): void => {
+                            ses.failOnce(sesThrottles)
+                        },
+                    ],
                 ])(
                     'sends the retry after %s without claiming the workflow limit again',
                     async (_cause, failTheFirstTry) => {
                         const emailService = sender({ teamDailyCap: 2 })
-                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 30, period: 'minute' } }
+                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
                         failTheFirstTry(emailService)
 
                         const retried = await emailService.executeSendEmail(invocation)
