@@ -4,8 +4,9 @@ import { useActions, useValues } from 'kea'
 import { IconSend } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { PROTOTYPE_SOURCES, useMessagingCtaVariant } from 'scenes/messaging-cta-prototype/messagingCtaPrototype'
+
 import { FINDING_FLAG_PEOPLE_MESSAGE, broadcastNoOneReason, featureFlagLogic } from '../featureFlagLogic'
-import { PROTOTYPE_SOURCES, useMessagingCtaVariant } from './messagingCtaPrototype'
 
 export function PartialRolloutMessageAction({ rollout }: { rollout: number }): JSX.Element | null {
     const variant = useMessagingCtaVariant()

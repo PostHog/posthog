@@ -52,6 +52,9 @@ import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteri
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { hasEventCriteria } from 'scenes/cohorts/cohortUtils'
 import { storesFlagCallsOutsideEvents } from 'scenes/feature-flags/flagEvaluationsTable'
+import { CohortHeaderMessageAction } from 'scenes/messaging-cta-prototype/CohortHeaderMessageAction'
+import { CohortRealtimeMessageAction } from 'scenes/messaging-cta-prototype/CohortRealtimeMessageAction'
+import { MessagingCtaPrototypeSwitcher } from 'scenes/messaging-cta-prototype/MessagingCtaPrototypeSwitcher'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -306,6 +309,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                 <CohortCsvUploadModal id={id} />
                 <CohortBlockingWorkflowsModal />
                 <CohortSceneMenuBar id={id} />
+                <MessagingCtaPrototypeSwitcher area="cohorts" />
 
                 <ScenePanel>
                     <ScenePanelInfoSection>
@@ -510,6 +514,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         </>
                                     ) : (
                                         <>
+                                            <CohortHeaderMessageAction cohort={cohort} />
                                             {isNewCohort ? (
                                                 <LemonButton
                                                     data-attr="cancel-cohort"
@@ -748,6 +753,8 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                     onSwitch={switchRealtime}
                                                 />
                                             )}
+
+                                            {!isNewCohort && <CohortRealtimeMessageAction cohort={cohort} />}
 
                                             {!isNewCohort && usedIn && (
                                                 <UsedInSummary

@@ -39,6 +39,7 @@ import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
+import { MessagingCtaPrototypeSwitcher } from 'scenes/messaging-cta-prototype/MessagingCtaPrototypeSwitcher'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneContentFallback } from 'scenes/SceneContentFallback'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -118,7 +119,6 @@ import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
 import { FLAG_EVALUATIONS_RETENTION_DAYS, readsFlagEvaluationsTable } from './flagEvaluationsTable'
-import { MessagingCtaPrototypeSwitcher } from './prototype/MessagingCtaPrototypeSwitcher'
 import { useFeatureFlagAgentRefresh } from './useFeatureFlagAgentRefresh'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -362,7 +362,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 >
                     <FeatureFlagForm id={id} />
                 </Suspense>
-                <MessagingCtaPrototypeSwitcher />
+                <MessagingCtaPrototypeSwitcher area="flags" />
             </ChunkLoadErrorBoundary>
         )
     }
@@ -887,7 +887,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     setQuickSurveyVariantKey(null)
                 }}
             />
-            <MessagingCtaPrototypeSwitcher />
+            <MessagingCtaPrototypeSwitcher area="flags" />
         </>
     )
 }

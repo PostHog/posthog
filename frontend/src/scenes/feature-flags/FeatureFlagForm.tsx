@@ -61,6 +61,7 @@ import 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils/strings'
 import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
+import { createFormPrototypeState, useMessagingCtaVariant } from 'scenes/messaging-cta-prototype/messagingCtaPrototype'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -87,7 +88,6 @@ import {
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { BULK_COPY_MAX_TARGET_PROJECTS } from './flagSelectionLogic'
 import { PercentageInput } from './PercentageInput'
-import { createFormPrototypeState, useMessagingCtaVariant } from './prototype/messagingCtaPrototype'
 
 interface SortableVariantHeaderProps {
     variant: MultivariateFlagVariant

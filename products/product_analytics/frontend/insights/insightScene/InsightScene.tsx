@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { MessagingCtaPrototypeSwitcher } from 'scenes/messaging-cta-prototype/MessagingCtaPrototypeSwitcher'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -49,7 +50,12 @@ export function InsightScene(): JSX.Element {
             insight?.short_id &&
             (!isDataVisualizationNode(insight.query) || insightMode !== ItemMode.Edit))
     ) {
-        return <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
+        return (
+            <>
+                <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
+                <MessagingCtaPrototypeSwitcher area="insights" />
+            </>
+        )
     }
 
     if (insightLoading) {

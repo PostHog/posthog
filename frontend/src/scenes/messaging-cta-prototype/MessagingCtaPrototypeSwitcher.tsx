@@ -7,9 +7,11 @@ import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import {
-    MESSAGING_CTA_VARIANTS,
+    MESSAGING_CTA_TODAY_HINTS,
+    MESSAGING_CTA_VARIANTS_BY_AREA,
     MESSAGING_CTA_VARIANT_HINTS,
     MESSAGING_CTA_VARIANT_LABELS,
+    type MessagingCtaArea,
     currentMessagingCtaVariant,
     rememberVariantFromUrl,
     setMessagingCtaVariant,
@@ -27,13 +29,16 @@ function isTyping(target: EventTarget | null): boolean {
     )
 }
 
-export function MessagingCtaPrototypeSwitcher(): JSX.Element | null {
+export function MessagingCtaPrototypeSwitcher({ area }: { area: MessagingCtaArea }): JSX.Element | null {
     const { searchParams } = useValues(router)
-    const current = currentMessagingCtaVariant(searchParams)
-    const index = MESSAGING_CTA_VARIANTS.indexOf(current)
-    const count = MESSAGING_CTA_VARIANTS.length
-    const previous = MESSAGING_CTA_VARIANTS[(index - 1 + count) % count]
-    const next = MESSAGING_CTA_VARIANTS[(index + 1) % count]
+    const variants = MESSAGING_CTA_VARIANTS_BY_AREA[area]
+    const stored = currentMessagingCtaVariant(searchParams)
+    const current = variants.includes(stored) ? stored : 'today'
+    const index = variants.indexOf(current)
+    const count = variants.length
+    const previous = variants[(index - 1 + count) % count]
+    const next = variants[(index + 1) % count]
+    const hint = current === 'today' ? MESSAGING_CTA_TODAY_HINTS[area] : MESSAGING_CTA_VARIANT_HINTS[current]
 
     useEffect(() => rememberVariantFromUrl(searchParams), [searchParams])
 
@@ -72,7 +77,7 @@ export function MessagingCtaPrototypeSwitcher(): JSX.Element | null {
                 <span className="text-sm font-semibold" data-attr="prototype-variant-label">
                     {MESSAGING_CTA_VARIANT_LABELS[current]}
                 </span>
-                <span className="text-xs opacity-75">{MESSAGING_CTA_VARIANT_HINTS[current]}</span>
+                <span className="text-xs opacity-75">{hint}</span>
             </div>
             <LemonButton
                 size="small"

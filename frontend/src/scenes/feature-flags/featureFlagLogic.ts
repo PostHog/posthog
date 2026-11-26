@@ -53,6 +53,7 @@ import {
     isFeatureFlagsTab,
     listFilterParamsFromCarried,
 } from 'scenes/feature-flags/featureFlagsLogic'
+import { createFormPrototypeState } from 'scenes/messaging-cta-prototype/messagingCtaPrototype'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
@@ -177,7 +178,6 @@ import {
 } from './flagSelectionLogic'
 import { PropertySelectError, getConditionSetErrors } from './propertySelectErrorMessages'
 import { createFlagWorkflowUrlForPrototype } from './prototype/flagWorkflowPrototype'
-import { createFormPrototypeState } from './prototype/messagingCtaPrototype'
 import {
     ScheduleOccurrence,
     expandScheduleOccurrences,

@@ -35,6 +35,7 @@ import { isGroupType, isSessionType } from 'lib/utils/guards'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
+import { PeopleModalMessageAction } from 'scenes/messaging-cta-prototype/PeopleModalMessageAction'
 import type { SessionPlayerModalRecordingList } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -371,8 +372,8 @@ export function PersonsModal({
                     </div>
                 </div>
                 <LemonModal.Footer>
-                    <div className="flex justify-between gap-2 w-full">
-                        <div className="flex gap-2">
+                    <div className="flex flex-wrap justify-between gap-2 w-full">
+                        <div className="flex flex-wrap gap-2">
                             {actors.length > 0 && (
                                 <LemonButton
                                     type="secondary"
@@ -408,6 +409,17 @@ export function PersonsModal({
                                 >
                                     Save as cohort
                                 </LemonButton>
+                            )}
+                            {actors.length > 0 && !isGroupType(actors[0]) && !hasSessions && (
+                                <PeopleModalMessageAction
+                                    actorsQuery={actorsQuery}
+                                    title={
+                                        typeof getTitle() === 'string'
+                                            ? `${getTitle()} (emailed)`
+                                            : 'People from an insight (emailed)'
+                                    }
+                                    closeModal={closeModal}
+                                />
                             )}
                         </div>
                         <div className="flex gap-2">

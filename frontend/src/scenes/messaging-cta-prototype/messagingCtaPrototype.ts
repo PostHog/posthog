@@ -1,5 +1,5 @@
 // PROTOTYPE, throwaway: where a messaging call to action sits on the feature flag page.
-// Round 1: three placements, one per flag moment, switchable via `?variant=` on the real flag pages.
+// Each area has its own variants, switchable via `?variant=` on the real pages.
 // Lives only on the prototype branch; never merge.
 
 import { useValues } from 'kea'
@@ -7,28 +7,50 @@ import { router } from 'kea-router'
 
 import type { FeatureFlagType } from '~/types'
 
-export type MessagingCtaVariant = 'today' | 'A' | 'B' | 'C'
+export type MessagingCtaArea = 'flags' | 'cohorts' | 'insights'
 
-export const MESSAGING_CTA_VARIANTS: MessagingCtaVariant[] = ['today', 'A', 'B', 'C']
+export type MessagingCtaVariant = 'today' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
+
+export const MESSAGING_CTA_VARIANTS_BY_AREA: Record<MessagingCtaArea, MessagingCtaVariant[]> = {
+    flags: ['today', 'A', 'B', 'C'],
+    cohorts: ['today', 'D', 'E'],
+    insights: ['today', 'F'],
+}
+
+const MESSAGING_CTA_VARIANTS: MessagingCtaVariant[] = ['today', 'A', 'B', 'C', 'D', 'E', 'F']
 
 export const MESSAGING_CTA_VARIANT_LABELS: Record<MessagingCtaVariant, string> = {
-    today: 'Today (no call to action)',
+    today: 'Today',
     A: 'A (At create: form switch, automate) · channel shift: flag create',
     B: 'B (Partial rollout: rollout line, broadcast) · channel shift: rollout step',
     C: 'C (At 100%: status card, broadcast) · channel shift: roll out to everyone',
+    D: 'D (Header: next to Save, broadcast)',
+    E: 'E (Real-time: email people as they join, automate)',
+    F: 'F (People modal: footer, broadcast)',
 }
 
-export const MESSAGING_CTA_VARIANT_HINTS: Record<MessagingCtaVariant, string> = {
-    today: 'The page as users see it on master.',
+export const MESSAGING_CTA_TODAY_HINTS: Record<MessagingCtaArea, string> = {
+    flags: 'The page as users see it on master.',
+    cohorts: 'Master: "Email this cohort" sits in the side panel, and the toast after saving a new cohort offers it.',
+    insights: 'Master: "Save as cohort" ends in a toast that offers "Email this cohort".',
+}
+
+export const MESSAGING_CTA_VARIANT_HINTS: Record<Exclude<MessagingCtaVariant, 'today'>, string> = {
     A: 'Open a new flag. The switch sits under Enabled.',
     B: 'Open a flag rolled out to part of its users. The action sits on the rollout line.',
     C: 'Open a flag that is on for everyone. The action sits in the status card.',
+    D: 'Open a cohort without event conditions. The button sits left of Save.',
+    E: 'Open a cohort with event conditions, which can be real-time. The row sits under Flag targeting.',
+    F: 'Click a funnel step or a point on a trend to open its people. The button sits in the footer.',
 }
 
 export const PROTOTYPE_SOURCES = {
     create: 'feature_flag_create_prototype',
     partialRollout: 'feature_flag_partial_rollout_prototype',
     everyone: 'feature_flag_everyone_prototype',
+    cohortHeader: 'cohort_header_prototype',
+    cohortRealtime: 'cohort_realtime_prototype',
+    peopleModal: 'persons_modal_prototype',
 } as const
 
 const STORAGE_KEY = 'prototype-messaging-cta-variant'

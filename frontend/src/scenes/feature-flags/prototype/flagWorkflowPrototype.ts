@@ -1,3 +1,5 @@
+import { PROTOTYPE_SOURCES } from 'scenes/messaging-cta-prototype/messagingCtaPrototype'
+
 // PROTOTYPE, throwaway: variant A's handoff, a workflow triggered when a person is first served this flag.
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -6,8 +8,6 @@ import {
     messageAudienceUrl,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
-
-import { PROTOTYPE_SOURCES } from './messagingCtaPrototype'
 
 export function createFlagWorkflowUrlForPrototype(flag: Pick<FeatureFlagType, 'id' | 'key' | 'name'>): string {
     captureMessageAudienceClicked(PROTOTYPE_SOURCES.create, 'workflow')
