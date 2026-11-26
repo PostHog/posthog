@@ -262,6 +262,7 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
                 None,
             ),
             (SeriesValuesFeature.SMOOTHING, {"trendsFilter": TrendsFilter(smoothingIntervals=7)}, None),
+            (SeriesValuesFeature.ALL_TIME_RANGE, {"dateRange": DateRange(date_from="all")}, None),
             (SeriesValuesFeature.SAMPLING, {"samplingFactor": 0.1}, None),
             (
                 SeriesValuesFeature.QUERY_MODIFIERS,

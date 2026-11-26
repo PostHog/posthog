@@ -150,6 +150,10 @@ _REFUSED_FEATURES: dict[Feature, _Uses] = {
     Feature.TEST_ACCOUNT_FILTERS: lambda runner, series: bool(runner.query.filterTestAccounts),
     Feature.EXPLICIT_DATE: lambda runner, series: bool(runner.query.dateRange and runner.query.dateRange.explicitDate),
     Feature.DAYS_OF_WEEK: lambda runner, series: bool(runner.query.dateRange and runner.query.dateRange.daysOfWeek),
+    # Live Trends starts an all-time range at the first event of the series, not of the project.
+    Feature.ALL_TIME_RANGE: lambda runner, series: bool(
+        runner.query.dateRange and runner.query.dateRange.date_from == "all"
+    ),
     Feature.PROPERTY_GROUP: lambda runner, series: isinstance(runner.query.properties, PropertyGroupFilter),
     Feature.OTHER_PROPERTY_TYPE: lambda runner, series: any(
         get_property_type(prop) != "event" for prop in _properties(runner, series)

@@ -89,6 +89,7 @@ class SeriesValuesFeature(StrEnum):
     TEST_ACCOUNT_FILTERS = "test_account_filters"
     EXPLICIT_DATE = "explicit_date"
     DAYS_OF_WEEK = "days_of_week"
+    ALL_TIME_RANGE = "all_time_range"
     PROPERTY_GROUP = "property_group"
     OTHER_PROPERTY_TYPE = "property_type"
 
