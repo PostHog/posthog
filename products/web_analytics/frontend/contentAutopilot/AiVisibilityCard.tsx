@@ -51,7 +51,10 @@ export function AiVisibilityCard({
                             </Tooltip>
                         ) : null}
                     </CardTitle>
-                    {actions ? <CardAction className="flex flex-wrap items-center gap-2">{actions}</CardAction> : null}
+                    {actions ? (
+                        // Quill's action spans two rows for a description; without one, the second row would only add height.
+                        <CardAction className="row-span-1 flex flex-wrap items-center gap-2">{actions}</CardAction>
+                    ) : null}
                 </CardHeader>
             ) : null}
             <CardContent className="flex min-h-0 flex-1 flex-col">{children}</CardContent>
