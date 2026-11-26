@@ -88,10 +88,28 @@ def test_cancellation_finds_the_query_regardless_of_the_current_schema(
             assert params == {"client_query_id": "42_requested"}
 
 
-def _is_running(tag: str) -> bool:
-    return bool(
-        sync_execute("SELECT count() FROM system.processes WHERE position(query_id, %(tag)s) > 0", {"tag": tag})[0][0]
-    )
+def _running(tag: str) -> int:
+    return sync_execute("SELECT count() FROM system.processes WHERE position(query_id, %(tag)s) > 0", {"tag": tag})[0][
+        0
+    ]
+
+
+def _start_slow_query(team_id: int, requester_query_id: str, errors: list[Exception]) -> Thread:
+    def run_slow_query() -> None:
+        with tags_context(team_id=team_id, client_query_id=f"{uuid4()}_{requester_query_id}"):
+            try:
+                sync_execute("SELECT sleepEachRow(0.2) FROM numbers(150) SETTINGS max_block_size = 1")
+            except Exception as error:
+                errors.append(error)
+
+    thread = Thread(target=run_slow_query)
+    thread.start()
+    return thread
+
+
+# The node reports a host name that the test process cannot always resolve, so the kill goes to the test host.
+def _connect_to_the_test_host(*, host: str, **kwargs: Any) -> Any:
+    return default_client(host=settings.CLICKHOUSE_HOST, **kwargs)
 
 
 @pytest.mark.django_db
@@ -100,22 +118,10 @@ def test_stops_a_running_query_that_carries_the_id_of_the_query_it_was_started_f
     requester_query_id = f"alert-check:{uuid4()}"
     errors: list[Exception] = []
 
-    def run_slow_query() -> None:
-        with tags_context(team_id=team_id, client_query_id=f"{uuid4()}_{requester_query_id}"):
-            try:
-                sync_execute("SELECT sleepEachRow(0.2) FROM numbers(150) SETTINGS max_block_size = 1")
-            except Exception as error:
-                errors.append(error)
-
-    # The node reports a host name that the test process cannot always resolve, so the kill goes to the test host.
-    def connect_to_the_test_host(*, host: str, **kwargs: Any) -> Any:
-        return default_client(host=settings.CLICKHOUSE_HOST, **kwargs)
-
-    thread = Thread(target=run_slow_query)
-    thread.start()
+    thread = _start_slow_query(team_id, requester_query_id, errors)
     try:
-        wait_until(lambda: _is_running(requester_query_id), timeout=15, message="the slow query did not start")
-        with patch("posthog.clickhouse.cancel.default_client", side_effect=connect_to_the_test_host):
+        wait_until(lambda: _running(requester_query_id) == 1, timeout=15, message="the slow query did not start")
+        with patch("posthog.clickhouse.cancel.default_client", side_effect=_connect_to_the_test_host):
             cancel_queries_started_for(team_id, requester_query_id)
     finally:
         thread.join(timeout=40)
@@ -123,3 +129,34 @@ def test_stops_a_running_query_that_carries_the_id_of_the_query_it_was_started_f
     assert not thread.is_alive()
     [error] = errors
     assert isinstance(error, CHQueryErrorQueryWasCancelled)
+
+
+@pytest.mark.django_db
+def test_a_kill_that_fails_does_not_stop_the_other_kills() -> None:
+    team_id = 42
+    requester_query_id = f"alert-check:{uuid4()}"
+    errors: list[Exception] = []
+    connections = 0
+
+    # The first connection is the lookup, and the second is the first kill.
+    def fail_the_first_kill(*, host: str, **kwargs: Any) -> Any:
+        nonlocal connections
+        connections += 1
+        if connections == 2:
+            raise ConnectionError("host unreachable")
+        return _connect_to_the_test_host(host=host, **kwargs)
+
+    threads = [_start_slow_query(team_id, requester_query_id, errors) for _ in range(2)]
+    try:
+        wait_until(lambda: _running(requester_query_id) == 2, timeout=15, message="the slow queries did not start")
+        with patch("posthog.clickhouse.cancel.default_client", side_effect=fail_the_first_kill):
+            cancel_queries_started_for(team_id, requester_query_id)
+        wait_until(lambda: _running(requester_query_id) == 1, timeout=15, message="the second kill did not land")
+        with patch("posthog.clickhouse.cancel.default_client", side_effect=_connect_to_the_test_host):
+            cancel_queries_started_for(team_id, requester_query_id)
+    finally:
+        for thread in threads:
+            thread.join(timeout=40)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert [type(error) for error in errors] == [CHQueryErrorQueryWasCancelled] * 2

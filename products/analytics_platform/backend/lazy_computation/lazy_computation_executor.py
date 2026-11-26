@@ -50,6 +50,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.models.event.new_events_schema import events_read_settings, use_new_events_schema
 from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -1257,6 +1258,7 @@ class LazyComputationExecutor:
         stale_while_revalidate_seconds: float | None = None,
         run_inserts: bool = True,
         events_retention_months: int | None = None,
+        raises_cancelled_inserts: bool = False,
     ) -> None:
         if stale_while_revalidate_seconds is not None and stale_while_revalidate_seconds >= EXPIRY_BUFFER_SECONDS:
             raise ValueError("stale_while_revalidate_seconds must be below EXPIRY_BUFFER_SECONDS")
@@ -1268,6 +1270,9 @@ class LazyComputationExecutor:
         self.stale_pending_threshold_seconds = stale_pending_threshold_seconds
         self.ch_start_grace_period_seconds = ch_start_grace_period_seconds
         self.stale_while_revalidate_seconds = stale_while_revalidate_seconds
+        # A build that carries its requester's query id is cancelled when the requester is. The requester
+        # must then hear of it, not get a second INSERT.
+        self.raises_cancelled_inserts = raises_cancelled_inserts
         # Check-only mode: never create jobs or wait on pending ones. A request
         # either gets served from covering READY jobs (fresh, or stale within the
         # revalidate grace) or is told `ready=False` immediately so it can fall
@@ -1606,6 +1611,8 @@ class LazyComputationExecutor:
                                 is_retryable=not is_non_retryable_error(e),
                                 failure_number=failures + 1,
                             )
+                            if self.raises_cancelled_inserts and isinstance(e, CHQueryErrorQueryWasCancelled):
+                                raise
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
                                 result = LazyComputationResult(
@@ -1959,7 +1966,8 @@ def ensure_precomputed(
                       `cancel_queries_started_for` can stop the INSERT when that query is
                       cancelled. The job id stays first, because the liveness check finds a
                       running INSERT by it. A cancelled INSERT fails its job for every caller
-                      that waits on it, so pass it only where that is acceptable.
+                      that waits on it, so pass it only where that is acceptable. The cancellation
+                      is raised to this caller, and the INSERT is not retried.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -2096,6 +2104,7 @@ def ensure_precomputed(
         events_retention_months=(
             None if table in _EVENTS_RETENTION_EXEMPT_TABLES else events_retention_months_for_team(team, team.pk)
         ),
+        raises_cancelled_inserts=requester_query_id is not None,
     )
     result = executor.execute(
         team,

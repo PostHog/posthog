@@ -22,6 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.models.event.new_events_schema import events_read_settings, new_events_schema_for_request
 from posthog.models.instance_setting import override_instance_config
 from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -2866,6 +2867,33 @@ class TestComputationExecutorExecute(BaseTest):
         assert insert_count[0] == 1
         assert len(result.errors) == 1
         assert result.job_ids == []
+
+    @parameterized.expand([("with_a_requester", True, 1), ("without_a_requester", False, 2)])
+    def test_an_insert_that_clickhouse_cancelled_is_raised_only_for_a_build_with_a_requester(
+        self, _name, raises_cancelled_inserts, inserts
+    ):
+        query_info, _ = self._make_query_info()
+        insert_count = [0]
+
+        def killed(team, job):
+            insert_count[0] += 1
+            raise CHQueryErrorQueryWasCancelled("Query was cancelled", code=394)
+
+        executor = LazyComputationExecutor(max_retries=1, raises_cancelled_inserts=raises_cancelled_inserts)
+        run = lambda: executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=killed,
+        )
+        if raises_cancelled_inserts:
+            with pytest.raises(CHQueryErrorQueryWasCancelled):
+                run()
+        else:
+            assert run().ready is False
+
+        assert insert_count[0] == inserts
 
     def test_non_retryable_error_does_not_block_future_queries(self):
         query_info, query_hash = self._make_query_info()

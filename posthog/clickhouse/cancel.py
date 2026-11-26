@@ -109,11 +109,18 @@ def cancel_queries_started_for(team_id: int, client_query_id: str) -> None:
             statsd.incr("clickhouse.query.cancellation.no_initiator_host", tags={"team_id": team_id})
             continue
         for host, query_id in running:
-            with default_client(host=host, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
-                sync_execute(
-                    "KILL QUERY WHERE query_id=%(query_id)s SETTINGS max_execution_time = 5",
-                    {"query_id": query_id},
-                    sync_client=client,
-                )
+            try:
+                with default_client(host=host, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
+                    sync_execute(
+                        "KILL QUERY WHERE query_id=%(query_id)s SETTINGS max_execution_time = 5",
+                        {"query_id": query_id},
+                        sync_client=client,
+                    )
+            except Exception as e:
+                # A host that became unreachable since the lookup must not leave the queries on the other hosts
+                # running.
+                logger.info("Failed to cancel query %s started for %s: %s", query_id, client_query_id, e)
+                statsd.incr("clickhouse.query.cancellation.kill_failed", tags={"team_id": team_id})
+                continue
             logger.info("Cancelled query %s started for %s, team %s", query_id, client_query_id, team_id)
             statsd.incr("clickhouse.query.cancellation.ok", tags={"team_id": team_id})
