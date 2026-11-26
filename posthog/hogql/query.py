@@ -37,6 +37,7 @@ from posthog.hogql.constants import (
 from posthog.hogql.cost.fingerprint import fingerprint_query
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
+from posthog.hogql.database.request_scope import invalidate_shared_databases
 from posthog.hogql.database.schema.duckdb_table_functions import (
     GenerateSeriesTable,
     OpaqueFunctionCallTable,
@@ -1304,6 +1305,9 @@ class HogQLQueryExecutor:
         except (CHQueryErrorUnknownIdentifier, QueryError) as error:
             if not _names_a_missing_column(error) or not self._refreshed_stale_view_columns(started_at):
                 raise
+            # Shared catalogs were built from the columns the refresh just replaced, so the retry and later queries in a
+            # batch must not reuse them.
+            invalidate_shared_databases()
             return self._with_fresh_database(query).execute()
 
     def _refreshed_stale_view_columns(self, started_at: datetime) -> bool:

@@ -60,12 +60,13 @@ class SharedDatabases:
         self._max_databases = max_databases
         self._max_age_seconds = max_age_seconds
         self._lock = threading.Lock()
-        self._databases: dict[SharedDatabaseKey, tuple[Database, float]] = {}
+        self._databases: dict[SharedDatabaseKey, tuple[Database, float, int]] = {}
         self._build_locks: dict[SharedDatabaseKey, threading.Lock] = {}
+        self._generation = 0
 
     def _fresh(self, key: SharedDatabaseKey) -> Optional["Database"]:
         entry = self._databases.get(key)
-        if entry is None or monotonic() - entry[1] > self._max_age_seconds:
+        if entry is None or entry[2] != self._generation or monotonic() - entry[1] > self._max_age_seconds:
             return None
         return entry[0]
 
@@ -87,14 +88,24 @@ class SharedDatabases:
                 database = self._fresh(key)
             if database is not None:
                 return database
+            with self._lock:
+                generation = self._generation
             database = build()
             if database.warehouse_access_control_enforced != key.warehouse_access_control_enforced:
                 # The build read the flag differently from the key, so the catalog is not what the key promises.
                 return database
             database.tables.copy_children_on_write()
             with self._lock:
-                self._databases[key] = (database, monotonic())
+                # An invalidation during the build means it may have read what was invalidated.
+                if generation == self._generation:
+                    self._databases[key] = (database, monotonic(), generation)
             return database
+
+    def invalidate(self) -> None:
+        """Stop handing out every catalog built so far, for when something they were built from changed, such as a
+        saved view's columns. Builds already running are returned to their callers but not kept."""
+        with self._lock:
+            self._generation += 1
 
     def clear(self) -> None:
         with self._lock:
@@ -126,6 +137,13 @@ def building_alone() -> Iterator[None]:
 
 def current_shared_databases() -> Optional[SharedDatabases]:
     return _shared_databases.get()
+
+
+def invalidate_shared_databases() -> None:
+    """Invalidate the current scope's shared catalogs, if any."""
+    shared = _shared_databases.get()
+    if shared is not None:
+        shared.invalidate()
 
 
 def shared_database_key(
