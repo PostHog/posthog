@@ -18,7 +18,6 @@
                 "backend/scopes.py",
                 "backend/activity_log_config.py",
                 "backend/apps.py",
-                "backend/services/template_file_guard.py",
                 "backend/services/people_import.py",
                 "backend/services/provider_contacts.py",
                 "backend/console.py",

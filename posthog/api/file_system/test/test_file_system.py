@@ -47,7 +47,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
@@ -2296,35 +2295,6 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         destination.refresh_from_db()
         self.assertEqual(destination.deleted, (change == "delete") == (expected == status.HTTP_200_OK))
 
-    @parameterized.expand([("delete", False), ("restore", False), ("delete", True)])
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_restricted_member_cannot_delete_or_restore_a_transactional_template(
-        self, change: str, in_sibling_environment: bool, _flag: MagicMock
-    ) -> None:
-        # A sibling environment's template is reachable from this environment's file browser.
-        owner = (
-            Team.objects.create(project=self.project, organization=self.organization, name="Env-2")
-            if in_sibling_environment
-            else self.team
-        )
-        set_member_property_access(team=owner, membership=self.organization_membership, access="restricted")
-        template_id = create_message_template_for_test(
-            team_id=owner.id, name="Receipt", content={}, deleted=change == "restore"
-        )
-        if change == "delete":
-            entry = FileSystem.objects.create(
-                team=owner, path="Unfiled/Receipt", depth=2, type="message_template", ref=str(template_id)
-            )
-            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
-        else:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/file_system/undo_delete/",
-                {"items": [{"type": "message_template", "ref": str(template_id)}]},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
-
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -3419,7 +3389,6 @@ TREE_READ_PATHS: list[tuple[str, str, dict[str, str]]] = [
 SMALL_PROJECT = 100
 LARGE_PROJECT = 1000
 LINEAR_GROWTH_LIMIT = 1.5 * LARGE_PROJECT / SMALL_PROJECT
-WORKFLOW_REF = "0f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9"
 
 
 def _files_returned(body: Any) -> int:
@@ -3439,12 +3408,9 @@ class TestFileSystemReadsAtScale(APIBaseTest):
         ]
         self.organization.save()
         self.items = 0
-        folders = ["Docs", "Docs/Dashboards", "Unfiled", "Unfiled/Insights", "Unfiled/Workflows"]
+        folders = ["Docs", "Docs/Dashboards", "Unfiled", "Unfiled/Insights"]
         FileSystem.objects.bulk_create(
             [FileSystem(team=self.team, path=path, depth=path.count("/") + 1, type="folder") for path in folders]
-        )
-        FileSystem.objects.create(
-            team=self.team, path="Unfiled/Workflows/Welcome flow", depth=3, type="hog_flow", ref=WORKFLOW_REF
         )
 
     def _grow_project_to(self, items: int) -> None:
@@ -3498,21 +3464,12 @@ class TestFileSystemReadsAtScale(APIBaseTest):
         assert row is not None
         return row[0]
 
-    @parameterized.expand(
-        [
-            (f"{name}_flag_{'on' if flag_enabled else 'off'}", flag_enabled, action, params)
-            for name, action, params in TREE_READ_PATHS
-            for flag_enabled in (False, True)
-        ]
-    )
-    def test_tree_reads_grow_no_faster_than_the_project(
-        self, _name: str, flag_enabled: bool, action: str, params: dict[str, str]
-    ) -> None:
-        with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
-            self._grow_project_to(SMALL_PROJECT)
-            small = self._tree_rows_read(action, params)
-            self._grow_project_to(LARGE_PROJECT)
-            large = self._tree_rows_read(action, params)
+    @parameterized.expand(TREE_READ_PATHS)
+    def test_tree_reads_grow_no_faster_than_the_project(self, _name: str, action: str, params: dict[str, str]) -> None:
+        self._grow_project_to(SMALL_PROJECT)
+        small = self._tree_rows_read(action, params)
+        self._grow_project_to(LARGE_PROJECT)
+        large = self._tree_rows_read(action, params)
 
         self.assertLessEqual(
             large,
