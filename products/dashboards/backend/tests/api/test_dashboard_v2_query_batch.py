@@ -41,7 +41,7 @@ from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage
 from products.dashboards.backend.v2 import query_batch as query_batch_module
-from products.dashboards.backend.v2.frames import frames_for
+from products.dashboards.backend.v2.frames import MAX_PROMETHEUS_SERIES, frames_for
 from products.dashboards.backend.v2.query_batch import InvalidTarget, QueryBatch, resolve_query, to_posthog_date
 from products.dashboards.backend.v2.telemetry import Step, pick_step, returns_log_lines, time_range
 from products.event_definitions.backend.models import PropertyDefinition
@@ -620,11 +620,10 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_frames_format_draws_hogql_as_frames_and_keeps_a_table_node_as_its_result(self) -> None:
+    def test_frames_format_draws_hogql_and_a_table_node_as_frames(self) -> None:
         sql = "select toStartOfDay(now()) as day, 'web' as app, 2 as n union all select toStartOfDay(now()), 'api', 3"
         queries = [
             {"target": {"refId": "sql", "language": "hogql", "query": sql, "legend": "{{app}}"}, "time": _LAST_7_DAYS},
-            # A table node has no frame shape, like funnels or retention, so its line keeps the runner's result.
             _insight("$pageview"),
         ]
 
@@ -639,8 +638,8 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             )
             self.assertEqual(sql_line["result"]["canonical"], sql)
             self.assertNotIn("error", table_line)
-            self.assertEqual(table_line["result"]["format"], "result")
-            self.assertIsInstance(table_line["result"]["result"]["results"], list)
+            self.assertEqual(table_line["result"]["format"], "frames")
+            self.assertEqual([field["name"] for field in table_line["result"]["frames"][0]["fields"]], ["count()"])
             canonical = json.loads(table_line["result"]["canonical"])
             self.assertEqual(canonical["query"]["kind"], "DataTableNode")
             self.assertEqual(canonical["filters"]["date_from"], "-7d")
@@ -891,6 +890,31 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         [table] = logs["result"]["frames"]
         self.assertEqual(
             [field["values"] for field in table["fields"]], [[start * 1000], ["boom"], ["service_name=api"]]
+        )
+
+    def test_frames_format_names_a_result_without_frames_as_an_error(self) -> None:
+        too_many = {
+            "status": "success",
+            "data": {
+                "resultType": "matrix",
+                "result": [
+                    {"metric": {"pod": str(pod)}, "values": [[0, "1"]]} for pod in range(MAX_PROMETHEUS_SERIES + 1)
+                ],
+            },
+        }
+        with _snuffle_requests(200, too_many):
+            [line] = self._lines(
+                [_telemetry("logql", 'sum by (pod) (count_over_time({app="api"}[1m]))')], format="frames"
+            )
+
+        self.assertEqual(
+            line,
+            {
+                "i": 0,
+                "refId": "logql",
+                "error": "This logql result can't be drawn as a chart.",
+                "unsupported_shape": "logql",
+            },
         )
 
     @parameterized.expand([("promql", "sum(rate(up[5m])"), ("logql", "{service_name=")])
