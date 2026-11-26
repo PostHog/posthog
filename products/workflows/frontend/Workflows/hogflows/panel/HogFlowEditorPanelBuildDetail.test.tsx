@@ -16,7 +16,10 @@ import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 const WORKFLOW_ID = 'wf-transactional-category'
 const EMAIL_NODE_ID = 'transactional_email'
 
-const transactionalEmailWorkflow = (messageCategoryId: string | null, sensitive?: boolean): HogFlow => ({
+const transactionalEmailWorkflow = (
+    messageCategoryId: string | null,
+    stepConfig: Record<string, boolean> = {}
+): HogFlow => ({
     id: WORKFLOW_ID,
     name: 'Usage spike detected',
     actions: [
@@ -40,7 +43,7 @@ const transactionalEmailWorkflow = (messageCategoryId: string | null, sensitive?
                 template_id: 'template-email',
                 message_category_id: messageCategoryId,
                 message_category_type: 'transactional',
-                ...(sensitive ? { sensitive } : {}),
+                ...stepConfig,
                 inputs: {
                     email: {
                         templating: 'liquid',
@@ -83,9 +86,12 @@ const categories = [
     { id: 'cat-billing', key: 'billing', name: 'Billing', category_type: 'transactional' },
 ]
 
-const emailStepMocks = (messageCategoryId: string | null, sensitive?: boolean): Parameters<typeof useMocks>[0] => ({
+const emailStepMocks = (
+    messageCategoryId: string | null,
+    stepConfig: Record<string, boolean> = {}
+): Parameters<typeof useMocks>[0] => ({
     get: {
-        '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(messageCategoryId, sensitive),
+        '/api/environments/:team_id/hog_flows/:id/': transactionalEmailWorkflow(messageCategoryId, stepConfig),
         '/api/projects/:team_id/hog_function_templates/': () => new Promise(() => {}),
         '/api/environments/:team_id/messaging_categories/': { results: categories, count: 2, next: null },
     },
@@ -144,10 +150,11 @@ describe('HogFlowEditorPanelBuildDetail', () => {
     })
 
     it.each([
-        ['while tracking is off', false, true],
-        ['on a step saved as sensitive', true, false],
-    ])('hides the connect clicks to sessions switch %s', async (_, sensitive, turnTrackingOff) => {
-        useMocks(emailStepMocks('cat-billing', sensitive))
+        ['while tracking is off', {}, true],
+        ['on a step saved as sensitive', { sensitive: true }, false],
+        ['on a step with link click tracking off', { click_tracking_enabled: false }, false],
+    ])('hides the connect clicks to sessions switch %s', async (_, stepConfig, turnTrackingOff) => {
+        useMocks(emailStepMocks('cat-billing', stepConfig))
         const { container } = await renderEmailStep()
 
         if (turnTrackingOff) {
