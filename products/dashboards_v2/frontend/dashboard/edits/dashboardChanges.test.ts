@@ -23,6 +23,7 @@ const BASE = board([
 describe('describeChanges', () => {
     test.each<{ name: string; after: Dashboard; expected: string[] }>([
         { name: 'nothing changed', after: BASE, expected: [] },
+        { name: 'reordered tabs', after: board([BASE.tabs[1], BASE.tabs[0]]), expected: ['Reordered the tabs'] },
         {
             name: 'a renamed dashboard and tab, an added tab, and a removed tab',
             after: board(

@@ -62,6 +62,11 @@ export function describeChanges(before: Dashboard, after: Dashboard): string[] {
             changes.push(`Removed the "${tab.title}" tab`)
         }
     }
+    const keptBefore = before.tabs.filter((tab) => tabsAfter.has(tab.id)).map((tab) => tab.id)
+    const keptAfter = after.tabs.filter((tab) => tabsBefore.has(tab.id)).map((tab) => tab.id)
+    if (!objectsEqual(keptBefore, keptAfter)) {
+        changes.push('Reordered the tabs')
+    }
 
     const tilesBefore = tilesOf(before)
     const tilesAfter = tilesOf(after)
