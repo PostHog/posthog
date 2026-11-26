@@ -5,7 +5,7 @@ same 400 and 403 bodies whichever caller reached them.
 """
 
 from collections.abc import Mapping, Sequence
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from django.db import router, transaction
@@ -174,19 +174,16 @@ def update_widget(
 ) -> UpdatedWidget:
     """Write the patch in the caller's transaction."""
     # Read from the writer, because the save below writes back every field this read loaded.
-    widget = (
-        DashboardWidget.objects.db_manager(router.db_for_write(DashboardWidget)).for_team(team_id).get(id=widget_id)
-    )
+    widget = DashboardWidget.objects.for_team(team_id).using(router.db_for_write(DashboardWidget)).get(id=widget_id)
     check_widget_tile_product_access(widget, user_access_control)
     if patch.widget_type is not None and patch.widget_type != widget.widget_type:
         raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
     previous_widget_filters = extract_widget_filters(widget.widget_type, widget.config)
     if "config" in patch.fields_set:
-        widget.config = validate_widget_config(
-            widget.widget_type,
-            {**widget.config, **cast(dict[str, JsonValue], patch.config)},
-        )
+        if not isinstance(patch.config, dict):
+            raise serializers.ValidationError({"config": "Config must be an object."})
+        widget.config = validate_widget_config(widget.widget_type, {**widget.config, **patch.config})
     if "name" in patch.fields_set:
         widget.name = patch.name or None
     if "description" in patch.fields_set:
