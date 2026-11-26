@@ -8,7 +8,7 @@ use super::dom::{DomInspector, FlushBudgets, UrlLimit};
 use super::edits::EventEdits;
 use super::events::{href_from, number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
-use super::json_ld::{self, MAX_JSON_LD_MOMENTS_PER_BLOCK, MAX_JSON_LD_ROOT_TYPES};
+use super::json_ld::{self, MAX_JSON_LD_ROOT_TYPES};
 use super::rrweb::{
     is_click, CUSTOM, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, META, MOUSE_INTERACTION, MUTATION,
 };
@@ -52,7 +52,6 @@ pub struct BlockInspection {
     counter: EventCounter,
     features: FeatureRecorder,
     moments: Vec<Moment>,
-    json_ld_moments: usize,
     image_urls: Vec<String>,
     font_urls: Vec<String>,
     url_limit: Option<UrlLimit>,
@@ -197,8 +196,7 @@ impl SessionInspector {
             }
         });
         let navigated = block.counter.stats.navigations > navigations;
-        let json_ld = json_ld::is_json_ld_event(inner, event.kind, &data);
-        if json_ld {
+        if json_ld::is_json_ld_event(inner, event.kind, &data) {
             let stats = &mut block.counter.stats;
             stats.json_ld_events += 1;
             union(
@@ -260,7 +258,6 @@ impl SessionInspector {
             // A reader seeks to a full snapshot only when it is one the inspector could read.
             Some(FULL_SNAPSHOT) if observed.full_snapshot => Some("full_snapshot"),
             Some(FULL_SNAPSHOT) => Some("full_snapshot_undecoded"),
-            Some(CUSTOM) if json_ld => Some("json_ld"),
             Some(META | CUSTOM) if navigated => Some("navigation"),
             Some(INCREMENTAL_SNAPSHOT)
                 if event.source == Some(MUTATION) && observed.changed >= LARGE_DOM_CHANGE_NODES =>
@@ -282,9 +279,7 @@ impl SessionInspector {
             moment = Some("click");
         }
         if let Some(kind) = moment {
-            let json_ld_room = !json_ld || block.json_ld_moments < MAX_JSON_LD_MOMENTS_PER_BLOCK;
-            if block.moments.len() < MAX_MOMENTS_PER_BLOCK && json_ld_room {
-                block.json_ld_moments += usize::from(json_ld);
+            if block.moments.len() < MAX_MOMENTS_PER_BLOCK {
                 block.moments.push(Moment {
                     kind,
                     window_id: Arc::clone(window),
@@ -364,9 +359,7 @@ mod tests {
                 ("full_snapshot", 1),
                 ("click", 2),
                 ("dom_change", 3),
-                ("full_snapshot_undecoded", 4),
-                ("json_ld", 5),
-                ("json_ld", 6)
+                ("full_snapshot_undecoded", 4)
             ]
         );
         assert_eq!(
@@ -386,21 +379,6 @@ mod tests {
             .collect::<Vec<_>>()));
         let (stats, moments) = inspect(&mut session, &crowded);
         assert_eq!(moments.len(), MAX_MOMENTS_PER_BLOCK);
-        assert!(stats.moments_truncated);
-
-        let mut chatty: Vec<Value> = (0..=MAX_JSON_LD_MOMENTS_PER_BLOCK as i64)
-            .map(|i| json_ld(1_000_000 + i, json!({})))
-            .collect();
-        chatty.push(click(2_000_000));
-        let (stats, moments) = inspect(&mut session, &message(json!(chatty)));
-        let kinds: Vec<_> = moments.iter().map(|m| m.kind).collect();
-        let mut expected = vec!["json_ld"; MAX_JSON_LD_MOMENTS_PER_BLOCK];
-        expected.push("click");
-        assert_eq!(kinds, expected);
-        assert_eq!(
-            stats.json_ld_events,
-            MAX_JSON_LD_MOMENTS_PER_BLOCK as u32 + 1
-        );
         assert!(stats.moments_truncated);
     }
 

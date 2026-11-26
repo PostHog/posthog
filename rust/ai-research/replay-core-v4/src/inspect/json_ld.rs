@@ -11,8 +11,6 @@ use super::rrweb::CUSTOM;
 pub const JSON_LD_EVENT_TAG: &str = "$json_ld";
 /// Root types a block or session row keeps. A row with this many has this many types or more.
 pub const MAX_JSON_LD_ROOT_TYPES: usize = 64;
-/// `json_ld` moments a block keeps, so that a page that sends many events leaves room for the other moments.
-pub const MAX_JSON_LD_MOMENTS_PER_BLOCK: usize = 16;
 // The limits of posthog-js's `json-ld.ts` and the replay anonymizer's `json_ld.rs`, which a payload from another
 // client need not keep.
 const MAX_JSON_LD_LENGTH: usize = 100_000;
