@@ -4,7 +4,12 @@ import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
-import { counterWaitWakeByTriggerEventIgnored, isRunTriggerEvent } from '~/cdp/services/hogflows/pending-wake'
+import { PendingWakeEntry } from '~/cdp/services/cyclotron-v2/types'
+import {
+    WaitMatchEvent,
+    counterWaitWakeByTriggerEventIgnored,
+    matchNotFromTrigger,
+} from '~/cdp/services/hogflows/pending-wake'
 import {
     StepResume,
     WorkflowStepResumeSchema,
@@ -245,10 +250,7 @@ type ParkedCandidate = {
 
 type PendingWakeWrite = {
     id: string
-    wakes: Record<
-        string,
-        { kind: 'match' | 'recheck'; eventName?: string; eventUuid?: string; eventTimestamp?: string }
-    >
+    wakes: Record<string, Omit<PendingWakeEntry, 'at'>>
 }
 
 // A distinct_id repointed by a merge: the distinct_id and the survivor person it now resolves to.
@@ -307,6 +309,7 @@ type MatchedJob = {
     eventName?: string
     eventUuid?: string
     eventTimestamp?: string
+    nextMatch?: WaitMatchEvent
     // Distinct id + name/uuid of the event that satisfied the conversion goal, so the matcher can
     // emit the `$workflows_conversion` PostHog event for the converting person.
     conversionDistinctId?: string
@@ -728,19 +731,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 : undefined
             const action = eventsOnly && parkedOn?.type === 'wait_until_condition' ? eventsOnlyWait(parkedOn) : parkedOn
 
-            // Any single matching event is enough. Stop early once both flags are set.
-            let stepMatched = false
+            // Two step matches, because one of them may be the run's own trigger event, which the wake skips.
+            const stepMatches: WaitMatchEvent[] = []
             let recheckMatched = false
-            let stepMatchedEventName: string | undefined
-            let stepMatchedEventUuid: string | undefined
-            let stepMatchedEventTimestamp: string | undefined
             let conversionMatched = false
             let conversionDistinctId: string | undefined
             let conversionEventName: string | undefined
             let conversionEventUuid: string | undefined
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
-                if (!stepMatched && !recheckMatched && action?.type === 'wait_until_condition') {
+                if (stepMatches.length < 2 && !recheckMatched && action?.type === 'wait_until_condition') {
                     if (source === 'person' && conditionNeedsRunGlobals(action)) {
                         recheckMatched = true
                     } else if (
@@ -749,11 +749,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                             actionId: action.id,
                         })
                     ) {
-                        stepMatched = true
                         parkedCheck.noteMatch(globals)
-                        stepMatchedEventName = globals.event.event
-                        stepMatchedEventUuid = globals.event.uuid
-                        stepMatchedEventTimestamp = globals.event.timestamp
+                        stepMatches.push(waitMatchEvent(globals))
                     }
                 }
                 if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals, eventsOnly))) {
@@ -764,10 +761,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     conversionEventName = globals.event.event
                     conversionEventUuid = globals.event.uuid
                 }
-                if (stepMatched && conversionMatched) {
+                if (stepMatches.length === 2 && conversionMatched) {
                     break
                 }
             }
+            const stepMatched = stepMatches.length > 0
 
             // Collect a job when its wait step matched OR a conversion matched. Conversion matches are
             // collected even on measurement-only (non-exit) flows: processMatchedJobs reads the job's
@@ -784,9 +782,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     recheckMatched,
                     conversionMatched,
                     exitsOnConversion: exitsOnConversion(hogflow),
-                    eventName: stepMatchedEventName,
-                    eventUuid: stepMatchedEventUuid,
-                    eventTimestamp: stepMatchedEventTimestamp,
+                    ...stepMatches[0],
+                    nextMatch: stepMatches[1],
                     conversionDistinctId,
                     conversionEventName,
                     conversionEventUuid,
@@ -816,6 +813,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                                   eventName: m.eventName,
                                   eventUuid: m.eventUuid,
                                   eventTimestamp: m.eventTimestamp,
+                                  ...(m.nextMatch ? { next: m.nextMatch } : {}),
                               }
                             : { kind: 'recheck' },
                     },
@@ -834,9 +832,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         for (const w of writes) {
             const merged: PendingWakeWrite['wakes'] = Object.assign(Object.create(null), wakesById.get(w.id))
             for (const [actionId, wake] of Object.entries(w.wakes)) {
-                if (merged[actionId]?.kind !== 'match') {
-                    merged[actionId] = wake
-                }
+                const kept = merged[actionId]
+                merged[actionId] = kept?.kind === 'match' ? (withNextMatch(kept, wake) ?? kept) : wake
             }
             wakesById.set(w.id, merged)
         }
@@ -854,7 +851,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             const updateWakes: string[] = []
             const updateWakeNow: boolean[] = []
             for (const row of locked.rows) {
-                const existing = (row.pending_wake ?? {}) as Record<string, { kind: string; at: string }>
+                const existing = (row.pending_wake ?? {}) as Record<string, PendingWakeEntry>
                 const dequeuedAt = new Date(row.last_transition).getTime()
                 const changed: PendingWakeWrite['wakes'] = Object.create(null)
                 for (const [actionId, wake] of Object.entries(wakesById.get(row.id) ?? {})) {
@@ -864,6 +861,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         current && (row.status === 'available' || new Date(current.at).getTime() >= dequeuedAt)
                     // A fresh match carries the event, which a later re-check of the same step would lose.
                     if (fresh && (current.kind === 'match' || wake.kind === 'recheck')) {
+                        const extended = current.kind === 'match' ? withNextMatch(current, wake) : undefined
+                        if (extended) {
+                            changed[actionId] = extended
+                        }
                         continue
                     }
                     changed[actionId] = wake
@@ -2440,17 +2441,38 @@ async function evaluateWaitWake(
     if (source === 'person' && conditionNeedsRunGlobals(wait)) {
         return { kind: 'recheck' }
     }
+    const matches: WaitMatchEvent[] = []
     for (const globals of candidateGlobals) {
         if (await matchesWaitUntilCondition(wait, filterGlobalsFor(globals), { hogFlowId, actionId: wait.id })) {
-            return {
-                kind: 'match',
-                eventName: globals.event.event,
-                eventUuid: globals.event.uuid,
-                eventTimestamp: globals.event.timestamp,
+            matches.push(waitMatchEvent(globals))
+            if (matches.length === 2) {
+                break
             }
         }
     }
-    return null
+    if (matches.length === 0) {
+        return null
+    }
+    return { kind: 'match', ...matches[0], ...(matches[1] ? { next: matches[1] } : {}) }
+}
+
+// A later match fills a kept match's empty second slot, so a kept trigger event cannot hide it.
+function withNextMatch(
+    kept: PendingWakeWrite['wakes'][string],
+    wake: PendingWakeWrite['wakes'][string]
+): PendingWakeWrite['wakes'][string] | undefined {
+    if (kept.next || wake.kind !== 'match' || wake.eventUuid === kept.eventUuid) {
+        return undefined
+    }
+    const { at: _at, ...match } = kept as PendingWakeEntry
+    return {
+        ...match,
+        next: { eventName: wake.eventName, eventUuid: wake.eventUuid, eventTimestamp: wake.eventTimestamp },
+    }
+}
+
+function waitMatchEvent(globals: HogFunctionInvocationGlobals): WaitMatchEvent {
+    return { eventName: globals.event.event, eventUuid: globals.event.uuid, eventTimestamp: globals.event.timestamp }
 }
 
 type MatchOutcome = { state: Buffer; wake: boolean }
@@ -2469,15 +2491,16 @@ function applyMatchToState(stateBuffer: Buffer, m: MatchedJob): MatchOutcome | n
         // A matched wait_until_condition step resumes the job, tagged so the resume reads as an event
         // match rather than a timeout.
         if (m.stepMatched) {
-            if (isRunTriggerEvent(updatedState, m.eventUuid)) {
+            const match = matchNotFromTrigger(updatedState, m, m.nextMatch)
+            if (!match) {
                 counterWaitWakeByTriggerEventIgnored.labels({ path: 'parked' }).inc()
             } else if (updatedState.currentAction) {
                 updatedState.currentAction = {
                     ...updatedState.currentAction,
                     eventMatched: true,
-                    eventMatchedEvent: m.eventName,
-                    eventMatchedEventUuid: m.eventUuid,
-                    eventMatchedEventTimestamp: m.eventTimestamp,
+                    eventMatchedEvent: match.eventName,
+                    eventMatchedEventUuid: match.eventUuid,
+                    eventMatchedEventTimestamp: match.eventTimestamp,
                 }
                 changed = true
                 wake = true

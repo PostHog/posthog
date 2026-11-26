@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { PendingWake } from '~/cdp/services/cyclotron-v2/types'
+import { PendingWake, PendingWakeEntry } from '~/cdp/services/cyclotron-v2/types'
 import { HogFlowInvocationContext } from '~/cdp/types'
 
 const counterPendingWakeApplied = new Counter({
@@ -15,10 +15,15 @@ export const counterWaitWakeByTriggerEventIgnored = new Counter({
     labelNames: ['path'],
 })
 
-// The matcher reads the same events that start runs. Without this check, a run's own trigger event
-// could end its wait, depending only on whether the run parked before the matcher reached that event.
-export function isRunTriggerEvent(state: HogFlowInvocationContext, eventUuid: string | undefined): boolean {
-    return !!eventUuid && eventUuid === state.event?.uuid
+export type WaitMatchEvent = Pick<PendingWakeEntry, 'eventName' | 'eventUuid' | 'eventTimestamp'>
+
+// The matcher reads the same events that start runs, so a run's own trigger event can match its wait,
+// and whether that match lands depends only on whether the run parked first. It never ends the wait.
+export function matchNotFromTrigger(
+    state: HogFlowInvocationContext,
+    ...matches: (WaitMatchEvent | undefined)[]
+): WaitMatchEvent | undefined {
+    return matches.find((m) => m && !(m.eventUuid && m.eventUuid === state.event?.uuid))
 }
 
 export function applyPendingWake(state: HogFlowInvocationContext, pendingWake: PendingWake | undefined): void {
@@ -28,14 +33,15 @@ export function applyPendingWake(state: HogFlowInvocationContext, pendingWake: P
         return
     }
     if (entry.kind === 'match') {
-        if (isRunTriggerEvent(state, entry.eventUuid)) {
+        const match = matchNotFromTrigger(state, entry, entry.next)
+        if (!match) {
             counterWaitWakeByTriggerEventIgnored.labels({ path: 'in_flight' }).inc()
             return
         }
         currentAction.eventMatched = true
-        currentAction.eventMatchedEvent = entry.eventName
-        currentAction.eventMatchedEventUuid = entry.eventUuid
-        currentAction.eventMatchedEventTimestamp = entry.eventTimestamp
+        currentAction.eventMatchedEvent = match.eventName
+        currentAction.eventMatchedEventUuid = match.eventUuid
+        currentAction.eventMatchedEventTimestamp = match.eventTimestamp
     } else {
         currentAction.recheckWake = true
     }

@@ -1552,6 +1552,18 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect((await rowOf(id)).pending_wake.wait_condition).toMatchObject(match)
             })
 
+            it('keeps a later match next to a recorded one, so a run trigger recorded first cannot hide it', async () => {
+                const id = await parkOutOfReach()
+
+                await record(id, match)
+                await record(id, { ...match, eventUuid: 'event-2' })
+
+                expect((await rowOf(id)).pending_wake.wait_condition).toMatchObject({
+                    ...match,
+                    next: { eventName: 'wakeup_event', eventUuid: 'event-2' },
+                })
+            })
+
             it('records a match whose event name contains a NUL byte', async () => {
                 const id = await parkOutOfReach()
 

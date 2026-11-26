@@ -65,6 +65,8 @@ export type PendingWakeEntry = {
     eventName?: string
     eventUuid?: string
     eventTimestamp?: string
+    // A second matching event, used when the first one is the run's own trigger event.
+    next?: Pick<PendingWakeEntry, 'eventName' | 'eventUuid' | 'eventTimestamp'>
 }
 export type PendingWake = Record<string, PendingWakeEntry>
 
