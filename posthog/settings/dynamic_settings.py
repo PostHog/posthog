@@ -21,8 +21,8 @@ CONSTANCE_CONFIG = {
     ),
     "EXPERIMENTS_RECALCULATION_ENABLED": (
         True,
-        "Run experiment metric recalculations, including the hourly scheduled ones. Set to False to pause them. "
-        "A change takes effect within about a minute.",
+        "Run experiment metric recalculations, including the hourly scheduled ones. Set to False to stop new and "
+        "pending runs. Runs already in progress finish. A change takes effect within about a minute.",
         bool,
     ),
     "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
