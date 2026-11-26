@@ -195,14 +195,14 @@ export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
 export const LARGEST_SEND_DEADLINE_MS = 45_000
 const OWNERSHIP_CHECK_TIMEOUT_MS = 5_000
 
-// No deadline passes LARGEST_SEND_DEADLINE_MS, because the worker's stop deadline is sized for it.
-export function sendDeadlineMsFor(fileBytes: number, smallestMs = ATTACHMENT_SEND_DEADLINE_MS): number {
+export function sendDeadlineMsFor(fileBytes: number, configuredMs = ATTACHMENT_SEND_DEADLINE_MS): number {
+    const smallestMs = Math.min(LARGEST_SEND_DEADLINE_MS, configuredMs)
     const largestMs = Math.min(
         LARGEST_SEND_DEADLINE_MS,
         (smallestMs * LARGEST_SEND_DEADLINE_MS) / ATTACHMENT_SEND_DEADLINE_MS
     )
     const share = Math.min(1, fileBytes / LARGEST_SEND_FILE_BYTES)
-    return Math.min(LARGEST_SEND_DEADLINE_MS, Math.round(smallestMs + share * (largestMs - smallestMs)))
+    return Math.round(smallestMs + share * (largestMs - smallestMs))
 }
 
 class EmailSendDeadlineError extends Error {
