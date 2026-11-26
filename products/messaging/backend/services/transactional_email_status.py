@@ -18,6 +18,7 @@ from posthog.models.event.new_events_schema import events_route_scope
 
 from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus
 from products.messaging.backend.models.email_status_sql import (
+    EMAIL_STATUS_EVENTS_TABLE,
     EMAIL_STATUS_RETENTION_DAYS,
     EMAIL_STATUS_SHOWN_REASON,
     EMAIL_STATUS_TABLE,
@@ -67,6 +68,11 @@ def is_keyed_message_id(message_id: UUID) -> bool:
 def keyed_message_id(team_id: int, idempotency_key: str) -> UUID:
     name = json.dumps([team_id, _TRANSACTIONAL_EMAIL_RUN_SCOPE, idempotency_key], separators=(",", ":"))
     return uuid5(_KEYED_RUN_ID_NAMESPACE, name)
+
+
+def keyed_send_exists(team_id: int, idempotency_key: str) -> bool:
+    message_id = keyed_message_id(team_id, idempotency_key)
+    return message_created_at(team_id, message_id, Workload.ONLINE, EMAIL_STATUS_EVENTS_TABLE) is not None
 
 
 # The events cluster has no email_status table, so a project that reads events_json still looks a send up here.

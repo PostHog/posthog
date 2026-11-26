@@ -18,6 +18,10 @@ def team_category_by_key(team_id: int, key: str) -> MessageCategory:
     return team_categories(team_id).get(key=key)
 
 
+def last_category_by_key(team_id: int, key: str) -> MessageCategory:
+    return MessageCategory.objects.filter(team_id=team_id, key=key).latest("updated_at")
+
+
 def key_in_use(team_id: int, key: str) -> bool:
     return MessageCategory.objects.filter(team_id=team_id, key=key, deleted=False).exists()
 

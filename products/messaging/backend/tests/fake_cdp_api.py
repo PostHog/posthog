@@ -347,7 +347,7 @@ def _send_fingerprint(url: str, request: dict[str, Any]) -> str:
             request["to"],
             request["distinct_id"],
             request.get("variables"),
-            {**request["send"], "from": chosen},
+            {**request["send"], "from": chosen, "category": request["send"].get("category", {}).get("id")},
             _iso_milliseconds(requested_at) if requested_at else None,
         ]
     )

@@ -106,6 +106,7 @@ from products.messaging.backend.facade.transactional_email import (
     TransactionalEmailError,
     TransactionalEmailStage,
     check_transactional_update,
+    keyed_send_exists,
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
@@ -1947,7 +1948,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             self._require_categories_flag(request.validated_data)
         data = request.validated_data
         self._require_code_email_access(data["template_key"])
-        email = code_email(data, self._send_category(data))
+        email = code_email(data, self._send_category(data, request.headers.get("Idempotency-Key")))
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(
@@ -1968,12 +1969,17 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 {"category": "Categories are off for this project, so PostHog didn't send the email."}
             )
 
-    def _send_category(self, data: Mapping[str, Any]) -> EmailCategory | None:
+    def _send_category(self, data: Mapping[str, Any], idempotency_key: str | None) -> EmailCategory | None:
         if "category" not in data:
             return None
         key = data["category"]
         try:
-            row = get_category_by_key(self.team_id, key)
+            try:
+                row = get_category_by_key(self.team_id, key)
+            except MessageCategoryMissing:
+                if not (idempotency_key and keyed_send_exists(self.team_id, idempotency_key)):
+                    raise
+                row = get_category_by_key(self.team_id, key, deleted=True)
         except MessageCategoryMissing:
             raise ExplainedRefusal(
                 f"This project has no message category with the key `{key}`, so PostHog didn't send the email.",

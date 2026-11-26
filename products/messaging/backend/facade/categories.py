@@ -66,9 +66,10 @@ def get_category(team_id: int, category_id: UUID | str) -> MessageCategoryRow:
         raise MessageCategoryMissing() from e
 
 
-def get_category_by_key(team_id: int, key: str) -> MessageCategoryRow:
+def get_category_by_key(team_id: int, key: str, *, deleted: bool = False) -> MessageCategoryRow:
+    lookup = categories_service.last_category_by_key if deleted else categories_service.team_category_by_key
     try:
-        return _to_contract(categories_service.team_category_by_key(team_id, key))
+        return _to_contract(lookup(team_id, key))
     except MessageCategory.DoesNotExist as e:
         raise MessageCategoryMissing() from e
 
