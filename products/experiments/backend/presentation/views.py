@@ -1755,7 +1755,7 @@ class EnterpriseExperimentsViewSet(
             start_metrics_recalculation_workflow(
                 result.id,
                 team_id=experiment.team_id,
-                organization_id=str(experiment.organization_id),
+                organization_id=str(self.team.organization_id),
             )
 
         return Response(

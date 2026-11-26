@@ -192,7 +192,6 @@ def _to_handle(experiment: Experiment) -> ExperimentHandle:
     return ExperimentHandle(
         id=experiment.id,
         team_id=experiment.team_id,
-        organization_id=experiment.team.organization_id,
         created_by_id=experiment.created_by_id,
         feature_flag_id=experiment.feature_flag_id,
         feature_flag_created_by_id=experiment.feature_flag.created_by_id,

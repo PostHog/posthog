@@ -1553,7 +1553,6 @@ class ExperimentHandle:
 
     id: int
     team_id: int
-    organization_id: "UUID"
     created_by_id: int | None
     feature_flag_id: int
     feature_flag_created_by_id: int | None

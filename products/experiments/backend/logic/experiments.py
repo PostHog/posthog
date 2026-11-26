@@ -108,14 +108,14 @@ def get_handle(*, team: Team, experiment_id: int) -> Experiment | None:
     return (
         Experiment.objects.filter(team__project_id=team.project_id, pk=experiment_id)
         .exclude(deleted=True)
-        .select_related("team", "feature_flag")
+        .select_related("feature_flag")
         .only(
             "id",
+            "team_id",
             "created_by_id",
             "holdout_id",
             "flag_cleanup_task_id",
             "exposure_criteria",
-            "team__organization_id",
             "feature_flag__created_by_id",
         )
         .first()
