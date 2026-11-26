@@ -70,6 +70,30 @@ describe('validateDashboard', () => {
             expected: [{ path: 'tabs[0].tiles[0].panel.ref', message: expect.stringContaining('ref') }],
         },
         {
+            name: 'a tile that shows a shared panel and also carries content that would replace it',
+            document: {
+                ...(withTiles([
+                    { id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ref: 'note', config: { text: 123 } } },
+                ]) as object),
+                panels: { note },
+            },
+            expected: [{ path: 'tabs[0].tiles[0].panel.config', message: expect.any(String) }],
+        },
+        {
+            name: 'a content panel that carries tiles',
+            document: withTiles([{ id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ...note, tiles: null } }]),
+            expected: [{ path: 'tabs[0].tiles[0].panel.tiles', message: expect.any(String) }],
+        },
+        {
+            name: 'a tab with both tiles and a link, whose link would skip the scheme check',
+            document: {
+                version: 2,
+                title: 'Test',
+                tabs: [{ id: 'tab', title: 'Tab', tiles: [], href: 'javascript:alert(1)' }],
+            },
+            expected: [{ path: 'tabs[0]', message: expect.any(String) }],
+        },
+        {
             name: 'a tile smaller than the shared panel it shows',
             document: {
                 ...(withTiles([{ id: 'a', place: { x: 0, y: 0, w: 2, h: 4 }, panel: { ref: 'note' } }]) as object),
