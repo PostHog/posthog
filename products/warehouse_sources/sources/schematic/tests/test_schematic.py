@@ -251,6 +251,16 @@ class TestSchematicFeatureUsageHistory:
         ]
 
 
+class TestSchematicSchemas:
+    def test_feature_usage_history_offers_merge_but_not_append(self) -> None:
+        (schema,) = SchematicSource().get_schemas(
+            SchematicSourceConfig(api_key="sch_test_key"), team_id=1, names=["feature_usage_history"]
+        )
+
+        assert schema.supports_incremental is True
+        assert schema.supports_append is False
+
+
 class TestSchematicValidateCredentials:
     @pytest.mark.parametrize(
         ("status", "body", "expected_valid", "expected_fragment"),

@@ -6,7 +6,7 @@ from products.warehouse_sources.sources.schematic.schematic import (
     schematic_source,
     validate_credentials as validate_schematic_credentials,
 )
-from products.warehouse_sources.sources.schematic.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.schematic.settings import ENDPOINTS, FEATURE_USAGE_HISTORY, INCREMENTAL_FIELDS
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -98,7 +98,8 @@ Use a secret API key for the environment you want to sync, created under **Setti
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # The history read starts before the cursor, so an append sync would add the re-read days again.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=(FEATURE_USAGE_HISTORY,))
 
     def validate_credentials(
         self,
