@@ -870,9 +870,8 @@ _TAG_PATH_RE = re.compile(
 
 
 def sort_operations(endpoint):
-    # posthog.com lists operations in schema order. A viewset with `schema_docs_order` keeps the alphabetical place of its
-    # path prefix, such as /api/projects/{project_id}/messaging/, and sorts by that number among the other ordered
-    # viewsets under that prefix. A tag override on the viewset does not change the prefix it sorts under.
+    # posthog.com lists operations in schema order. A viewset with `schema_docs_order` keeps its path prefix's place,
+    # such as /api/projects/{project_id}/messaging/, and sorts by that number among the ordered viewsets under it.
     path, path_regex, method, callback = endpoint
     key = alpha_operation_sorter(endpoint)
     docs_order = getattr(getattr(callback, "cls", None), "schema_docs_order", None)
