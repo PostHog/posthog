@@ -191,7 +191,7 @@ export interface dashboardSceneLogicMeta {
             board: Board | null,
             dashboard: Dashboard | null,
             savedDashboard: Dashboard | null,
-            saveStatus: any,
+            saveStatus: 'failed' | 'idle' | 'saving',
             conflict: BoardConflict | null
         ) => SaveState | null
         conflictChanges: (
