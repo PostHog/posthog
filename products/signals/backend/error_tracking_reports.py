@@ -7,6 +7,7 @@ from uuid import UUID
 from django.conf import settings
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -94,7 +95,7 @@ def cites_error_tracking_issue(evidence: object, *, issue_id: UUID) -> bool:
     return False
 
 
-def _signal_report_ids(team: "Team", issue_id: UUID) -> set[str]:
+def _signal_report_ids(team: "Team", issue_id: UUID, *, max_execution_time: int | None) -> set[str]:
     # An evidence edit can remove a reference, so the filter only selects candidate documents. The
     # dedup then reads every version of each candidate, and the outer filter checks the latest one.
     query = f"""
@@ -130,6 +131,11 @@ def _signal_report_ids(team: "Team", issue_id: UUID) -> set[str]:
             "source_id_products": ast.Tuple(exprs=[ast.Constant(value=product) for product in _SOURCE_ID_PRODUCTS]),
             "candidate_limit": ast.Constant(value=_REFERENCE_CANDIDATE_LIMIT),
         },
+        settings=(
+            HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw")
+            if max_execution_time
+            else None
+        ),
     )
     report_ids: set[str] = set()
     for report_id, source_id, source_product, evidence, content in result.results or []:
@@ -149,8 +155,12 @@ def _signal_report_ids(team: "Team", issue_id: UUID) -> set[str]:
 def reports_referencing_error_tracking_issue(*, team: "Team", issue_id: UUID) -> set[str]:
     if not issue_exists_by_id(team_id=team.id, issue_id=issue_id):
         return set()
+    return reports_referencing_known_issue(team=team, issue_id=issue_id)
 
-    report_ids = _signal_report_ids(team, issue_id)
+
+def reports_referencing_known_issue(*, team: "Team", issue_id: UUID, max_execution_time: int | None = None) -> set[str]:
+    """`reports_referencing_error_tracking_issue` for a caller that already loaded the issue for this team."""
+    report_ids = _signal_report_ids(team, issue_id, max_execution_time=max_execution_time)
     summaries = (
         SignalReport.objects.filter(team_id=team.id, summary__icontains=str(issue_id))
         .exclude(status=SignalReport.Status.DELETED)

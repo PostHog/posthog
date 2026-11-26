@@ -12,6 +12,7 @@ from posthog.models import Team
 
 from products.error_tracking.backend.facade.testing import create_issue
 from products.signals.backend.error_tracking_reports import cites_error_tracking_issue, references_error_tracking_issue
+from products.signals.backend.facade.reports import inbox_report_ids_for_error_tracking_issue
 from products.signals.backend.models import ArtefactAttribution, SignalReport
 from products.signals.backend.report_merge import merge_reports, merge_survivor_ids
 from products.signals.backend.temporal.signal_queries import fetch_live_report_ids_for_source_ids
@@ -151,9 +152,11 @@ class TestReportsSourceIdFilter(APIBaseTest):
             ),
         ):
             response = self.client.get(self._url(f"error_tracking_issue_id={issue_id}"))
+            facade_ids = inbox_report_ids_for_error_tracking_issue(team=self.team, issue_id=issue_id)
 
         assert response.status_code == 200
         assert [row["id"] for row in response.json()["results"]] == [str(self.linked.id)]
+        assert facade_ids == [str(self.linked.id)]
 
     @parameterized.expand([("unknown", False), ("other team", True)])
     def test_unknown_error_tracking_issue_skips_evidence_query(self, _name: str, other_team: bool) -> None:
