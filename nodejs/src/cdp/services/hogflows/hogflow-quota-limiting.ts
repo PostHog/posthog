@@ -38,6 +38,9 @@ const SUPPORT_EVENTS = new Set([
 
 function triggersOnlyOnSupportEvents(hogFlow: HogFlow): boolean {
     const trigger = hogFlow.trigger
+    if (!trigger) {
+        return false
+    }
     if (trigger.type === 'internal-event') {
         const eventIds = getInternalEventFilterEventIds(trigger.filters)
         return !!eventIds && eventIds.every((eventId) => SUPPORT_EVENTS.has(eventId))
