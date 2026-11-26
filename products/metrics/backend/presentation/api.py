@@ -247,7 +247,7 @@ class MetricQueryOutput(models.TextChoices):
 
 
 # ASCII digits with a length cap: `\d` also matches other scripts, which makes the parser backtrack quadratically.
-_RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[Mhdwmy]$")
+_RELATIVE_DATE_RE = re.compile(r"^(-[0-9]{1,6}[Mhdwmy]|now)$")
 # PostHog-wide, lowercase m is months and capital M is minutes, so "-30m" reads 30 months back.
 _LOWERCASE_MONTHS_RE = re.compile(r"^-([0-9]{1,6})m$")
 _DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
@@ -298,6 +298,8 @@ def _query_error(exc: ValueError, raw_date_from: object) -> ParseError:
 def _resolve_query_bound(value: dt.datetime | str | None, *, now: dt.datetime, field: str) -> dt.datetime | None:
     if not isinstance(value, str):
         return value
+    if value == "now":
+        return now
     try:
         return relative_date_parse(value, ZoneInfo("UTC"), now=now)
     except (ValueError, OverflowError):
