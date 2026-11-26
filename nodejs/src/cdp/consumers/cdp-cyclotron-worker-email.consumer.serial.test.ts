@@ -40,6 +40,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { assertTestDatabaseName } from '~/tests/helpers/database-guard'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
@@ -121,6 +122,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         hub = await createHub()
         db = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
         posthogDb = new Pool({ connectionString: hub.DATABASE_URL })
+        const { rows } = await db.query('SELECT current_database() AS name')
+        assertTestDatabaseName(rows[0].name, 'Cyclotron node Postgres')
     })
 
     afterAll(async () => {
