@@ -10930,11 +10930,11 @@ Today (8): `Charges`, `Customers`, `Disputes`, `Events`, `Recipients`, `Refunds`
 
 Diffed against: <https://docs.omise.co/api-reference>
 
-- [ ] `Cards (GET /customers/{id}/cards)` — resolve default_card IDs and analyze the complete saved card inventory by customer (high)
-- [ ] `Schedules (GET /schedules)` — analyze recurring charges and transfers, including active schedules and future billing obligations (high)
-- [ ] `Occurrences (GET /schedules/{id}/occurrences)` — measure successful, failed, and skipped scheduled payments over time (high)
-- [ ] `Receipts (GET /receipts)` — reconcile processing fees, taxes, and adjustments with transaction totals (medium)
-- [ ] `Payment Links+ Links (GET https://linksplus-api.omise.co/external/:team_id/links)` — analyze payment link amounts, expiry dates, and lifecycle states (medium)
+- [x] `Cards (GET /customers/{id}/cards)` — resolve default_card IDs and analyze the complete saved card inventory by customer (high) — shipped as `Cards`
+- [x] `Schedules (GET /schedules)` — analyze recurring charges and transfers, including active schedules and future billing obligations (high) — shipped as `Schedules`
+- [x] `Occurrences (GET /schedules/{id}/occurrences)` — measure successful, failed, and skipped scheduled payments over time (high) — shipped as `Occurrences`
+- [x] `Receipts (GET /receipts)` — reconcile processing fees, taxes, and adjustments with transaction totals (medium) — shipped as `Receipts`
+- [ ] `Payment Links+ Links (GET https://linksplus-api.omise.co/external/:team_id/links)` — analyze payment link amounts, expiry dates, and lifecycle states (medium) Skipped: needs a separate Payment Links+ dashboard API key and team ID on another host, which the source does not collect.
 
 Note: Parsed official resource references for schedules, occurrences, receipts, cards, and Payment Links+. Customer responses embed a paginated card list; the source does not request its remaining pages. Occurrences need schedule IDs; Payment Links+ needs a separate key and host. Excluded tokens, capabilities, document uploads, and account settings.
 
