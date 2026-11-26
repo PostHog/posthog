@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.workflows.backend.facade.advent_calendar import (
     ADVENT_CALENDAR_QUESTIONS,
@@ -59,8 +60,8 @@ class AdventCalendarQuestionResultSerializer(serializers.Serializer):
 class AdventCalendarResultsSerializer(serializers.Serializer):
     questions = AdventCalendarQuestionResultSerializer(
         many=True,
-        help_text="Every advent calendar question, by day. Shares count the answers of every PostHog user, not only "
-        "this project's members.",
+        help_text="Every advent calendar question, by day. Shares count the answers of every user of this PostHog "
+        "instance, not only this project's members. Each cloud region counts its own users.",
     )
 
 
@@ -68,6 +69,8 @@ class WorkflowAdventCalendarViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """How people answer the questions of the Workflows advent calendar."""
 
     scope_object = "INTERNAL"
+    posthog_feature_flag = "workflows-advent-calendar"
+    permission_classes = [PostHogFeatureFlagPermission]
 
     @extend_schema(operation_id="workflow_advent_calendar_results", responses={200: AdventCalendarResultsSerializer})
     @action(detail=False, methods=["get"])

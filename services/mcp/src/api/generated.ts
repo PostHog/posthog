@@ -14416,7 +14416,7 @@ export namespace Schemas {
     }
 
     export interface AdventCalendarResults {
-      /** Every advent calendar question, by day. Shares count the answers of every PostHog user, not only this project's members. */
+      /** Every advent calendar question, by day. Shares count the answers of every user of this PostHog instance, not only this project's members. Each cloud region counts its own users. */
       questions: AdventCalendarQuestionResult[];
     }
 

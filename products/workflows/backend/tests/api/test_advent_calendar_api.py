@@ -1,6 +1,7 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,6 +10,12 @@ from posthog.models import Organization, Team, User
 
 
 class TestAdventCalendarAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patch = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+
     def _url(self, team: Team, action: str) -> str:
         return f"/api/projects/{team.id}/workflow_advent_calendar/{action}/"
 
@@ -18,11 +25,11 @@ class TestAdventCalendarAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
 
-    def _results(self) -> dict[int, dict[str, Any]]:
+    def _results(self) -> list[dict[str, Any]]:
         self.client.force_login(self.user)
         response = self.client.get(self._url(self.team, "results"))
         assert response.status_code == status.HTTP_200_OK, response.json()
-        return {question["day"]: question for question in response.json()["questions"]}
+        return response.json()["questions"]
 
     def _member_of_another_organization(self, email: str) -> tuple[User, Team]:
         organization = Organization.objects.create(name="Other organization")
@@ -38,9 +45,10 @@ class TestAdventCalendarAPI(APIBaseTest):
         self._answer_as(teammate, self.team, 2, "tim")
         self._answer_as(self.user, self.team, 2, "tim")
 
-        results = self._results()
+        questions = self._results()
 
-        assert list(results) == [2, 5, 10, 13, 18, 21]
+        assert [question["day"] for question in questions] == [2, 5, 10, 13, 18, 21]
+        results = {question["day"]: question for question in questions}
         assert results[2] == {
             "day": 2,
             "answer": "tim",
@@ -81,4 +89,13 @@ class TestAdventCalendarAPI(APIBaseTest):
         response = self.client.post(self._url(self.team, "answer"), body)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert all(question["answer"] is None for question in self._results().values())
+        assert all(question["answer"] is None for question in self._results())
+
+    def test_people_outside_the_advent_calendar_rollout_can_neither_answer_nor_read(self) -> None:
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
+            answer = self.client.post(self._url(self.team, "answer"), {"day": 2, "option": "tim"})
+            results = self.client.get(self._url(self.team, "results"))
+
+        assert answer.status_code == status.HTTP_403_FORBIDDEN
+        assert results.status_code == status.HTTP_403_FORBIDDEN
+        assert all(question["answer"] is None for question in self._results())
