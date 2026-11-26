@@ -741,7 +741,6 @@ CODE_SEND_FIELDS = (
     "capture_engagement",
     "tracking",
     "sensitive",
-    "category",
     *CODE_SEND_EXTRA_FIELDS,
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024

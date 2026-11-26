@@ -1257,7 +1257,6 @@ class TestTransactionalEmail(APIBaseTest):
             ("cc", "copy@example.com", "invalid_request"),
             ("bcc", ["audit@example.com"], "invalid_request"),
             ("attachments", TWO_FILES[:1], "invalid_request"),
-            ("category", "newsletter", "validation_error"),
         ]
     )
     def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value, error_type):
