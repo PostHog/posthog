@@ -1,8 +1,10 @@
+import re
 import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -26,6 +28,10 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import to_printed_hogql
 
 from posthog.clickhouse.client import sync_execute
 
@@ -112,6 +118,31 @@ class TestSeriesValuesRewrite(ClickhouseTestMixin, APIBaseTest):
         ):
             _create_event(team=self.team, event="other", distinct_id="p2", timestamp=timestamp)
         flush_persons_and_events()
+
+    def _printed(self, query: Any) -> str:
+        return re.sub(r"'[0-9a-f-]{36}'", "'<job id>'", to_printed_hogql(query, self.team))
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @time_machine.travel(_NOW, tick=False)
+    def test_the_count_query_as_written_served_and_stored_only(self) -> None:
+        written = """
+            SELECT count() AS total, toStartOfDay(timestamp) AS day_start
+            FROM events
+            WHERE and(
+                timestamp >= toStartOfInterval(assumeNotNull(toDateTime('2024-01-08 00:00:00')), toIntervalDay(1)),
+                timestamp <= assumeNotNull(toDateTime('2024-01-15 23:59:59')),
+                event = 'signed_up',
+                properties.plan = 'pro'
+            )
+            GROUP BY day_start
+        """
+        printed = {"as written": self._printed(parse_select(written))}
+        for mode in ("serve", "stored_only"):
+            context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+            rewritten = SeriesValuesRewrite(mode=mode).rewrite(parse_select(written), context)
+            printed[mode.replace("_", " ")] = self._printed(rewritten)
+
+        assert "\n\n".join(f"-- {name}\n{query}" for name, query in printed.items()) == self.snapshot
 
     def _live(self, query: TrendsQuery) -> list[Any]:
         return TrendsQueryRunner(team=self.team, query=query).calculate().results
