@@ -215,7 +215,10 @@ describe('ImpactFunnelCard', () => {
         const saved = new Promise<void>((resolve) => (answerSave = resolve))
         useMocks({
             patch: {
-                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
+                '/api/organizations/:organization_id/projects/:id/': async ({ request, params }) => {
+                    if (params.organization_id !== team.organization || params.id !== String(team.id)) {
+                        return [404, { detail: 'Not found.' }]
+                    }
                     patches.push((await request.json()) as Partial<TeamType>)
                     await saved
                     const [status, body] = saveAnswer
