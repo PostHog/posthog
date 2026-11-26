@@ -76,6 +76,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `dashboard` - dashboard
  * * `event_filter` - event_filter
  * * `dashboard_template` - dashboard_template
+ * * `dashboard_v2_board` - dashboard_v2_board
  * * `dataset` - dataset
  * * `early_access_feature` - early_access_feature
  * * `endpoint` - endpoint
@@ -202,6 +203,7 @@ export const ScopeObjectEnumApi = {
     Dashboard: 'dashboard',
     EventFilter: 'event_filter',
     DashboardTemplate: 'dashboard_template',
+    DashboardV2Board: 'dashboard_v2_board',
     Dataset: 'dataset',
     EarlyAccessFeature: 'early_access_feature',
     Endpoint: 'endpoint',
@@ -351,6 +353,7 @@ export interface ProjectAccessSourceApi {
      * * `dashboard` - dashboard
      * * `event_filter` - event_filter
      * * `dashboard_template` - dashboard_template
+     * * `dashboard_v2_board` - dashboard_v2_board
      * * `dataset` - dataset
      * * `early_access_feature` - early_access_feature
      * * `endpoint` - endpoint
@@ -520,6 +523,7 @@ export interface AccessControlObjectRuleApi {
      * * `dashboard` - dashboard
      * * `event_filter` - event_filter
      * * `dashboard_template` - dashboard_template
+     * * `dashboard_v2_board` - dashboard_v2_board
      * * `dataset` - dataset
      * * `early_access_feature` - early_access_feature
      * * `endpoint` - endpoint
@@ -663,6 +667,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `customer_task` - customer_task
  * * `dashboard` - dashboard
  * * `dashboard_template` - dashboard_template
+ * * `dashboard_v2_board` - dashboard_v2_board
  * * `data_catalog` - data_catalog
  * * `data_deletion` - data_deletion
  * * `dataset` - dataset
@@ -723,6 +728,7 @@ export const RuleResourceEnumApi = {
     CustomerTask: 'customer_task',
     Dashboard: 'dashboard',
     DashboardTemplate: 'dashboard_template',
+    DashboardV2Board: 'dashboard_v2_board',
     DataCatalog: 'data_catalog',
     DataDeletion: 'data_deletion',
     Dataset: 'dataset',
@@ -788,6 +794,7 @@ export interface AccessControlRuleRequestApi {
      * * `customer_task` - customer_task
      * * `dashboard` - dashboard
      * * `dashboard_template` - dashboard_template
+     * * `dashboard_v2_board` - dashboard_v2_board
      * * `data_catalog` - data_catalog
      * * `data_deletion` - data_deletion
      * * `dataset` - dataset
@@ -920,6 +927,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `dashboard` - dashboard
      * * `event_filter` - event_filter
      * * `dashboard_template` - dashboard_template
+     * * `dashboard_v2_board` - dashboard_v2_board
      * * `dataset` - dataset
      * * `early_access_feature` - early_access_feature
      * * `endpoint` - endpoint
@@ -1074,6 +1082,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `customer_task` - customer_task
      * * `dashboard` - dashboard
      * * `dashboard_template` - dashboard_template
+     * * `dashboard_v2_board` - dashboard_v2_board
      * * `data_catalog` - data_catalog
      * * `data_deletion` - data_deletion
      * * `dataset` - dataset
@@ -1213,6 +1222,7 @@ export interface ResolvedAccessApi {
      * * `dashboard` - dashboard
      * * `event_filter` - event_filter
      * * `dashboard_template` - dashboard_template
+     * * `dashboard_v2_board` - dashboard_v2_board
      * * `dataset` - dataset
      * * `early_access_feature` - early_access_feature
      * * `endpoint` - endpoint
@@ -1392,6 +1402,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `customer_task` - customer_task
      * * `dashboard` - dashboard
      * * `dashboard_template` - dashboard_template
+     * * `dashboard_v2_board` - dashboard_v2_board
      * * `data_catalog` - data_catalog
      * * `data_deletion` - data_deletion
      * * `dataset` - dataset

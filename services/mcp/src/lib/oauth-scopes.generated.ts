@@ -76,6 +76,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'event_filter:write',
     'dashboard_template:read',
     'dashboard_template:write',
+    'dashboard_v2_board:read',
+    'dashboard_v2_board:write',
     'dataset:read',
     'dataset:write',
     'early_access_feature:read',
@@ -275,6 +277,7 @@ export const OAUTH_SCOPES_HIDDEN = [
 // `<legacy>:<action>` satisfies a required `<new>:<action>`.
 export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([
     ['account_note', 'account'],
+    ['dashboard_v2_board', 'dashboard'],
     ['inbox', 'task'],
     ['messaging_preference', 'hog_flow'],
     ['transactional_email', 'hog_flow'],

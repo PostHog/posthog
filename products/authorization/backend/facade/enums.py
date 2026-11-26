@@ -97,6 +97,7 @@ class ResourceType(StrEnum):
     EXPERIMENT_SAVED_METRIC = "experiment_saved_metric"
     EXPERIMENT_HOLDOUT = "experiment_holdout"
     DASHBOARD_TEMPLATE = "dashboard_template"
+    DASHBOARD_V2_BOARD = "dashboard_v2_board"
     MARKETING_ANALYTICS = "marketing_analytics"
     VISION_ALERT = "vision_alert"
     SHARING_CONFIGURATION = "sharing_configuration"

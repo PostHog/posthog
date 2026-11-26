@@ -13,6 +13,7 @@ from posthog.models.user import User
 from posthog.permissions import dashboard_v2_enabled, is_service_auth
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.dashboards.backend.facade import api
 from products.dashboards.backend.facade.contracts import (
     MAX_BOARD_SPEC_BYTES,
@@ -38,7 +39,9 @@ class BoardSpecField(serializers.JSONField):
 
 
 class BoardSummarySerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="The board's row id. Object access rules on the `dashboard` resource use it.")
+    id = serializers.UUIDField(
+        help_text="The board's row id. Object access rules on the `dashboard_v2_board` resource use it."
+    )
     uid = serializers.CharField(help_text="Identifier of the board in URLs. Unique among the project's live boards.")
     title = serializers.CharField(help_text="The document's `title` when it was last saved.")
     tags = serializers.ListField(
@@ -100,12 +103,12 @@ _INVALID = OpenApiResponse(description="The document's schema version is unknown
 _READ_ONLY = OpenApiResponse(description="The board is built in or managed from code, so it cannot change here.")
 
 
-class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     """Saved `dashboard-v2` boards. Each board is one JSON document."""
 
-    # Boards share the `dashboard` resource: resource-level access to dashboards covers boards too, and an object
-    # rule names a board by its row UUID, which never equals a classic dashboard's integer id.
-    scope_object = "dashboard"
+    # Boards inherit resource-level access from `dashboard`, and a `dashboard` token scope covers them. Object rules
+    # name a board's UUID, so they live on this resource: the classic dashboard filters compare integer ids.
+    scope_object = "dashboard_v2_board"
     pagination_class = FacadeLimitOffsetPagination
     serializer_class = BoardDetailSerializer
     lookup_field = "uid"
@@ -129,14 +132,14 @@ class DashboardV2BoardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def object_access_ref(self, record: BoardSummary) -> ObjectAccessRef:
         return ObjectAccessRef(
-            resource="dashboard", id=str(record.id), team_id=record.team_id, created_by_id=record.created_by_id
+            resource="dashboard_v2_board", id=str(record.id), team_id=record.team_id, created_by_id=record.created_by_id
         )
 
     def _list_access(self) -> BoardListAccess | None:
         if is_service_auth(self.request):
             return None
         # Org admins have implicit access to every dashboard, so the list must match retrieve, as for classic ones.
-        access = self.user_access_control.list_access_filter("dashboard", include_all_if_admin=True)
+        access = self.user_access_control.list_access_filter("dashboard_v2_board", include_all_if_admin=True)
         if access is None:
             return None
         return BoardListAccess(

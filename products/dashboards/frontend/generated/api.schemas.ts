@@ -325,7 +325,7 @@ export const BoardManagedByEnumApi = {
 } as const
 
 export interface BoardSummaryApi {
-    /** The board's row id. Object access rules on the `dashboard` resource use it. */
+    /** The board's row id. Object access rules on the `dashboard_v2_board` resource use it. */
     id: string
     /** Identifier of the board in URLs. Unique among the project's live boards. */
     uid: string
@@ -394,7 +394,7 @@ export interface BoardCreateApi {
 export type BoardDetailApiSpec = { [key: string]: unknown }
 
 export interface BoardDetailApi {
-    /** The board's row id. Object access rules on the `dashboard` resource use it. */
+    /** The board's row id. Object access rules on the `dashboard_v2_board` resource use it. */
     id: string
     /** Identifier of the board in URLs. Unique among the project's live boards. */
     uid: string

@@ -57,6 +57,9 @@ APIScopeObject = Literal[
     "dashboard",
     "event_filter",
     "dashboard_template",
+    # Dashboards v2 boards. Split off `dashboard` so object rules on boards, keyed by UUID, never reach the classic
+    # dashboard filters, which compare integer ids. A `dashboard` scope still covers it, see LEGACY_SCOPE_FALLBACKS.
+    "dashboard_v2_board",
     "dataset",
     "early_access_feature",
     "endpoint",

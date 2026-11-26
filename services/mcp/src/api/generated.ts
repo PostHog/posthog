@@ -1834,6 +1834,7 @@ export namespace Schemas {
      * * `dashboard` - dashboard
      * * `event_filter` - event_filter
      * * `dashboard_template` - dashboard_template
+     * * `dashboard_v2_board` - dashboard_v2_board
      * * `dataset` - dataset
      * * `early_access_feature` - early_access_feature
      * * `endpoint` - endpoint
@@ -1961,6 +1962,7 @@ export namespace Schemas {
       Dashboard: 'dashboard',
       EventFilter: 'event_filter',
       DashboardTemplate: 'dashboard_template',
+      DashboardV2Board: 'dashboard_v2_board',
       Dataset: 'dataset',
       EarlyAccessFeature: 'early_access_feature',
       Endpoint: 'endpoint',
@@ -2088,6 +2090,7 @@ export namespace Schemas {
        * * `dashboard` - dashboard
        * * `event_filter` - event_filter
        * * `dashboard_template` - dashboard_template
+       * * `dashboard_v2_board` - dashboard_v2_board
        * * `dataset` - dataset
        * * `early_access_feature` - early_access_feature
        * * `endpoint` - endpoint
@@ -2338,6 +2341,7 @@ export namespace Schemas {
        * * `dashboard` - dashboard
        * * `event_filter` - event_filter
        * * `dashboard_template` - dashboard_template
+       * * `dashboard_v2_board` - dashboard_v2_board
        * * `dataset` - dataset
        * * `early_access_feature` - early_access_feature
        * * `endpoint` - endpoint
@@ -2526,6 +2530,7 @@ export namespace Schemas {
      * * `customer_task` - customer_task
      * * `dashboard` - dashboard
      * * `dashboard_template` - dashboard_template
+     * * `dashboard_v2_board` - dashboard_v2_board
      * * `data_catalog` - data_catalog
      * * `data_deletion` - data_deletion
      * * `dataset` - dataset
@@ -2587,6 +2592,7 @@ export namespace Schemas {
       CustomerTask: 'customer_task',
       Dashboard: 'dashboard',
       DashboardTemplate: 'dashboard_template',
+      DashboardV2Board: 'dashboard_v2_board',
       DataCatalog: 'data_catalog',
       DataDeletion: 'data_deletion',
       Dataset: 'dataset',
@@ -2651,6 +2657,7 @@ export namespace Schemas {
        * * `customer_task` - customer_task
        * * `dashboard` - dashboard
        * * `dashboard_template` - dashboard_template
+       * * `dashboard_v2_board` - dashboard_v2_board
        * * `data_catalog` - data_catalog
        * * `data_deletion` - data_deletion
        * * `dataset` - dataset
@@ -2757,6 +2764,7 @@ export namespace Schemas {
        * * `dashboard` - dashboard
        * * `event_filter` - event_filter
        * * `dashboard_template` - dashboard_template
+       * * `dashboard_v2_board` - dashboard_v2_board
        * * `dataset` - dataset
        * * `early_access_feature` - early_access_feature
        * * `endpoint` - endpoint
@@ -2924,6 +2932,7 @@ export namespace Schemas {
        * * `customer_task` - customer_task
        * * `dashboard` - dashboard
        * * `dashboard_template` - dashboard_template
+       * * `dashboard_v2_board` - dashboard_v2_board
        * * `data_catalog` - data_catalog
        * * `data_deletion` - data_deletion
        * * `dataset` - dataset
@@ -3013,6 +3022,7 @@ export namespace Schemas {
        * * `customer_task` - customer_task
        * * `dashboard` - dashboard
        * * `dashboard_template` - dashboard_template
+       * * `dashboard_v2_board` - dashboard_v2_board
        * * `data_catalog` - data_catalog
        * * `data_deletion` - data_deletion
        * * `dataset` - dataset
@@ -23656,7 +23666,7 @@ export namespace Schemas {
     } as const;
 
     export interface BoardDetail {
-      /** The board's row id. Object access rules on the `dashboard` resource use it. */
+      /** The board's row id. Object access rules on the `dashboard_v2_board` resource use it. */
       id: string;
       /** Identifier of the board in URLs. Unique among the project's live boards. */
       uid: string;
@@ -23703,7 +23713,7 @@ export namespace Schemas {
     }
 
     export interface BoardSummary {
-      /** The board's row id. Object access rules on the `dashboard` resource use it. */
+      /** The board's row id. Object access rules on the `dashboard_v2_board` resource use it. */
       id: string;
       /** Identifier of the board in URLs. Unique among the project's live boards. */
       uid: string;
@@ -75953,6 +75963,7 @@ export namespace Schemas {
        * * `dashboard` - dashboard
        * * `event_filter` - event_filter
        * * `dashboard_template` - dashboard_template
+       * * `dashboard_v2_board` - dashboard_v2_board
        * * `dataset` - dataset
        * * `early_access_feature` - early_access_feature
        * * `endpoint` - endpoint

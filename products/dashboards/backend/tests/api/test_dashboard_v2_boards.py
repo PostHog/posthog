@@ -185,15 +185,19 @@ class TestDashboardV2Boards(APIBaseTest):
     def test_an_object_rule_of_none_hides_a_board_from_other_members(self) -> None:
         shown = self._create(_board("Shown")).json()
         hidden = self._create(_board("Hidden")).json()
-        AccessControl.objects.create(
-            team=self.team, resource="dashboard", resource_id=hidden["id"], access_level="none"
-        )
-        self.client.force_login(self._member())
+        member = self._member()
+        ruled = self.client.put(f"{self._url(hidden['uid'])}access_controls/", {"access_level": "none"}, format="json")
+        assert ruled.status_code == status.HTTP_200_OK, ruled.json()
+        assert AccessControl.objects.filter(resource="dashboard_v2_board", resource_id=hidden["id"]).exists()
+        self.client.force_login(member)
 
         assert [row["uid"] for row in self.client.get(self._url()).json()["results"]] == [shown["uid"]]
         assert self.client.get(self._url(hidden["uid"])).status_code in (403, 404)
         patched = self.client.put(self._url(hidden["uid"]), {"spec": _board("x")}, format="json")
         assert patched.status_code in (403, 404)
+        # Classic dashboard filters compare integer ids, so a board rule must not reach them.
+        classic = self.client.get(f"/api/projects/{self.team.pk}/dashboards/")
+        assert classic.status_code == status.HTTP_200_OK, classic.json()
 
         admin = User.objects.create_and_join(self.organization, "admin@posthog.com", "password")
         OrganizationMembership.objects.filter(user=admin).update(level=OrganizationMembership.Level.ADMIN)
@@ -207,7 +211,7 @@ class TestDashboardV2Boards(APIBaseTest):
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         AccessControl.objects.create(
             team=self.team,
-            resource="dashboard",
+            resource="dashboard_v2_board",
             resource_id=granted["id"],
             access_level="viewer",
             organization_member=OrganizationMembership.objects.get(user=member),
