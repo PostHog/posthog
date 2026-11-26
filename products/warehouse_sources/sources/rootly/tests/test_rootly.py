@@ -232,6 +232,79 @@ class TestIncidentEventsFanout:
         assert result.paths == ["/v1/incidents", "/v1/incidents/inc-2/events"]
 
 
+def _rotation_users_script(request: RecordedRequest) -> ScriptedResponse:
+    second_page = f"{ROOTLY_BASE_URL}/schedule_rotations/rot-1/schedule_rotation_users?page%5Bnumber%5D=2"
+    if request.path == "/v1/schedules":
+        return _response([{"id": "sch-1", "type": "schedules"}, {"id": "sch-2", "type": "schedules"}])
+    if request.path == "/v1/schedules/sch-1/schedule_rotations":
+        return _response(
+            [
+                {"id": "rot-1", "type": "schedule_rotations", "attributes": {"schedule_id": "sch-1"}},
+                {"id": "rot-2", "type": "schedule_rotations", "attributes": {"schedule_id": "sch-1"}},
+            ]
+        )
+    if request.path == "/v1/schedules/sch-2/schedule_rotations":
+        return ScriptedResponse(status=404, json={"errors": [{"title": "Not found", "status": "404"}]})
+    if request.path == "/v1/schedule_rotations/rot-1/schedule_rotation_users" and request.param("page[number]") == "2":
+        return _response(
+            [
+                {
+                    "id": "ru-2",
+                    "type": "schedule_rotation_users",
+                    "attributes": {"schedule_rotation_id": "rot-1", "user_id": 8},
+                }
+            ]
+        )
+    if request.path == "/v1/schedule_rotations/rot-1/schedule_rotation_users":
+        return _response(
+            [
+                {
+                    "id": "ru-1",
+                    "type": "schedule_rotation_users",
+                    "attributes": {"schedule_rotation_id": "rot-1", "user_id": 7},
+                }
+            ],
+            next_url=second_page,
+        )
+    if request.path == "/v1/schedule_rotations/rot-2/schedule_rotation_users":
+        return ScriptedResponse(status=404, json={"errors": [{"title": "Not found", "status": "404"}]})
+    raise AssertionError(f"unexpected request {request.url}")
+
+
+class TestScheduleRotationUsersChainedFanout:
+    def test_walks_schedules_then_rotations_and_tags_rows_with_the_schedule(self) -> None:
+        result = _driver().run("schedule_rotation_users", _rotation_users_script)
+
+        assert result.raised is None
+        assert result.rows == [
+            {
+                "id": "ru-1",
+                "type": "schedule_rotation_users",
+                "schedule_rotation_id": "rot-1",
+                "user_id": 7,
+                "schedule_id": "sch-1",
+            },
+            {
+                "id": "ru-2",
+                "type": "schedule_rotation_users",
+                "schedule_rotation_id": "rot-1",
+                "user_id": 8,
+                "schedule_id": "sch-1",
+            },
+        ]
+        assert result.paths == [
+            "/v1/schedules",
+            "/v1/schedules/sch-1/schedule_rotations",
+            "/v1/schedule_rotations/rot-1/schedule_rotation_users",
+            "/v1/schedule_rotations/rot-1/schedule_rotation_users",
+            "/v1/schedule_rotations/rot-2/schedule_rotation_users",
+            "/v1/schedules/sch-2/schedule_rotations",
+        ]
+        assert result.saved_states == []
+        assert result.response is not None
+        assert result.response.primary_keys == ["schedule_rotation_id", "id"]
+
+
 class TestProbeCredentials:
     @parameterized.expand([("ok", 200), ("unauthorized", 401), ("forbidden", 403)])
     def test_returns_status_code(self, _name: str, status_code: int) -> None:
@@ -243,6 +316,7 @@ class TestProbeCredentials:
             ("top_level_endpoint", "statuses", "/v1/statuses"),
             # The child path needs an incident id, so the scope check probes the parent collection.
             ("fanout_endpoint_probes_parent", "incident_events", "/v1/incidents"),
+            ("two_level_fanout_probes_root", "schedule_rotation_users", "/v1/schedules"),
             ("no_endpoint", None, "/v1/users"),
         ]
     )

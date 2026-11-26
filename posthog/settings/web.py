@@ -189,6 +189,8 @@ MIDDLEWARE = [
     # Outside every middleware that can answer early (IP allowlist, CSRF, auth, IP restrictions),
     # so the build skew counter sees the status of each API response the client receives.
     "posthog.client_build_middleware.ClientBuildSkewMiddleware",
+    # Outside the same middleware, so hog gets its notices on every answer, an early refusal included.
+    "posthog.cli_notices.CliNoticeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
@@ -210,6 +212,13 @@ MIDDLEWARE = [
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
     "posthog.csp_middleware.CSPMiddleware",
+    # Above every middleware that can answer without calling the view, so those responses get the
+    # header too. A view that allows framing still opts out with xframe_options_exempt.
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Below WhiteNoise, which serves the files that exist, and below CSPMiddleware and
+    # XFrameOptionsMiddleware, so that the 404 gets their headers. Above the middleware that loads
+    # the session and the user from the database.
+    "posthog.middleware.MissingStaticFileMiddleware",
     "django.middleware.common.CommonMiddleware",
     # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
     # resolution so the /api/environments → /api/projects rewrite is in place before the
@@ -237,7 +246,6 @@ MIDDLEWARE = [
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "posthog.middleware.NewEventsSchemaCookieMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
@@ -629,7 +637,7 @@ SPECTACULAR_SETTINGS = {
         "posthog.openapi.enum_name_guard.record_enum_hashes",
         "drf_spectacular.hooks.postprocess_schema_enums",
         "posthog.openapi.enum_name_guard.check_enum_name_clashes",
-        "products.dashboards.backend.widget_specs.pydantic_openapi.inject_widget_spec_pydantic_components",
+        "products.dashboards.backend.presentation.pydantic_openapi.inject_widget_spec_pydantic_components",
         "posthog.api.documentation.custom_postprocessing_hook",
         # Runs last so it sees the final post-processed spec. Emits drf-spectacular warnings
         # for self-inconsistencies (default not in enum, required not in properties, $ref siblings)
@@ -853,7 +861,6 @@ SPECTACULAR_SETTINGS = {
                 "ultracode",
                 None,
             ],
-            "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "DataQualityCheckSeverityEnum": ["error", "warn"],
             "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
             "CanvasLayoutSchemaVersionEnum": [(1, 1)],
@@ -1406,6 +1413,8 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:read",
     "heatmap:write",
     "element:read",
+    "event_definition:read",
+    "event_definition:write",
     "uploaded_media:write",
     "field_note:read",
     "field_note:write",
@@ -1419,9 +1428,13 @@ AI_GATEWAY_INTERNAL_URL = get_from_env("AI_GATEWAY_INTERNAL_URL", "")
 AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 
 # AI gateway inference endpoint: OpenAI-compatible URL (include /v1) + phs_ project
-# secret for routing LLM calls through the gateway. Unset = direct to the provider.
-AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
-AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
+# secret. Unset, every gateway client builder raises. Local dev defaults to the sibling
+# Go gateway and the key `bin/setup-gateway-e2e` registers.
+_LOCAL_AI_GATEWAY = DEBUG and not TEST
+AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "http://localhost:8080/v1" if _LOCAL_AI_GATEWAY else "")
+AI_GATEWAY_API_KEY = get_from_env(
+    "AI_GATEWAY_API_KEY", "phs_localgatewaye2elocalgatewaye2e0001" if _LOCAL_AI_GATEWAY else ""
+)
 
 # Decision model behind the HogQL `jev` function. Per environment, so a
 # different model can be measured without a code change.
@@ -1540,9 +1553,10 @@ try:
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
 
-# AEO citation-tracking POC (products/aeo). The scheduled runner only covers
-# teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
-AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
+# The catalog sync probes every catalog server over the network, so CI jobs that start a
+# Celery worker turn it off to keep test runs from reaching third-party hosts.
+MCP_CATALOG_SYNC_ON_WORKER_READY: bool = get_from_env("MCP_CATALOG_SYNC_ON_WORKER_READY", True, type_cast=str_to_bool)
+
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")

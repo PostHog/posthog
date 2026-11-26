@@ -128,6 +128,9 @@ SECTOR_INDUSTRIES = frozenset({"Finance", "Banking", "Insurance", "Capital Marke
 # Account.Company_LinkedIn__c is a URL(255) field. Salesforce rejects the whole record for a longer value.
 LINKEDIN_URL_MAX_LENGTH = 255
 
+HARMONIC_DESCRIPTION_MAX_LENGTH = 2500  # Half the 5,000-character Salesforce field, for two-unit UTF-16 text
+DESCRIPTION_MIRROR_FIELD = "harmonic_description__c"
+
 LINKEDIN_COUNT_FIELDS = ("LinkedIn_Engineer_Count__c", "LinkedIn_Rolecount__c")
 
 
@@ -200,6 +203,19 @@ def _linkedin_headcounts(company: dict[str, Any]) -> dict[str, int | float]:
     return {"LinkedIn_Engineer_Count__c": engineering, "LinkedIn_Rolecount__c": total}
 
 
+def account_description(description: object) -> str | None:
+    if not isinstance(description, str):
+        return None
+    return description.strip()[:HARMONIC_DESCRIPTION_MAX_LENGTH] or None
+
+
+def _description_on_queried_domain(company: dict[str, Any], queried_domain: str) -> str | None:
+    # A filled Description is never cleared, so it takes text only from a record on the queried domain.
+    if website_domain(company) != queried_domain:
+        return None
+    return account_description(company.get("description"))
+
+
 def overwritten_account_fields(company: dict[str, Any]) -> dict[str, Any]:
     """The canonical Account fields that always take Harmonic's value."""
     fields = {
@@ -214,23 +230,34 @@ def fill_only_account_fields(company: dict[str, Any], *, queried_domain: str) ->
     """The canonical Account fields that take Harmonic's value only while the Account holds none.
 
     Other writers also set these fields, and a different value from Harmonic is not evidence that theirs is wrong.
-    Pass the result through unoccupied_fields() with the Account's current values before it is written.
+    Pass the result through add_unoccupied_fill_fields() in enrichment.py before it is written. That function reads
+    the Account's current values and checks its current Website for Description.
     """
     fields = {
         "NumberOfEmployees": harmonic_headcount(company),
         "Industry": account_industry(company),
         "Company_LinkedIn__c": _linkedin_url(company, queried_domain),
+        "Description": _description_on_queried_domain(company, queried_domain),
         **_linkedin_headcounts(company),
     }
     return {field: value for field, value in fields.items() if value is not None}
 
 
+def _leaves_room(account: dict[str, Any], field: str) -> bool:
+    if field not in account:
+        return False
+    current = account[field]
+    return current in (None, "") or (field == "Description" and current == account.get(DESCRIPTION_MIRROR_FIELD))
+
+
 def unoccupied_fields(fill_fields: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
     """The fill-only fields that the Account's current values leave room for.
 
-    A field that the Account read did not return is unknown, not empty, and is not written.
+    A field that the Account read did not return is unknown, not empty, and is not written. A Description that equals
+    the Account's DESCRIPTION_MIRROR_FIELD is the job's own copy that no person has edited, so Harmonic's newer text
+    replaces it. The mirror must be read before the write that updates it.
     """
-    fields = {field: value for field, value in fill_fields.items() if field in account and account[field] in (None, "")}
+    fields = {field: value for field, value in fill_fields.items() if _leaves_room(account, field)}
     if not all(field in fields for field in LINKEDIN_COUNT_FIELDS):
         for field in LINKEDIN_COUNT_FIELDS:
             fields.pop(field, None)

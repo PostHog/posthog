@@ -614,6 +614,26 @@ class TestLoadFlagHistory(BaseTest):
             },
         )
 
+    def test_a_warehouse_native_exposure_asks_no_exposure_query(self) -> None:
+        # The exposures live in the customer's warehouse. The event query would fail and report to error tracking.
+        self.experiment.exposure_criteria = {
+            "exposure_config": {
+                "kind": "ExperimentWarehouseNativeExposureConfig",
+                "connection_id": "00000000-0000-0000-0000-000000000000",
+                "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+            }
+        }
+        self.experiment.save()
+        self._log_split_changes([_split(50, 50), _split(60, 40)])
+
+        with patch("products.experiments.backend.health.exposure_gate.capture_exception") as capture:
+            history, query = self._load([True])
+
+        assert isinstance(history, FlagHistory)
+        self.assertIsNone(history.exposed_before_first)
+        self.assertEqual((query.call_count, self.units_query.call_count, capture.called), (0, 0, False))
+
     @parameterized.expand(
         [
             ("scan_too_expensive", ClickHouseQueryTimeOut(), False, 0),

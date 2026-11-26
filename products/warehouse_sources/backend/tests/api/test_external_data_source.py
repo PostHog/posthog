@@ -646,6 +646,7 @@ class TestExternalDataSource(APIBaseTest):
                 "status",
                 "sync_type",
                 "last_synced_at",
+                "last_checked_at",
                 "sync_frequency",
                 "latest_error",
                 "table",
@@ -817,6 +818,7 @@ class TestExternalDataSource(APIBaseTest):
                 "should_sync": True,
                 "status": ExternalDataSchema.Status.FAILED,
                 "last_synced_at": None,
+                "last_checked_at": None,
                 "latest_error": "boom",
             }
         else:
@@ -3996,6 +3998,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field_type": None,
                     "incremental_field_lookback_seconds": None,
                     "last_synced_at": schema.last_synced_at,
+                    "last_checked_at": None,
                     "name": schema.name,
                     "label": schema.label,
                     "latest_error": schema.latest_error,
@@ -4017,6 +4020,7 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_table_mode": "consolidated",
                     "incremental_sync_blocked": None,
                     "webhook_not_registered": False,
+                    "webhook_issue": None,
                     "enabled_columns": None,
                     "masked_columns": None,
                     "row_filters": None,
@@ -4170,7 +4174,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
         assert failing.manual_run_requested is True
-        assert healthy.sync_type_config == {}
+        assert healthy.manual_run_requested is False
+        assert "failure_streak" not in healthy.sync_type_config
+        assert (failing.manual_sync_pending, healthy.manual_sync_pending) == (True, True)
 
     @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_schemas: Mock) -> None:
@@ -7150,13 +7156,17 @@ class TestExternalDataSource(APIBaseTest):
             pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
-        response = self.client.get(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
-        )
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.Database.create_for"
+        ) as database:
+            response = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+            )
 
         data = response.json()
 
         assert response.status_code == status.HTTP_200_OK
+        database.assert_not_called()
         assert len(data) == 1
         assert data[0]["id"] == str(job.pk)
         assert data[0]["status"] == "Completed"

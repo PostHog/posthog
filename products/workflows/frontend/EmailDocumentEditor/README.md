@@ -10,9 +10,11 @@ The editor's state lives in `design`, which is never compiled or sent:
 ```text
 design = {
   ...an old-editor design with one HTML block holding the rendered html,
-  emailDocument: { version: 1, doc: <TipTap JSON, page style in doc.attrs.page> }
+  emailDocument: { version: 1 or 2, doc: <TipTap JSON, page style in doc.attrs.page> }
 }
 ```
+
+A document with a section has version 2. An editor from before sections would open it empty, so it skips that version and opens the stored html as one HTML block instead.
 
 This shape does three things:
 
@@ -48,7 +50,32 @@ The new editor reaches `emailTemplaterLogic` through `emailEditorAdapter`, which
 
 An email that is only one HTML block holding a whole document, or html from outside the editor such as an import, goes out exactly as written. `htmlSentAsWritten` decides. The canvas then shows that html on its own at desktop width, without the page's width and padding. The style panel leaves out Page style and the block's spacing and visibility, because none of them reach the sent html. A block that already has a visibility keeps that setting, because its condition still gates the plain text.
 
-`renderEmailHtml` writes tables and inline styles. Columns are inline-blocks capped at their width, so they stack on a phone without a media query, with ghost tables for Outlook. Liquid passes through unescaped outside attributes.
+`renderEmailHtml` writes tables and inline styles. Columns are inline-blocks capped at their width, so they stack on a phone without a media query, with ghost tables for Outlook. Liquid passes through unescaped outside attributes. A section is one table cell that carries the color and padding around its blocks, columns included. Sections don't nest.
+
+Line heights are multiples, so larger text in a block gets its own share instead of the height of the text around it.
+
+## Number limits
+
+`numberLimits` holds the range of each number setting. A number outside it is corrected when the person leaves the field, and the field says so. A saved number outside it opens, renders and saves as it is until someone types another one in that field.
+
+## Preview
+
+Preview shows what a save stores and a send uses, as the HTML view does.
+
+Line heights are multiples, so larger text in a block gets its own share instead of the height of the text around it.
+
+## Number limits
+
+`numberLimits` holds the range of each number setting. A number outside it is corrected when the person leaves the field, and the field says so. A saved number outside it opens, renders and saves as it is until someone types another one in that field.
+
+## Preview
+
+Preview shows what a save stores and a send uses, as the HTML view does.
+
+## The HTML view
+
+The HTML tab is read-only. It hands over a pending edit the way a save does, then shows `content.email.html`, so it matches what a save stores. An email nobody has edited shows its stored html, not a new render.
+When the latest edit can't be read, the tab says so instead of showing older html.
 
 ## Plain text
 

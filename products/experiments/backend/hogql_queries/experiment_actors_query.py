@@ -78,11 +78,11 @@ def build_experiment_actors_query(runner: "ExperimentQueryRunner") -> ast.Select
             raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
         # An explicit override replaces the whole exposure definition, including any
         # stored activation event.
-        exposure_config = resolve_exposure_config_for_builder(override, runner.team, runner.experiment.start_date)
+        exposure_config = resolve_exposure_config_for_builder(override, runner.experiment.start_date)
     else:
         # Same resolution as the main experiment query, so the actor list matches the counts.
         exposure_params = get_exposure_config_params_for_builder(
-            runner.experiment.exposure_criteria, runner.team, runner.experiment.start_date
+            runner.experiment.exposure_criteria, runner.experiment.start_date
         )
         exposure_config = exposure_params.exposure_config
         activation_config = exposure_params.activation_config

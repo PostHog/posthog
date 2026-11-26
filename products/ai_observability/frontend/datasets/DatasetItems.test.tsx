@@ -20,6 +20,7 @@ jest.mock('./datasetsApi', () => ({
         getItem: jest.fn(),
         listDatasets: jest.fn(),
         listItems: jest.fn(),
+        listItemVersions: jest.fn(),
         listRevisions: jest.fn(),
     },
 }))
@@ -38,6 +39,7 @@ const DATASET: Dataset = {
     created_at: TIMESTAMP,
     updated_at: TIMESTAMP,
     created_by: null,
+    created_by_project_key_id: null,
     archived: false,
     expires_at: null,
     expiring_soon: false,
@@ -63,16 +65,20 @@ const ITEM_WITHOUT_TRACE: DatasetItem = {
     source_timestamp: null,
     source_event_id: null,
     created_by: null,
+    created_by_project_key_id: null,
     created_at: TIMESTAMP,
     updated_at: TIMESTAMP,
     version_created_at: TIMESTAMP,
     version_created_by: null,
+    version_created_by_project_key_id: null,
     team_id: 997,
 }
 
 const ITEM_WITH_TRACE: DatasetItem = {
     ...ITEM_WITHOUT_TRACE,
     id: 'item-2',
+    created_by_project_key_id: 'example-creator-12345678',
+    version_created_by_project_key_id: 'example-editor-87654321',
     source_trace_id: 'trace-1',
     source_timestamp: TIMESTAMP,
     source_event_id: 'event-1',
@@ -102,6 +108,7 @@ describe('DatasetItems', () => {
         const mockDatasetsApi = jest.mocked(datasetsApi)
         mockDatasetsApi.getDataset.mockResolvedValue(DATASET)
         mockDatasetsApi.getItem.mockResolvedValue(ITEM_WITH_TRACE)
+        mockDatasetsApi.listItemVersions.mockResolvedValue({ results: [ITEM_WITH_TRACE], count: 1 })
         mockDatasetsApi.listDatasets.mockResolvedValue({ results: [], count: 0 })
         mockDatasetsApi.listItems.mockResolvedValue({
             results: [ITEM_WITHOUT_TRACE, ITEM_WITH_TRACE, ITEM_WITHOUT_TIMESTAMP],
@@ -124,6 +131,11 @@ describe('DatasetItems', () => {
     afterEach(() => {
         cleanup()
         logic.unmount()
+    })
+
+    it('shows the original project key in the creator column after another key edits the item', () => {
+        const row = within(document.body).getByText(ITEM_WITH_TRACE.id).closest('tr')
+        expect(row?.querySelector('[title="example-creator-12345678"]')?.textContent).toBe('Project key · 12345678')
     })
 
     it('opens the drawer on the source event from the trace link', () => {

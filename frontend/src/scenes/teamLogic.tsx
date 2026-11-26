@@ -54,7 +54,7 @@ const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
     return attr ? identifierToHuman(attr) : 'Project'
 }
 
-/** Blocklist entries are third-party IP addresses and domains, so analytics gets only their counts. */
+/** Request list entries are IP addresses and domains, so analytics gets only their counts. */
 function featureFlagPolicyConfigForAnalytics(
     config: TeamType['feature_flag_policy_config']
 ): Record<string, boolean | number | undefined> | undefined {
@@ -65,6 +65,8 @@ function featureFlagPolicyConfigForAnalytics(
         require_tags: config.require_tags,
         blocked_hosts_count: config.blocked_hosts?.length,
         blocked_ips_count: config.blocked_ips?.length,
+        allowed_hosts_count: config.allowed_hosts?.length,
+        allowed_ips_count: config.allowed_ips?.length,
     }
 }
 

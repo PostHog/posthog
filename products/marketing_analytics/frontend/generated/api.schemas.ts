@@ -794,6 +794,8 @@ export interface ConversionGoalFilter1Api {
         | null
     response?: ConversionGoalFilter1ApiResponse
     schema_map: ConversionGoalFilter1ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -890,6 +892,8 @@ export interface ConversionGoalFilter2Api {
         | null
     response?: ConversionGoalFilter2ApiResponse
     schema_map: ConversionGoalFilter2ApiSchemaMap
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -991,6 +995,8 @@ export interface ConversionGoalFilter3Api {
     schema_map: ConversionGoalFilter3ApiSchemaMap
     table_name: string
     timestamp_field: string
+    /** When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false. */
+    use_in_recommendations?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -1109,6 +1115,7 @@ export interface PartialConversionGoalFilter1Api {
         | null
     response?: PartialConversionGoalFilter1ApiResponse
     schema_map?: PartialConversionGoalFilter1ApiSchemaMap
+    use_in_recommendations?: boolean | null
     version?: number | null
 }
 
@@ -1203,6 +1210,7 @@ export interface PartialConversionGoalFilter2Api {
         | null
     response?: PartialConversionGoalFilter2ApiResponse
     schema_map?: PartialConversionGoalFilter2ApiSchemaMap
+    use_in_recommendations?: boolean | null
     version?: number | null
 }
 
@@ -1302,6 +1310,7 @@ export interface PartialConversionGoalFilter3Api {
     schema_map?: PartialConversionGoalFilter3ApiSchemaMap
     table_name?: string | null
     timestamp_field?: string | null
+    use_in_recommendations?: boolean | null
     version?: number | null
 }
 
@@ -1796,6 +1805,9 @@ export const QueryScanFindingKindApi = {
     NoEventFilter: 'no_event_filter',
     NoStartDate: 'no_start_date',
     PersonsJoin: 'persons_join',
+    RepeatedCteExpansion: 'repeated_cte_expansion',
+    CrossJoinEquality: 'cross_join_equality',
+    DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
 } as const
 
 export interface QueryScanWarningApi {

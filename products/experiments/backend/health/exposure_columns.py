@@ -67,7 +67,7 @@ def _filters_without_column(
 ) -> tuple[ExposureFilterWithoutColumn, ...]:
     team = experiment.team
     # The configs that the exposure query builds from, as the filters that it applies.
-    params = get_exposure_config_params_for_builder(criteria, team, experiment.start_date)
+    params = get_exposure_config_params_for_builder(criteria, experiment.start_date)
     filters = [
         (
             event_or_action_to_filter(team, config),

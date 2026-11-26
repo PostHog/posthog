@@ -7,6 +7,10 @@ import {
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
+import {
+    IntegrationsDomainConnectApplyUrlCreateBody,
+    IntegrationsEmailPartialUpdateBody,
+} from '../generated/integrations/api'
 import { HogFlowsActionsEmailPartialUpdateBody } from '../generated/workflows/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
@@ -168,6 +172,21 @@ export const BillingUsageTypesSchema = z
     .array(z.string().min(1))
     .nullish()
     .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
+
+const EmailSenderConfigFields = IntegrationsEmailPartialUpdateBody().shape.config.unwrap()
+
+export const EmailSenderConfigSchema = EmailSenderConfigFields.omit({ setup_method: true })
+    .extend({
+        email: z.string().describe(EmailSenderConfigFields.shape.email.description!),
+        reply_to: z.string().optional().describe(EmailSenderConfigFields.shape.reply_to.description!),
+        provider: z.literal('ses').default('ses').describe('Sending provider. Always `ses`.'),
+    })
+    .describe('Email sender config.')
+
+export const DomainConnectSenderIdSchema = IntegrationsDomainConnectApplyUrlCreateBody()
+    .shape.integration_id.unwrap()
+    .unwrap()
+    .describe('ID of the email sender integration, the `id` from integrations-email-create or integrations-list.')
 
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))
@@ -877,12 +896,14 @@ export const PropertyDefinitionUpdateSchema = z.object({
 
 const PathCleaningAliasField = z
     .string()
+    .max(1000)
     .describe(
         'The replacement for the matched path, e.g. "/users/<id>/profile". Default to angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid: it deletes the matched text (e.g. to strip a "?page=N" fragment). The alias can also reference a regex capture group with ClickHouse replaceRegexpAll syntax ("\\1" to "\\9" for a group, "\\0" for the whole match), but a rule with capture groups is roughly 3x more expensive per row, so only use one when it collapses several near-identical rules into one.'
     )
 const PathCleaningRegexField = z
     .string()
     .min(1)
+    .max(1000)
     .describe(
         'A re2 pattern matched against the path, e.g. "/users/\\\\d+/profile". No need to escape "/". Anchor with ^ / $ when you mean it.'
     )
@@ -946,15 +967,14 @@ export const PathCleaningRulesUpdateSchema = z.object({
             ])
         )
         .min(1)
+        .max(50)
         .describe('Ordered list of edits to apply to the current path cleaning rules, in sequence.'),
     sample_paths: z
-        // Bounded (count + length) so a pathological user-supplied regex can't burn unbounded
-        // CPU backtracking over the preview. A handful of representative paths is the point.
         .array(z.string().max(2048))
         .max(25)
         .optional()
         .describe(
-            'Optional real paths (e.g. "/users/123/profile") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.'
+            'Optional real paths (e.g. "/users/123/profile") to preview against, up to 25. The response shows how the current and resulting rule sets rewrite each one, computed in ClickHouse with replaceRegexpAll exactly as path cleaning runs. The preview needs the query:read scope.'
         ),
     confirm: z
         .boolean()
@@ -1236,7 +1256,7 @@ export const ExecuteSQLSchema = z.object({
         .optional()
         .default(true)
         .describe(
-            'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+            'Whether to shorten long values and cap the result at a preview. Defaults to true. Set to false when you need every row and full values (e.g., for dumping to a file).'
         ),
     connectionId: z
         .string()

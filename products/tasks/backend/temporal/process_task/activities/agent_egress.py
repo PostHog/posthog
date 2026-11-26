@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
+from django.conf import settings
+from django.db import DatabaseError
+from django.utils import timezone
+
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -11,9 +15,18 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.logic.services.agent_egress import AGENT_EGRESS_LEASE_DURATION, AgentEgressRegistry
 from products.tasks.backend.logic.services.agent_egress_enrollment import AgentEgressRunConfig
-from products.tasks.backend.logic.services.agent_egress_lifecycle import AgentEgressLifecycle, AgentEgressRunEnded
+from products.tasks.backend.logic.services.agent_egress_git import GitGrantUnavailable
+from products.tasks.backend.logic.services.agent_egress_git_worker import publish_agent_egress_git_grant
+from products.tasks.backend.logic.services.agent_egress_lifecycle import (
+    AgentEgressExecution,
+    AgentEgressLifecycle,
+    AgentEgressOwnershipConflict,
+    AgentEgressRunEnded,
+)
 from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
+from products.tasks.backend.models import TaskRun
 
 
 @frozen
@@ -38,6 +51,7 @@ class AgentEgressPrepared:
     sandbox_id: str
     duration_seconds: int
     enrollment_expires_at: float | None = None
+    publish_git_read_grant: bool = False
 
 
 @frozen
@@ -71,6 +85,10 @@ def lifecycle(input: AgentEgressExecutionInput, *, cleanup: bool = False) -> Ite
         yield session
     except AgentEgressRunEnded as error:
         raise ApplicationError(str(error), error.status, type="AgentEgressRunEnded", non_retryable=True) from error
+    except AgentEgressOwnershipConflict as error:
+        raise ApplicationError(
+            str(error), type="AgentEgressOwnershipConflict", next_retry_delay=AGENT_EGRESS_LEASE_DURATION
+        ) from error
 
 
 @asyncify
@@ -81,7 +99,60 @@ def _prepare(input: AgentEgressExecutionInput) -> AgentEgressPrepared:
             sandbox_id=sandbox_id,
             duration_seconds=session.config.duration_seconds,
             enrollment_expires_at=session.enrollment_expires_at,
+            publish_git_read_grant=isinstance(session.config, AgentEgressRunConfig)
+            and session.config.publish_git_read_grant,
         )
+
+
+@activity.defn
+@asyncify
+def initialize_agent_egress_git_grant(input: AgentEgressExecutionInput) -> None:
+    with lifecycle(input) as session:
+        if isinstance(session.config, AgentEgressRunConfig) and session.config.publish_git_read_grant:
+            if input.probe.sandbox_id is None:
+                raise ValueError("Git grant publication requires a provisioned sandbox")
+            try:
+                publish_agent_egress_git_grant(
+                    team_id=session.config.team_id,
+                    run_id=session.config.run_id,
+                    execution_id=session.execution_id,
+                    sandbox_id=input.probe.sandbox_id,
+                    initialize=True,
+                )
+                session.configure_git_read()
+            except DatabaseError:
+                raise GitGrantUnavailable("Git grant storage unavailable") from None
+
+
+@activity.defn
+@asyncify
+def await_agent_egress_git(input: AgentEgressProbeInput) -> None:
+    run = TaskRun.objects.get(id=input.run_id, team_id=input.team_id)
+    if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
+        raise ValueError("The task run has ended")
+    if (run.state or {}).get("agent_egress_git_reads") is not True or (run.state or {}).get(
+        "sandbox_id"
+    ) != input.sandbox_id:
+        raise ValueError("Git routing belongs to another sandbox")
+    raw = (run.state or {}).get("agent_egress_probe")
+    if not raw:
+        raise GitGrantUnavailable("Git egress enrollment is not ready")
+    state = AgentEgressExecution.model_validate(raw)
+    if state.closed or state.expires_at <= timezone.now().timestamp():
+        raise ValueError("Git egress enrollment has ended")
+    if state.sandbox_id is None:
+        raise GitGrantUnavailable("Git egress relay is not ready")
+    if state.sandbox_id != input.sandbox_id:
+        raise ValueError("Git routing belongs to another sandbox")
+    if not state.git_read_configured:
+        raise GitGrantUnavailable("Git egress route is not ready")
+    if (
+        AgentEgressRegistry(region=settings.AGENT_EGRESS_REGION).lookup(
+            team_id=input.team_id, run_id=UUID(input.run_id), execution_id=state.execution_id
+        )
+        is None
+    ):
+        raise ValueError("Git egress authority is no longer active")
 
 
 @activity.defn
