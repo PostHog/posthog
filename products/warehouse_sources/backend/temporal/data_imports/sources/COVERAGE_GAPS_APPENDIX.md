@@ -11582,7 +11582,7 @@ Note: Full vendor resource list read from the docs navigation plus each resource
 
 ## Pinecone — gaps
 
-Today (7): `assistant_files`, `assistants`, `backups`, `collections`, `indexes`, `namespaces`, `restore_jobs`
+Today (10): `assistant_files`, `assistants`, `backup_schedule_history`, `backup_schedules`, `backups`, `collections`, `conversion_jobs`, `indexes`, `namespaces`, `restore_jobs`
 
 Diffed against: <https://raw.githubusercontent.com/pinecone-io/pinecone-api/main/2026-07/db_data_2026-07.oas.yaml>
 
@@ -11595,9 +11595,9 @@ Note: Parsed Pinecone's official 2026-07 database and assistant specifications. 
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/pinecone-io/pinecone-api/main/2026-07/db_control_2026-07.oas.yaml>
 
-- [ ] `Backup schedules (GET /indexes/{index_name}/backup-schedules)` — which indexes have scheduled backups, with cron and retention; fan-out per index (medium)
-- [ ] `Backup schedule history (GET /backup-schedules/{schedule_id}/history)` — backup runs per schedule, to audit whether scheduled backups ran; fan-out per schedule (low)
-- [ ] `Conversion jobs (GET /conversion-jobs)` — progress and status of index to document index conversions, same shape as restore_jobs (low)
+- [x] `Backup schedules (GET /indexes/{index_name}/backup-schedules)` — which indexes have scheduled backups, with cron and retention; fan-out per index (medium). Added as `backup_schedules` (fan-out over non-pod `indexes` on the control plane). Schedules carry a frequency, not a cron expression.
+- [x] `Backup schedule history (GET /backup-schedules/{schedule_id}/history)` — backup runs per schedule, to audit whether scheduled backups ran; fan-out per schedule (low). Added as `backup_schedule_history` (fan-out over `backup_schedules`).
+- [x] `Conversion jobs (GET /conversion-jobs)` — progress and status of index to document index conversions, same shape as restore_jobs (low). Added as `conversion_jobs`.
 
 Note (2026-11-19): Parsed the 2026-07 control plane and assistant control plane specs. Everything else listable there (indexes, collections, backups, restore jobs, assistants) is already synced. Data plane record export stays skipped per the earlier audit, and bulk import listing was treated as import plumbing. Coverage is proportionate to a small, config-focused API.
 
