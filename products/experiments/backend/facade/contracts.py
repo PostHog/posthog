@@ -11,6 +11,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final, Generic, Literal, Optional, TypeVar
 
+from pydantic import JsonValue
+
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.dataclasses import frozen
@@ -259,6 +261,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    RESULT_READY = "result_ready"
     FLAG_SHARED = "flag_shared"
     STALE_EXPERIMENT = "stale_experiment"
 
@@ -327,6 +330,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    RESULT_READY = "result_ready"
     STALE_EXPERIMENT = "stale_experiment"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
@@ -480,6 +484,11 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "control",
     )
     SIGNIFICANT = "significant", "Whether a variant's difference from the control is significant"
+    SIGNIFICANT_SINCE_AT = (
+        "significant_since_at",
+        "Since when every result of the primary metric, up to the current one, shows a variant as significant. With "
+        "more than one significant variant, the earliest date",
+    )
     FORCED_CONDITION_COUNT = (
         "forced_condition_count",
         "Release conditions of the feature flag that serve a fixed variant through a variant override",
@@ -1728,6 +1737,74 @@ class ExperimentDetail(ExperimentBasic):
     can_freeze_exposure: bool
     # The event that exposures are counted on when the experiment configures no custom exposure event.
     resolved_exposure_event: str
+
+
+@frozen
+class ExperimentUpdateTarget:
+    """The fields of one experiment that an update of the experiment API reads before it writes: what its access
+    check needs, and the state that it checks the input against.
+
+    `parameters` holds what `ExperimentDetail.parameters` holds, so an update that sends back the flag config keys
+    that it read compares equal and does not write the flag.
+    """
+
+    id: int
+    team_id: int
+    created_by_id: int | None
+    is_draft: bool
+    feature_flag_active: bool
+    parameters: dict[str, Any]
+
+
+@frozen
+class ExperimentUpdate:
+    """The fields that one update of an experiment sets, as the experiment API validated them.
+
+    Only the fields named in `fields_set` are written. The others keep their stored values. The fields are
+    declared in the order of the fields of the experiment API, which is the order in which the update hands
+    them on.
+    """
+
+    fields_set: frozenset[str]
+    name: str = ""
+    description: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    feature_flag_key: str = ""
+    feature_flag_rule_id: "UUID | None" = None
+    holdout_id: int | None = None
+    # Without the flag config keys, which the update sends as `feature_flag_config`.
+    parameters: JsonValue = None
+    running_time_calculation: JsonValue = None
+    excluded_variants: list[str] | None = None
+    secondary_metrics: JsonValue = None
+    saved_metrics_ids: list[JsonValue] | None = None
+    filters: JsonValue = None
+    archived: bool = False
+    deleted: bool | None = None
+    type: str | None = None
+    exposure_criteria: dict[str, JsonValue] | None = None
+    metrics: list[JsonValue] | None = None
+    metrics_secondary: list[JsonValue] | None = None
+    stats_config: JsonValue = None
+    scheduling_config: JsonValue = None
+    allow_unknown_events: bool = False
+    create_in_folder: str = ""
+    conclusion: str | None = None
+    conclusion_comment: str | None = None
+    repository: str | None = None
+    primary_metrics_ordered_uuids: list[str] | None = None
+    secondary_metrics_ordered_uuids: list[str] | None = None
+    only_count_matured_users: bool = False
+    update_feature_flag_params: bool = False
+    version: int | None = None
+    original_experiment: dict[str, JsonValue] | None = None
+    # Replace the experiment's tags. None keeps them.
+    tags: list[str] | None = None
+    # In the flag's own write shape (`{filters, ensure_experience_continuity}`). None leaves the flag config as it is.
+    feature_flag_config: dict[str, JsonValue] | None = None
+    # True when `feature_flag_config` came from the deprecated flag config keys of `parameters` and changes the flag.
+    deprecated_flag_config_changed: bool = False
 
 
 @frozen

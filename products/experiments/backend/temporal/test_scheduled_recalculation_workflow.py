@@ -18,7 +18,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.recalculation import STALE_RECALC_THRESHOLD
+from products.experiments.backend.recalculation.runs import STALE_RECALC_THRESHOLD
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     discover_scheduled_recalculation_candidates,

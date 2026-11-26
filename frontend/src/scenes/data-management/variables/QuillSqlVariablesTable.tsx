@@ -152,8 +152,6 @@ export function QuillSqlVariablesTable(): JSX.Element {
         []
     )
 
-    const paginated = sortedVariables.length > PAGE_SIZE
-
     const renderBody = (): JSX.Element => {
         if (variablesLoading && variables.length === 0) {
             return <QuillTableSkeleton label="Loading variables" />
@@ -190,16 +188,11 @@ export function QuillSqlVariablesTable(): JSX.Element {
             <Card size="sm" flush className="pt-0">
                 <div data-attr="sql-variables-table">
                     <DataTable
-                        // TanStack keeps the pagination row model after the page size is removed, so a search that drops
-                        // the list to one page would still cut it at the fallback page size. A new key remounts the table
-                        // when the list moves between one page and several.
-                        key={paginated ? 'paginated' : 'single-page'}
                         columns={columns}
                         data={sortedVariables}
                         fullWidth
                         size="sm"
-                        // DataTable shows its pager whenever it has a page size, so a list that fits one page passes none.
-                        pageSize={paginated ? PAGE_SIZE : undefined}
+                        pageSize={PAGE_SIZE}
                         getRowId={(variable) => variable.id}
                     />
                 </div>

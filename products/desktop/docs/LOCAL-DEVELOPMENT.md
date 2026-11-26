@@ -161,9 +161,9 @@ A packaged test build keeps its own user data, under `posthog-code-test`, so its
 4. Enter the URL of the instance and the client ID of the OAuth application. The URL must be an `https` origin, for example `https://posthog.example.com`, with no path, query, or fragment. Plain `http` is only accepted for a loopback host, because OAuth tokens cross this origin.
 5. Sign in. The app keeps the values, and applies them to sign-in, API requests, and agent runs.
 
-Agent runs need an LLM gateway that accepts a token from your instance, so give the **LLM gateway URL** field the address of a gateway that reads your instance's database (see `services/llm-gateway`).
-A PostHog Cloud gateway cannot serve a custom instance: it resolves a token against the Cloud database, and its `posthog_code` product refuses a personal API key.
-With the field empty, the app derives a gateway from the host, and for an unknown host that is the US gateway, which returns 403.
+Agent runs need an AI gateway that accepts a token from your instance, so give the **LLM gateway URL** field the origin of a Go AI gateway ([PostHog/ai-gateway](https://github.com/PostHog/ai-gateway)) that reads your instance's credentials.
+A PostHog Cloud gateway cannot serve a custom instance, because it resolves a token against the Cloud database.
+With the field empty, the app uses the US Cloud gateway, which refuses the token.
 
 The PostHog MCP server is absent for a custom instance, because `mcp.posthog.com` cannot read a token from your instance either. `POSTHOG_MCP_URL` names one that can.
 

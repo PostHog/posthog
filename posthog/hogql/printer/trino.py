@@ -1,6 +1,7 @@
 import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
+from decimal import Decimal
 from string import Formatter
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
@@ -62,6 +63,9 @@ if TYPE_CHECKING:
 # Trino refuses a sorted LIMIT whose LIMIT + OFFSET is above this. On the outermost query a LIMIT that large
 # cannot cut a result, so the printer drops it. In a nested query it can, so the printer refuses it.
 TRINO_MAX_LIMIT = 2**31 - 1
+TRINO_DECIMAL_MAX_PRECISION = 38
+CLICKHOUSE_DECIMAL_MAX_SCALE = {32: 9, 64: 18, 128: 38, 256: 76}
+CLICKHOUSE_DECIMAL_INT_BACKED_BITS = frozenset({32, 64})
 
 _TRINO_SIMPLE_TYPES = {
     "bigint": "BIGINT",
@@ -2133,11 +2137,11 @@ class TrinoPrinter(PostgresPrinter):
             "uuid": "UUID",
         }
         trino_type = simple_types.get(type_name.lower())
-        decimal_match = re.fullmatch(r"decimal(?:32|64|128|256)\((\d+)\)", type_name, re.IGNORECASE)
+        decimal_match = re.fullmatch(r"decimal(32|64|128|256)\((\d+)\)", type_name, re.IGNORECASE)
         if decimal_match is not None:
-            scale = int(decimal_match.group(1))
-            if scale <= 38:
-                trino_type = f"DECIMAL(38, {scale})"
+            decimal_bits, scale = int(decimal_match.group(1)), int(decimal_match.group(2))
+            if scale <= min(CLICKHOUSE_DECIMAL_MAX_SCALE[decimal_bits], TRINO_DECIMAL_MAX_PRECISION):
+                trino_type = f"DECIMAL({TRINO_DECIMAL_MAX_PRECISION}, {scale})"
         if trino_type is None:
             self._unsupported(
                 "TRINO_CAST_TARGET_UNSUPPORTED",
@@ -2167,6 +2171,12 @@ class TrinoPrinter(PostgresPrinter):
             if isinstance(source_type, ast.StringType):
                 valid = f"{value} = trim({value}) AND {valid}"
             converted = f"CAST({decimal_value} AS {trino_type})"
+        elif decimal_match is not None and decimal_bits in CLICKHOUSE_DECIMAL_INT_BACKED_BITS:
+            converted = f"TRY_CAST({value} AS {trino_type})"
+            decimal_minimum, decimal_maximum = (
+                Decimal(bound).scaleb(-scale) for bound in integer_bounds[f"int{decimal_bits}"]
+            )
+            valid = f"{converted} BETWEEN DECIMAL '{decimal_minimum:f}' AND DECIMAL '{decimal_maximum:f}'"
         elif normalized_type in {"bool", "boolean"} and isinstance(
             source_type, (ast.IntegerType, ast.FloatType, ast.DecimalType)
         ):
@@ -3734,13 +3744,16 @@ class TrinoPrinter(PostgresPrinter):
                 "toDecimal requires a constant integer scale in Trino mode.",
                 node,
             )
-        if scale.value < 0 or scale.value > 38:
+        if scale.value < 0 or scale.value > CLICKHOUSE_DECIMAL_MAX_SCALE[64]:
             self._unsupported(
                 "TRINO_DECIMAL_SCALE_OUT_OF_RANGE",
-                "toDecimal scale must be between 0 and 38 in Trino mode.",
+                f"toDecimal scale must be between 0 and {CLICKHOUSE_DECIMAL_MAX_SCALE[64]} in Trino mode.",
                 node,
             )
-        return f"CAST({self.visit(node.args[0])} AS DECIMAL(38, {scale.value}))"
+        return self._visit_accurate_cast(
+            ast.Call(name="accurateCastOrNull", args=[node.args[0], ast.Constant(value=f"Decimal64({scale.value})")]),
+            nullable=True,
+        )
 
     def _visit_to_nullable_string(self, node: ast.Call) -> str:
         if len(node.args) != 1:

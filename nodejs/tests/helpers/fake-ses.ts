@@ -25,6 +25,7 @@ export type FakeSesDelivery = {
     subject: string
     html: string
     configurationSetName: string
+    headers: { name: string; value: string }[]
 }
 
 type NameValue = { Name: string; Value: string }
@@ -122,6 +123,7 @@ export class FakeSes {
             subject,
             html: this.track(simple?.Body?.Html?.Data ?? '', configurationSet, mail),
             configurationSetName: request.ConfigurationSetName ?? '',
+            headers: mail.headers,
         })
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ MessageId: messageId }))

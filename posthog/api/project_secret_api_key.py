@@ -21,6 +21,7 @@ from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
+from posthog.oauth_provenance import is_id_jag_origin_request
 from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
@@ -106,7 +107,17 @@ def _mirrors_legacy_team_token(key: ProjectSecretAPIKey) -> bool:
     return any(token and key.secure_value == hash_key_value(token) for token in tokens)
 
 
+ID_JAG_CANNOT_ISSUE_KEYS = (
+    "ID-JAG tokens can't create or roll project secret API keys, because a key outlives the token. "
+    "Sign in to PostHog with OAuth to manage keys."
+)
+
+
 def _enforce_caller_may_grant_scopes(request: Request, view: "ProjectSecretAPIKeyViewSet", scopes: list[str]) -> None:
+    # A key has no expiry and no owner, so it keeps working after the identity provider revokes the agent or
+    # deprovisions the person. Every route that creates, rolls or widens a key calls this function.
+    if is_id_jag_origin_request(request):
+        raise PermissionDenied(ID_JAG_CANNOT_ISSUE_KEYS)
     _enforce_caller_holds_scopes(request, scopes)
     _enforce_caller_may_grant_billing_read(request, view.team.organization, scopes)
     _enforce_caller_may_grant_business_knowledge_read(request, view.team, scopes)

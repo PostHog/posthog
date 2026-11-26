@@ -435,30 +435,68 @@ def _template_version(vid: str, status: str = "published") -> dict:
 
 
 class TestInquiryTemplateVersionsFanout:
-    def test_pages_each_templates_versions_and_tags_rows_with_the_template(self, monkeypatch: Any) -> None:
+    @parameterized.expand(
+        [
+            (
+                "template_versions_by_filter",
+                "inquiry_template_versions",
+                "/inquiry-templates",
+                "/inquiry-template-versions?filter[inquiry-template-id]={parent}&page[size]=100",
+                "inquiry-template-id",
+                {"next": None},
+            ),
+            (
+                "devices_by_filter",
+                "devices",
+                "/inquiry-sessions",
+                "/devices?filter[inquiry-session-id]={parent}&page[size]=100",
+                "inquiry-session-id",
+                {"next": None},
+            ),
+            (
+                # Report history sends `"links": null` on its last page.
+                "report_history_by_path",
+                "report_history",
+                "/reports",
+                "/reports/{parent}/history?page[size]=100",
+                "report-id",
+                None,
+            ),
+        ]
+    )
+    def test_pages_each_parents_children_and_tags_rows_with_the_parent(
+        self,
+        _name: str,
+        endpoint: str,
+        parent_path: str,
+        child_url: str,
+        parent_key: str,
+        last_links: dict | None,
+    ) -> None:
         pages = [
-            _template_page("itmpl_a", "itmpl_b"),
+            _template_page("par_a", "par_b"),
             {
-                "data": [_template_version("itmplv_a1", "draft"), _template_version("itmplv_a2")],
-                "links": {"next": "/api/v1/inquiry-template-versions?page[after]=itmplv_a2"},
+                "data": [_template_version("chl_a1", "draft"), _template_version("chl_a2")],
+                "links": {"next": "/api/v1/next?page[after]=chl_a2"},
             },
-            {"data": [_template_version("itmplv_a3")], "links": {"next": None}},
-            {"data": [_template_version("itmplv_b1")], "links": {"next": None}},
+            {"data": [_template_version("chl_a3")], "links": last_links},
+            {"data": [_template_version("chl_b1")], "links": last_links},
         ]
         manager = _FakeResumableManager()
-        rows = _collect(manager, monkeypatch, pages, endpoint="inquiry_template_versions")
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            rows = _collect(manager, monkeypatch, pages, endpoint=endpoint)
 
-        assert [(r["id"], r["inquiry-template-id"]) for r in rows] == [
-            ("itmplv_a1", "itmpl_a"),
-            ("itmplv_a2", "itmpl_a"),
-            ("itmplv_a3", "itmpl_a"),
-            ("itmplv_b1", "itmpl_b"),
+        assert [(r["id"], r[parent_key]) for r in rows] == [
+            ("chl_a1", "par_a"),
+            ("chl_a2", "par_a"),
+            ("chl_a3", "par_a"),
+            ("chl_b1", "par_b"),
         ]
         assert manager.fetched_urls == [  # type: ignore[attr-defined]
-            "https://api.withpersona.com/api/v1/inquiry-templates?page[size]=100",
-            "https://api.withpersona.com/api/v1/inquiry-template-versions?filter[inquiry-template-id]=itmpl_a&page[size]=100",
-            "https://api.withpersona.com/api/v1/inquiry-template-versions?filter[inquiry-template-id]=itmpl_a&page[size]=100&page[after]=itmplv_a2",
-            "https://api.withpersona.com/api/v1/inquiry-template-versions?filter[inquiry-template-id]=itmpl_b&page[size]=100",
+            f"{PERSONA_BASE_URL}{parent_path}?page[size]=100",
+            PERSONA_BASE_URL + child_url.format(parent="par_a"),
+            PERSONA_BASE_URL + child_url.format(parent="par_a") + "&page[after]=chl_a2",
+            PERSONA_BASE_URL + child_url.format(parent="par_b"),
         ]
 
     @parameterized.expand([("gone_template_is_skipped", 404, None), ("server_error_aborts", 500, requests.HTTPError)])
