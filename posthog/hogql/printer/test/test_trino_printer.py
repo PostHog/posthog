@@ -16,6 +16,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
     ExpressionField,
@@ -697,6 +698,7 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         ("SELECT x = 1 FROM (SELECT argMax(is_active, id) AS x FROM flagged)", '(CAST("x" AS INTEGER) = 1)'),
         ("WITH c AS (SELECT min(is_active) AS x FROM flagged) SELECT x = 1 FROM c", '(CAST("c"."x" AS INTEGER) = 1)'),
         ("SELECT max(score) = 1 FROM flagged", '(max("flagged"."score") = 1)'),
+        ("SELECT id FROM copy_history WHERE NOT is_copy", 'WHERE (NOT CAST("copy_history"."is_copy" AS BOOLEAN))'),
         (
             "SELECT x FROM (SELECT is_active AS x FROM flagged UNION ALL SELECT 2 AS x) WHERE x",
             'WHERE CAST("x" AS BOOLEAN)',
@@ -754,6 +756,28 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
         )
     )
 
+    context.database.tables.add_child(
+        TableNode(
+            name="copies",
+            table=SavedQuery(
+                id="copies",
+                name="copies",
+                query="SELECT id, toBool(id) AS is_copy FROM users UNION ALL SELECT id, ifNull(id > 0, 0) AS is_copy FROM users",
+                fields={"id": IntegerDatabaseField(name="id"), "is_copy": BooleanDatabaseField(name="is_copy")},
+            ),
+        )
+    )
+    context.database.tables.add_child(
+        TableNode(
+            name="copy_history",
+            table=SavedQuery(
+                id="copy_history",
+                name="copy_history",
+                query="SELECT c.id AS id, c.is_copy AS is_copy FROM copies AS c",
+                fields={"id": IntegerDatabaseField(name="id"), "is_copy": BooleanDatabaseField(name="is_copy")},
+            ),
+        )
+    )
     sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
 
     assert expected in sql

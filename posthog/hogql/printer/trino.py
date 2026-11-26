@@ -1797,6 +1797,9 @@ class TrinoPrinter(PostgresPrinter):
                     and isinstance(table_type, ast.SelectViewType)
                     and table_type.select_query_type.has_child(value_type.name, self.context)
                 ):
+                    printed_body_type = self._projected_column_type(table_type.select_query_type, value_type.name)
+                    if isinstance(printed_body_type, ast.IntegerType):
+                        return printed_body_type
                     # An inlined view prints its body. ClickHouse types a comparison or AND there as UInt8, so the
                     # view's saved columns record an integer, but Trino types the same expression as boolean.
                     body_type = table_type.select_query_type.resolve_column_constant_type(value_type.name, self.context)
@@ -1869,8 +1872,15 @@ class TrinoPrinter(PostgresPrinter):
             return bool(select_type.types) and all(
                 self._is_boolean_column(branch, name) for branch in select_type.types
             )
+        return isinstance(self._projected_column_type(select_type, name), ast.BooleanType)
+
+    def _projected_column_type(
+        self, select_type: ast.SelectQueryType | ast.SelectSetQueryType, name: str
+    ) -> ast.ConstantType | None:
+        if not isinstance(select_type, ast.SelectQueryType):
+            return None
         projected = self._projected_expression(select_type, name)
-        return projected is not None and isinstance(self._resolve_type(projected), ast.BooleanType)
+        return self._resolve_type(projected) if projected is not None else None
 
     def _projected_expression(self, select_type: ast.SelectQueryType, name: str) -> ast.Expr | None:
         query = self._select_query_node(select_type)
